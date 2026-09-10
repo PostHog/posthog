@@ -66,6 +66,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
@@ -193,6 +194,7 @@ from products.signals.backend.temporal.types import (
     SignalReportDeletionWorkflowInputs,
     SignalReportReingestionWorkflowInputs,
 )
+from products.signals.backend.throttles import ReportMetricRefreshThrottle
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
@@ -2428,8 +2430,9 @@ class SignalReportViewSet(
             "Re-run the stored metric queries of the given reports through the query cache and save "
             "the newest values as their snapshots. Call it when a person opens the inbox list or a "
             "report, with the ids on screen. Report titles and summaries are point-in-time text and "
-            "never change here; only value, value_at, and series do. A snapshot measured in the last "
-            "15 minutes is served as is. Each call refreshes at most 20 metrics inside a 20-second "
+            "never change here; only value, value_at, and series do, and legacy comparisons are cleared. "
+            "A snapshot measured in the last "
+            "15 minutes is served as is. Each call runs at most 40 source series inside a 20-second "
             "budget, row metrics first; the rest keep their previous snapshot until the next open. "
             "Returns snapshot-only metrics for every requested report the caller can read whose status "
             "is ready or pending_input. A report in any other status is left out of the response, and "
@@ -2439,7 +2442,17 @@ class SignalReportViewSet(
     )
     # task:read, like `viewed`: refreshing a number a person is looking at is part of reading it,
     # and the write is a cache of query output rather than report content.
-    @action(detail=False, methods=["post"], url_path="refresh_metrics", required_scopes=["task:read"])
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="refresh_metrics",
+        required_scopes=["task:read"],
+        throttle_classes=[
+            ReportMetricRefreshThrottle,
+            ClickHouseBurstRateThrottle,
+            ClickHouseSustainedRateThrottle,
+        ],
+    )
     def refresh_metrics(self, request: ValidatedRequest, **kwargs) -> Response:
         requested_ids = [str(report_id) for report_id in request.validated_data["report_ids"]]
         reports = self._refreshable_reports_in_request_order(requested_ids)

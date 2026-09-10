@@ -1687,9 +1687,7 @@ export const SignalsScoutEditReportBody = () => zod
                                 zod.null(),
                             ])
                             .optional()
-                            .describe(
-                                'Optional baseline or previous-period value shown beside the current value; null when the viewer cannot read the shared snapshot.'
-                            ),
+                            .describe('Legacy optional comparison. New report metrics must omit it.'),
                     })
                     .describe('Authoring shape: unlike a read response, the live query cannot be absent or redacted.')
             )
@@ -2035,9 +2033,7 @@ export const SignalsScoutEmitReportBody = () => zod
                                 zod.null(),
                             ])
                             .optional()
-                            .describe(
-                                'Optional baseline or previous-period value shown beside the current value; null when the viewer cannot read the shared snapshot.'
-                            ),
+                            .describe('Legacy optional comparison. New report metrics must omit it.'),
                     })
                     .describe('Authoring shape: unlike a read response, the live query cannot be absent or redacted.')
             )

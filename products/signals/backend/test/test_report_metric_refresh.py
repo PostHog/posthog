@@ -24,6 +24,7 @@ from products.signals.backend.report_metric_refresh import (
     MetricMeasurement,
     _persist_metric_snapshot,
     longitudinal_values,
+    measure_metric,
     refresh_report_metric_snapshots,
     whole_window_value,
 )
@@ -133,7 +134,7 @@ class TestReportMetricRefreshApi(APIBaseTest):
         second = self._report(metrics=[_metric(metric_id="primary", kind="occurrences", role="primary")])
 
         with (
-            patch("products.signals.backend.report_metric_refresh.MAX_REPORT_METRIC_REFRESHES_PER_REQUEST", 2),
+            patch("products.signals.backend.report_metric_refresh.MAX_REPORT_METRIC_SOURCE_RUNS_PER_REQUEST", 4),
             patch(_MEASURE, return_value=_measurement(5)) as measure,
         ):
             response = self._refresh(first, second)
@@ -225,6 +226,25 @@ class TestReportMetricRefreshApi(APIBaseTest):
 
         assert [metric["value"] for metric in SignalReport.objects.get(id=report.id).metrics] == [4.0, 4.0]
 
+    def test_personal_api_key_refresh_enters_query_service_protection(self) -> None:
+        report = self._report()
+        key = self.create_personal_api_key_with_scopes(["task:read", "query:read", "event_definition:read"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+
+        with patch(
+            "products.product_analytics.backend.hogql_queries.trends.trends_query_runner.TrendsQueryRunner"
+        ) as runner_type:
+            runner_type.return_value.run.return_value = type(
+                "Response",
+                (),
+                {"results": [{"aggregated_value": 21, "data": [19, 20, 21]}], "last_refresh": timezone.now()},
+            )()
+            response = self._refresh(report)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert runner_type.return_value.is_query_service is True
+
 
 class TestPersistMetricSnapshot(APIBaseTest):
     def _report(self) -> SignalReport:
@@ -255,6 +275,22 @@ class TestPersistMetricSnapshot(APIBaseTest):
             team_id=self.team.id,
             report_id=str(report.id),
             expected_metrics=report.metrics,
+            metric_id="affected-users",
+            measurement=_measurement(99, measured_at=datetime(2026, 8, 29, 11, 0, tzinfo=UTC)),
+        )
+
+        assert result is None
+        assert SignalReport.objects.get(id=report.id).metrics[0]["value"] == 17
+
+    def test_naive_saved_timestamp_is_compared_as_utc(self) -> None:
+        report = self._report()
+        metrics = [{**report.metrics[0], "value_at": "2026-08-30T12:00:00"}]
+        SignalReport.objects.filter(id=report.id).update(metrics=metrics)
+
+        result = _persist_metric_snapshot(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            expected_metrics=metrics,
             metric_id="affected-users",
             measurement=_measurement(99, measured_at=datetime(2026, 8, 29, 11, 0, tzinfo=UTC)),
         )
@@ -297,3 +333,56 @@ class TestReportMetricQueryShapes(APIBaseTest):
         assert series == [float(value) for value in range(3, 17)]
         assert run_query.call_args_list[0].kwargs["query"]["trendsFilter"]["display"] == ChartDisplayType.BOLD_NUMBER
         assert run_query.call_args_list[1].kwargs["query"]["trendsFilter"]["display"] == ChartDisplayType.ACTIONS_BAR
+
+    def test_passes_the_snapshot_cache_age_to_both_shapes(self) -> None:
+        response = TrendsQueryRunResult(results=[{"aggregated_value": 2.0}], last_refresh=timezone.now())
+        with patch(
+            "products.signals.backend.report_metric_refresh.run_cached_trends_query", return_value=response
+        ) as run_query:
+            whole_window_value(_metric()["query"], self.team)
+
+        assert run_query.call_args.kwargs["cache_age_seconds"] == 15 * 60
+
+    def test_skips_the_strip_when_the_deadline_passes_after_the_headline(self) -> None:
+        measured_at = timezone.now()
+        with (
+            patch(
+                "products.signals.backend.report_metric_refresh.whole_window_value",
+                return_value=(2.0, measured_at),
+            ),
+            patch("products.signals.backend.report_metric_refresh.time.monotonic", return_value=10.0),
+            patch("products.signals.backend.report_metric_refresh.longitudinal_values") as strip,
+        ):
+            measurement = measure_metric(_metric()["query"], self.team, deadline=10.0, include_series=True)
+
+        assert measurement.series is None
+        strip.assert_not_called()
+
+    def test_multiple_source_series_spend_source_run_budget(self) -> None:
+        multi_source = _metric()
+        multi_source["kind"] = "custom"
+        multi_source["query"] = trends_metric_query(
+            series=[{"kind": "EventsNode", "event": f"event-{index}", "math": "total"} for index in range(3)],
+            date_from="-14d",
+        )
+        multi_source["query"]["source"]["trendsFilter"] = {"formula": "A+B+C"}
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="t",
+            summary="s",
+            metrics=[multi_source, _metric(metric_id="second")],
+        )
+        policy = type("ReadablePolicy", (), {"may_read_snapshot": lambda self, metric: True})()
+
+        with (
+            patch("products.signals.backend.report_metric_refresh.MAX_REPORT_METRIC_SOURCE_RUNS_PER_REQUEST", 3),
+            patch(_MEASURE, return_value=_measurement()) as measure,
+        ):
+            summary = refresh_report_metric_snapshots(team=self.team, reports=[report], policy=policy)
+
+        assert measure.call_count == 1
+        assert (summary.refreshed, summary.skipped) == (1, 1)
+        saved = SignalReport.objects.get(id=report.id).metrics
+        assert saved[0]["value"] == 17
+        assert saved[1]["value"] == 21

@@ -31016,7 +31016,7 @@ export namespace Schemas {
          * @nullable
          */
       caption?: string | null;
-      /** Optional baseline or previous-period value shown beside the current value; null when the viewer cannot read the shared snapshot. */
+      /** Legacy optional comparison. New report metrics must omit it. */
       comparison?: ReportMetricComparison | null;
     }
 
@@ -58820,9 +58820,7 @@ export namespace Schemas {
     /**
      * Snapshot-only metric shape for report lists.
      *
-     * Query definitions and authored comparisons belong on detail. Omitting them keeps the paginated
-     * inbox payload bounded and prevents a stale comparison from being presented beside a refreshed
-     * materialized value.
+     * Omitting query definitions keeps the paginated inbox payload bounded.
      */
     export interface ReportMetricList {
       /**
@@ -77113,8 +77111,6 @@ export namespace Schemas {
          * @nullable
          */
       caption?: string | null;
-      /** Optional baseline or previous-period value shown beside the current value; null when the viewer cannot read the shared snapshot. */
-      comparison?: ReportMetricComparison | null;
     }
 
     export type ReportPriority = typeof ReportPriority[keyof typeof ReportPriority];

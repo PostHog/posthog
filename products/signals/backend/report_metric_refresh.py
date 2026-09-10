@@ -2,7 +2,8 @@
 
 A report's prose is a point-in-time description and never changes here. Only the numbers do: when a
 person opens the inbox list or a report, the metrics on screen re-run their stored query through the
-normal query cache and the newest result replaces the saved ``value``, ``value_at``, and ``series``.
+normal query cache and the newest result replaces the saved ``value``, ``value_at``, and ``series``
+and clears any legacy ``comparison``.
 This is the error tracking model: counts are computed on read, cached, and bounded by what the page
 shows, so a report nobody opens costs no queries.
 
@@ -44,10 +45,9 @@ logger = structlog.get_logger(__name__)
 REPORT_METRIC_SNAPSHOT_FRESH_FOR = timedelta(minutes=15)
 # One inbox page, so a single request never carries a fleet-sized id list.
 MAX_REPORT_METRIC_REFRESH_REPORTS = 20
-# Each refresh costs at most two cached queries. The cap and the wall-clock budget together keep a
-# request inside the web timeout when every query misses the cache; whatever does not fit stays on
-# its previous snapshot until the next open.
-MAX_REPORT_METRIC_REFRESHES_PER_REQUEST = 20
+# Each Trends shape can run once per source series. The source-run cap and deadline bound the work;
+# whatever does not fit stays on its previous snapshot until the next open.
+MAX_REPORT_METRIC_SOURCE_RUNS_PER_REQUEST = 40
 REPORT_METRIC_REFRESH_TIME_BUDGET_SECONDS = 20.0
 REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS = 20
 
@@ -94,7 +94,15 @@ def snapshot_is_fresh(metric: dict[str, Any], now: datetime) -> bool:
     return now - measured_at < REPORT_METRIC_SNAPSHOT_FRESH_FOR
 
 
-def _run_metric_query(query: dict[str, Any], team: Team, display: ChartDisplayType) -> tuple[dict, datetime | None]:
+def _source_count(query: dict[str, Any]) -> int:
+    source = query.get("source")
+    series = source.get("series") if isinstance(source, dict) else None
+    return len(series) if isinstance(series, list) and series else 1
+
+
+def _run_metric_query(
+    query: dict[str, Any], team: Team, display: ChartDisplayType, *, deadline: float
+) -> tuple[dict, datetime | None]:
     """Run the stored query in one derived display shape and return its first series and response.
 
     The derived shapes match the ones the report detail sends through the frontend Query path, so
@@ -112,11 +120,21 @@ def _run_metric_query(query: dict[str, Any], team: Team, display: ChartDisplayTy
         shaped_filter["showPercentStackView"] = False
         shaped_filter.pop("hiddenLegendIndexes", None)
     shaped_source["trendsFilter"] = shaped_filter
+    remaining = deadline - time.monotonic()
+    source_count = _source_count(query)
+    if remaining < source_count:
+        raise TimeoutError("report metric refresh budget expired")
+    timeout = (
+        REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS
+        if math.isinf(remaining)
+        else min(REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS, int(remaining / source_count))
+    )
     tag_queries(trigger="signals_report_metric_refresh")
     response = run_cached_trends_query(
         query=shaped_source,
         team=team,
-        max_execution_time_seconds=REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS,
+        max_execution_time_seconds=timeout,
+        cache_age_seconds=int(REPORT_METRIC_SNAPSHOT_FRESH_FOR.total_seconds()),
     )
     results = response.results
     if not isinstance(results, list) or not results or not isinstance(results[0], dict):
@@ -133,8 +151,8 @@ def _finite_number(raw: object, *, what: str) -> float:
     return value
 
 
-def whole_window_value(query: dict[str, Any], team: Team) -> tuple[float, datetime]:
-    first_series, last_refresh = _run_metric_query(query, team, ChartDisplayType.BOLD_NUMBER)
+def whole_window_value(query: dict[str, Any], team: Team, *, deadline: float = math.inf) -> tuple[float, datetime]:
+    first_series, last_refresh = _run_metric_query(query, team, ChartDisplayType.BOLD_NUMBER, deadline=deadline)
     value = _finite_number(first_series.get("aggregated_value"), what="aggregate")
     measured_at = last_refresh if isinstance(last_refresh, datetime) else timezone.now()
     if measured_at.tzinfo is None or measured_at.utcoffset() is None:
@@ -142,21 +160,23 @@ def whole_window_value(query: dict[str, Any], team: Team) -> tuple[float, dateti
     return value, measured_at
 
 
-def longitudinal_values(query: dict[str, Any], team: Team) -> list[float]:
+def longitudinal_values(query: dict[str, Any], team: Team, *, deadline: float = math.inf) -> list[float]:
     """The trailing per-bucket values, oldest first, for the row-sized trend strip."""
 
-    first_series, _ = _run_metric_query(query, team, ChartDisplayType.ACTIONS_BAR)
+    first_series, _ = _run_metric_query(query, team, ChartDisplayType.ACTIONS_BAR, deadline=deadline)
     raw_points = first_series.get("data")
     if not isinstance(raw_points, list):
         raise ValueError("metric query returned no buckets")
     return [_finite_number(point, what="bucket") for point in raw_points[-MAX_METRIC_SERIES_POINTS:]]
 
 
-def measure_metric(query: dict[str, Any], team: Team) -> MetricMeasurement:
-    value, measured_at = whole_window_value(query, team)
+def measure_metric(query: dict[str, Any], team: Team, *, deadline: float, include_series: bool) -> MetricMeasurement:
+    value, measured_at = whole_window_value(query, team, deadline=deadline)
     series: list[float] | None
+    if not include_series or time.monotonic() >= deadline:
+        return MetricMeasurement(value=value, measured_at=measured_at, series=None)
     try:
-        series = longitudinal_values(query, team)
+        series = longitudinal_values(query, team, deadline=deadline)
     except Exception:
         # The buckets only decorate the row, so losing them must not cost the headline value.
         logger.exception("signals.report_metric_refresh.series_query_failed", team_id=team.id)
@@ -201,6 +221,8 @@ def _persist_metric_snapshot(
                 saved_at_dt = datetime.fromisoformat(saved_at.replace("Z", "+00:00"))
             except ValueError:
                 saved_at_dt = None
+            if saved_at_dt is not None and (saved_at_dt.tzinfo is None or saved_at_dt.utcoffset() is None):
+                saved_at_dt = saved_at_dt.replace(tzinfo=UTC)
             if saved_at_dt is not None and measurement.measured_at < saved_at_dt:
                 return None
         refreshed = {
@@ -208,6 +230,7 @@ def _persist_metric_snapshot(
             "value": measurement.value,
             "value_at": measurement.measured_at.isoformat(),
             "series": measurement.series,
+            "comparison": None,
         }
         # The kind's own rules decide what a valid number is (a count is a whole non-negative
         # number, a rate's value stays within its bounds), so an out-of-range result is dropped
@@ -249,19 +272,23 @@ def refresh_report_metric_snapshots(
     planned.extend(supporting)
 
     refreshed = skipped = failed = 0
-    attempts = 0
+    source_runs = 0
     for report, metric_id in planned:
         row = next((r for r in report.metrics if isinstance(r, dict) and r.get("metric_id") == metric_id), None)
         if row is None or snapshot_is_fresh(row, now) or not policy.may_read_snapshot(row):
             skipped += 1
             continue
-        if attempts >= MAX_REPORT_METRIC_REFRESHES_PER_REQUEST or time.monotonic() > deadline:
+        source_count = _source_count(row.get("query") if isinstance(row.get("query"), dict) else {})
+        if source_runs + source_count > MAX_REPORT_METRIC_SOURCE_RUNS_PER_REQUEST or time.monotonic() >= deadline:
             skipped += 1
             continue
-        attempts += 1
+        source_runs += source_count
         try:
             metric = ReportMetric.model_validate(row)
-            measurement = measure_metric(metric.query, team)
+            include_series = source_runs + source_count <= MAX_REPORT_METRIC_SOURCE_RUNS_PER_REQUEST
+            if include_series:
+                source_runs += source_count
+            measurement = measure_metric(metric.query, team, deadline=deadline, include_series=include_series)
             metrics = _persist_metric_snapshot(
                 team_id=team.id,
                 report_id=str(report.id),

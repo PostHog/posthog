@@ -19,10 +19,23 @@ from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.models import Team, User
 from posthog.permissions import get_authenticator_scopes
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
 from products.access_control.backend.property_access_control import (
     get_restricted_properties_with_group_type_index_for_team,
 )
+
+_ORDINARY_PROPERTY_FILTER_TYPES = frozenset(
+    {
+        "element",
+        "event",
+        "group",
+        "person",
+        "person_metadata",
+        "session",
+    }
+)
+
+_MAX_PROPERTY_FILTER_DEPTH = 20
 
 
 class ReportMetricAccessPolicy:
@@ -54,8 +67,15 @@ class ReportMetricAccessPolicy:
         if self._viewer_property_restrictions:
             return False
 
+        if not isinstance(query, Mapping):
+            return False
+
         series = self._trends_series(query)
         if series is None:
+            return False
+
+        source = query["source"]
+        if not isinstance(source, Mapping):
             return False
 
         for item in series:
@@ -77,6 +97,34 @@ class ReportMetricAccessPolicy:
             else:
                 # Current authoring rejects other Trends series. Keep this fail-closed branch for
                 # legacy or manually corrupted rows so report reads never bypass resource gates.
+                return False
+
+            for field in ("properties", "fixedProperties"):
+                if field in item and not self._may_read_property_filters(item[field]):
+                    return False
+
+        for field in ("properties", "fixedProperties"):
+            if field in source and not self._may_read_property_filters(source[field]):
+                return False
+
+        conversion_goal = source.get("conversionGoal")
+        if conversion_goal is not None:
+            if not isinstance(conversion_goal, Mapping):
+                return False
+            if "actionId" in conversion_goal:
+                if set(conversion_goal) != {"actionId"} or not self._may_read_resource_id(
+                    "action", conversion_goal["actionId"]
+                ):
+                    return False
+            elif "customEventName" in conversion_goal:
+                if (
+                    set(conversion_goal) != {"customEventName"}
+                    or not isinstance(conversion_goal["customEventName"], str)
+                    or not conversion_goal["customEventName"]
+                    or not self._token_grants("event_definition")
+                ):
+                    return False
+            else:
                 return False
 
         return True
@@ -117,19 +165,59 @@ class ReportMetricAccessPolicy:
         return "*" in scopes or f"{resource}:read" in scopes or f"{resource}:write" in scopes
 
     def _may_read_action(self, action_id: int) -> bool:
+        return self._may_read_resource_id("action", action_id)
+
+    def _may_read_resource_id(self, resource: str, resource_id: object) -> bool:
+        if (
+            not isinstance(resource_id, int)
+            or isinstance(resource_id, bool)
+            or resource_id <= 0
+            or not self._token_grants(resource)
+        ):
+            return False
+        if resource not in ACCESS_CONTROL_RESOURCES:
+            return False
         access_control = self._user_access_control
         if access_control is None:
             return False
 
-        action_key = str(action_id)
-        if action_key in access_control.blocked_resource_ids_by_scope.get("action", frozenset()):
+        resource_key = str(resource_id)
+        if resource_key in access_control.blocked_resource_ids_by_scope.get(resource, frozenset()):
             return False
-        if access_control.has_resource_access("action"):
+        if access_control.has_resource_access(resource):
             return True
-        # Object grants remain readable when the action resource as a whole is denied. Creator
-        # access cannot be proven without loading each action, so the snapshot stays hidden in that
-        # case rather than introducing an unbounded query-per-metric list path.
-        return action_key in access_control.allowlisted_resource_ids_by_scope.get("action", frozenset())
+        # Object grants remain readable when the resource as a whole is denied. Creator access
+        # cannot be proven without loading each object, so the snapshot stays hidden in that case
+        # rather than introducing an unbounded query-per-metric list path.
+        return resource_key in access_control.allowlisted_resource_ids_by_scope.get(resource, frozenset())
+
+    def _may_read_property_filters(self, filters: object) -> bool:
+        if filters is None:
+            return True
+        pending: list[tuple[object, int]]
+        if isinstance(filters, list):
+            pending = [(item, 0) for item in filters]
+        elif isinstance(filters, Mapping) and filters.get("type") in ("AND", "OR"):
+            pending = [(filters, 0)]
+        else:
+            return False
+
+        while pending:
+            item, depth = pending.pop()
+            if not isinstance(item, Mapping) or depth > _MAX_PROPERTY_FILTER_DEPTH:
+                return False
+            filter_type = item.get("type")
+            if filter_type in ("AND", "OR"):
+                values = item.get("values")
+                if not isinstance(values, list):
+                    return False
+                pending.extend((value, depth + 1) for value in values)
+            elif filter_type == "cohort":
+                if item.get("key") != "id" or not self._may_read_resource_id("cohort", item.get("value")):
+                    return False
+            elif not isinstance(filter_type, str) or filter_type not in _ORDINARY_PROPERTY_FILTER_TYPES:
+                return False
+        return True
 
     @staticmethod
     def _trends_series(query: object) -> Sequence[Mapping[str, object]] | None:

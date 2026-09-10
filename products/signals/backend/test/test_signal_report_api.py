@@ -26,6 +26,7 @@ from posthog.models import OAuthApplication
 from posthog.models.integration import GitHubIntegration
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
@@ -61,6 +62,7 @@ from products.signals.backend.task_run_artefacts import (
     record_report_task,
 )
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
+from products.signals.backend.throttles import ReportMetricRefreshThrottle
 from products.signals.backend.views import (
     PR_CI_STATUS_MAX_REPORTS,
     SignalReportViewSet,
@@ -105,6 +107,25 @@ class TestReportListClientClassification(SimpleTestCase):
     )
     def test_classifies_user_agent(self, _name: str, user_agent: str, expected: str) -> None:
         assert classify_report_list_client(user_agent) == expected
+
+
+class TestReportMetricRefreshThrottle(SimpleTestCase):
+    def test_uses_one_team_bucket_for_every_auth_method(self) -> None:
+        throttle = ReportMetricRefreshThrottle()
+        view = SimpleNamespace(team_id=42)
+        requests = [SimpleNamespace(user=SimpleNamespace(is_authenticated=True, pk=user_id)) for user_id in (1, 2)]
+
+        keys = [throttle.get_cache_key(request, view) for request in requests]
+
+        assert keys[0] == keys[1]
+        assert "team_42" in keys[0]
+
+    def test_refresh_action_uses_the_user_aware_throttle(self) -> None:
+        assert SignalReportViewSet.refresh_metrics.kwargs["throttle_classes"] == [
+            ReportMetricRefreshThrottle,
+            ClickHouseBurstRateThrottle,
+            ClickHouseSustainedRateThrottle,
+        ]
 
 
 class TestSignalReportDeleteAPI(APIBaseTest):
@@ -373,7 +394,7 @@ class TestSignalReportListAPI(APIBaseTest):
         assert detail_metric["value"] is None
         assert detail_metric["value_at"] is None
         assert detail_metric["series"] is None
-        assert detail_metric["comparison"] is None
+        assert "comparison" not in detail_metric
         assert detail_metric["query"] is None
 
     def test_viewer_property_grant_keeps_live_query_but_hides_userless_snapshot(self) -> None:
@@ -411,7 +432,7 @@ class TestSignalReportListAPI(APIBaseTest):
         detail_metric = detail_response.json()["metrics"][0]
         assert detail_metric["value"] is None
         assert detail_metric["value_at"] is None
-        assert detail_metric["comparison"] is None
+        assert "comparison" not in detail_metric
         assert detail_metric["query"] == metric["query"]
 
     def test_action_restricted_member_cannot_read_metric_snapshot_or_definition(self) -> None:
@@ -439,7 +460,7 @@ class TestSignalReportListAPI(APIBaseTest):
         detail_metric = detail_response.json()["metrics"][0]
         assert detail_metric["value"] is None
         assert detail_metric["value_at"] is None
-        assert detail_metric["comparison"] is None
+        assert "comparison" not in detail_metric
         assert detail_metric["query"] is None
 
     def test_queryless_snapshot_is_redacted_when_action_provenance_cannot_be_proven(self) -> None:
@@ -466,7 +487,7 @@ class TestSignalReportListAPI(APIBaseTest):
         detail_metric = detail_response.json()["metrics"][0]
         assert detail_metric["value"] is None
         assert detail_metric["value_at"] is None
-        assert detail_metric["comparison"] is None
+        assert "comparison" not in detail_metric
         assert detail_metric["query"] is None
 
     def test_queryless_snapshot_is_redacted_for_scoped_task_token(self) -> None:
@@ -482,7 +503,7 @@ class TestSignalReportListAPI(APIBaseTest):
         detail_metric = detail_response.json()["metrics"][0]
         assert detail_metric["value"] is None
         assert detail_metric["value_at"] is None
-        assert detail_metric["comparison"] is None
+        assert "comparison" not in detail_metric
         assert detail_metric["query"] is None
 
     def test_legacy_unsupported_series_and_snapshot_are_redacted(self) -> None:
@@ -514,7 +535,7 @@ class TestSignalReportListAPI(APIBaseTest):
                 detail_metric = detail_response.json()["metrics"][0]
                 assert detail_metric["value"] is None
                 assert detail_metric["value_at"] is None
-                assert detail_metric["comparison"] is None
+                assert "comparison" not in detail_metric
                 assert detail_metric["query"] is None
 
     @parameterized.expand(
@@ -536,7 +557,7 @@ class TestSignalReportListAPI(APIBaseTest):
         detail_metric = detail_response.json()["metrics"][0]
         assert detail_metric["value"] is None
         assert detail_metric["value_at"] is None
-        assert detail_metric["comparison"] is None
+        assert "comparison" not in detail_metric
         assert detail_metric["query"] is None
 
     def test_task_token_cannot_read_action_metric_without_action_scope(self) -> None:
@@ -551,7 +572,7 @@ class TestSignalReportListAPI(APIBaseTest):
         detail_metric = detail_response.json()["metrics"][0]
         assert detail_metric["value"] is None
         assert detail_metric["value_at"] is None
-        assert detail_metric["comparison"] is None
+        assert "comparison" not in detail_metric
         assert detail_metric["query"] is None
 
     def test_fully_scoped_task_token_can_read_event_metric(self) -> None:
@@ -568,7 +589,7 @@ class TestSignalReportListAPI(APIBaseTest):
         detail_metric = detail_response.json()["metrics"][0]
         assert detail_metric["value"] == 17.0
         assert detail_metric["value_at"] == "2026-08-29T12:00:00Z"
-        assert detail_metric["comparison"] == {"value": 11.0, "label": "Previous period"}
+        assert "comparison" not in detail_metric
         assert detail_metric["query"] == metric["query"]
 
     def test_legacy_report_serializes_an_empty_metric_set(self) -> None:

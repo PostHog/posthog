@@ -4,7 +4,13 @@ from django.test import SimpleTestCase
 
 from pydantic import ValidationError
 
+from posthog.schema import DateRange, IntervalType
+
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.team import Team
+
 from products.signals.backend.report_metrics import (
+    DEFAULT_LIVE_METRIC_DATE_FROM,
     MAX_LIVE_METRIC_QUERY_POINTS,
     MAX_LIVE_METRIC_QUERY_SERIES,
     MAX_METRIC_SERIES_POINTS,
@@ -40,6 +46,17 @@ def _affected_users_metric(metric_id: str = "affected-users", role: str = "prima
 
 
 class TestReportMetric(SimpleTestCase):
+    def test_default_daily_range_produces_fourteen_buckets(self) -> None:
+        date_range = QueryDateRange(
+            team=Team(timezone="UTC"),
+            date_range=DateRange(date_from=DEFAULT_LIVE_METRIC_DATE_FROM),
+            interval=IntervalType.DAY,
+            now=datetime(2026, 9, 10, 12, tzinfo=UTC),
+        )
+
+        assert DEFAULT_LIVE_METRIC_DATE_FROM == "-13d"
+        assert len(date_range.all_values()) == MAX_METRIC_SERIES_POINTS
+
     def test_accepts_affected_users_as_a_live_distinct_people_metric(self) -> None:
         metric = _affected_users_metric()
 
@@ -101,6 +118,43 @@ class TestReportMetric(SimpleTestCase):
 
         with self.assertRaisesRegex(ValidationError, "count people, not unique groups"):
             ReportMetric.model_validate(content)
+
+    def test_affected_sessions_requires_one_unique_session_series(self) -> None:
+        content = _affected_users_metric().model_dump(mode="json")
+        content["kind"] = "affected_sessions"
+        content["unit"] = "sessions"
+        content["query"]["source"]["series"][0]["math"] = "unique_session"
+
+        assert ReportMetric.model_validate(content).kind == "affected_sessions"
+
+        for patch, error in (
+            ({"math": "total"}, "math: unique_session"),
+            ({"math": "unique_session", "math_group_type_index": 0}, "count sessions, not unique groups"),
+        ):
+            with self.subTest(patch=patch):
+                invalid = {**content, "query": {**content["query"], "source": {**content["query"]["source"]}}}
+                invalid["query"]["source"]["series"] = [{**content["query"]["source"]["series"][0], **patch}]
+                with self.assertRaisesRegex(ValidationError, error):
+                    ReportMetric.model_validate(invalid)
+
+        for key, value in (
+            ("formula", "A"),
+            ("formulas", ["A"]),
+            ("formulaNodes", [{"formula": "A"}]),
+        ):
+            with self.subTest(key=key):
+                invalid = {**content, "query": {**content["query"], "source": {**content["query"]["source"]}}}
+                invalid["query"]["source"]["trendsFilter"] = {
+                    **content["query"]["source"]["trendsFilter"],
+                    key: value,
+                }
+                with self.assertRaisesRegex(ValidationError, "must not use a formula"):
+                    ReportMetric.model_validate(invalid)
+
+        invalid = {**content, "query": {**content["query"], "source": {**content["query"]["source"]}}}
+        invalid["query"]["source"]["series"] = content["query"]["source"]["series"] * 2
+        with self.assertRaisesRegex(ValidationError, "exactly one output series|exactly one Trends series"):
+            ReportMetric.model_validate(invalid)
 
     def test_rejects_series_whose_resource_access_cannot_be_checked(self) -> None:
         unsupported_series = (
@@ -277,6 +331,34 @@ class TestReportMetric(SimpleTestCase):
 
                 with self.assertRaisesRegex(ValidationError, "formula"):
                     ReportMetric.model_validate(content)
+
+    def test_live_query_rejects_formula_complexity_before_evaluation(self) -> None:
+        for formula in ("+".join(["A"] * 101), "+" * 21 + "A"):
+            with self.subTest(formula=formula):
+                content = _affected_users_metric().model_dump(mode="json")
+                content["kind"] = "custom"
+                content["query"]["source"]["trendsFilter"]["formula"] = formula
+
+                with self.assertRaisesRegex(ValidationError, "formula"):
+                    ReportMetric.model_validate(content)
+
+    def test_live_query_rejects_unbounded_power_formulas_before_evaluation(self) -> None:
+        for formula in ("9 ** 1000000000", "(A ** 100) ** 100", "A ** A", "9999999999 ** 100"):
+            with self.subTest(formula=formula):
+                content = _affected_users_metric().model_dump(mode="json")
+                content["kind"] = "custom"
+                content["query"]["source"]["trendsFilter"]["formula"] = formula
+
+                with self.assertRaisesRegex(ValidationError, "formula"):
+                    ReportMetric.model_validate(content)
+
+    def test_live_query_rejects_a_large_integer_as_a_validation_error(self) -> None:
+        content = _affected_users_metric().model_dump(mode="json")
+        content["kind"] = "custom"
+        content["query"]["source"]["trendsFilter"]["formula"] = "9" * 400
+
+        with self.assertRaisesRegex(ValidationError, "numeric constant"):
+            ReportMetric.model_validate(content)
 
     def test_live_query_requires_a_canonical_interval(self) -> None:
         content = _affected_users_metric().model_dump(mode="json")
@@ -477,8 +559,11 @@ class TestReportMetric(SimpleTestCase):
 
         for kind in ("affected_sessions", "occurrences"):
             with self.subTest(kind=kind):
+                query = _affected_users_metric(role="supporting").model_dump(mode="json")["query"]
+                if kind == "affected_sessions":
+                    query["source"]["series"][0]["math"] = "unique_session"
                 with self.assertRaisesRegex(ValidationError, "must use count formatting"):
-                    ReportMetric.model_validate({**base, "kind": kind, "value_format": "number"})
+                    ReportMetric.model_validate({**base, "kind": kind, "value_format": "number", "query": query})
 
         with self.assertRaisesRegex(ValidationError, "must use `ms` or `s`"):
             ReportMetric.model_validate({**base, "kind": "duration", "value_format": "duration", "unit": "min"})

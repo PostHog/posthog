@@ -2003,6 +2003,7 @@ async def edit_report(
             note=append_note,
             signals=built_evidence or (),
             charts=built_charts or (),
+            metrics=built_metrics or (),
             suggested_prompts=built_prompts or (),
             reviewer_reasons=_reviewer_reasons(built_reviewers),
         )
@@ -2072,6 +2073,7 @@ def edit_report_sync(
             note=append_note,
             signals=built_evidence or (),
             charts=built_charts or (),
+            metrics=built_metrics or (),
             suggested_prompts=built_prompts or (),
             reviewer_reasons=_reviewer_reasons(built_reviewers),
         )

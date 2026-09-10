@@ -160,9 +160,7 @@ export const ValueFormatEnumApi = {
 /**
  * Snapshot-only metric shape for report lists.
  *
- * Query definitions and authored comparisons belong on detail. Omitting them keeps the paginated
- * inbox payload bounded and prevents a stale comparison from being presented beside a refreshed
- * materialized value.
+ * Omitting query definitions keeps the paginated inbox payload bounded.
  */
 export interface ReportMetricListApi {
     /**
@@ -461,16 +459,6 @@ export interface PaginatedSignalReportListListApi {
     results: SignalReportListApi[]
 }
 
-export interface ReportMetricComparisonApi {
-    /** Baseline or previous value, formatted like the current value. */
-    value: number
-    /**
-     * Short context for the comparison, such as `Previous period`.
-     * @maxLength 40
-     */
-    label: string
-}
-
 /**
  * One impact measurement shown on a report.
  */
@@ -540,8 +528,6 @@ export interface ReportMetricApi {
      * @nullable
      */
     caption?: string | null
-    /** Optional baseline or previous-period value shown beside the current value; null when the viewer cannot read the shared snapshot. */
-    comparison?: ReportMetricComparisonApi | null
 }
 
 export interface SignalReportApi {
@@ -3859,6 +3845,16 @@ export interface SuggestedReviewerApi {
     reason?: string | null
 }
 
+export interface ReportMetricComparisonApi {
+    /** Baseline or previous value, formatted like the current value. */
+    value: number
+    /**
+     * Short context for the comparison, such as `Previous period`.
+     * @maxLength 40
+     */
+    label: string
+}
+
 /**
  * Authoring shape: unlike a read response, the live query cannot be absent or redacted.
  */
@@ -3928,7 +3924,7 @@ export interface ReportMetricWriteApi {
      * @nullable
      */
     caption?: string | null
-    /** Optional baseline or previous-period value shown beside the current value; null when the viewer cannot read the shared snapshot. */
+    /** Legacy optional comparison. New report metrics must omit it. */
     comparison?: ReportMetricComparisonApi | null
 }
 

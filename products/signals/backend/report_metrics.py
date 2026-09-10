@@ -14,6 +14,7 @@ Temporal payloads import it during process setup, so it must not pull in ``posth
 from __future__ import annotations
 
 import re
+import ast
 import json
 import math
 from collections.abc import Sequence
@@ -43,6 +44,7 @@ MAX_METRIC_SERIES_POINTS = 14
 METRIC_VALUE_AT_MAX_CLOCK_SKEW = timedelta(minutes=5)
 MAX_LIVE_METRIC_WINDOW_DAYS = 366
 MAX_LIVE_METRIC_QUERY_SERIES = 10
+DEFAULT_LIVE_METRIC_DATE_FROM = "-13d"
 # A detail view can execute all six report metrics together. Capping each longitudinal response at
 # 1,000 estimated points keeps that worst case to 6,006 points including the separate one-value
 # aggregate response, while still allowing one hourly series over roughly six weeks. The estimate
@@ -105,6 +107,49 @@ _LIVE_METRIC_INTERVAL_SECONDS = {
     "year": 31_622_400,
 }
 _TRENDS_FORMULA_KEYS = ("formula", "formulas", "formulaNodes")
+_MAX_LIVE_METRIC_FORMULA_NODES = 100
+_MAX_LIVE_METRIC_FORMULA_DEPTH = 20
+_MAX_LIVE_METRIC_FORMULA_CONSTANT = 1e100
+_MAX_LIVE_METRIC_FORMULA_EXPONENT = 100
+
+
+def _bounded_formula_tree(formula: str) -> ast.Module:
+    try:
+        tree = ast.parse(formula.strip().lower())
+    except (SyntaxError, ValueError, RecursionError, OverflowError) as error:
+        raise ValueError(f"a live metric formula must be valid arithmetic: {error}") from None
+
+    stack: list[tuple[ast.AST, int, bool]] = [(tree, 1, False)]
+    node_count = 0
+    while stack:
+        node, depth, has_power_ancestor = stack.pop()
+        node_count += 1
+        if node_count > _MAX_LIVE_METRIC_FORMULA_NODES:
+            raise ValueError(f"a live metric formula must not exceed {_MAX_LIVE_METRIC_FORMULA_NODES} AST nodes")
+        if depth > _MAX_LIVE_METRIC_FORMULA_DEPTH:
+            raise ValueError(f"a live metric formula must not exceed {_MAX_LIVE_METRIC_FORMULA_DEPTH} AST levels")
+        if isinstance(node, ast.Constant) and isinstance(node.value, int | float) and not isinstance(node.value, bool):
+            if abs(node.value) > _MAX_LIVE_METRIC_FORMULA_CONSTANT:
+                raise ValueError("a live metric formula contains a numeric constant that is too large")
+            if isinstance(node.value, float) and not math.isfinite(node.value):
+                raise ValueError("a live metric formula contains a numeric constant that is too large")
+        is_power = isinstance(node, ast.BinOp) and isinstance(node.op, ast.Pow)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Pow):
+            if has_power_ancestor:
+                raise ValueError("a live metric formula must not contain nested exponentiation")
+            exponent = node.right
+            if not isinstance(exponent, ast.Constant) or isinstance(exponent.value, bool):
+                raise ValueError("a live metric formula exponent must be a numeric constant")
+            if not isinstance(exponent.value, int | float):
+                raise ValueError("a live metric formula exponent must be a finite numeric constant")
+            if abs(exponent.value) > _MAX_LIVE_METRIC_FORMULA_EXPONENT:
+                raise ValueError(
+                    f"a live metric formula exponent must not exceed {_MAX_LIVE_METRIC_FORMULA_EXPONENT} in magnitude"
+                )
+            if isinstance(exponent.value, float) and not math.isfinite(exponent.value):
+                raise ValueError("a live metric formula exponent must be a finite numeric constant")
+        stack.extend((child, depth + 1, has_power_ancestor or is_power) for child in ast.iter_child_nodes(node))
+    return tree
 
 
 def _validate_live_metric_formula(formula: object, series_count: int) -> None:
@@ -116,18 +161,17 @@ def _validate_live_metric_formula(formula: object, series_count: int) -> None:
         raise ValueError("a live metric formula must be a non-empty arithmetic expression over the series")
     from posthog.hogql_queries.utils.formula_ast import FormulaAST
 
+    _bounded_formula_tree(formula)
     dummy_series = [[1.0] for _ in range(series_count)]
     try:
         replayed = FormulaAST(dummy_series).call(formula)
-    except (BaseHogQLError, SyntaxError, ValueError, TypeError, ArithmeticError) as error:
+        if not isinstance(replayed, list) or any(
+            isinstance(point, bool) or not isinstance(point, int | float) or not math.isfinite(point)
+            for point in replayed
+        ):
+            raise ValueError("a live metric formula must produce one finite number for each interval")
+    except (BaseHogQLError, SyntaxError, ValueError, TypeError, ArithmeticError, RecursionError) as error:
         raise ValueError(f"a live metric formula must be executable arithmetic over the series: {error}") from None
-    # Executing is not enough. A multi-statement body returns a list for every interval, and an
-    # overflowing expression returns infinity. Both only fail at refresh, where the aggregate is
-    # refused and the metric never gets a snapshot, so reject the shape while the metric is written.
-    if not isinstance(replayed, list) or any(
-        isinstance(point, bool) or not isinstance(point, int | float) or not math.isfinite(point) for point in replayed
-    ):
-        raise ValueError("a live metric formula must produce one finite number for each interval")
 
 
 class ReportMetricComparison(BaseModel):
@@ -232,7 +276,7 @@ class ReportMetric(BaseModel):
     )
     comparison: ReportMetricComparison | None = Field(
         default=None,
-        description="Optional baseline or previous-period value shown with the current value.",
+        description="Legacy authoring field, not exposed as a live comparison.",
     )
 
     @field_validator("metric_id")
@@ -459,6 +503,21 @@ class ReportMetric(BaseModel):
                     raise ValueError(
                         "an affected_users query must not use a formula because its total comes from `math: dau`"
                     )
+        if self.kind == "affected_sessions":
+            source = self.query["source"]
+            series = source.get("series")
+            if not isinstance(series, list) or len(series) != 1 or not isinstance(series[0], dict):
+                raise ValueError("an affected_sessions query must contain exactly one Trends series")
+            affected_sessions_series = series[0]
+            if affected_sessions_series.get("math") != "unique_session":
+                raise ValueError("an affected_sessions query must use `math: unique_session` to count unique sessions")
+            if affected_sessions_series.get("math_group_type_index") is not None:
+                raise ValueError("an affected_sessions query must count sessions, not unique groups")
+            trends_filter = source.get("trendsFilter")
+            if isinstance(trends_filter, dict) and any(trends_filter.get(key) for key in _TRENDS_FORMULA_KEYS):
+                raise ValueError(
+                    "an affected_sessions query must not use a formula because its total comes from `math: unique_session`"
+                )
         if self.kind in {"affected_sessions", "occurrences"} and self.value_format != "count":
             raise ValueError("an affected_sessions or occurrences metric must use count formatting")
         if self.kind == "duration":

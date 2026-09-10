@@ -743,15 +743,6 @@ class ReportMetricSerializer(serializers.Serializer):
             "caveat on the data. Omit it rather than restate the title, unit, or window."
         ),
     )
-    comparison = ReportMetricComparisonSerializer(
-        allow_null=True,
-        required=False,
-        default=None,
-        help_text=(
-            "Optional baseline or previous-period value shown beside the current value; null when "
-            "the viewer cannot read the shared snapshot."
-        ),
-    )
 
     def to_representation(self, instance: Mapping[str, object]) -> dict[str, object]:
         representation = dict(super().to_representation(instance))
@@ -761,8 +752,6 @@ class ReportMetricSerializer(serializers.Serializer):
             representation["value"] = None
             representation["value_at"] = None
             representation["series"] = None
-            if "comparison" in representation:
-                representation["comparison"] = None
 
         if "query" in representation and not policy.may_read_query(instance):
             representation["query"] = None
@@ -790,18 +779,21 @@ class ReportMetricWriteSerializer(ReportMetricSerializer):
     """Authoring shape: unlike a read response, the live query cannot be absent or redacted."""
 
     query = ChartQueryField(help_text=_REPORT_METRIC_QUERY_HELP)
+    comparison = ReportMetricComparisonSerializer(
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text="Legacy optional comparison. New report metrics must omit it.",
+    )
 
 
 class ReportMetricListSerializer(ReportMetricSerializer):
     """Snapshot-only metric shape for report lists.
 
-    Query definitions and authored comparisons belong on detail. Omitting them keeps the paginated
-    inbox payload bounded and prevents a stale comparison from being presented beside a refreshed
-    materialized value.
+    Omitting query definitions keeps the paginated inbox payload bounded.
     """
 
     query = None  # type: ignore[assignment]  # removes the inherited field from the list projection
-    comparison = None  # type: ignore[assignment]  # removes the inherited field from the list projection
 
 
 class SignalReportSerializer(serializers.ModelSerializer):
