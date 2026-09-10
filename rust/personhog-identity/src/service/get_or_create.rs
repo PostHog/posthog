@@ -35,12 +35,9 @@ fn count_outcome(outcome: &str) {
     );
 }
 
-fn record_phase(phase: &str, start: Instant) {
-    common_metrics::histogram(
-        GET_OR_CREATE_PHASE_DURATION,
-        &[("phase".to_string(), phase.to_string())],
-        start.elapsed().as_secs_f64() * 1000.0,
-    );
+fn record_phase(phase: &'static str, start: Instant) {
+    metrics::histogram!(GET_OR_CREATE_PHASE_DURATION, "phase" => phase)
+        .record(start.elapsed().as_secs_f64() * 1000.0);
 }
 
 /// Empty bytes and an empty JSON object both mean "no properties to apply".
@@ -83,12 +80,9 @@ impl PersonHogIdentityService {
             .map(|entry| (entry.team_id, entry.distinct_id.clone()))
             .collect();
         let phase = Instant::now();
-        let resolved = self
-            .storage
-            .resolve_distinct_ids(&keys)
-            .await
-            .map_err(|e| log_and_convert_error(e, "resolve_distinct_ids"))?;
+        let resolved = self.storage.resolve_distinct_ids(&keys).await;
         record_phase("resolve", phase);
+        let resolved = resolved.map_err(|e| log_and_convert_error(e, "resolve_distinct_ids"))?;
 
         // Plan each entry and collect one stub per missing key.
         let mut stubs: Vec<PersonStub> = Vec::new();
@@ -115,14 +109,12 @@ impl PersonHogIdentityService {
 
         let phase = Instant::now();
         let outcomes = if stubs.is_empty() {
-            Vec::new()
+            Ok(Vec::new())
         } else {
-            self.storage
-                .create_person_stubs(&stubs)
-                .await
-                .map_err(|e| log_and_convert_error(e, "create_person_stubs"))?
+            self.storage.create_person_stubs(&stubs).await
         };
         record_phase("create_stubs", phase);
+        let outcomes = outcomes.map_err(|e| log_and_convert_error(e, "create_person_stubs"))?;
 
         // Lost races re-resolve in one batch: the winner's mapping committed,
         // so a fresh resolve finds it.
@@ -133,14 +125,13 @@ impl PersonHogIdentityService {
             .collect();
         let phase = Instant::now();
         let lost_resolved = if lost_keys.is_empty() {
-            HashMap::new()
+            Ok(HashMap::new())
         } else {
-            self.storage
-                .resolve_distinct_ids(&lost_keys)
-                .await
-                .map_err(|e| log_and_convert_error(e, "resolve_after_lost_race"))?
+            self.storage.resolve_distinct_ids(&lost_keys).await
         };
         record_phase("resolve_lost_race", phase);
+        let lost_resolved =
+            lost_resolved.map_err(|e| log_and_convert_error(e, "resolve_after_lost_race"))?;
 
         // Assemble results; created owners go through the leader fan-out.
         let lost_race_result = |i: usize| {
