@@ -6,11 +6,11 @@ use simd_json::borrowed::{Object, Value};
 
 use crate::assets::{
     apply_blur, blur_inline_image_attr, has_media_src_attr, is_image_ref_attr, is_media_src_attr,
-    is_media_tag, INLINE_IMAGE_ATTR,
+    is_media_tag, CSS_IMAGE_REFS_ATTR_PREFIX, INLINE_IMAGE_ATTR,
 };
 use crate::collect::is_image_ref_strict;
 use crate::context::Ctx;
-use crate::css::{scrub_css_images, INLINED_STYLESHEET_ATTR};
+use crate::css::{is_strict_css_refs, scrub_css_images, CssContext, INLINED_STYLESHEET_ATTR};
 use crate::json::{
     as_array_mut, as_object_mut, as_small_uint, as_str, is_object, is_true, key, string_value,
 };
@@ -26,6 +26,7 @@ const NODE_COMMENT: u8 = 5;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ParentKind {
+    Picture,
     Script,
     Style,
     Other,
@@ -99,7 +100,7 @@ pub fn scrub_mutation_attributes(ctx: &Ctx<'_>, attributes: &mut Vec<Value<'_>>)
                 };
                 // A mutation carries attributes with no tag, so a `src` here could belong to an
                 // iframe or a script as easily as an image. Decline rather than guess.
-                changed |= scrub_attrs(ctx, attrs, kind, false);
+                changed |= scrub_attrs(ctx, attrs, kind, "", false);
             }
         }
     }
@@ -135,12 +136,16 @@ pub(crate) fn walk_node(ctx: &Ctx<'_>, node: &mut Value<'_>, parent: ParentKind)
                 .to_string();
             let kind = classify_tag(&tag);
             if let Some(attrs) = obj.get_mut("attributes").and_then(as_object_mut) {
-                changed |= scrub_attrs(ctx, attrs, kind, crate::assets::tag_src_is_image(&tag));
+                changed |= scrub_attrs(ctx, attrs, kind, &tag, parent == ParentKind::Picture);
             }
-            let child_parent = match kind {
-                TagKind::Script => ParentKind::Script,
-                TagKind::Style => ParentKind::Style,
-                TagKind::Media | TagKind::Other => ParentKind::Other,
+            let child_parent = if tag.eq_ignore_ascii_case("picture") {
+                ParentKind::Picture
+            } else {
+                match kind {
+                    TagKind::Script => ParentKind::Script,
+                    TagKind::Style => ParentKind::Style,
+                    TagKind::Media | TagKind::Other => ParentKind::Other,
+                }
             };
             if let Some(children) = obj.get_mut("childNodes").and_then(as_array_mut) {
                 for child in children.iter_mut() {
@@ -166,7 +171,7 @@ pub(crate) fn walk_node(ctx: &Ctx<'_>, node: &mut Value<'_>, parent: ParentKind)
             }
             let is_style = obj.get("isStyle").map(is_true).unwrap_or(false);
             if parent == ParentKind::Style || is_style {
-                return scrub_css_images(ctx, obj, "textContent");
+                return scrub_css_images(ctx, obj, "textContent", CssContext::Stylesheet);
             }
             changed |= scrub_text_content(ctx, obj);
         }
@@ -208,7 +213,8 @@ fn scrub_attrs(
     ctx: &Ctx<'_>,
     attrs: &mut Object<'_>,
     kind: TagKind,
-    tag_src_is_image: bool,
+    tag: &str,
+    parent_is_picture: bool,
 ) -> bool {
     let mut changed = false;
     // Plain string scrubs mutate values in place while iterating — no per-element key Vec. Only the
@@ -221,7 +227,12 @@ fn scrub_attrs(
     for (name, value) in attrs.iter_mut() {
         let name: &str = name.as_ref();
         if is_image_ref_attr(name) {
-            let keep = ctx.keeps_image_refs() && as_str(value).is_some_and(is_image_ref_strict);
+            let keep = ctx.keeps_image_refs()
+                && if name.starts_with(CSS_IMAGE_REFS_ATTR_PREFIX) {
+                    is_strict_css_refs(value)
+                } else {
+                    as_str(value).is_some_and(is_image_ref_strict)
+                };
             if !keep {
                 rejected_image_refs.push(name.to_string());
             }
@@ -266,13 +277,15 @@ fn scrub_attrs(
     for name in deferred {
         if name == INLINE_IMAGE_ATTR {
             changed |= blur_inline_image_attr(ctx, attrs, &name);
+        } else if name == "style" {
+            changed |= scrub_css_images(ctx, attrs, &name, CssContext::DeclarationList);
         } else {
-            changed |= scrub_css_images(ctx, attrs, &name);
+            changed |= scrub_css_images(ctx, attrs, &name, CssContext::Stylesheet);
         }
     }
 
     if kind == TagKind::Media {
-        changed |= apply_blur(ctx, attrs, tag_src_is_image);
+        changed |= apply_blur(ctx, attrs, tag, parent_is_picture);
     }
 
     changed
@@ -373,7 +386,7 @@ mod tests {
                 "the original image must be gone from {attr}"
             );
             assert!(
-                scrubbed.contains("url(data:image/png"),
+                scrubbed.contains("data:image/png"),
                 "replaced with a data image in {attr}: {scrubbed}"
             );
         }

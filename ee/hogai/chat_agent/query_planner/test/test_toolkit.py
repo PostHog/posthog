@@ -5,8 +5,11 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.schema import CachedActorsPropertyTaxonomyQueryResponse, CachedEventTaxonomyQueryResponse
 
+from posthog.models import Team
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -110,6 +113,73 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             "$session_duration",
             result,
         )
+
+    def test_retrieve_entity_properties_pages_person_definitions(self):
+        # The person branch used to read every stored definition, so a team with millions of them
+        # walked its whole index range. The group branch already paged.
+        for i in range(4):
+            PropertyDefinition.objects.create(
+                team=self.team,
+                type=PropertyDefinition.Type.PERSON,
+                name=f"person_prop_{i}",
+                property_type=PropertyType.String,
+            )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        result = toolkit.retrieve_entity_properties("person", max_properties=2)
+
+        listed = [name for name in (f"person_prop_{i}" for i in range(4)) if f"- {name}" in result]
+        self.assertEqual(len(listed), 2)
+        self.assertIn("This list stops at 2 properties and person has more.", result)
+
+    @parameterized.expand(
+        [
+            ["person", "person"],
+            ["group", "group"],
+        ]
+    )
+    def test_retrieve_entity_properties_omits_truncation_note_when_under_limit(self, _name: str, entity: str):
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="group"
+        )
+        invalidate_group_types_cache(self.team.project_id)
+        PropertyDefinition.objects.create(
+            team=self.team,
+            type=PropertyDefinition.Type.PERSON,
+            name="only_person_prop",
+            property_type=PropertyType.String,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=0,
+            name="only_group_prop",
+            property_type=PropertyType.String,
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        result = toolkit.retrieve_entity_properties(entity, max_properties=500)
+
+        self.assertNotIn("This list stops at", result)
+
+    def test_retrieve_entity_properties_notes_truncation_for_groups(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="group"
+        )
+        invalidate_group_types_cache(self.team.project_id)
+        for i in range(3):
+            PropertyDefinition.objects.create(
+                team=self.team,
+                type=PropertyDefinition.Type.GROUP,
+                group_type_index=0,
+                name=f"group_prop_{i}",
+                property_type=PropertyType.String,
+            )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        result = toolkit.retrieve_entity_properties("group", max_properties=1)
+
+        self.assertIn("This list stops at 1 properties and group has more.", result)
 
     def test_retrieve_entity_properties_lists_virtual_properties_without_stored_definitions(self):
         toolkit = DummyToolkit(self.team, self.user)
@@ -356,6 +426,37 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("</Boolean>", prompt)
             # Virtual properties are surfaced even though they never appear in stored event data.
             self.assertIn("- $virt_is_bot", prompt)
+
+    def test_fetch_event_property_types_resolves_all_names(self):
+        names = [f"prop_{i}" for i in range(5)]
+        for name in names:
+            PropertyDefinition.objects.create(
+                team=self.team, type=PropertyDefinition.Type.EVENT, name=name, property_type=PropertyType.String
+            )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        resolved = toolkit._fetch_event_property_types(names)
+
+        self.assertEqual(resolved, dict.fromkeys(names, PropertyType.String))
+
+    def test_fetch_event_property_types_resolves_sibling_environment_definitions(self):
+        # Definitions are project-scoped: a property defined under a sibling environment of the
+        # same project resolves, matching what the taxonomy REST API returns for this team.
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project)
+        # project is set explicitly, as the production writers do — a definition row with a NULL
+        # project_id is scoped to its own team only under COALESCE(project_id, team_id).
+        PropertyDefinition.objects.create(
+            team=sibling,
+            project=self.team.project,
+            type=PropertyDefinition.Type.EVENT,
+            name="sibling_prop",
+            property_type=PropertyType.Numeric,
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        resolved = toolkit._fetch_event_property_types(["sibling_prop"])
+
+        self.assertEqual(resolved, {"sibling_prop": PropertyType.Numeric})
 
     def test_retrieve_event_or_action_property_values(self):
         self._create_taxonomy()

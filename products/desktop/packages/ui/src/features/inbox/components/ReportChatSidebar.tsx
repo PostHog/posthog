@@ -1,15 +1,14 @@
 import {
   ArrowsOutSimpleIcon,
   ChatCircleIcon,
-  GitPullRequestIcon,
-  ShapesIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import {
   isContentEmpty,
   textToContent,
 } from "@posthog/core/message-editor/content";
-import { Button, Spinner, Textarea } from "@posthog/quill";
+import { Button, Textarea } from "@posthog/quill";
+import type { InboxReportActionSurface } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useDiscussReport } from "@posthog/ui/features/inbox/hooks/useDiscussReport";
@@ -17,22 +16,33 @@ import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useRepo
 import {
   findContinuableImplementationTask,
   findLatestDiscussionTask,
+  findPendingStartedTaskId,
   useReportTasks,
 } from "@posthog/ui/features/inbox/hooks/useReportTasks";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
+import { SessionStartupStatus } from "@posthog/ui/features/sessions/components/SessionStartupStatus";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { useOpenTask } from "@posthog/ui/router/useOpenTask";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 
+const loadingConversation = (
+  <SessionStartupStatus
+    label="Loading conversation..."
+    className="h-full justify-center"
+  />
+);
+
 const isMac =
   typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
 
 interface ReportChatSidebarProps {
   report: SignalReport;
+  surface?: InboxReportActionSurface;
+  triageId?: string;
 }
 
 /**
@@ -44,7 +54,11 @@ interface ReportChatSidebarProps {
  * to the existing discussion; only the first question on a task-less report
  * creates one. The full task page stays one click away in the header.
  */
-export function ReportChatSidebar({ report }: ReportChatSidebarProps) {
+export function ReportChatSidebar({
+  report,
+  surface = "detail_pane",
+  triageId,
+}: ReportChatSidebarProps) {
   const width = useReportChatPanelStore((s) => s.width);
   const setWidth = useReportChatPanelStore((s) => s.setWidth);
   const setOpen = useReportChatPanelStore((s) => s.setOpen);
@@ -56,13 +70,13 @@ export function ReportChatSidebar({ report }: ReportChatSidebarProps) {
   // The durable association arrives via the report's task_run artefacts; a
   // task started seconds ago is bridged by the store until it does. The session
   // bridge wins so a newly started canvas, fix, or discussion takes the dock
-  // over immediately.
+  // over immediately, then expires once the durable association arrives.
   const { data: reportTasks, isLoading: tasksLoading } = useReportTasks(
     report.id,
     report.status,
   );
   const taskId =
-    startedTaskId ??
+    findPendingStartedTaskId(reportTasks, startedTaskId) ??
     findContinuableImplementationTask(reportTasks)?.id ??
     findLatestDiscussionTask(reportTasks)?.id ??
     null;
@@ -116,11 +130,13 @@ export function ReportChatSidebar({ report }: ReportChatSidebarProps) {
           ) : tasksLoading ? (
             // Offering the starter before the task lookup resolves invites a
             // duplicate conversation on a report that already has one.
-            <div className="flex h-full items-center justify-center">
-              <Spinner />
-            </div>
+            loadingConversation
           ) : (
-            <ReportChatStarter report={report} />
+            <ReportChatStarter
+              report={report}
+              surface={surface}
+              triageId={triageId}
+            />
           )}
         </div>
       </div>
@@ -148,29 +164,6 @@ function ReportChatConversation({
   const { insertPendingContent, getDraft, requestFocus } = useDraftStore(
     (s) => s.actions,
   );
-  const [sendingPrompt, setSendingPrompt] = useState<string | null>(null);
-  const workPrompt = report.implementation_pr_url
-    ? "Continue working on this report. Take the next concrete step toward resolving it."
-    : "Fix the issue in this report and monitor the result.";
-  const workLabel = report.implementation_pr_url
-    ? "Continue the task"
-    : "Fix and monitor";
-  const canvasPrompt =
-    "Create a canvas that visualizes this report using its evidence and relevant live data.";
-
-  const sendSuggestedPrompt = useCallback(
-    async (prompt: string, sendPrompt: (text: string) => Promise<boolean>) => {
-      if (sendingPrompt) return;
-      setSendingPrompt(prompt);
-      try {
-        await sendPrompt(prompt);
-      } finally {
-        setSendingPrompt(null);
-      }
-    },
-    [sendingPrompt],
-  );
-
   // A highlighted passage is appended into the session composer, after anything
   // already typed rather than replacing it. Inserting (rather than rewriting the
   // draft) keeps chips and file attachments the user already added, and reaches
@@ -194,51 +187,25 @@ function ReportChatConversation({
   ]);
 
   if (!task) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner />
-      </div>
-    );
+    return loadingConversation;
   }
 
-  return (
-    <EmbeddedSessionView
-      task={task}
-      threadActions={({ sendPrompt, isPromptPending }) => (
-        <div className="flex flex-wrap items-center gap-1.5 border-border border-t px-3 py-2">
-          <Button
-            type="button"
-            variant="outline"
-            className="h-7 rounded-full px-3 text-[12px]"
-            loading={sendingPrompt === workPrompt}
-            disabled={isPromptPending || sendingPrompt !== null}
-            onClick={() => void sendSuggestedPrompt(workPrompt, sendPrompt)}
-          >
-            <GitPullRequestIcon size={13} />
-            {workLabel}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="h-7 rounded-full px-3 text-[12px]"
-            loading={sendingPrompt === canvasPrompt}
-            disabled={isPromptPending || sendingPrompt !== null}
-            onClick={() => void sendSuggestedPrompt(canvasPrompt, sendPrompt)}
-          >
-            <ShapesIcon size={13} />
-            Visualize on a canvas
-          </Button>
-        </div>
-      )}
-    />
-  );
+  return <EmbeddedSessionView task={task} />;
 }
 
 // The report has no conversation yet: one question starts it, with the full
 // report and its evidence inlined as the agent's context.
-function ReportChatStarter({ report }: { report: SignalReport }) {
+function ReportChatStarter({
+  report,
+  surface,
+  triageId,
+}: {
+  report: SignalReport;
+  surface: InboxReportActionSurface;
+  triageId?: string;
+}) {
   const queryClient = useQueryClient();
-  const fireAction = useReportActionTracker(report);
+  const fireAction = useReportActionTracker(report, surface, triageId);
   const rememberStartedTask = useReportChatPanelStore(
     (s) => s.rememberStartedTask,
   );
@@ -274,6 +241,8 @@ function ReportChatStarter({ report }: { report: SignalReport }) {
     report,
     channelId: taskChannelId,
     redirectOnSuccess: false,
+    surface,
+    triageId,
     onTaskCreated: (task) => {
       // Seed the detail cache with the task we already hold so the panel's
       // useQuery resolves from cache instead of firing a GET that can 404 while
@@ -301,49 +270,13 @@ function ReportChatStarter({ report }: { report: SignalReport }) {
     void discussReport(trimmed);
   }, [starterDraft, isDiscussing, discussReport, fireAction]);
 
-  // Canned starter prompts go through the same privacy-safe path as submit:
-  // the analytics event records that a question was asked, never its text.
-  const ask = useCallback(
-    (text: string) => {
-      const trimmed = text.trim();
-      if (!trimmed || isDiscussing) return;
-      fireAction("discuss", { has_question: true });
-      void discussReport(trimmed);
-    },
-    [isDiscussing, discussReport, fireAction],
-  );
-
   return (
     <div className="flex h-full flex-col justify-between gap-3 p-3">
       <div className="flex flex-col gap-1 pt-1">
-        <span className="font-medium text-[14px] text-gray-12">
-          Chat about this report
-        </span>
         <span className="text-[13px] text-gray-11">
           The agent joins with the full report and its evidence already in
           context. Highlight any part of the report to quote it here.
         </span>
-        <div className="mt-1 flex flex-wrap gap-1.5">
-          {[
-            "What caused this?",
-            "Who is affected?",
-            "Walk me through the fix",
-          ].map((prompt) => (
-            <Button
-              key={prompt}
-              type="button"
-              variant="outline"
-              size="sm"
-              // Once the composer holds a typed draft or a quoted passage, the
-              // one-click chips step aside — firing a chip must not silently
-              // discard what the user wrote or highlighted.
-              disabled={isDiscussing || starterDraft.trim().length > 0}
-              onClick={() => ask(prompt)}
-            >
-              {prompt}
-            </Button>
-          ))}
-        </div>
       </div>
       <form
         className="flex flex-col gap-2"
@@ -374,9 +307,9 @@ function ReportChatStarter({ report }: { report: SignalReport }) {
             type="submit"
             variant="primary"
             size="sm"
-            disabled={!starterDraft.trim() || isDiscussing}
+            loading={isDiscussing}
+            disabled={!starterDraft.trim()}
           >
-            {isDiscussing && <Spinner />}
             Start chat
           </Button>
         </div>

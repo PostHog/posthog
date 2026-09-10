@@ -12,6 +12,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.errors import (
     CH_TRANSIENT_ERRORS,
     CHQueryErrorCorruptedParquetMetadata,
+    CHQueryErrorQueryWasCancelled,
     CHQueryErrorTableIsReadOnly,
     CHQueryErrorTooManyBytes,
     ExposedCHQueryError,
@@ -38,6 +39,21 @@ class TestLogQuerySettings(ClickhouseTestMixin, APIBaseTest):
     def test_user_query_on_logs_table_has_max_bytes_to_read(self):
         sql = self._get_clickhouse_sql_for("SELECT * FROM logs LIMIT 10")
         assert f"max_bytes_to_read=" in sql.replace(" ", "")
+
+    @parameterized.expand(
+        [
+            ("free", None, 50_000_000_000),
+            ("paid", [{"key": "recordings_file_export"}], 150_000_000_000),
+            ("enterprise", [{"key": "role_based_access"}], 150_000_000_000),
+        ]
+    )
+    def test_user_query_on_logs_table_scales_max_bytes_to_read_by_plan_tier(
+        self, _name: str, available_product_features: list[dict[str, str]] | None, expected_bytes: int
+    ) -> None:
+        self.team.organization.available_product_features = available_product_features
+        self.team.organization.save()
+        sql = self._get_clickhouse_sql_for("SELECT * FROM logs LIMIT 10")
+        assert f"max_bytes_to_read={expected_bytes}" in sql.replace(" ", "")
 
     def test_user_query_on_logs_table_has_throw_overflow_mode(self):
         sql = self._get_clickhouse_sql_for("SELECT * FROM logs LIMIT 10")
@@ -138,6 +154,16 @@ class TestTooManyBytesError(ClickhouseTestMixin, APIBaseTest):
         wrapped = wrap_clickhouse_query_error(server_error)
         assert isinstance(wrapped, CHQueryErrorTableIsReadOnly)
         assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
+
+    def test_wrap_clickhouse_query_error_query_was_cancelled_is_stable(self):
+        # Code 394 (QUERY_WAS_CANCELLED) must map to an importable class so that tasks wanting to
+        # retry it (see COHORT_RECALCULATION_TRANSIENT_ERRORS) can name it in an autoretry tuple,
+        # rather than falling back to a dynamically generated class nothing can reference. It stays
+        # out of CH_TRANSIENT_ERRORS because a deliberate KILL QUERY looks identical here.
+        server_error = ServerException("DB::Exception: Query was cancelled.", code=394)
+        wrapped = wrap_clickhouse_query_error(server_error)
+        assert isinstance(wrapped, CHQueryErrorQueryWasCancelled)
+        assert not isinstance(wrapped, CH_TRANSIENT_ERRORS)
 
 
 class TestCorruptedParquetMetadataError(TestCase):

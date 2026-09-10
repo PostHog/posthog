@@ -1,7 +1,8 @@
+import { randomUUID } from 'crypto'
+
 import { DBHogFunctionTemplate } from '~/cdp/types'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 
 import { insertHogFunctionTemplate } from '../../_tests/fixtures'
@@ -11,17 +12,18 @@ describe('HogFunctionTemplateManager', () => {
     let hub: Hub
     let manager: HogFunctionTemplateManagerService
     let hogFunctionsTemplates: DBHogFunctionTemplate[]
+    let templateId: string
 
     beforeEach(async () => {
         hub = await createHub()
-        await resetTestDatabase()
         manager = new HogFunctionTemplateManagerService(hub.postgres)
 
         hogFunctionsTemplates = []
+        templateId = randomUUID()
 
         hogFunctionsTemplates.push(
             await insertHogFunctionTemplate(hub.postgres, {
-                id: 'template-testing-1',
+                id: templateId,
                 name: 'Test Hog Function team 1',
                 inputs_schema: [
                     {
@@ -40,9 +42,9 @@ describe('HogFunctionTemplateManager', () => {
     })
 
     it('returns the hog functions templates', async () => {
-        const items = await manager.getHogFunctionTemplate('template-testing-1')
+        const items = await manager.getHogFunctionTemplate(templateId)
 
-        expect(forSnapshot(items)).toMatchInlineSnapshot(`
+        expect(forSnapshot(items, { overrides: { template_id: '<TEMPLATE_ID>' } })).toMatchInlineSnapshot(`
             {
               "bytecode": [
                 "_H",
@@ -69,7 +71,7 @@ describe('HogFunctionTemplateManager', () => {
               ],
               "name": "Test Hog Function team 1",
               "sha": "sha",
-              "template_id": "template-testing-1",
+              "template_id": "<TEMPLATE_ID>",
               "type": "destination",
             }
         `)

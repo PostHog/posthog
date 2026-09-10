@@ -26,6 +26,7 @@ import notebookAddCell from './notebooks/addCell'
 import notebookCreateMarkdown from './notebooks/createMarkdown'
 import notebookDeleteCell from './notebooks/deleteCell'
 import notebookEdit from './notebooks/edit'
+import notebookSetVariables from './notebooks/setVariables'
 import notebookUpdateCell from './notebooks/updateCell'
 // Organizations
 import getOrganizations from './organizations/getOrganizations'
@@ -43,6 +44,7 @@ import {
 // PostHog connections (run this project's tools against a connected project in another org/region)
 import { createConnectionCallTool } from './posthogConnections/call'
 // Projects
+import createEventDefinition from './projects/createEventDefinition'
 import getProjects from './projects/getProjects'
 import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
@@ -79,6 +81,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Projects
     'projects-get': getProjects,
     'switch-project': setActiveProject,
+    'event-definition-create': createEventDefinition,
     'event-definition-update': updateEventDefinition,
     'property-definition-update': updatePropertyDefinition,
 
@@ -108,6 +111,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'notebooks-add-cell': notebookAddCell,
     'notebooks-create-markdown': notebookCreateMarkdown,
     'notebooks-delete-cell': notebookDeleteCell,
+    'notebooks-set-variables': notebookSetVariables,
     'notebooks-update-cell': notebookUpdateCell,
 
     // Debug

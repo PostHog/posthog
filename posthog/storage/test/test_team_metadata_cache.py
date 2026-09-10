@@ -418,9 +418,9 @@ class TestVerifyTeamMetadata(BaseTest):
     @parameterized.expand(
         [
             ("name", "Wrong Name"),
-            # minimal_flag_called_events isn't in TEAM_METADATA_FIELDS — it's added to
-            # fields_to_check separately, so it needs its own mismatch case.
+            # TeamFeatureFlagsConfig fields are tracked separately from TEAM_METADATA_FIELDS.
             ("minimal_flag_called_events", True),
+            ("property_matching_version", 2),
         ]
     )
     @patch("posthog.storage.team_metadata_cache.get_team_metadata")
@@ -450,13 +450,8 @@ class TestVerifyTeamMetadata(BaseTest):
         self.assertEqual(result["issue"], "CACHE_MISS")
 
 
-class TestMinimalFlagCalledEventsInMetadata(BaseTest):
-    """
-    minimal_flag_called_events lives on TeamFeatureFlagsConfig, not on Team, so it's
-    derived rather than pulled from TEAM_METADATA_FIELDS. Guards against the derivation
-    defaulting to the wrong value or the batch path (used by cache warming) drifting
-    from the single-team path (used by cache miss lookups).
-    """
+class TestFeatureFlagsConfigInMetadata(BaseTest):
+    """TeamFeatureFlagsConfig values are derived separately from TEAM_METADATA_FIELDS."""
 
     def test_defaults_to_false_for_ungated_team(self):
         from posthog.storage.team_metadata_cache import _serialize_team_to_metadata
@@ -464,21 +459,29 @@ class TestMinimalFlagCalledEventsInMetadata(BaseTest):
         metadata = _serialize_team_to_metadata(self.team)
 
         self.assertIs(metadata["minimal_flag_called_events"], False)
+        self.assertEqual(metadata["property_matching_version"], 1)
 
     def test_reflects_gated_config_row(self):
         from posthog.storage.team_metadata_cache import _serialize_team_to_metadata
 
-        TeamFeatureFlagsConfig.objects.update_or_create(team=self.team, defaults={"minimal_flag_called_events": True})
+        TeamFeatureFlagsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"minimal_flag_called_events": True, "property_matching_version": 2},
+        )
 
         metadata = _serialize_team_to_metadata(self.team)
 
         self.assertIs(metadata["minimal_flag_called_events"], True)
+        self.assertEqual(metadata["property_matching_version"], 2)
 
     def test_batch_load_matches_single_team_load(self):
         from posthog.storage.team_metadata_cache import _batch_load_team_metadata, _serialize_team_to_metadata
 
         gated_team = self.organization.teams.create(name="Gated team")
-        TeamFeatureFlagsConfig.objects.update_or_create(team=gated_team, defaults={"minimal_flag_called_events": True})
+        TeamFeatureFlagsConfig.objects.update_or_create(
+            team=gated_team,
+            defaults={"minimal_flag_called_events": True, "property_matching_version": 2},
+        )
         ungated_team = self.organization.teams.create(name="Ungated team")
 
         batch_result = _batch_load_team_metadata([gated_team, ungated_team])
@@ -492,7 +495,9 @@ class TestMinimalFlagCalledEventsInMetadata(BaseTest):
             _serialize_team_to_metadata(ungated_team)["minimal_flag_called_events"],
         )
         self.assertIs(batch_result[gated_team.id]["minimal_flag_called_events"], True)
+        self.assertEqual(batch_result[gated_team.id]["property_matching_version"], 2)
         self.assertIs(batch_result[ungated_team.id]["minimal_flag_called_events"], False)
+        self.assertEqual(batch_result[ungated_team.id]["property_matching_version"], 1)
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test:6379/0")

@@ -11,6 +11,8 @@ import type {
   AcpMessage,
   JsonRpcMessage,
   JsonRpcRequest,
+  OptimisticItem,
+  PendingFollowupMessage,
   StoredLogEntry,
   UserShellExecuteParams,
 } from "@posthog/shared";
@@ -19,6 +21,7 @@ import {
   isJsonRpcNotification,
   isJsonRpcRequest,
 } from "@posthog/shared";
+import { stripTrailingAttachmentSummary } from "../editor/cloud-prompt";
 import { skillTagsToSlashCommands } from "../message-editor/skillTags";
 import { isNotification, POSTHOG_NOTIFICATIONS } from "./acpNotifications";
 import { extractPromptDisplayContent } from "./promptContent";
@@ -131,10 +134,7 @@ function promoteImportedUserPrompt(
 /**
  * Create a user message event for display.
  */
-export function createUserPromptEvent(
-  prompt: ContentBlock[],
-  ts: number,
-): AcpMessage {
+function createUserPromptEvent(prompt: ContentBlock[], ts: number): AcpMessage {
   return {
     type: "acp_message",
     ts,
@@ -149,7 +149,7 @@ export function createUserPromptEvent(
   };
 }
 
-export function createUserMessageEvent(text: string, ts: number): AcpMessage {
+function createUserMessageEvent(text: string, ts: number): AcpMessage {
   return createUserPromptEvent([{ type: "text", text }], ts);
 }
 
@@ -459,7 +459,7 @@ export function normalizePromptToBlocks(
   );
 }
 
-export { isFatalSessionError, isRateLimitError } from "@posthog/shared";
+export { isFatalSessionError } from "@posthog/shared";
 
 /**
  * Whether a list of events already contains a `session/prompt` request.
@@ -482,6 +482,115 @@ export function hasSessionPromptEventForTaskRun(
       event.message.method === "session/prompt" &&
       getStoredLogEventPosition(event)?.taskRunId === taskRunId,
   );
+}
+
+export function isSteerPromptParams(params: unknown): boolean {
+  return (
+    (params as { _meta?: { steer?: boolean } } | undefined)?._meta?.steer ===
+    true
+  );
+}
+
+/**
+ * Ids of the tail optimistic bubbles that `events` now carries an echo for.
+ *
+ * `firstUnseenEntryIndex` is the log cursor the store had before this commit.
+ * Only entries at or beyond it can be an echo, because a rebuilt log replays
+ * the whole run: without the floor, a prompt the user sent earlier would
+ * retire a bubble whose own echo has not arrived, and a repeated "yes" would
+ * do it every time.
+ *
+ * One echo retires one bubble, so two pending bubbles sharing text need two
+ * echoes. Pinned bubbles are left alone: the initial prompt is deduped against
+ * its echo by the merge layer, which upgrades it with the server's timestamp.
+ */
+export function selectEchoedOptimisticItemIds(
+  optimisticItems: OptimisticItem[],
+  events: AcpMessage[],
+  firstUnseenEntryIndex: number,
+): string[] {
+  const echoCounts = new Map<string, number>();
+  for (const event of events) {
+    const msg = event.message;
+    if (!isJsonRpcRequest(msg) || msg.method !== "session/prompt") continue;
+    const entryIndex = getStoredLogEventPosition(event)?.entryIndex;
+    if (entryIndex === undefined || entryIndex < firstUnseenEntryIndex)
+      continue;
+    const blocks = (msg.params as { prompt?: ContentBlock[] } | undefined)
+      ?.prompt;
+    if (!blocks?.length) continue;
+    const text = extractPromptDisplayContent(blocks, {
+      filterHidden: true,
+    }).text.trim();
+    echoCounts.set(text, (echoCounts.get(text) ?? 0) + 1);
+  }
+  if (echoCounts.size === 0) return [];
+
+  const echoed: string[] = [];
+  for (const item of optimisticItems) {
+    if (item.type !== "user_message" || item.pinToTop !== false) continue;
+    const text = stripTrailingAttachmentSummary(item.content);
+    const remaining = echoCounts.get(text) ?? 0;
+    if (remaining === 0) continue;
+    echoCounts.set(text, remaining - 1);
+    echoed.push(item.id);
+  }
+  return echoed;
+}
+
+export function selectUnseededPendingFollowups(
+  pending: PendingFollowupMessage[],
+  events: AcpMessage[],
+  optimisticItems: OptimisticItem[],
+): PendingFollowupMessage[] {
+  if (pending.length === 0) return [];
+
+  const covers: { text: string; ts: number }[] = [];
+  const cover = (text: string, ts: number): void => {
+    const key = text.trim();
+    if (key) covers.push({ text: key, ts });
+  };
+  for (const event of events) {
+    const msg = event.message;
+    if (!isJsonRpcRequest(msg) || msg.method !== "session/prompt") continue;
+    const blocks = (msg.params as { prompt?: ContentBlock[] } | undefined)
+      ?.prompt;
+    if (!blocks?.length) continue;
+    cover(
+      extractPromptDisplayContent(blocks, { filterHidden: true }).text,
+      event.ts,
+    );
+  }
+  for (const item of optimisticItems) {
+    if (item.type !== "user_message") continue;
+    cover(
+      stripTrailingAttachmentSummary(item.content),
+      Number.MAX_SAFE_INTEGER,
+    );
+  }
+
+  const claimed = new Set<number>();
+  const unseeded: PendingFollowupMessage[] = [];
+  for (const message of pending) {
+    const key = stripTrailingAttachmentSummary(message.content).trim();
+    if (!key) continue;
+    const recordedAt = message.ts ? Date.parse(message.ts) : Number.NaN;
+    const floor = Number.isNaN(recordedAt)
+      ? Number.NEGATIVE_INFINITY
+      : recordedAt;
+    const index = covers.findIndex(
+      (candidate, position) =>
+        !claimed.has(position) &&
+        candidate.text === key &&
+        candidate.ts >= floor,
+    );
+    if (index === -1) {
+      unseeded.push(message);
+    } else {
+      claimed.add(index);
+    }
+  }
+  return unseeded;
 }
 
 /**

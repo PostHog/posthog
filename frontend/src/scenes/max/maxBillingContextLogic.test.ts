@@ -353,7 +353,7 @@ describe('maxBillingContextLogic', () => {
                 name: 'Product Analytics',
                 description: 'Analyze user behavior',
                 is_used: true,
-                has_exceeded_limit: false, // percentage_usage = 1.0 means at limit, not exceeded
+                has_exceeded_limit: true, // billing treats percentage_usage = 1.0 as at the limit
                 current_usage: 1000000,
                 usage_limit: 1000000,
                 percentage_usage: 1.0,
@@ -383,7 +383,7 @@ describe('maxBillingContextLogic', () => {
                 name: 'Session Replay',
                 description: 'Record user sessions',
                 is_used: true,
-                has_exceeded_limit: false, // percentage_usage = 1.0 means at limit, not exceeded
+                has_exceeded_limit: true, // billing treats percentage_usage = 1.0 as at the limit
                 current_usage: 5000,
                 usage_limit: 15000, // From first tier
                 percentage_usage: 1.0,

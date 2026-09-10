@@ -70,7 +70,12 @@ export function LogsServicesV2(): JSX.Element {
                 {viewMode === 'grid' ? (
                     <ServicesGrid />
                 ) : (
-                    <ServicesList services={sortedServices} loading={servicesDataLoading} searchTerm={searchTerm} />
+                    <ServicesList
+                        services={sortedServices}
+                        loading={servicesDataLoading}
+                        searchTerm={searchTerm}
+                        dateFrom={dateFrom}
+                    />
                 )}
             </div>
         </div>

@@ -1,7 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { OTHER_BREAKDOWN_LABEL } from 'products/logs/frontend/sparklineOtherBreakdown'
 
 import { LogsSparkline, LogsSparklineData } from './index'
@@ -38,14 +36,12 @@ const meta: Meta<typeof LogsSparkline> = {
         sparklineData: buildSparklineData(),
         sparklineLoading: false,
         displayTimezone: 'UTC',
-        breakdownBy: 'severity',
         collapsed: false,
     },
     parameters: {
         layout: 'padded',
         viewMode: 'story',
         mockDate: '2026-08-06',
-        featureFlags: [FEATURE_FLAGS.LOGS_SPARKLINE_SERVICE_BREAKDOWN],
         // Bars paint asynchronously (ResizeObserver, then rAF); chromium alone keeps the snapshot stable.
         testOptions: { snapshotBrowsers: ['chromium'] },
     },

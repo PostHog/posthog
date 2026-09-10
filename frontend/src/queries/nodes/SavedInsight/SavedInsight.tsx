@@ -1,5 +1,6 @@
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 
+import { NotFound } from 'lib/components/NotFound'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -29,7 +30,7 @@ export function SavedInsight({
     editMode,
 }: InsightProps): JSX.Element {
     const insightProps: InsightLogicProps = { dashboardItemId: propsQuery.shortId }
-    const { insight, insightLoading } = useValues(insightLogic(insightProps))
+    const { insight, insightLoading, insightMissing } = useValues(insightLogic(insightProps))
     const { query: dataQuery } = useValues(insightDataLogic(insightProps))
 
     useAttachedLogic(insightLogic(insightProps), attachTo)
@@ -41,6 +42,10 @@ export function SavedInsight({
                 <LoadingBar />
             </div>
         )
+    }
+
+    if (insightMissing) {
+        return <NotFound object="insight" />
     }
 
     // `showResults` is reapplied only when the caller set it: a stored query carrying an explicit

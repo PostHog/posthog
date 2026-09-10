@@ -47,4 +47,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "modifiedOn": "The timestamp the contact was last modified, in ISO 8601 UTC.",
         },
     },
+    "survey_links": {
+        "description": "A shareable survey link generated through the Zonka Feedback Survey Links API — a unique URL used to distribute a survey through your own channels and track the response it collects.",
+        "docs_url": "https://apidocs.zonkafeedback.com/",
+        "columns": {
+            "id": "The unique ID of the survey link.",
+            "surveyId": "The ID of the survey this link opens.",
+            "url": "The unique, shareable URL that opens the survey.",
+            "trackingCode": "The short tracking code embedded in the link URL, used to attribute the collected response.",
+            "status": "The current state of the link (e.g. active, expired, consumed).",
+            "createdOn": "The timestamp the link was created, in ISO 8601 UTC.",
+        },
+    },
 }

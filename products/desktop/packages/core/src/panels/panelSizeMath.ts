@@ -29,8 +29,6 @@ export const normalizeSizes = (
   return withMinimums.map((size) => (size / finalTotal) * 100);
 };
 
-export const calculateSplitSizes = (): [number, number] => [50, 50];
-
 export const redistributeSizes = (
   sizes: number[],
   removedIndex: number,

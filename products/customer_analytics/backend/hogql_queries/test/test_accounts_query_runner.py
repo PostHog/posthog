@@ -15,18 +15,15 @@ from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
 from posthog.models import Tag, User
 from posthog.models.team import Team
-from posthog.rbac.user_access_control import UserAccessControlError
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.access_control.backend.models.access_control import AccessControl
+from products.customer_analytics.backend.facade import api
 from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
 from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models import AccountRelationshipDefinition, CustomPropertyValue
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -554,6 +551,7 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
     def test_custom_property_history_returns_ordered_writes_within_horizon(self):
         account = create_account(team_id=self.team.id, name="A")
         stale_account = create_account(team_id=self.team.id, name="Stale")
+        cleared_account = create_account(team_id=self.team.id, name="Cleared", external_id="cleared")
         definition = create_custom_property_definition(team_id=self.team.id, name="Seats", display_type="number")
         text_definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
         CustomPropertyValue.objects.unscoped().create(
@@ -572,11 +570,25 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
                 team_id=self.team.id, account=target, definition=definition, value_num=value, is_deleted=is_deleted
             )
             CustomPropertyValue.objects.unscoped().filter(id=row.id).update(created_at=written_at)
+        set_result = api.set_external_account_custom_properties(
+            self.team.id, "cleared", properties={str(definition.id): 15}
+        )
+        clear_result = api.set_external_account_custom_properties(
+            self.team.id, "cleared", properties={str(definition.id): None}
+        )
+        self.assertIsNone(set_result.error)
+        self.assertIsNone(clear_result.error)
+        self.assertTrue(
+            CustomPropertyValue.objects.for_team(self.team.id)
+            .filter(account_id=cleared_account.id, definition_id=definition.id, is_deleted=True, value_num=15)
+            .exists()
+        )
 
         runner = AccountsQueryRunner(
             query=AccountsQuery(
                 select=[
                     "id",
+                    f"accounts.custom_properties.values.`{definition.id}` AS numeric_value",
                     f"accounts.custom_properties_history.values.`{definition.id}` AS numeric_history",
                     f"accounts.custom_properties_history.values.`{text_definition.id}` AS text_history",
                 ]
@@ -585,7 +597,7 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
             user=self.user,
         )
         response = runner.calculate()
-        self.assertEqual(len(response.results), 2)
+        self.assertEqual(len(response.results), 3)
         id_idx = runner.columns.index("id")
         rows_by_id = {str(row[id_idx]): row for row in response.results}
 
@@ -599,6 +611,10 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
 
         stale_history = rows_by_id[str(stale_account.id)][runner.columns.index("numeric_history")]
         self.assertEqual([point[1] for point in stale_history], [77.0])
+
+        cleared_row = rows_by_id[str(cleared_account.id)]
+        self.assertFalse(cleared_row[runner.columns.index("numeric_value")])
+        self.assertFalse(cleared_row[runner.columns.index("numeric_history")])
 
     def test_numeric_custom_property_aggregates_in_metrics_mode(self):
         # Overview tiles sum/avg a numeric custom property by casting its (string) value to a float.

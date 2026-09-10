@@ -7,24 +7,32 @@ description: >
   current CI or master status, or mentions a failing check, GitHub Actions run,
   Depot runner, workflow, job, shard, merge queue kick, flaky test, lint failure, typecheck
   failure, snapshot diff, migration check, generated types drift, or skills
-  build failure. Start with the `hogli ci:insights` digest (cross-run CI history
-  from engineering analytics), then guides read-only inspection, failure
-  classification, smallest local reproduction with hogli, and safe reporting
-  without rerunning CI or posting to GitHub.
+  build failure. Interactive runs start with the `hogli ci:insights` digest
+  (cross-run CI history from engineering analytics), then use read-only
+  inspection, failure classification, the smallest local reproduction with
+  hogli, and safe reporting without rerunning CI or posting to GitHub. Running
+  unattended as the "Master-red diagnosis" workflow: see
+  references/master-red-incident.md for its sandbox-compatible first step.
 ---
 
 # Debugging PostHog CI failures
+
+Before you propose a change to CI, check [things already tried](../../../docs/internal/ci-things-already-tried.md) for the idea. It records what was measured, and why some good-sounding changes were reverted or rejected.
 
 Find the first meaningful failure, classify it, reproduce the smallest useful
 case locally when appropriate, and report the result. Avoid public-visible or
 irreversible actions unless the user explicitly asks.
 
-Always start with the `hogli ci:insights` digest. It aggregates across runs and
-branches, which `gh` cannot do cheaply, and tells you whether a failure is
-likely trunk-borne, gate-only, or isolated to a small set of branches. `gh` is
-authoritative for one run's current state and attribution. Use the digest to
-decide _what_ to inspect; use `gh` to confirm _whose_ failure it is and exactly
-what failed in a given run.
+For an interactive investigation, start with the `hogli ci:insights` digest.
+It aggregates across runs and branches, which `gh` cannot do cheaply, and tells
+you whether a failure is likely trunk-borne, gate-only, or isolated to a small
+set of branches. `gh` is authoritative for one run's current state and
+attribution. Use the digest to decide _what_ to inspect; use `gh` to confirm
+_whose_ failure it is and exactly what failed in a given run.
+
+The unattended Master-red workflow is the exception.
+Follow [its reference](references/master-red-incident.md), which defines a first
+step that works in the task sandbox.
 
 This skill triages and classifies. Once a failure is confirmed flaky, hand off
 to the `fixing-flaky-tests` skill, which owns local reproduction, root-cause
@@ -35,6 +43,17 @@ getting slower, which workflow is the long pole, how long PRs take to merge),
 read `diagnosing-ci-and-merge-bottlenecks`. Both are product skills under
 `products/engineering_analytics/skills/`, not invocable here: read the
 `SKILL.md` at that path.
+
+## Rule out a platform outage first
+
+GitHub Actions goes down often enough that it belongs before any log reading, and
+a platform incident makes every other signal a symptom. It costs two page loads:
+<https://www.githubstatus.com/> for GitHub, <https://status.depot.dev/> for the
+runners. Check them whenever failures are broad — several workflows at once, a
+burst of runs failing together, jobs dying before `Checkout`, or anything red
+across unrelated PRs.
+
+Report an outage as an outage, name the component, and stop recommending reruns.
 
 ## Safety rules
 
@@ -54,7 +73,7 @@ overwrite unrelated work.
 
 ## Workflow
 
-### 1. Start with CI insights (always first)
+### 1. Start with CI insights for interactive investigations
 
 `hogli ci:insights` reads PostHog's own engineering analytics — the cross-run
 failure history a single run can't show. Consult it before any raw `gh` log
@@ -130,7 +149,7 @@ overlap its own. The lane script over-reports targets on purpose, so in
 practice that is most of the queue. So:
 
 - The failing run is on that branch, never on the PR's head SHA. Take it from
-  the `Trunk Merge Queue` check run (`/merging-prs` step 4), not `gh pr checks`.
+  `trunk merge status <n>` (`/merging-prs` step 4), not `gh pr checks`. Trunk publishes no check run here.
   The branch is ephemeral; the run and its logs stay on GitHub, and the
   warehouse keeps its jobs under that `head_branch` (query 8 in the
   `investigating-ci-failures` references).
@@ -143,6 +162,35 @@ practice that is most of the queue. So:
   against that PR until you find the change that caused it; the branch's other
   merge commits are the first suspects.
 - In the digest this is the `blocking_merge_queue` state.
+
+### 3. Read the CI report comment (for a PR)
+
+Before reading logs, read the shared CI report comment. It collects independent
+CI signals and advisories in many sections.
+
+Read the full raw comment, not GitHub's collapsed view. This command finds it
+even when the PR has many comments:
+
+```bash
+gh api --paginate "repos/<owner>/<repo>/issues/<pr>/comments?per_page=100" \
+  --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- posthog-ci-report -->"))) | .body'
+```
+
+Inspect every `ci-report:section` block, including unknown sections. Record its
+title, status, summary, and links. Do not stop at the first `fail` section or
+treat the comment heading as an overall verdict.
+
+- Treat `fail` as a lead, and match it to the current job.
+- Treat `alert` and `warn` as non-blocking findings. Review their details and
+  follow their stated action, but do not call either a failed job unless its
+  job failed.
+- `ok` and `info` are not test results.
+- A missing report means the reporter did not run or could not write. It does
+  not prove the PR is healthy.
+
+The report is a summary. A section without a head SHA or run link can be stale.
+Confirm it against the current job. If it disagrees with the current logs,
+report the mismatch and use the logs for the cause.
 
 Inspect read-only:
 
@@ -195,19 +243,20 @@ history, hand off to `fixing-flaky-tests`, which covers the `search-test` and
 
 ## Classification
 
-| Signal in the log                                                                                  | Class               | First action                                                       |
-| -------------------------------------------------------------------------------------------------- | ------------------- | ------------------------------------------------------------------ |
-| `AssertionError`, test diff, `FAILED test_...` in a committed test file                            | code regression     | reproduce with `hogli test <path>::<test>`                         |
-| Test failed here, passed on `master` or on rerun in the same PR                                    | flaky test          | confirm against `master` history; to fix, use `fixing-flaky-tests` |
-| `ruff`, `oxlint`, `stylelint`, `markdownlint`, `prettier` errors                                   | lint                | `hogli lint:python:fix` or `hogli format` on touched files         |
-| `mypy`, `pyright`, `tsc`, `typescript:check` errors                                                | typecheck           | run the same checker locally, not the full suite                   |
-| Chromatic / Storybook / Playwright visual diff, snapshot mismatch                                  | snapshot / visual   | surface the diff URL; do NOT auto-accept snapshots                 |
-| `manage.py migrate` error, `migrations:check` failure, missing migration                           | migration / schema  | `hogli migrations:check` locally                                   |
-| OpenAPI schema diff, generated API types out of sync                                               | codegen drift       | `hogli build:openapi`                                              |
-| `Cannot connect`, `ECONNREFUSED`, `address already in use`, OOM, runner killed, setup step timeout | infra / runner      | get the base rate before calling it transient (below)              |
-| `apt-get`, `uv sync`, `pnpm install`, docker pull, setup action failures                           | environment / setup | diff `.nvmrc`, `pyproject.toml`, `package.json`, Dockerfiles       |
-| `hogli lint:skills`, `hogli build:skills` failure                                                  | skills build        | run the same `hogli` command locally                               |
-| SDK compat check, `ci-survey-sdk-check`, cross-version failure                                     | SDK compatibility   | check SDK version matrix for the affected package                  |
+| Signal in the log                                                                                  | Class               | First action                                                                 |
+| -------------------------------------------------------------------------------------------------- | ------------------- | ---------------------------------------------------------------------------- |
+| `AssertionError`, test diff, `FAILED test_...` in a committed test file                            | code regression     | reproduce with `hogli test <path>::<test>`                                   |
+| Test failed here, passed on `master` or on rerun in the same PR                                    | flaky test          | confirm against `master` history; to fix, use `fixing-flaky-tests`           |
+| `ruff`, `oxlint`, `stylelint`, `markdownlint`, `prettier` errors                                   | lint                | `hogli lint:python:fix` or `hogli format` on touched files                   |
+| `mypy`, `pyright`, `tsc`, `typescript:check` errors                                                | typecheck           | run the same checker locally, not the full suite                             |
+| Chromatic / Storybook / Playwright visual diff, snapshot mismatch                                  | snapshot / visual   | surface the diff URL; do NOT auto-accept snapshots                           |
+| `manage.py migrate` error, `migrations:check` failure, missing migration                           | migration / schema  | `hogli migrations:check` locally                                             |
+| OpenAPI schema diff, generated API types out of sync                                               | codegen drift       | `hogli build:openapi`                                                        |
+| `Cannot connect`, `ECONNREFUSED`, `address already in use`, OOM, runner killed, setup step timeout | infra / runner      | get the base rate before calling it transient (below)                        |
+| `startup_failure` conclusion, a job with zero recorded steps, or a log blob that 404s              | infra / runner      | no log to read; check <https://www.githubstatus.com/> and the runs around it |
+| `apt-get`, `uv sync`, `pnpm install`, docker pull, setup action failures                           | environment / setup | diff `.nvmrc`, `pyproject.toml`, `package.json`, Dockerfiles                 |
+| `hogli lint:skills`, `hogli build:skills` failure                                                  | skills build        | run the same `hogli` command locally                                         |
+| SDK compat check, `ci-survey-sdk-check`, cross-version failure                                     | SDK compatibility   | check SDK version matrix for the affected package                            |
 
 If multiple signals match, choose the most specific class. For example, prefer
 codegen drift over lint, migration over typecheck, and snapshot / visual over a
@@ -235,7 +284,13 @@ Read the result as:
   For a queued PR, recommend re-enqueueing rather than a code change; posting
   `/trunk merge` yourself needs approval, per the Safety rules above.
 - **Recent hours entirely red** — an outage, not a flake. Say so, and stop
-  telling people to retry.
+  telling people to retry. Check <https://www.githubstatus.com/> before
+  attributing it to this repository; a platform incident makes every other
+  signal a symptom.
+- **A burst of runs failing together within a couple of minutes** — one shared
+  cause, not several bugs. Look for a bad commit many merges inherited, or a
+  GitHub dispatch overflow, which fails runs as `startup_failure` before they
+  start and so leaves no log at all.
 - **Steady over days** — a standing defect somebody owns. Worth a ticket even
   though each occurrence looks like noise.
 
@@ -264,8 +319,13 @@ Do NOT run `hogli test` with no arguments. Do NOT run `hogli nuke` or
 
 - Most PostHog jobs run on `depot-ubuntu-latest` or `depot-ubuntu-latest-16`.
   Depot runs surface logs through the GitHub Actions UI / `gh run view` just
-  like standard GitHub-hosted runners. There is no separate Depot console
-  that agents can query in this environment.
+  like standard GitHub-hosted runners, so read them there first.
+- When a Depot runner dies mid-job, GitHub keeps no log to read: the job shows
+  no steps and its log blob 404s. Depot's own dashboard keeps that job's page,
+  with the verdict GitHub lost (an OOM kill, a lost runner). Open it in a
+  browser through the chrome-devtools MCP. `status.depot.dev` covers the case
+  where Depot itself is the outage, and the `depot-github-runners` skill owns
+  runner troubleshooting beyond triage.
 - If a job fails before `Checkout` completes (no app code ran), classify as
   `infra / runner`. Do not propose code fixes.
 - PostHog CI frequently parallelizes the same test class across N shards

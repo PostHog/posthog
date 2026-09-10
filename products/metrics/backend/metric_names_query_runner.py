@@ -20,6 +20,8 @@ without a second round-trip.
 """
 
 import datetime as dt
+from collections.abc import Sequence
+from hashlib import sha256
 from typing import Any
 
 from django.core.cache import cache
@@ -50,6 +52,10 @@ SERIES_RETENTION = dt.timedelta(days=90)
 # long enough to absorb the burst of mounts a team generates in a working session.
 METRIC_NAMES_CACHE_TTL = 60
 
+# Past this the picker is not scoped to anything a person can hold in their head,
+# and the bound keeps one request from building an unbounded IN list.
+MAX_PICKER_SERVICES = 50
+
 
 class MetricNamesQueryRunner:
     def __init__(
@@ -59,16 +65,24 @@ class MetricNamesQueryRunner:
         search: str = "",
         limit: int = 100,
         lookback: dt.timedelta = dt.timedelta(days=7),
+        services: Sequence[str] = (),
     ) -> None:
         if limit <= 0 or limit > 1000:
             raise ValueError("limit must be in [1, 1000]")
         if lookback <= dt.timedelta(0):
             raise ValueError("lookback must be positive")
+        if len(services) > MAX_PICKER_SERVICES:
+            raise ValueError(f"at most {MAX_PICKER_SERVICES} services may be selected")
 
         self.team = team
         self.search = search.strip()
         self.limit = limit
         self.lookback = lookback
+        # Sorted and deduped so two callers that picked the same services in a
+        # different order share one cache entry. An empty string is a real
+        # selection: a sender that omits the `service.name` resource attribute
+        # lands in the group the overview labels "unknown".
+        self.services = tuple(sorted(set(services)))
 
     def _build_query(self) -> ast.SelectQuery:
         # The alias is `last_seen_at`, not `last_seen`: HogQL registers select
@@ -120,6 +134,26 @@ class MetricNamesQueryRunner:
             )
 
         assert isinstance(query, ast.SelectQuery)
+        # Both variants above filter on the lookback, so there is always a WHERE to
+        # extend; the assert is what tells the type checker so.
+        assert query.where is not None
+
+        # Appended to the parsed tree rather than written into both SQL variants
+        # above, so the scoped and unscoped pickers stay one query definition.
+        # `service_name` is the only filterable column with its own skip index
+        # (`idx_service_set`), which is what keeps a type-ahead affordable —
+        # attribute predicates read the label maps and belong in the chart query.
+        if self.services:
+            query.where = ast.And(
+                exprs=[
+                    query.where,
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=ast.Field(chain=["service_name"]),
+                        right=ast.Tuple(exprs=[ast.Constant(value=service) for service in self.services]),
+                    ),
+                ]
+            )
         return query
 
     def run(self) -> list[dict[str, Any]]:
@@ -134,22 +168,31 @@ class MetricNamesQueryRunner:
         return [{"name": row[0], "metric_type": row[1]} for row in response.results]
 
 
-def cached_metric_names(team: Team, *, search: str = "", limit: int = 100) -> list[dict[str, Any]]:
+def cached_metric_names(
+    team: Team, *, search: str = "", limit: int = 100, services: Sequence[str] = ()
+) -> list[dict[str, Any]]:
     """Metric names for the picker, with the unsearched list cached per team.
 
     Only the empty-search prime is cached: every viewer mount issues it and the
     answer is the same for everyone on the team. Searches are per-keystroke and
     per-user, so caching them would fill the cache with single-hit entries.
 
+    The service scope is part of the key, not a filter over one cached list: the
+    unscoped list is capped at `limit` names, so narrowing it in Python would hide
+    metrics that a scoped query returns.
+
     Only non-empty results are cached, matching `team_has_metrics`: a team that
     just wired up OTel must not be pinned to an empty picker while the setup
     prompt's poll has already let them through.
     """
-    runner = MetricNamesQueryRunner(team=team, search=search, limit=limit)
+    runner = MetricNamesQueryRunner(team=team, search=search, limit=limit, services=services)
     if runner.search:
         return runner.run()
 
-    cache_key = f"metrics:{team.id}:metric_names:v1:{limit}"
+    # `repr` of the sorted tuple, hashed: service names come from user data, so
+    # they can carry spaces and unicode that a memcached key cannot.
+    scope = sha256(repr(runner.services).encode()).hexdigest()[:16] if runner.services else "all"
+    cache_key = f"metrics:{team.id}:metric_names:v2:{limit}:{scope}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached

@@ -49,7 +49,7 @@ export type HogFunctionFilterDataWarehouse = {
 }
 
 export interface HogFunctionFilters {
-    source?: 'events' | 'person-updates' | 'data-warehouse-table' | 'data-warehouse-view' // Special case to identify what kind of thing this filters on
+    source?: 'events' | 'internal-events' | 'person-updates' | 'data-warehouse-table' | 'data-warehouse-view' // Special case to identify what kind of thing this filters on
     events?: HogFunctionFilterEvent[]
     actions?: HogFunctionFilterAction[]
     // Warehouse tables this function is subscribed to. Never compiled into bytecode, so the
@@ -191,6 +191,7 @@ export type HogFunctionFilterGlobals = {
     }
 
     variables: Record<string, any> | undefined // For HogFlows, workflow-level variables
+    cohort_ids?: number[] // Cohorts the person is a member of, read by the inCohort/notInCohort STL functions
 }
 
 export type MetricLogSource = 'hog_function' | 'hog_flow' | 'legacy_plugin'
@@ -252,6 +253,7 @@ export type MinimalAppMetric = {
         | 'email_bounce_prevented'
         | 'email_suppressed'
         | 'email_suspended'
+        | 'email_paused'
         | 'email_blocked'
         | 'email_unsubscribed'
         | 'email_untracked'
@@ -333,7 +335,34 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     capturedPostHogEvents: HogFunctionCapturedEvent[]
     warehouseWebhookPayloads: WarehouseWebhookPayload[]
     messageAssets: MessageAssetRow[]
+    conversionWatchers: ConversionWatcherRow[]
     execResult?: unknown
+}
+
+// The compiled conversion goal as it stood when a run enrolled. Pinned to the run rather than read
+// from the live flow, so editing a goal changes what future runs are measured against without
+// re-judging cohorts already in flight under the old one.
+export type PinnedConversionGoal = {
+    // Property-based goal, evaluated against person properties.
+    properties?: any[]
+    // Event-based goals, any one of which converts.
+    events?: any[][]
+}
+
+// One per enrolled run on a workflow with a conversion goal, outliving the run so a conversion that
+// lands after the last step is still observable. See the conversion_watchers migration for why this
+// is not a cyclotron_jobs row.
+export type ConversionWatcherRow = {
+    id: string
+    team_id: number
+    function_id: string
+    run_id: string
+    parent_run_id: string | null
+    distinct_id: string | null
+    person_id: string | null
+    flow_version: number | null
+    goal: PinnedConversionGoal
+    expires_at: Date
 }
 
 export type CyclotronJobInvocationHogFunctionContext = {
@@ -354,7 +383,10 @@ export type CyclotronJobInvocationHogFunctionContext = {
     // version (a retry's scheduled time) and lose the original.
     firstScheduledAt?: string
     actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
+    actionStepCount?: number
 }
+
+export type WorkflowStepResumeStatus = 'completed' | 'failed' | 'cancelled'
 
 export type CyclotronJobInvocationHogFunction = CyclotronJobInvocation & {
     state: CyclotronJobInvocationHogFunctionContext
@@ -367,6 +399,10 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     person?: CyclotronPerson
     groups?: HogFunctionInvocationGlobals['groups']
     filterGlobals: HogFunctionFilterGlobals
+    // Re-reads the person uncached and rebuilds filterGlobals from it. The worker supplies this; a
+    // wait step calls it before its first evaluation, where a stale person parks the run for good.
+    // It returns the values rather than mutating, so it stays correct on a cloned invocation.
+    refreshPerson?: () => Promise<{ person?: CyclotronPerson; filterGlobals: HogFunctionFilterGlobals }>
 }
 
 export type HogFlowInvocationContext = {
@@ -442,6 +478,9 @@ export type HogFlowInvocationContext = {
         // the cdp_hogflow_wait_poll_only_advance metric — the signal that proves whether the poll
         // ever catches a wake the subscription streams missed, gating its eventual removal.
         pollReparked?: boolean
+        // A step parked on an external run: cleared when the matcher writes a matching `resumeResult`.
+        awaitingResume?: { key: string; deadlineAt: string; dispatch: Record<string, unknown>; label?: string }
+        resumeResult?: { key: string; status: WorkflowStepResumeStatus; result?: Record<string, unknown> }
     }
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.
@@ -487,6 +526,8 @@ export type HogFunctionInputSchemaType = {
         | 'task_model'
         | 'task_repository'
         | 'task_mcp_installations'
+        | 'signals_scout'
+        | 'task_skills'
     key: string
     label?: string
     choices?: { value: string; label: string }[]
@@ -502,6 +543,12 @@ export type HogFunctionInputSchemaType = {
     requires_field?: string
     integration_field?: string
     platform?: 'android' | 'ios'
+    /**
+     * Space-separated OAuth scopes. On an `integration` input these are the scopes the connection
+     * must grant, and a connection missing one gets an error banner. On any other input, paired
+     * with `integration_key`, they are the scopes only that field needs — a connection without them
+     * still works, so the field just says what it is missing. Neither is enforced at runtime.
+     */
     requiredScopes?: string
     /**
      * templating: true indicates the field supports templating. Alternatively
@@ -518,6 +565,7 @@ export type HogFunctionTypeType =
     | 'source_webhook'
     | 'warehouse_source_webhook'
     | 'site_destination'
+    | 'legacy_destination'
 
 // Function types a cyclotron worker actually executes, so a rerun can safely re-enqueue
 // the stored invocation onto the cyclotron hog queue and have it run. Every other type

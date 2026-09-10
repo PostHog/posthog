@@ -13,11 +13,20 @@ import {
 } from '@posthog/lemon-ui'
 
 import { GoalLinesList } from 'lib/components/GoalLinesList'
+import { MetricDirectionColorPickers } from 'lib/components/Metric/MetricDirectionColorPickers'
+import {
+    METRIC_COLOR_BY_DIRECTION_DEFAULT,
+    METRIC_DEFAULT_DECREASE_COLOR,
+    METRIC_DEFAULT_INCREASE_COLOR,
+    METRIC_SHOW_CHANGE_DEFAULT,
+    type MetricSummary,
+} from 'lib/components/Metric/metricSummary'
 
 import { ChartDisplayType } from '~/types'
 
 import { dataVisualizationLogic } from '../dataVisualizationLogic'
 import { displayLogic } from '../displayLogic'
+import { SQL_METRIC_SUMMARY_DEFAULT } from './Charts/useSqlMetricModel'
 
 const PIE_SLICE_CONTENT_OPTIONS: { value: 'labels' | 'values' | 'none'; label: string }[] = [
     { value: 'labels', label: 'Labels' },
@@ -30,25 +39,54 @@ const PIE_VALUE_DISPLAY_OPTIONS: { value: 'absolute' | 'percentage'; label: stri
     { value: 'percentage', label: 'Percentage' },
 ]
 
+const LEGEND_POSITION_OPTIONS: { value: 'top' | 'bottom' | 'left' | 'right'; label: string }[] = [
+    { value: 'top', label: 'Top' },
+    { value: 'bottom', label: 'Bottom' },
+    { value: 'left', label: 'Left' },
+    { value: 'right', label: 'Right' },
+]
+
+const METRIC_SUMMARY_OPTIONS: { value: MetricSummary; label: string }[] = [
+    { value: 'latest', label: 'Latest' },
+    { value: 'total', label: 'Total' },
+    { value: 'average', label: 'Average' },
+]
+
 const LINE_STYLE_OPTIONS: { value: 'smooth' | 'linear'; label: string }[] = [
     { value: 'smooth', label: 'Smooth' },
     { value: 'linear', label: 'Straight' },
 ]
 
 export const DisplayTab = (): JSX.Element => {
-    const { effectiveVisualizationType } = useValues(dataVisualizationLogic)
+    const { effectiveVisualizationType, xData } = useValues(dataVisualizationLogic)
     const { goalLines, chartSettings } = useValues(displayLogic)
     const { addGoalLine, updateGoalLine, removeGoalLine, updateChartSettings } = useActions(displayLogic)
 
     const isStackedBarChart = effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
     const isPieChart = effectiveVisualizationType === ChartDisplayType.ActionsPie
     const isScatterPlot = effectiveVisualizationType === ChartDisplayType.ScatterPlot
+    const isBoxPlot = effectiveVisualizationType === ChartDisplayType.BoxPlot
+    const isMetric = effectiveVisualizationType === ChartDisplayType.Metric
+    const isHorizontalBarChart = effectiveVisualizationType === ChartDisplayType.ActionsBarValue
+    // Scatter and box plots have a single Y axis, so there is no separate right axis to configure.
+    const isSingleAxisChart = isScatterPlot || isBoxPlot
+    const supportsRightYAxis = !isSingleAxisChart && !isHorizontalBarChart
     const isLineChart =
         effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
         effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph
+    const isDateXAxis = xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME'
+    const supportsAnnotations =
+        isDateXAxis &&
+        (isLineChart ||
+            effectiveVisualizationType === ChartDisplayType.ActionsBar ||
+            effectiveVisualizationType === ChartDisplayType.ActionsStackedBar)
 
     const renderYAxisSettings = (name: 'leftYAxisSettings' | 'rightYAxisSettings'): JSX.Element => {
-        const leftPlaceholder = isScatterPlot ? 'Y-axis label' : 'Left Y-axis label'
+        const leftPlaceholder = isHorizontalBarChart
+            ? 'X-axis label'
+            : supportsRightYAxis
+              ? 'Left Y-axis label'
+              : 'Y-axis label'
         const labelPlaceholder = name === 'leftYAxisSettings' ? leftPlaceholder : 'Right Y-axis label'
 
         return (
@@ -87,17 +125,19 @@ export const DisplayTab = (): JSX.Element => {
                     }}
                 />
 
-                <LemonSwitch
-                    className="flex-1 w-full"
-                    label="Begin at zero"
-                    checked={
-                        chartSettings[name]?.startAtZero ??
-                        (isScatterPlot ? false : (chartSettings.yAxisAtZero ?? true))
-                    }
-                    onChange={(value) => {
-                        updateChartSettings({ [name]: { startAtZero: value } })
-                    }}
-                />
+                {!isBoxPlot && (
+                    <LemonSwitch
+                        className="flex-1 w-full"
+                        label="Begin at zero"
+                        checked={
+                            chartSettings[name]?.startAtZero ??
+                            (isScatterPlot ? false : (chartSettings.yAxisAtZero ?? true))
+                        }
+                        onChange={(value) => {
+                            updateChartSettings({ [name]: { startAtZero: value } })
+                        }}
+                    />
+                )}
                 <LemonSwitch
                     className="flex-1 w-full"
                     label="Show grid lines"
@@ -107,6 +147,84 @@ export const DisplayTab = (): JSX.Element => {
                     }}
                 />
             </>
+        )
+    }
+
+    if (isMetric) {
+        const metric = chartSettings.metric ?? {}
+        const showChange = metric.showChange ?? METRIC_SHOW_CHANGE_DEFAULT
+        const colorByDirection = metric.colorByDirection ?? METRIC_COLOR_BY_DIRECTION_DEFAULT
+
+        return (
+            <div className="flex flex-col w-full">
+                <LemonCollapse
+                    embedded
+                    defaultActiveKeys={['metric']}
+                    multiple
+                    panels={[
+                        {
+                            key: 'metric',
+                            header: 'Metric',
+                            className: 'p-2 flex flex-col gap-2',
+                            content: (
+                                <>
+                                    <div className="flex flex-col gap-1">
+                                        <LemonLabel>Headline value</LemonLabel>
+                                        <LemonSelect
+                                            className="w-full"
+                                            data-attr="data-visualization-metric-summary"
+                                            value={metric.summary ?? SQL_METRIC_SUMMARY_DEFAULT}
+                                            options={METRIC_SUMMARY_OPTIONS}
+                                            onChange={(value) => updateChartSettings({ metric: { summary: value } })}
+                                            fullWidth
+                                        />
+                                    </div>
+                                    <LemonSwitch
+                                        className="flex-1 w-full"
+                                        label="Show change"
+                                        checked={showChange}
+                                        onChange={(value) => updateChartSettings({ metric: { showChange: value } })}
+                                    />
+                                    {showChange && (
+                                        <MetricDirectionColorPickers
+                                            className="gap-2"
+                                            increaseColor={metric.changeIncreaseColor ?? METRIC_DEFAULT_INCREASE_COLOR}
+                                            decreaseColor={metric.changeDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR}
+                                            onIncrease={(color) =>
+                                                updateChartSettings({ metric: { changeIncreaseColor: color } })
+                                            }
+                                            onDecrease={(color) =>
+                                                updateChartSettings({ metric: { changeDecreaseColor: color } })
+                                            }
+                                        />
+                                    )}
+                                    <LemonSwitch
+                                        className="flex-1 w-full"
+                                        label="Color by trend"
+                                        checked={colorByDirection}
+                                        onChange={(value) =>
+                                            updateChartSettings({ metric: { colorByDirection: value } })
+                                        }
+                                    />
+                                    {colorByDirection && (
+                                        <MetricDirectionColorPickers
+                                            className="gap-2"
+                                            increaseColor={metric.lineIncreaseColor ?? METRIC_DEFAULT_INCREASE_COLOR}
+                                            decreaseColor={metric.lineDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR}
+                                            onIncrease={(color) =>
+                                                updateChartSettings({ metric: { lineIncreaseColor: color } })
+                                            }
+                                            onDecrease={(color) =>
+                                                updateChartSettings({ metric: { lineDecreaseColor: color } })
+                                            }
+                                        />
+                                    )}
+                                </>
+                            ),
+                        },
+                    ]}
+                />
+            </div>
         )
     }
 
@@ -131,6 +249,42 @@ export const DisplayTab = (): JSX.Element => {
                                         updateChartSettings({ showLegend: value })
                                     }}
                                 />
+                                <div className="flex flex-col gap-1">
+                                    <LemonLabel>Legend position</LemonLabel>
+                                    <LemonSelect
+                                        className="w-full"
+                                        value={chartSettings.legendPosition ?? (isPieChart ? 'right' : 'top')}
+                                        options={LEGEND_POSITION_OPTIONS}
+                                        disabledReason={
+                                            chartSettings.showLegend
+                                                ? undefined
+                                                : 'Turn the legend on to set its position'
+                                        }
+                                        onChange={(value) => updateChartSettings({ legendPosition: value })}
+                                        fullWidth
+                                    />
+                                </div>
+                                {isBoxPlot && (
+                                    <LemonSwitch
+                                        className="flex-1 w-full"
+                                        label="Exclude outliers"
+                                        checked={chartSettings.boxPlot?.excludeOutliers !== false}
+                                        onChange={(value) => {
+                                            updateChartSettings({ boxPlot: { excludeOutliers: value } })
+                                        }}
+                                    />
+                                )}
+                                {supportsAnnotations && (
+                                    <LemonSwitch
+                                        className="flex-1 w-full"
+                                        data-attr="data-visualization-show-annotations"
+                                        label="Show annotations"
+                                        checked={chartSettings.showAnnotations ?? false}
+                                        onChange={(value) => {
+                                            updateChartSettings({ showAnnotations: value })
+                                        }}
+                                    />
+                                )}
                                 {isPieChart ? (
                                     <>
                                         <div className="flex flex-col gap-1">
@@ -181,7 +335,7 @@ export const DisplayTab = (): JSX.Element => {
                                                 }}
                                             />
                                         )}
-                                        {!isScatterPlot && (
+                                        {!isSingleAxisChart && (
                                             <>
                                                 <LemonSwitch
                                                     className="flex-1 w-full"
@@ -225,11 +379,13 @@ export const DisplayTab = (): JSX.Element => {
                                             </div>
                                         )}
                                         <div className="flex flex-col gap-1">
-                                            <LemonLabel>X-axis label</LemonLabel>
+                                            <LemonLabel>
+                                                {isHorizontalBarChart ? 'Y-axis label' : 'X-axis label'}
+                                            </LemonLabel>
                                             <LemonInput
                                                 data-attr="data-visualization-x-axis-label-input"
                                                 value={chartSettings.xAxisLabel ?? ''}
-                                                placeholder="X-axis label"
+                                                placeholder={isHorizontalBarChart ? 'Y-axis label' : 'X-axis label'}
                                                 onChange={(value) => {
                                                     updateChartSettings({ xAxisLabel: value })
                                                 }}
@@ -237,7 +393,11 @@ export const DisplayTab = (): JSX.Element => {
                                         </div>
                                         <LemonSwitch
                                             className="flex-1 w-full"
-                                            label="Show X-axis tick labels"
+                                            label={
+                                                isHorizontalBarChart
+                                                    ? 'Show Y-axis tick labels'
+                                                    : 'Show X-axis tick labels'
+                                            }
                                             checked={chartSettings.showXAxisTicks ?? true}
                                             onChange={(value) => {
                                                 updateChartSettings({ showXAxisTicks: value })
@@ -249,7 +409,11 @@ export const DisplayTab = (): JSX.Element => {
                                             <>
                                                 <LemonSwitch
                                                     className="flex-1 w-full"
-                                                    label="Show X-axis border"
+                                                    label={
+                                                        isHorizontalBarChart
+                                                            ? 'Show Y-axis border'
+                                                            : 'Show X-axis border'
+                                                    }
                                                     checked={chartSettings.showXAxisBorder ?? true}
                                                     onChange={(value) => {
                                                         updateChartSettings({ showXAxisBorder: value })
@@ -257,7 +421,11 @@ export const DisplayTab = (): JSX.Element => {
                                                 />
                                                 <LemonSwitch
                                                     className="flex-1 w-full"
-                                                    label="Show Y-axis border"
+                                                    label={
+                                                        isHorizontalBarChart
+                                                            ? 'Show X-axis border'
+                                                            : 'Show Y-axis border'
+                                                    }
                                                     checked={chartSettings.showYAxisBorder ?? true}
                                                     onChange={(value) => {
                                                         updateChartSettings({ showYAxisBorder: value })
@@ -306,13 +474,12 @@ export const DisplayTab = (): JSX.Element => {
                     !isPieChart
                         ? {
                               key: 'left-y-axis',
-                              header: isScatterPlot ? 'Y-axis' : 'Left Y-axis',
+                              header: isHorizontalBarChart ? 'X-axis' : supportsRightYAxis ? 'Left Y-axis' : 'Y-axis',
                               className: 'p-2 flex flex-col gap-2',
                               content: renderYAxisSettings('leftYAxisSettings'),
                           }
                         : null,
-                    // A scatter has one gutter per axis, so there is no second Y axis to configure.
-                    !isPieChart && !isScatterPlot
+                    !isPieChart && supportsRightYAxis
                         ? {
                               key: 'right-y-axis',
                               header: 'Right Y-axis',
@@ -337,7 +504,7 @@ export const DisplayTab = (): JSX.Element => {
                               ),
                           }
                         : null,
-                    !isPieChart && !isScatterPlot
+                    !isPieChart && !isSingleAxisChart
                         ? {
                               key: 'goals',
                               header: (

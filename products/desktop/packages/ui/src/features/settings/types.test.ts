@@ -2,14 +2,14 @@ import { describe, expect, it } from "vitest";
 import { isSettingsCategory, resolveSettingsCategory } from "./types";
 
 describe("isSettingsCategory", () => {
-  it("recognizes sidebar experience settings", () => {
-    expect(isSettingsCategory("sidebar")).toBe(true);
+  it("recognizes a known category", () => {
+    expect(isSettingsCategory("terminal")).toBe(true);
   });
 });
 
 describe("resolveSettingsCategory", () => {
   it.each([
-    ["sidebar", "sidebar"],
+    ["terminal", "terminal"],
     // Startup restores the last URL, so dropping this mapping would silently
     // land anyone parked on the old Claude Code page in General.
     ["claude-code", "harness"],

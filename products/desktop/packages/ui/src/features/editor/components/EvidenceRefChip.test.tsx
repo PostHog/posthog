@@ -2,6 +2,7 @@ import { POSTHOG_OBJECT_KINDS } from "@posthog/core/message-editor/content";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { SessionTaskIdProvider } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { Theme } from "@radix-ui/themes";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -23,13 +24,25 @@ vi.mock("../../../hooks/useAuthenticatedQuery", () => ({
   }),
 }));
 
+import { setRootContainer } from "@posthog/di/container";
+import { Container } from "inversify";
+import { ANALYTICS_TRACKER } from "../../../shell/analytics";
 import { openExternalUrl } from "../../../shell/openExternal";
 import { ANONYMOUS_AUTH_STATE, useAuthStore } from "../../auth/store";
+import { evidencePreviewQueryKey } from "../evidencePreview";
 import { EvidenceHoverCard, EvidenceRefChip } from "./EvidenceRefChip";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+});
+
 function renderInTheme(node: React.ReactNode) {
-  return render(<Theme>{node}</Theme>);
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <Theme>{node}</Theme>
+    </QueryClientProvider>,
+  );
 }
 
 function signIn() {
@@ -42,8 +55,17 @@ function signIn() {
   });
 }
 
+function bindTracker() {
+  const track = vi.fn();
+  const container = new Container();
+  container.bind(ANALYTICS_TRACKER).toConstantValue({ track });
+  setRootContainer(container);
+  return track;
+}
+
 afterEach(() => {
   useAuthStore.setState({ authState: ANONYMOUS_AUTH_STATE });
+  queryClient.clear();
   const actions = useDraftStore.getState().actions;
   actions.setDraft("task-1", null);
   actions.clearPendingInsert("task-1");
@@ -116,6 +138,54 @@ describe("EvidenceRefChip", () => {
     expect(
       screen.getByRole("button", { name: /Open in PostHog/ }),
     ).toBeDefined();
+  });
+
+  it("lets the card follow the active theme instead of forcing dark", () => {
+    signIn();
+    renderInTheme(
+      <EvidenceRefChip target={{ kind: "insight", id: "9pQx3" }}>
+        Checkout funnel
+      </EvidenceRefChip>,
+    );
+    fireEvent.focus(screen.getByRole("link", { name: "Checkout funnel" }));
+    const popup = screen.getByTestId("evidence-hover-card");
+    expect(popup.className.split(" ")).not.toContain("dark");
+  });
+
+  it("reports the preview as shown with a cache miss on first open", () => {
+    const track = bindTracker();
+    signIn();
+    renderInTheme(
+      <EvidenceRefChip target={{ kind: "insight", id: "9pQx3" }}>
+        Checkout funnel
+      </EvidenceRefChip>,
+    );
+    fireEvent.focus(screen.getByRole("link", { name: "Checkout funnel" }));
+    expect(track).toHaveBeenCalledWith(
+      "Evidence preview shown",
+      expect.objectContaining({ kind: "insight", cache: "miss" }),
+    );
+  });
+
+  it("reports the preview as shown with a cache hit after a resolved lookup is seeded", () => {
+    queryClient.setQueryData(
+      evidencePreviewQueryKey({ kind: "insight", id: "9pQx3" }),
+      {
+        title: "Checkout funnel",
+      },
+    );
+    const track = bindTracker();
+    signIn();
+    renderInTheme(
+      <EvidenceRefChip target={{ kind: "insight", id: "9pQx3" }}>
+        Checkout funnel
+      </EvidenceRefChip>,
+    );
+    fireEvent.focus(screen.getByRole("link", { name: "Checkout funnel" }));
+    expect(track).toHaveBeenCalledWith(
+      "Evidence preview shown",
+      expect.objectContaining({ kind: "insight", cache: "hit" }),
+    );
   });
 
   it("gives an unlinked reference a focusable trigger that opens the card", () => {

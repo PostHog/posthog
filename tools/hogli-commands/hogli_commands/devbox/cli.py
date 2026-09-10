@@ -10,6 +10,7 @@ import sys
 import errno
 import shutil
 import socket
+import tempfile
 import functools
 import subprocess
 import urllib.parse
@@ -29,12 +30,14 @@ from .coder import (
     DEFAULT_REGION,
     DEFAULT_TEMPLATE,
     DOTFILES_URI_PARAMETER,
+    EXPECTED_TAILNET,
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
     GIT_SIGNING_KEY_SECRET,
     REGIONS,
     _diagnose_unreachable_coder,
     _fail,
+    _ssh_host_alias,
     _start_app_param,
     clone_workspace,
     coder_authenticated,
@@ -86,7 +89,7 @@ from .coder import (
     ssh_replace,
     start_workspace,
     stop_workspace,
-    tailscale_connected,
+    tailscale_state,
     unshare_workspace,
     update_workspace,
     update_workspace_parameters,
@@ -113,7 +116,9 @@ _POSTHOG_COMMIT_SIGNING_HANDBOOK_URL = "https://posthog.com/handbook/engineering
 # fails at the reachability check.
 _TAILNET_POLICY_URL = "https://github.com/PostHog/posthog-cloud-infra/blob/main/tailnet-policy.hujson"
 _TAILNET_ACCESS_PREREQ = (
-    "Devbox access needs your email in `group:engineering` in "
+    f"Devbox access needs you on the `{EXPECTED_TAILNET}` tailnet (not dev / "
+    "prod-us / prod-eu / internal — those are for CI runners and subnet "
+    "routers), with your email in `group:engineering` in "
     "posthog-cloud-infra/tailnet-policy.hujson.\n"
     f"    Not granted yet? Add yourself via PR: {_TAILNET_POLICY_URL}"
 )
@@ -489,16 +494,51 @@ def maybe_configure_git_identity(configure_git_identity: bool | None) -> None:
     click.echo(f"Saved Git identity for new workspaces: {git_name} <{git_email}>")
 
 
+def _ssh_config_without_coder_block() -> str | None:
+    """Return ``~/.ssh/config`` with coder's managed block cut out, or ``None`` when there is nothing to cut.
+
+    The deployment hostname matches the ``Host coder.*`` block that
+    ``coder config-ssh`` writes, so resolving ``IdentityAgent`` against it
+    reads back whatever the previous run wrote. An engineer who started
+    without one therefore never acquires one, however many times they
+    re-run setup.
+    """
+    try:
+        content = (Path.home() / ".ssh" / "config").read_text()
+    except OSError:
+        return None
+    lines = content.splitlines(keepends=True)
+    start = next((i for i, line in enumerate(lines) if "START-CODER" in line), None)
+    end = next((i for i, line in enumerate(lines) if "END-CODER" in line), None)
+    if start is None or end is None or end < start:
+        return None
+    return "".join(lines[:start] + lines[end + 1 :])
+
+
 def _resolve_local_identity_agent_for_coder() -> str | None:
     """Return the IdentityAgent ssh would use to connect to Coder workspaces, or ``None``.
 
     Resolves against the deployment hostname so the engineer's existing
-    ``Host *`` / ``Host *.posthog.dev`` / specific blocks all flow through.
+    ``Host *`` / ``Host *.posthog.dev`` / specific blocks all flow through,
+    reading their config with coder's block removed so a value coder wrote
+    on an earlier run cannot outrank the one they have set today.
+
+    Falls back to the plain lookup, which sees coder's block, so a machine
+    whose only ``IdentityAgent`` is the one coder wrote keeps it.
     """
     coder_host = urllib.parse.urlparse(get_coder_url()).hostname
     if not coder_host:
         return None
-    return _resolve_local_identity_agent(coder_host)
+    stripped = _ssh_config_without_coder_block()
+    if stripped is None:
+        return _resolve_local_identity_agent(coder_host)
+    with tempfile.NamedTemporaryFile("w", suffix="-ssh-config", delete=False) as probe:
+        probe.write(stripped)
+    try:
+        own = _resolve_local_identity_agent(coder_host, config_path=probe.name)
+    finally:
+        os.unlink(probe.name)
+    return own or _resolve_local_identity_agent(coder_host)
 
 
 def _resolve_local_signing_key() -> str | None:
@@ -529,23 +569,99 @@ def _resolve_local_signing_key() -> str | None:
         return None
 
 
-def _resolve_local_identity_agent(host: str) -> str | None:
+def _read_identity_agent(host: str, *, config_path: str | None = None) -> str | None:
+    """Return the raw ``identityagent`` value ``ssh -G <host>`` resolves, or ``None`` when ssh fails.
+
+    The raw value carries three meanings the normalized form collapses:
+    a socket path, ``none`` (use no agent at all), and the placeholder
+    ``SSH_AUTH_SOCK`` (fall back to the env var).
+    """
+    args = ["ssh", "-G", host] if config_path is None else ["ssh", "-F", config_path, "-G", host]
+    result = subprocess.run(args, capture_output=True, text=True)
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines():
+        if line.startswith("identityagent "):
+            return line[len("identityagent ") :].strip()
+    return None
+
+
+def _resolve_local_identity_agent(host: str, *, config_path: str | None = None) -> str | None:
     """Return the SSH agent socket ``ssh -G <host>`` would use to authenticate, or ``None`` when no specific agent is configured.
 
     Treats ``none`` (signaling "no agent") and the literal placeholder
     ``SSH_AUTH_SOCK`` (signaling "fall back to the env var") as "no specific
     agent" so callers can decide their own fallback.
     """
-    result = subprocess.run(["ssh", "-G", host], capture_output=True, text=True)
+    value = _read_identity_agent(host, config_path=config_path)
+    if value and value.lower() not in ("none", "ssh_auth_sock"):
+        return value
+    return None
+
+
+@dataclass(frozen=True)
+class SigningAgentStatus:
+    """Whether the agent ssh forwards into devboxes can sign commits, and why not when it can't."""
+
+    ok: bool
+    detail: str
+
+
+def _key_fingerprint(public_key: str) -> str | None:
+    """Return the ``SHA256:...`` fingerprint of an SSH public key, or ``None`` when it will not parse."""
+    result = subprocess.run(["ssh-keygen", "-lf", "-"], input=public_key, capture_output=True, text=True)
     if result.returncode != 0:
         return None
-    for line in result.stdout.splitlines():
-        if line.startswith("identityagent "):
-            value = line[len("identityagent ") :].strip()
-            if value and value.lower() not in ("none", "ssh_auth_sock"):
-                return value
-            return None
-    return None
+    fields = result.stdout.split()
+    return next((field for field in fields if field.startswith("SHA256:")), None)
+
+
+def _forwarded_agent_socket() -> str | None:
+    """Return the agent socket ssh forwards to devboxes, or ``None`` when it forwards nothing.
+
+    Mirrors what ``ssh`` itself does: ``IdentityAgent`` wins over the
+    environment, ``none`` means no agent at all, and everything else falls
+    back to ``$SSH_AUTH_SOCK``.
+    """
+    value = _read_identity_agent(_ssh_host_alias("probe"))
+    if value and value.lower() != "ssh_auth_sock":
+        return None if value.lower() == "none" else value
+    return os.environ.get("SSH_AUTH_SOCK") or None
+
+
+def _diagnose_signing_agent() -> SigningAgentStatus:
+    """Report whether the agent reaching Coder hosts holds the commit-signing key.
+
+    Devbox signing is ``ssh-keygen -Y sign`` against a forwarded agent.
+    Forwarding a socket that holds nothing -- or forwarding none at all --
+    is not an ssh error, so the only symptom is a commit that fails to sign
+    inside the workspace, hours later and far from the cause.
+    """
+    public_key = _resolve_local_signing_key()
+    if not public_key:
+        return SigningAgentStatus(False, "`git config --global user.signingkey` is empty")
+
+    fingerprint = _key_fingerprint(public_key)
+    if not fingerprint:
+        return SigningAgentStatus(False, "`git config --global user.signingkey` is not a readable public key")
+
+    socket_path = _forwarded_agent_socket()
+    if not socket_path:
+        return SigningAgentStatus(
+            False, "ssh forwards no agent to Coder hosts (IdentityAgent none, or $SSH_AUTH_SOCK unset)"
+        )
+
+    listed = subprocess.run(
+        ["ssh-add", "-l"],
+        env={**os.environ, "SSH_AUTH_SOCK": socket_path},
+        capture_output=True,
+        text=True,
+    )
+    if listed.returncode != 0:
+        return SigningAgentStatus(False, f"no agent responding at {socket_path}")
+    if fingerprint not in listed.stdout:
+        return SigningAgentStatus(False, f"agent at {socket_path} does not hold {fingerprint}")
+    return SigningAgentStatus(True, f"{fingerprint} via {socket_path}")
 
 
 def maybe_configure_git_signing(
@@ -595,12 +711,12 @@ def maybe_configure_git_signing(
     click.echo()
     click.echo(click.style("Git commit signing", bold=True))
     click.echo(f"  Pushed signing key from `git config user.signingkey`: {public_key}")
-    agent_socket = _resolve_local_identity_agent_for_coder()
-    if agent_socket:
-        click.echo(f"  IdentityAgent for Coder hosts (from your ssh config): {agent_socket}")
+    signing_agent = _diagnose_signing_agent()
+    if signing_agent.ok:
+        click.echo(f"  Agent forwarded to Coder hosts holds the key: {signing_agent.detail}")
     else:
-        click.echo("  No IdentityAgent detected for Coder hosts -- SSH agent forwarding will use")
-        click.echo(f"  whatever `$SSH_AUTH_SOCK` points to. Configure per: {_POSTHOG_COMMIT_SIGNING_HANDBOOK_URL}")
+        click.echo(click.style(f"  Commits will not sign inside devboxes: {signing_agent.detail}", fg="yellow"))
+        click.echo(f"  Configure per: {_POSTHOG_COMMIT_SIGNING_HANDBOOK_URL}")
     click.echo()
     click.echo(click.style("If you haven't already:", bold=True))
     click.echo("  1. Open https://github.com/settings/ssh/new")
@@ -734,7 +850,13 @@ def devbox_doctor() -> None:
     click.echo(f"  Coder URL: {get_coder_url()}")
     click.echo()
 
-    _doctor_check("Tailscale connected", tailscale_connected())
+    connected, tailnet = tailscale_state()
+    _doctor_check("Tailscale connected", connected)
+
+    # Being on a per-environment tailnet looks identical to "connected" but
+    # routes nowhere near a devbox, and nothing prompts you about it after the
+    # first sign-in — so name the active tailnet on its own line.
+    _doctor_check(f"Tailnet: {tailnet or 'unknown'} (need {EXPECTED_TAILNET})", tailnet == EXPECTED_TAILNET)
 
     reachable = coder_reachable()
     _doctor_check("Coder control plane reachable", reachable)
@@ -762,6 +884,9 @@ def devbox_doctor() -> None:
     # The Host coder.* block is a wildcard, so any name probes whether
     # `coder config-ssh` has run -- the prerequisite for devbox:ssh/exec.
     _doctor_check("SSH access configured (devbox:ssh/exec)", coder_ssh_alias_configured("probe"))
+
+    signing_agent = _diagnose_signing_agent()
+    _doctor_check(f"Commit signing agent: {signing_agent.detail}", signing_agent.ok)
 
     if not authenticated:
         _doctor_footer()

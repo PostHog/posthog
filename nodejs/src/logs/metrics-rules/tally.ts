@@ -1,3 +1,4 @@
+import { decodeLogAttributeValue } from '../attribute-value'
 import type { LogRecord } from '../log-record-avro'
 import { matchFilterGroup } from '../sampling/filter-group-match'
 import type { CompiledMetricRule } from './compile-metric-rules'
@@ -51,12 +52,22 @@ function lookupKey(key: string, record: LogRecord): string | null | undefined {
         return record.event_name
     }
     if (key.startsWith(ATTRIBUTES_PREFIX)) {
-        return record.attributes?.[key.slice(ATTRIBUTES_PREFIX.length)]
+        return decodedAttr(record.attributes, key.slice(ATTRIBUTES_PREFIX.length))
     }
     if (key.startsWith(RESOURCE_ATTRIBUTES_PREFIX)) {
-        return record.resource_attributes?.[key.slice(RESOURCE_ATTRIBUTES_PREFIX.length)]
+        return decodedAttr(record.resource_attributes, key.slice(RESOURCE_ATTRIBUTES_PREFIX.length))
     }
     return undefined
+}
+
+/**
+ * Attribute map values are JSON-encoded on the Avro wire (a string arrives as
+ * `"pod-1"`, quotes included). Decode at the read so labels match what the Logs
+ * UI shows and numeric value attributes parse instead of tallying as NaN.
+ */
+function decodedAttr(map: Record<string, string> | null | undefined, key: string): string | undefined {
+    const raw = map?.[key]
+    return raw === undefined ? undefined : decodeLogAttributeValue(raw)
 }
 
 function resolveLabelValue(key: string, record: LogRecord): string {

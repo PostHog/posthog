@@ -4,11 +4,16 @@ import {
   AskAboutSelection,
   quoteSelection,
 } from "@posthog/ui/features/inbox/components/AskAboutSelection";
+import { ReportActivitySection } from "@posthog/ui/features/inbox/components/detail/ReportActivitySection";
 import { ReportFeedbackFooter } from "@posthog/ui/features/inbox/components/detail/ReportFeedbackFooter";
 import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDetailFrame";
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
 import { ReportChatSidebar } from "@posthog/ui/features/inbox/components/ReportChatSidebar";
 import { ReportDetailActions } from "@posthog/ui/features/inbox/components/ReportDetailActions";
+import { ReportReviewersSection } from "@posthog/ui/features/inbox/components/ReportReviewersSection";
+import { ReportRunsSection } from "@posthog/ui/features/inbox/components/ReportRunsSection";
+import { ReportVerdictBanner } from "@posthog/ui/features/inbox/components/ReportVerdictBanner";
+import { ReportTrackerIssueLink } from "@posthog/ui/features/inbox/components/utils/ReportTrackerIssueLink";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { useCallback, useEffect, useRef } from "react";
 
@@ -52,14 +57,14 @@ export function ReportDetail({
 /**
  * A report reads story-first: the summary and charts, then the evidence.
  * The document stays pure content while its conversation owns follow-up
- * actions. Pipeline machinery (runs, activity logs, reviewer reasoning)
- * deliberately doesn't render.
+ * actions. Activity stays available but collapsed so someone can tell whether
+ * work already started without letting the implementation log dominate.
  *
  * The report owns its own scroll so the chat dock can sit full-height beside
  * it: reading and asking share one screen, and highlighting a passage quotes
  * it into the chat.
  */
-function ReportDetailContent({
+export function ReportDetailContent({
   report,
   backTo,
   backLabel,
@@ -73,9 +78,11 @@ function ReportDetailContent({
   const setPendingQuote = useReportChatPanelStore((s) => s.setPendingQuote);
   const contentRef = useRef<HTMLDivElement>(null);
 
+  // Each report opens as a document. Conversation remains explicit through the action box.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the route changes to another report.
   useEffect(() => {
-    setChatOpen(true);
-  }, [setChatOpen]);
+    setChatOpen(false);
+  }, [report.id, setChatOpen]);
 
   const handleAsk = useCallback(
     (text: string) => {
@@ -96,10 +103,26 @@ function ReportDetailContent({
           primaryAction={
             <ReportDetailActions report={report} placement="header" />
           }
-          summarySection={{ Icon: FileTextIcon, title: "Summary" }}
+          belowSummary={
+            <>
+              <ReportVerdictBanner
+                key={report.id}
+                report={report}
+                initialEngagementOnly
+              />
+              <ReportTrackerIssueLink report={report} />
+            </>
+          }
+          summarySection={{ Icon: FileTextIcon, title: "Report summary" }}
           footer={<ReportFeedbackFooter report={report} />}
           evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
-        />
+          showDismiss={false}
+          showMetadata={false}
+        >
+          <ReportReviewersSection report={report} />
+          <ReportRunsSection report={report} />
+          <ReportActivitySection reportId={report.id} />
+        </InboxDetailFrame>
       </div>
       <AskAboutSelection containerRef={contentRef} onAsk={handleAsk} />
       {chatOpen && <ReportChatSidebar report={report} />}

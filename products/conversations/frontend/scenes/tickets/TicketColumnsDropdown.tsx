@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDivider, LemonDropdown } from '@posthog/lemon-ui'
 
 import { IconTuning } from 'lib/lemon-ui/icons'
@@ -61,14 +60,12 @@ export function TicketColumnsDropdown({ aiEnabled, embedded = false }: TicketCol
             }
         >
             <LemonButton
-                type="secondary"
+                type="tertiary"
                 size="small"
                 icon={<IconTuning />}
-                sideIcon={<IconChevronDown />}
                 data-attr="support-tickets-column-selector"
-            >
-                {allShown ? 'All columns' : `${shownCount} of ${offerable.length} columns`}
-            </LemonButton>
+                tooltip={allShown ? 'Show all columns' : `Show ${shownCount} of ${offerable.length} columns`}
+            />
         </LemonDropdown>
     )
 }

@@ -1000,6 +1000,84 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
         created_at: '2023-04-20T18:35:14.033429Z',
     },
     {
+        user: {
+            first_name: 'Employee 427',
+            email: 'test@posthog.com',
+        },
+        activity: 'updated',
+        scope: ActivityScope.INSIGHT,
+        item_id: '40',
+        detail: {
+            merge: null,
+            changes: [
+                {
+                    type: ActivityScope.INSIGHT,
+                    action: 'changed',
+                    field: 'query',
+                    after: {
+                        kind: 'InsightVizNode',
+                        source: {
+                            kind: 'TrendsQuery',
+                            series: [
+                                { kind: 'EventsNode', event: '$pageview', name: '$pageview', math: 'total' },
+                                { kind: 'EventsNode', event: 'signed up', name: 'signed up', math: 'dau' },
+                            ],
+                            interval: 'day',
+                            dateRange: { date_from: '-30d' },
+                            properties: [{ key: '$browser', type: 'event', value: ['Chrome'], operator: 'exact' }],
+                            breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                            trendsFilter: { display: 'ActionsLineGraph' },
+                        },
+                    },
+                },
+            ],
+            trigger: null,
+            name: 'Pageviews and signups by browser',
+            short_id: 'HcLbVmQp' as InsightShortId,
+        },
+        created_at: '2023-04-21T09:12:44.033429Z',
+    },
+    {
+        user: {
+            first_name: 'Employee 427',
+            email: 'test@posthog.com',
+        },
+        activity: 'updated',
+        scope: ActivityScope.INSIGHT,
+        item_id: '41',
+        detail: {
+            merge: null,
+            changes: [
+                {
+                    type: ActivityScope.INSIGHT,
+                    action: 'changed',
+                    field: 'query',
+                    after: {
+                        kind: 'InsightVizNode',
+                        source: {
+                            kind: 'FunnelsQuery',
+                            series: [
+                                {
+                                    kind: 'EventsNode',
+                                    event: '$pageview',
+                                    name: '$pageview',
+                                    custom_name: 'Visited the site',
+                                },
+                                { kind: 'EventsNode', event: 'signed up', name: 'signed up' },
+                            ],
+                            dateRange: { date_from: '-14d' },
+                            funnelsFilter: { funnelVizType: 'steps' },
+                        },
+                    },
+                },
+            ],
+            trigger: null,
+            name: 'Signup funnel',
+            short_id: 'Zk3RtYw2' as InsightShortId,
+        },
+        created_at: '2023-04-21T09:14:02.033429Z',
+    },
+    {
         user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
         activity: 'updated',
         scope: ActivityScope.INSIGHT,

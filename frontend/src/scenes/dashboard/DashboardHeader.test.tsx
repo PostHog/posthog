@@ -86,6 +86,7 @@ describe('DashboardHeader', () => {
     function renderHeader(opts: {
         dashboard?: DashboardType<QueryBasedInsightModel> | null
         dashboardMode?: DashboardMode | null
+        dashboardEditing?: { filters: boolean; layout: boolean } | null
         dashboardModeSource?: DashboardEventSource
         loading?: boolean
         spyOnLoadDashboard?: boolean
@@ -93,6 +94,7 @@ describe('DashboardHeader', () => {
         const {
             dashboard = MOCK_DASHBOARD,
             dashboardMode = null,
+            dashboardEditing = null,
             dashboardModeSource = DashboardEventSource.Browser,
             loading = false,
         } = opts
@@ -103,7 +105,9 @@ describe('DashboardHeader', () => {
             ? jest.spyOn(logic.actions, 'loadDashboard').mockImplementation()
             : undefined
 
-        if (dashboardMode) {
+        if (dashboardEditing) {
+            logic.actions.setDashboardEditing(dashboardEditing, dashboardModeSource)
+        } else if (dashboardMode) {
             logic.actions.setDashboardMode(dashboardMode, dashboardModeSource)
         }
 
@@ -160,57 +164,101 @@ describe('DashboardHeader', () => {
             scenario: 'View mode, can edit',
             dashboardMode: null as DashboardMode | null,
             canEdit: true,
-            visible: ['dashboard-share-button', 'dashboard-add-tile', 'dashboard-edit-mode-button'],
-            notVisible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save'],
+            hasTiles: false,
+            visible: [],
+            notVisible: [
+                'dashboard-add-tile',
+                'dashboard-share-button',
+                'dashboard-edit-mode-button',
+                'dashboard-edit-mode-discard',
+                'dashboard-edit-mode-save',
+            ],
         },
         {
             scenario: 'View mode, cannot edit',
             dashboardMode: null as DashboardMode | null,
             canEdit: false,
-            visible: ['dashboard-share-button', 'dashboard-add-tile'],
-            notVisible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save', 'dashboard-edit-mode-button'],
+            hasTiles: false,
+            visible: [],
+            notVisible: [
+                'dashboard-add-tile',
+                'dashboard-share-button',
+                'dashboard-edit-mode-discard',
+                'dashboard-edit-mode-save',
+                'dashboard-edit-mode-button',
+            ],
         },
         {
             scenario: 'Filter edit mode',
-            dashboardMode: DashboardMode.Edit,
+            dashboardEditing: { filters: true, layout: false },
             dashboardModeSource: DashboardEventSource.DashboardFilters,
             canEdit: true,
-            visible: ['dashboard-add-tile', 'dashboard-edit-layout-customize-dropdown'],
+            hasTiles: false,
+            visible: [],
             notVisible: [
+                'dashboard-add-tile',
                 'dashboard-edit-mode-discard',
                 'dashboard-edit-mode-save',
                 'dashboard-share-button',
+                'dashboard-edit-layout-customize-dropdown',
                 'add-text-tile-to-dashboard',
                 'dashboard-add-graph-header',
             ],
         },
         {
-            scenario: 'Layout edit mode',
-            dashboardMode: DashboardMode.Edit,
-            dashboardModeSource: DashboardEventSource.SceneCommonButtons,
-            canEdit: true,
-            visible: [
+            scenario: 'Filter edit mode, cannot edit',
+            dashboardEditing: { filters: true, layout: false },
+            dashboardModeSource: DashboardEventSource.DashboardFilters,
+            canEdit: false,
+            hasTiles: true,
+            visible: [],
+            notVisible: [
+                'dashboard-edit-mode-button',
                 'dashboard-edit-mode-discard',
                 'dashboard-edit-mode-save',
-                'dashboard-edit-layout-customize-dropdown',
-                'dashboard-add-tile',
+                'dashboard-share-button',
             ],
-            notVisible: ['dashboard-share-button', 'add-text-tile-to-dashboard', 'dashboard-add-graph-header'],
+        },
+        {
+            scenario: 'Layout edit mode',
+            dashboardEditing: { filters: true, layout: true },
+            dashboardModeSource: DashboardEventSource.SceneCommonButtons,
+            canEdit: true,
+            hasTiles: false,
+            visible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save'],
+            notVisible: [
+                'dashboard-add-tile',
+                'dashboard-share-button',
+                'dashboard-edit-layout-customize-dropdown',
+                'add-text-tile-to-dashboard',
+                'dashboard-add-graph-header',
+            ],
         },
         {
             scenario: 'Fullscreen mode',
             dashboardMode: DashboardMode.Fullscreen,
             canEdit: true,
+            hasTiles: false,
             visible: ['dashboard-exit-presentation-mode'],
             notVisible: ['dashboard-share-button', 'dashboard-edit-mode-save'],
         },
     ])(
         '$scenario shows correct action buttons',
-        ({ dashboardMode, dashboardModeSource, canEdit, visible, notVisible }) => {
+        ({ dashboardMode, dashboardEditing, dashboardModeSource, canEdit, hasTiles, visible, notVisible }) => {
             const dashboard = makeDashboard({
                 user_access_level: canEdit ? AccessControlLevel.Editor : AccessControlLevel.Viewer,
+                tiles: hasTiles
+                    ? [
+                          {
+                              id: 1,
+                              color: null,
+                              layouts: {},
+                              insight: { id: 1, short_id: 'test', name: 'Test' } as QueryBasedInsightModel,
+                          },
+                      ]
+                    : [],
             })
-            const { logic } = renderHeader({ dashboard, dashboardMode, dashboardModeSource })
+            const { logic } = renderHeader({ dashboard, dashboardMode, dashboardEditing, dashboardModeSource })
 
             for (const attr of visible) {
                 expect(document.querySelector(`[data-attr="${attr}"]`)).toBeInTheDocument()

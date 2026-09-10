@@ -137,6 +137,46 @@ ASANA_ENDPOINTS: dict[str, AsanaEndpointConfig] = {
             "resource_type",
         ],
     ),
+    # AI Studio usage endpoints (organization fan-out — AI Studio is an org/division feature, so
+    # non-organization workspaces are skipped to avoid invalid requests). Both require the
+    # `admin.ai_studio_usage:read` scope on an AI Studio-licensed org; unlicensed orgs return 403.
+    "ai_studio_runs": AsanaEndpointConfig(
+        name="ai_studio_runs",
+        fan_out="organization",
+        path="/workspaces/{workspace_gid}/ai_studio/runs",
+        opt_fields=[
+            "rule.name",
+            "rule_owner.name",
+            "rule_owner.email",
+            "triggered_by.name",
+            "triggered_by.email",
+            "triggering_container.resource_type",
+            "division.name",
+            "run_started_at",
+            "run_completed_at",
+            "status",
+            "model",
+            "credits_used",
+            "credit_source",
+            "resource_type",
+        ],
+        partition_key="run_started_at",
+    ),
+    "ai_studio_seats": AsanaEndpointConfig(
+        name="ai_studio_seats",
+        fan_out="organization",
+        path="/workspaces/{workspace_gid}/ai_studio/seats",
+        opt_fields=[
+            "user.name",
+            "user.email",
+            "license",
+            "state",
+            "assigned_at",
+            "revoked_at",
+            "assigned_by.name",
+            "resource_type",
+        ],
+    ),
 }
 
 ENDPOINTS = tuple(ASANA_ENDPOINTS.keys())
@@ -147,4 +187,7 @@ ENDPOINTS = tuple(ASANA_ENDPOINTS.keys())
 # real server filter would make every "incremental" run cost the same as a full refresh.
 # Incremental tasks (via `modified_since`) and the Events API are tracked as follow-ups; they
 # need a live token to smoke-test the filter behaviour before we can rely on it.
+# `ai_studio/runs` does take a `start_at`/`end_at` window, but it filters by an internal metering
+# timestamp that the row shape does not expose — so no synced column maps cleanly onto the cursor,
+# and the arrival order can't be verified without a live token. It stays full-refresh with the rest.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

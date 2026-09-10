@@ -18,7 +18,9 @@ from products.signals.backend.artefact_schemas import (
     SafetyJudgment,
     SuggestedReviewerEntry,
     SuggestedReviewers,
+    SummaryChange,
     TaskRunArtefact,
+    TitleChange,
 )
 from products.signals.backend.models import (
     ArtefactAttribution,
@@ -32,6 +34,7 @@ from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH,
 from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SOURCE_TYPE
 from products.signals.backend.scout_report import (
     InvalidScoutReportError,
+    ScoutReportAlreadyEmittedError,
     ScoutReportSignal,
     create_scout_report,
     set_report_charts,
@@ -106,6 +109,33 @@ class TestScoutReportPersistence(BaseTest):
         )
         report = SignalReport.objects.get(id=result.report_id)
         assert (report.first_visible_at is not None) is expect_stamp
+
+    def test_create_refuses_a_second_report_for_a_key_one_already_holds(self) -> None:
+        # The case the emit path's own pre-check can't see: a retry arriving mid-judge passes it and
+        # reaches the insert too. The index has to stop it, and surface the first report, not a 500.
+        run = self._make_run()
+        first = create_scout_report(
+            team_id=self.team.id,
+            title="Checkout API p99 latency regressed",
+            summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+            signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+            attribution=ArtefactAttribution.from_task(str(run.task_run.task_id)),
+            run=run,
+            idempotency_key="emission-1",
+        )
+        with pytest.raises(ScoutReportAlreadyEmittedError) as raised:
+            create_scout_report(
+                team_id=self.team.id,
+                title="Checkout API p99 latency regressed",
+                summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+                signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+                attribution=ArtefactAttribution.from_task(str(run.task_run.task_id)),
+                run=run,
+                idempotency_key="emission-1",
+            )
+        assert raised.value.existing.report_id == first.report_id
+        assert raised.value.existing.status == SignalReport.Status.READY
+        assert SignalReport.objects.filter(team=self.team).count() == 1
 
     def test_create_writes_report_with_bound_signals_metadata(self) -> None:
         # The load-bearing contract (decision #5): each backing signal is written to the embeddings
@@ -243,12 +273,38 @@ class TestScoutReportPersistence(BaseTest):
             attribution=ArtefactAttribution.system(),
         )
         updated = update_scout_report(
-            team_id=self.team.id, report_id=result.report_id, title="new title", summary="new summary"
+            team_id=self.team.id,
+            report_id=result.report_id,
+            title="new title",
+            summary="new summary",
+            attribution=ArtefactAttribution.system(),
         )
         assert set(updated) == {"title", "summary", "updated_at"}
         report = SignalReport.objects.get(id=result.report_id)
         assert report.title == "new title"
         assert report.summary == "new summary"
+
+        # The edit is logged as typed title_change / summary_change artefacts carrying the value before
+        # and after — the same machine-readable shape the human PATCH path writes, not a prose note.
+        title_change = SignalReportArtefact.objects.get(
+            report_id=result.report_id, type=SignalReportArtefact.ArtefactType.TITLE_CHANGE
+        )
+        assert TitleChange.model_validate_json(title_change.content) == TitleChange(
+            old_title="old title", new_title="new title"
+        )
+        summary_change = SignalReportArtefact.objects.get(
+            report_id=result.report_id, type=SignalReportArtefact.ArtefactType.SUMMARY_CHANGE
+        )
+        assert SummaryChange.model_validate_json(summary_change.content) == SummaryChange(
+            old_summary="old summary", new_summary="new summary"
+        )
+        # The edit adds no prose note — only the one provenance note the create path wrote survives.
+        assert (
+            SignalReportArtefact.objects.filter(
+                report_id=result.report_id, type=SignalReportArtefact.ArtefactType.NOTE
+            ).count()
+            == 1
+        )
 
     def test_update_fails_closed_on_cross_team_report(self) -> None:
         # edit_report can target any inbox report (decision #2) — so the team scope is the only thing

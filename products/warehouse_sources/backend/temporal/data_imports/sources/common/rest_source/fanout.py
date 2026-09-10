@@ -23,16 +23,20 @@ logger = structlog.get_logger(__name__)
 
 
 class FanoutEndpointLike(Protocol):
-    # Read-only members: the fan-out only reads an endpoint config, so frozen dataclasses
-    # satisfy this too (a settable attribute still matches a read-only member).
+    # Read-only members, because the helper only reads them and a mutable protocol attribute
+    # would exclude a frozen endpoint-config dataclass. A plain attribute still satisfies these.
     @property
     def name(self) -> str: ...
+
     @property
     def path(self) -> str: ...
+
     @property
     def incremental_fields(self) -> list[Any]: ...
+
     @property
     def default_incremental_field(self) -> str | None: ...
+
     @property
     def page_size(self) -> int: ...
 
@@ -106,6 +110,7 @@ def build_dependent_resource(
     parent_endpoint_extra: Endpoint | None = None,
     child_endpoint_extra: Endpoint | None = None,
     child_params_extra: dict[str, Any] | None = None,
+    parent_data_map: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     page_size_param: str | None = "limit",
     resume_hook: Callable[[dict[str, Any] | None], None] | None = None,
     initial_paginator_state: dict[str, Any] | None = None,
@@ -146,6 +151,13 @@ def build_dependent_resource(
         "table_format": "delta",
     }
 
+    if parent_data_map is not None:
+        # Parent transforms run before the child transformer reads the page, so a resolve_field
+        # the parent rows do not carry can be derived here. `process_parent_data_item` binds the
+        # path with `str.format`, which applies no escaping, so a vendor whose ids can contain
+        # `/` must percent-encode them through this hook.
+        parent_resource["data_map"] = parent_data_map
+
     if warehouse_parent:
         if not source_id:
             raise ValueError("source_id is required when a fan-out reads its parent from the warehouse")
@@ -174,6 +186,7 @@ def build_dependent_resource(
             # below, so the child syncs exactly the way it does without this feature.
             warehouse_parent = False
         else:
+            parent_resource["parent_source"] = "warehouse"
             parent_resource["data_iterator"] = lambda: iter_parent_pages_from_warehouse(
                 table=parent_table,
                 parent_name=fanout.parent_name,
