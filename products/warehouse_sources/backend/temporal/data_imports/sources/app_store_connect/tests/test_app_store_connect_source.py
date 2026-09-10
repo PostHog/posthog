@@ -60,12 +60,12 @@ def _input_fields(source: AppStoreConnectSource) -> dict[str, SourceFieldInputCo
 
 
 class TestAppStoreConnectSource:
-    def test_source_is_visible_and_labelled_beta(self) -> None:
+    def test_source_is_visible_and_generally_available(self) -> None:
         config = AppStoreConnectSource().get_source_config
 
         # `unreleasedSource` hides a source from users entirely; a finished source must not set it.
         assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.BETA
+        assert config.releaseStatus == ReleaseStatus.GA
         assert config.category == DataWarehouseSourceCategory.ANALYTICS
         assert config.docsUrl is not None
 

@@ -27199,7 +27199,10 @@
                 "RecallAI",
                 "Tenjin",
                 "Folk",
-                "Cybersource"
+                "Cybersource",
+                "GoogleAdSense",
+                "Sequenzy",
+                "Skio"
             ],
             "type": "string"
         },

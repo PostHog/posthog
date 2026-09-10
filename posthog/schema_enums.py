@@ -2663,6 +2663,9 @@ class ExternalDataSourceType(StrEnum):
     TENJIN = "Tenjin"
     FOLK = "Folk"
     CYBERSOURCE = "Cybersource"
+    GOOGLE_AD_SENSE = "GoogleAdSense"
+    SEQUENZY = "Sequenzy"
+    SKIO = "Skio"
 
 
 class ExternalQueryErrorCode(StrEnum):
