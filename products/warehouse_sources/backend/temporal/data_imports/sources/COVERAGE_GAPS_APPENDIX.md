@@ -196,14 +196,14 @@ Note: Static schema list (no dynamic discovery). Coverage of the org/billing obj
 
 ## Algolia — gaps
 
-Today (4): `indices`, `records`, `rules`, `synonyms`
+Today (9): `ab_tests`, `indices`, `records`, `rules`, `searches_no_clicks`, `searches_no_results`, `synonyms`, `top_hits`, `top_searches`
 
 Diffed against: <https://raw.githubusercontent.com/algolia/api-clients-automation/main/specs/bundled/analytics.yml>
 
-- [ ] `GET /2/searches (Analytics API)` — top search terms with counts - the vendor's headline search metric (high)
-- [ ] `GET /2/hits (Analytics API)` — top results per query with click and conversion counts, the record-level performance table (high)
-- [ ] `GET /2/searches/noResults and /2/searches/noClicks` — zero-result and zero-click queries, the core relevance-debugging tables (high)
-- [ ] `GET /2/abtests (A/B Testing API)` — A/B test definitions and per-variant results (high)
+- [x] `GET /2/searches (Analytics API)` — top search terms with counts - the vendor's headline search metric (high) → `top_searches`
+- [x] `GET /2/hits (Analytics API)` — top results per query with click and conversion counts, the record-level performance table (high) → `top_hits`
+- [x] `GET /2/searches/noResults and /2/searches/noClicks` — zero-result and zero-click queries, the core relevance-debugging tables (high) → `searches_no_results`, `searches_no_clicks`
+- [x] `GET /2/abtests (A/B Testing API)` — A/B test definitions and per-variant results (high) → `ab_tests` (implemented against the GA `GET /3/abtests`; the audited `/2/abtests` listing is deprecated in favour of v3)
 - [ ] `GET /2/conversions/conversionRate, /2/conversions/revenue, /2/conversions/addToCartRate, /2/conversions/purchaseRate` — conversion and revenue time series per index (high)
 - [ ] `GET /2/clicks/clickThroughRate, /2/clicks/averageClickPosition, /2/clicks/positions` — click-through and click-position time series (medium)
 - [ ] `GET /2/filters and /2/filters/{attribute}` — facet/filter usage breakdown dimension (medium)
@@ -213,7 +213,7 @@ Diffed against: <https://raw.githubusercontent.com/algolia/api-clients-automatio
 - [ ] `GET /1/incidents, /1/latency/{clusters}, /1/indexing/{clusters} (Monitoring API)` — cluster latency, indexing time and incident history (low)
 - [ ] `GET /1/logs/{indexName} (Query Suggestions API)` — query-suggestions build logs per index (low)
 
-Note: Static schema list, no dynamic index discovery. Every synced table comes from the Search API (content objects only); the Analytics, A/B testing, Ingestion and Monitoring APIs are entirely absent, which is the part a warehouse user actually wants. Also diffed against the bundled abtesting.yml, insights.yml, monitoring.yml, ingestion.yml and search.yml specs in the same repo.
+Note: Static schema list, no dynamic index discovery. The headline Analytics tables (top searches, top hits, zero-result and zero-click searches) and A/B tests (via the GA `/3/abtests`) are now covered; the remaining Analytics time-series (conversions, clicks, filters, countries) and the Ingestion, Monitoring, and raw-log APIs are still absent. Also diffed against the bundled abtesting.yml, insights.yml, monitoring.yml, ingestion.yml and search.yml specs in the same repo.
 
 ## Alguna — gaps
 
