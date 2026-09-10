@@ -27,7 +27,7 @@ This skill helps you and your agent **adapt those canonical scouts to a specific
 
 A scout's output is the **report channel**: it lists `emit_report` / `edit_report` in its frontmatter `allowed_tools` and authors or edits full inbox reports 1:1 directly.
 The canonical fleet runs this way, and **every new scout should too** — always include the `allowed_tools` opt-in when authoring one.
-Where that output *lands* is a separate, per-scout config decision: the report goes to the Signals inbox, and the same report can be delivered to a Slack channel or DM at the same time (`output_destinations` under Run posture) — so don't rule a scout out of a job because the user wants the result in Slack.
+Where that output _lands_ is a separate, per-scout config decision: the report goes to the Signals inbox, and the same report can be delivered to a Slack channel or DM at the same time (`output_destinations` under Run posture) — so don't rule a scout out of a job because the user wants the result in Slack.
 (A historical signal-emitting channel — weak `emit-signal` findings a pipeline consolidated — still exists in the harness for scouts that never opted in, but it is deprecated: don't author new scouts on it, and opt an old one in rather than extending it.)
 
 A scout is an `LLMSkill` that holds a `SignalScoutConfig`.
