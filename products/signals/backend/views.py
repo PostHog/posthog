@@ -1573,6 +1573,13 @@ class SignalReportViewSet(
                 ).order_by("-created_at")[:1],
                 to_attr="prefetched_repo_selection_artefacts",
             ),
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(
+                    type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+                ).order_by("-created_at")[:1],
+                to_attr="prefetched_suggested_reviewers_artefacts",
+            ),
         )
 
     def _annotate_is_suggested_reviewer(self, queryset):
@@ -2096,6 +2103,20 @@ class SignalReportViewSet(
         # actions carry, for the serializer's refund_ineligibility_reason field.
         with tracer.start_as_current_span("signals.reports.list.fetch_billable_pr_runs"):
             first_billable_pr_run_at_map = first_billable_pr_run_at_by_report(report_ids)
+
+        # Resolve every suggested reviewer on the page in two grouped queries, so the serializer's
+        # suggested_reviewers field enriches from these maps instead of one lookup per card.
+        with tracer.start_as_current_span("signals.reports.list.resolve_reviewers"):
+            page_reviewer_artefacts = [
+                art for r in reports for art in (getattr(r, "prefetched_suggested_reviewers_artefacts", None) or [])
+            ]
+            reviewer_logins = normalized_github_logins_from_suggested_reviewer_artefacts(page_reviewer_artefacts)
+            reviewer_login_map = (
+                resolve_org_github_login_to_users(self.team.id, reviewer_logins) if reviewer_logins else {}
+            )
+            reviewer_uuids = normalized_user_uuids_from_suggested_reviewer_artefacts(page_reviewer_artefacts)
+            reviewer_uuid_map = resolve_org_users_by_uuid(self.team.id, reviewer_uuids) if reviewer_uuids else {}
+
         context = {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
@@ -2104,6 +2125,8 @@ class SignalReportViewSet(
             "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
+            "signals_github_login_to_user_map": reviewer_login_map,
+            "signals_reviewer_user_uuid_map": reviewer_uuid_map,
         }
         serializer = self.get_serializer(reports, many=True, context=context)
 
