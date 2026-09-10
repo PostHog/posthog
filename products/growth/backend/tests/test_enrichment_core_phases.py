@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, call, patch
 from asgiref.sync import async_to_sync
 
 from products.growth.backend.enrichment.bridge import ClayBridgeInputs, OrganizationBridgeInputs, WizardBridgeInputs
+from products.growth.backend.enrichment.context import EnrichmentContext, EnrichmentPhase
 from products.growth.backend.enrichment.core import enrich_organization
 from products.growth.backend.enrichment.fields import EnrichmentFields
 from products.growth.backend.enrichment.icp_lists import clear_lists_cache
@@ -90,6 +91,14 @@ class TestEnrichmentCorePhases(BaseTest):
         bridge_inputs,
         person,
     ):
+        ctx = EnrichmentContext(
+            organization_id=str(self.organization.id),
+            domain=domain,
+            phase=EnrichmentPhase.RECHECK if is_recheck else EnrichmentPhase.AT_SIGNUP,
+            distinct_id=distinct_id,
+            role_at_organization=role_at_organization,
+            geoip_country_code=geoip_country_code,
+        )
         with (
             patch(
                 "products.growth.backend.enrichment.core.read_organization_bridge_inputs",
@@ -97,16 +106,7 @@ class TestEnrichmentCorePhases(BaseTest):
             ),
             patch("products.growth.backend.enrichment.core.get_person_by_distinct_id", return_value=person),
         ):
-            return async_to_sync(enrich_organization)(
-                organization_id=str(self.organization.id),
-                domain=domain,
-                provider=provider,
-                pha_client=pha_client,
-                is_recheck=is_recheck,
-                role_at_organization=role_at_organization,
-                geoip_country_code=geoip_country_code,
-                distinct_id=distinct_id,
-            )
+            return async_to_sync(enrich_organization)(ctx, provider=provider, pha_client=pha_client)
 
     def _rows(self):
         return list(
