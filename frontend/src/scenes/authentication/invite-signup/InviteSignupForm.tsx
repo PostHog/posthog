@@ -464,7 +464,7 @@ function InviteInvalid(): JSX.Element {
                             <LemonButton size="large" center fullWidth type="primary" to={urls.default()}>
                                 Go back to PostHog
                             </LemonButton>
-                        ) : code === ErrorCodes.InvalidRecipient ? (
+                        ) : code === ErrorCodes.InvalidRecipient || code === ErrorCodes.Unknown ? (
                             <LemonButton
                                 size="large"
                                 center
