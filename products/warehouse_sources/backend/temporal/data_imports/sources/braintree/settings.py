@@ -1,4 +1,6 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -45,7 +47,7 @@ _DISPUTE_FIELDS = """
 """
 
 
-@dataclass
+@frozen
 class BraintreeEndpointConfig:
     # Field on the GraphQL `search` root.
     search_field: str
