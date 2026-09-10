@@ -3702,7 +3702,7 @@ async def test_recover_subscription_scheduler_claims_defers_uncertain_claims_beh
 
 
 async def test_recover_subscription_scheduler_claims_continues_after_one_transition_fails(team, user):
-    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="recover-error", name="Recovery error")
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="recover-err", name="Recovery error")
     subscriptions = [
         await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user) for _ in range(2)
     ]
