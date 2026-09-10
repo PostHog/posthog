@@ -161,6 +161,7 @@ export enum AvailableFeature {
     ROLE_BASED_ACCESS = 'role_based_access',
     SOCIAL_SSO = 'social_sso',
     SAML = 'saml',
+    OIDC = 'oidc',
     SCIM = 'scim',
     SSO_ENFORCEMENT = 'sso_enforcement',
     XAA_AUTHENTICATION = 'xaa_authentication',
@@ -265,7 +266,7 @@ export enum Region {
     DEV = 'DEV',
 }
 
-export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
+export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml' | 'oidc'
 export type LoginMethod = SSOProvider | 'password' | 'passkey' | null
 
 export interface AuthBackends {
@@ -273,6 +274,7 @@ export interface AuthBackends {
     gitlab?: boolean
     github?: boolean
     saml?: boolean
+    oidc?: boolean
 }
 
 export type ColumnChoice = string[] | 'DEFAULT'

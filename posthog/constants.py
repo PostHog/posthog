@@ -15,6 +15,7 @@ class AvailableFeature(StrEnum):
     ORGANIZATIONS_PROJECTS = "organizations_projects"
     SOCIAL_SSO = "social_sso"
     SAML = "saml"
+    OIDC = "oidc"
     SCIM = "scim"
     SSO_ENFORCEMENT = "sso_enforcement"
     ADVANCED_PERMISSIONS = "advanced_permissions"  # TODO: Remove this once access_control is propagated
@@ -402,6 +403,11 @@ LOGIN_METHODS = [
         "key": "saml",
         "display": "SAML",
         "backends": ["saml", "ee.api.authentication.MultitenantSAMLAuth"],
+    },
+    {
+        "key": "oidc",
+        "display": "OIDC",
+        "backends": ["oidc", "posthog.api.oidc.MultitenantOIDCAuth"],
     },
     {
         "key": "passkey",

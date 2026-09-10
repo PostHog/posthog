@@ -172,8 +172,10 @@ export const urls = {
     aiHistory: (): string => '/ai/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
-    identityProviderConfig: (feature: 'saml' | 'scim' | 'xaa' | ':feature', configId: string | ':configId'): string =>
-        `/settings/organization-authentication/${feature}/${configId}`,
+    identityProviderConfig: (
+        feature: 'saml' | 'oidc' | 'scim' | 'xaa' | ':feature',
+        configId: string | ':configId'
+    ): string => `/settings/organization-authentication/${feature}/${configId}`,
     featurePreview: (flagKey: string): string => combineUrl('/settings/user-feature-previews', {}, flagKey).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
     toolbarLaunch: (): string => '/toolbar',
