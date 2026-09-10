@@ -1,7 +1,9 @@
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
 from typing import Any, Optional
 from urllib.parse import urlencode
+
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -23,6 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.settings import (
     NORTHPASS_ENDPOINTS,
     QUIZ_COMPLETED_EVENT_TYPE,
+    QUIZ_LOG_EMPTY_MESSAGE,
+    QUIZ_LOG_ENDPOINTS,
     NorthpassEndpointConfig,
 )
 
@@ -33,6 +37,36 @@ NORTHPASS_BASE_URL = "https://api.northpass.com/v2"
 NORTHPASS_HOST = "api.northpass.com"
 # Northpass doesn't publish its max page size; 100 is a conventional cap that keeps payloads small.
 PAGE_SIZE = 100
+
+
+class NorthpassQuizLogEmptyError(Exception):
+    """The sent-webhooks log served no quiz-completed event, so the quiz tables have nothing to build from."""
+
+
+class NorthpassPaginator(JSONResponsePaginator):
+    """Follow JSON:API ``links.next``, and stop on an empty page even when a next link is present.
+
+    ``/webhooks`` keeps serving a next link after its last message, so a walk that trusts the link
+    alone never ends.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(next_url_path="links.next")
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        if not data:
+            self._has_next_page = False
+            return
+        super().update_state(response, data)
+
+
+def _require_rows(pages: Iterable[list[dict[str, Any]]], endpoint: str) -> Iterator[list[dict[str, Any]]]:
+    found = False
+    for page in pages:
+        found = found or bool(page)
+        yield page
+    if not found:
+        raise NorthpassQuizLogEmptyError(f"{QUIZ_LOG_EMPTY_MESSAGE}, so {endpoint} has no rows to sync")
 
 
 @dataclasses.dataclass
@@ -215,7 +249,7 @@ def _client_config(api_key: str) -> ClientConfig:
         "headers": {"Accept": "application/json"},
         "auth": {"type": "api_key", "api_key": api_key, "name": "X-Api-Key", "location": "header"},
         # JSON:API paginates via a `links.next` URL embedded in the response body.
-        "paginator": JSONResponsePaginator(next_url_path="links.next"),
+        "paginator": NorthpassPaginator(),
         # Pin every request to Northpass's host and refuse redirects, so a spoofed `next` link or a
         # 30x can't forward the credentialed X-Api-Key header off-host.
         "allowed_hosts": [NORTHPASS_HOST],
@@ -370,9 +404,15 @@ def northpass_source(
             api_key, endpoint, config, team_id, job_id, resumable_source_manager, db_incremental_field_last_value
         )
 
+    items: Callable[[], Iterable[list[dict[str, Any]]]]
+    if endpoint in QUIZ_LOG_ENDPOINTS:
+        items = lambda: _require_rows(resource, endpoint)
+    else:
+        items = lambda: resource
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=items,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,

@@ -10,6 +10,7 @@ from parameterized import parameterized
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.northpass_lms import (
+    NorthpassQuizLogEmptyError,
     NorthpassResumeConfig,
     _build_url,
     _flatten_item,
@@ -17,6 +18,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_
     _make_quiz_attempt_flattener,
     _make_relationship_flattener,
     northpass_source,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.settings import (
+    QUIZ_LOG_EMPTY_MESSAGE,
 )
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -232,6 +236,22 @@ class TestTopLevelPagination:
         rows = _rows("courses", _make_manager())
 
         assert rows == []
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_page_stops_even_with_next_link(self, mock_make_session):
+        pages = {
+            COURSES_P1: _page([{"id": "1"}], next_url=COURSES_P2),
+            COURSES_P2: _page([], next_url="https://api.northpass.com/v2/courses?page=3&limit=100"),
+        }
+        sent = _wire(mock_make_session, pages)
+        manager = _make_manager()
+
+        rows = _rows("courses", manager)
+
+        assert [r["id"] for r in rows] == ["1"]
+        assert sent == [COURSES_P1, COURSES_P2]
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved == [NorthpassResumeConfig(next_url=COURSES_P2)]
 
 
 class TestFanOut:
@@ -544,6 +564,34 @@ class TestQuizAttemptsAndAnswers:
             "https://api.northpass.com/v2/quiz_attempts/at1/answers?limit=100",
             "https://api.northpass.com/v2/quiz_attempts/at2/answers?limit=100",
         ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_log_with_next_link_stops_and_raises(self, mock_make_session):
+        pages = {WEBHOOKS_URL: _page([], next_url="https://api.northpass.com/v2/webhooks?page=2&limit=50")}
+        sent = _wire(mock_make_session, pages)
+
+        with pytest.raises(NorthpassQuizLogEmptyError, match=QUIZ_LOG_EMPTY_MESSAGE):
+            _rows("quiz_attempts", _make_manager())
+
+        assert sent == [WEBHOOKS_URL]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_log_holding_only_other_event_types_raises(self, mock_make_session):
+        pages = {WEBHOOKS_URL: _page([_quiz_message("at9", message_id="m3", event_type="course_completed_events")])}
+        _wire(mock_make_session, pages)
+
+        with pytest.raises(NorthpassQuizLogEmptyError, match="quiz_attempts has no rows to sync"):
+            _rows("quiz_attempts", _make_manager())
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_answers_raise_when_the_log_holds_no_attempt(self, mock_make_session):
+        pages = {WEBHOOKS_URL: _page([])}
+        sent = _wire(mock_make_session, pages)
+
+        with pytest.raises(NorthpassQuizLogEmptyError, match="quiz_attempt_answers has no rows to sync"):
+            _rows("quiz_attempt_answers", _make_manager())
+
+        assert sent == [WEBHOOKS_URL]
 
 
 class TestNorthpassSource:
