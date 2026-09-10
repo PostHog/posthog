@@ -23,7 +23,7 @@ from rest_framework.response import Response
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry, TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-from posthog.models.organization import Organization
+from posthog.models.organization import COLD_REQUEST_PATH_ATTRS, Organization
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
 from posthog.models.scoping import get_current_team_id
@@ -145,20 +145,32 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 2)  # Both current_team_annotation and other_team_annotation
 
-    def test_team_lookup_leaves_large_organization_columns_out_of_the_join(self):
+    def test_team_scoped_request_reads_the_organization_without_the_cold_columns(self):
+        # A key-authenticated request, because the scope-gated permission classes read the most
+        # organization fields of any team-scoped path.
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test key", user=self.user, secure_value=hash_key_value(key_value), scopes=["*"]
+        )
+
         with CaptureQueriesContext(connection) as queries:
-            response = self.client.get(f"/api/projects/{self.team.id}/foos/")
+            response = self.client.get(
+                f"/api/scoped_environments/{self.team.id}/scoped_foos/",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
         self.assertEqual(response.status_code, 200)
 
-        team_lookups = [
+        # The team join, plus any second query that loads the same organization on demand. A
+        # permission class that reads a cold column shows up as one of those extra round trips,
+        # which costs more than the narrower select list wins.
+        organization_reads = [
             query["sql"]
             for query in queries.captured_queries
-            if '"posthog_organization"."is_ai_data_processing_approved"' in query["sql"]
-            and '"posthog_team"' in query["sql"]
+            if 'FROM "posthog_team"' in query["sql"] or 'FROM "posthog_organization"' in query["sql"]
         ]
-        self.assertTrue(team_lookups)
-        for sql in team_lookups:
-            self.assertNotIn("available_product_features", sql)
+        self.assertEqual(len(organization_reads), 1)
+        for attr in COLD_REQUEST_PATH_ATTRS:
+            self.assertNotIn(f'"posthog_organization"."{attr}"', organization_reads[0])
 
     def test_organization_nested_filtering(self):
         response = self.client.get(f"/api/organizations/{self.organization.id}/foos/")

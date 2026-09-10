@@ -26,7 +26,7 @@ from posthog.auth import (
     SharingPasswordProtectedAuthentication,
 )
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
-from posthog.models.organization import LARGE_ATTRS, Organization
+from posthog.models.organization import COLD_REQUEST_PATH_ATTRS, Organization
 from posthog.models.project import Project
 from posthog.models.scoping import reset_current_team_id, set_current_team_id
 from posthog.models.team import Team
@@ -57,10 +57,13 @@ else:
 def _team_queryset() -> QuerySet[Team]:
     """Team with its organization, for `get_team_query_tags` and the permission classes.
 
-    Those read a few small organization columns. The large ones stay out of the join, because the
-    organization row is wide enough to keep them in TOAST storage.
+    Those read a few narrow organization columns. The join stays; only the columns none of them
+    read leave the select list, because the organization row is wide enough to hold the rest in
+    TOAST storage.
     """
-    return Team.objects.select_related("organization").defer(*(f"organization__{attr}" for attr in LARGE_ATTRS))
+    return Team.objects.select_related("organization").defer(
+        *(f"organization__{attr}" for attr in COLD_REQUEST_PATH_ATTRS)
+    )
 
 
 class DefaultRouterPlusPlus(ExtendedDefaultRouter):
