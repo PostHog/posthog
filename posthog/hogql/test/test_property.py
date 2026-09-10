@@ -967,7 +967,7 @@ class TestProperty(BaseTest):
         )
 
     def test_cohort_filter_missing_cohort(self):
-        with self.assertRaisesMessage(QueryError, "Cohort 2137 not found"):
+        with self.assertRaisesMessage(QueryError, "Cohort 2137 does not exist"):
             self._property_to_expr({"type": "cohort", "key": "id", "value": 2137}, self.team)
 
     def test_person_scope(self):

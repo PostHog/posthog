@@ -1533,7 +1533,7 @@ def property_to_expr(
         except Cohort.DoesNotExist:
             # The id comes from the request, so a deleted or foreign cohort must read as
             # bad input rather than escaping as an unhandled DoesNotExist.
-            raise QueryError(f"Cohort {property.value} not found")
+            raise QueryError(f"Cohort {property.value} does not exist")
         return ast.CompareOperation(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
             op=(
