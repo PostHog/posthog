@@ -60219,13 +60219,81 @@ export namespace Schemas {
       origin_key?: string | null;
     }
 
-    export interface PaginatedTaskDetailDTOList {
+    /**
+     * @nullable
+     */
+    export type TaskBasicJsonSchema = { [key: string]: unknown } | null;
+
+    /**
+     * Basic list response for a task, returned when the list is asked for ``basic=true``.
+     *
+     * A surface that renders only a summary of each task asks for the basic payload and gets this
+     * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+     * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+     * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+     * always returns it. A client uses the ``search`` query parameter to match description text
+     * server-side.
+     */
+    export interface TaskBasic {
+      id: string;
+      /** @nullable */
+      task_number: number | null;
+      slug: string;
+      title: string;
+      title_manually_set: boolean;
+      origin_product: string;
+      /** Agent protocol and harness used for this task's runs.
+       *
+       * * `acp` - ACP
+       * * `pi` - Pi */
+      runtime: TaskRuntimeEnum;
+      /** @nullable */
+      repository: string | null;
+      repositories: string[];
+      /** @nullable */
+      github_integration: number | null;
+      /** @nullable */
+      github_user_integration: string | null;
+      /** @nullable */
+      signal_report: string | null;
+      /** @nullable */
+      json_schema: TaskBasicJsonSchema;
+      internal: boolean;
+      archived: boolean;
+      /** @nullable */
+      archived_at: string | null;
+      /** Latest run details for this task */
+      latest_run?: TaskRunDetailDTO | null;
+      /** @nullable */
+      created_at?: string | null;
+      /** @nullable */
+      updated_at?: string | null;
+      /** @nullable */
+      last_activity_at?: string | null;
+      created_by?: TaskUserBasicInfo | null;
+      /** @nullable */
+      ci_prompt: string | null;
+      /** @nullable */
+      channel?: string | null;
+      readonly slack_thread_references: readonly SlackThreadReferenceDTO[];
+      /**
+         * Stable key of the server-side flow that created this task, e.g. `desktop_onboarding_session:<user_id>`. Null for tasks people create themselves.
+         * @nullable
+         */
+      origin_key?: string | null;
+      /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
+      readonly description_preview: string;
+    }
+
+    export type TaskListItem = TaskDetailDTO | TaskBasic;
+
+    export interface PaginatedTaskListItemList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: TaskDetailDTO[];
+      results: TaskListItem[];
     }
 
     /**
@@ -102313,7 +102381,7 @@ export namespace Schemas {
      */
     archived?: TasksListArchived;
     /**
-     * Return a basic payload with heavy fields dropped, for surfaces that render only a summary of each task. Defaults to false. Currently this omits the description body, which dominates the list payload; the search parameter still matches description text server-side.
+     * With true, return basic list rows for summary surfaces: each row omits the full description and includes description_preview, its first 1000 characters. Defaults to false, which returns full task rows with description. The search parameter still matches description text server-side.
      */
     basic?: boolean;
     /**
