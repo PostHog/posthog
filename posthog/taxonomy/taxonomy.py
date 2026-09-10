@@ -3774,6 +3774,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$group_key": {
             "label": "Group key",
             "description": "Specified group key",
+            "type": "String",
+            # Not a row in the group's property JSON — it is the group's key column. Marked
+            # virtual so the property definitions API still offers it as a selectable filter.
+            "virtual": True,
         },
         "$virt_revenue": {
             "description": "The total revenue for this group. This will always be the current total revenue even when referring to a group via events.",

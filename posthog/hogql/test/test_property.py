@@ -169,6 +169,47 @@ class TestProperty(BaseTest):
             self._parse_expr("properties.arr > 100"),
         )
 
+    def test_property_to_expr_group_key(self):
+        # `$group_key` is the group's key column, not an entry in its property JSON
+        self.assertEqual(
+            self._property_to_expr({"type": "group", "group_type_index": 0, "key": "$group_key", "value": "org_123"}),
+            self._parse_expr("group_0.key = 'org_123'"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "group", "group_type_index": 2, "key": "$group_key", "value": "org_123"}, scope="group"
+            ),
+            self._parse_expr("key = 'org_123'"),
+        )
+
+        # groups.key is a String column, so a numeric key has to reach it as a string
+        self.assertEqual(
+            self._property_to_expr({"type": "group", "group_type_index": 0, "key": "$group_key", "value": 13}),
+            self._parse_expr("group_0.key = '13'"),
+        )
+
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "group", "group_type_index": 0, "key": "$group_key", "value": ["org_1", "org_2"]}
+            ),
+            self._parse_expr("group_0.key in ('org_1', 'org_2')"),
+        )
+
+        # Multi-value starts_with expands per value by recursing with the original key, so the
+        # column has to survive that round trip
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "group",
+                    "group_type_index": 0,
+                    "key": "$group_key",
+                    "operator": "starts_with",
+                    "value": ["org_1", "org_2"],
+                }
+            ),
+            self._parse_expr("toString(group_0.key) ilike 'org_1%' or toString(group_0.key) ilike 'org_2%'"),
+        )
+
     def test_property_to_expr_group_booleans(self):
         PropertyDefinition.objects.create(
             team=self.team,

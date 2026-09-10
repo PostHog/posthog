@@ -562,17 +562,27 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             (
                 "Get all group1 properties",
                 "type=group&group_type_index=1",
-                ["group1 another", "group1 property", "$virt_revenue", "$virt_mrr"],
+                ["group1 another", "group1 property", "$group_key", "$virt_revenue", "$virt_mrr"],
             ),
             (
                 "Get all group2 properties",
                 "type=group&group_type_index=2",
-                ["group2 property", "$virt_revenue", "$virt_mrr"],
+                ["group2 property", "$group_key", "$virt_revenue", "$virt_mrr"],
             ),
             (
                 "Search group1 properties containing 'prop'",
                 "type=group&search=prop&group_type_index=1",
                 ["group1 property"],
+            ),
+            (
+                "Search for the group key by its name",
+                "type=group&search=group_key&group_type_index=1",
+                ["$group_key"],
+            ),
+            (
+                "Search for the group key by its label",
+                "type=group&search=Group%20key&group_type_index=1",
+                ["$group_key"],
             ),
         ]
     )
