@@ -57,7 +57,7 @@ CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [
 @pytest.mark.asyncio
 async def test_schedule_due_alert_checks_passes_configured_limit_to_retrieval() -> None:
     execute_activity = AsyncMock(return_value=[])
-    inputs = ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=17)
+    inputs = ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=17, max_alerts_per_team_per_run=3)
 
     with patch(
         "posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity",
@@ -67,6 +67,31 @@ async def test_schedule_due_alert_checks_passes_configured_limit_to_retrieval() 
 
     assert execute_activity.await_args is not None
     assert execute_activity.await_args.args[1] == inputs
+
+
+@pytest.mark.asyncio
+async def test_schedule_due_alert_checks_uses_team_fairness_key() -> None:
+    alert = AlertInfo(
+        alert_id="alert-1",
+        team_id=42,
+        distinct_id="user-1",
+        calculation_interval=AlertCalculationInterval.DAILY.value,
+        insight_id=123,
+    )
+
+    with (
+        patch(
+            "posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity",
+            new=AsyncMock(return_value=[alert]),
+        ),
+        patch(
+            "posthog.temporal.alerts.workflows.temporalio.workflow.start_child_workflow", new=AsyncMock()
+        ) as start_child,
+    ):
+        await ScheduleDueAlertChecksWorkflow().run()
+
+    assert start_child.await_args is not None
+    assert start_child.await_args.kwargs["priority"].fairness_key == "42"
 
 
 @pytest.mark.asyncio

@@ -159,6 +159,29 @@ async def test_retrieve_due_alerts_limits_each_schedule_run_without_starving_oth
     assert str(other_alert.id) in {alert.alert_id for alert in alerts}
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_retrieve_due_alerts_caps_each_team_within_a_schedule_run(ateam: Team) -> None:
+    for _ in range(2):
+        await _create_alert(ateam)
+
+    other_team = await sync_to_async(Team.objects.create)(
+        organization_id=ateam.organization_id,
+        project_id=ateam.project_id,
+        name="Other team",
+    )
+    for _ in range(2):
+        await _create_alert(other_team)
+
+    alerts = await ActivityEnvironment().run(
+        retrieve_due_alerts,
+        ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=4, max_alerts_per_team_per_run=1),
+    )
+
+    assert len(alerts) == 2
+    assert {alert.team_id for alert in alerts} == {ateam.id, other_team.id}
+
+
 @pytest_asyncio.fixture
 async def alert(ateam):
     return await _create_alert(ateam)

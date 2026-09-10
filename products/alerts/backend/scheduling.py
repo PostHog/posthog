@@ -1,6 +1,6 @@
 """Scheduling math for alert checks.
 
-Sub-daily checks preserve their existing cadence and skip missed intervals.
+Sub-daily checks use a deterministic per-alert cadence shard and skip missed intervals.
 Daily, weekly, and monthly checks anchor to calendar instants in the team's
 local timezone. Quiet hours and weekend skipping layer local-time restrictions
 on top of those schedules.
@@ -80,7 +80,8 @@ def advance_next_check_at(
             intervals_to_skip = int(elapsed // interval.total_seconds()) + 1
             next_at += interval * intervals_to_skip
 
-    snapped = _floor_to_cadence_grid(next_at, check_interval_minutes) + timedelta(seconds=shard_offset_seconds)
+    offset = timedelta(seconds=shard_offset_seconds)
+    snapped = _floor_to_cadence_grid(next_at - offset, check_interval_minutes) + offset
     if snapped <= now:
         snapped += interval
     return snapped
@@ -110,6 +111,13 @@ class CalendarInterval(StrEnum):
 
 REAL_TIME_CADENCE_MINUTES = 2
 EVERY_15_MINUTES_CADENCE_MINUTES = 15
+HOURLY_CADENCE_MINUTES = 60
+
+_SHARDABLE_CADENCE_MINUTES: dict[CalendarInterval, int] = {
+    CalendarInterval.REAL_TIME: REAL_TIME_CADENCE_MINUTES,
+    CalendarInterval.EVERY_15_MINUTES: EVERY_15_MINUTES_CADENCE_MINUTES,
+    CalendarInterval.HOURLY: HOURLY_CADENCE_MINUTES,
+}
 
 
 def to_calendar_interval(value: str | None) -> CalendarInterval:
@@ -237,14 +245,14 @@ def next_calendar_check_time(
     tz_name: str,
     next_check_at: datetime | None,
     schedule_start_time: str | None = None,
+    alert_id: UUID | None = None,
 ) -> datetime:
     """Nominal next check instant, before quiet-hours snapping.
 
-    Sub-daily intervals keep their cadence from the previous next_check_at. If
-    a check is late, the next check skips missed intervals and is after now.
-    Daily/weekly/monthly anchor to fixed local instants: 1am tomorrow, 3am next
-    Monday, 4am on the 1st of next month. Hour-only replacement keeps the
-    minute/second spread.
+    Sub-daily intervals with an alert ID and no explicit start time use a
+    deterministic per-alert offset within their cadence. ID-less callers retain
+    their existing schedule phase. Explicit start times take precedence, and
+    daily/weekly/monthly checks anchor to fixed local instants.
     """
     team_timezone = pytz.timezone(tz_name)
     local_now = now.astimezone(team_timezone)
@@ -259,12 +267,22 @@ def next_calendar_check_time(
             schedule_start_time=schedule_start_time,
         )
 
+    cadence_minutes = _SHARDABLE_CADENCE_MINUTES.get(interval)
+    if cadence_minutes is not None and alert_id is not None:
+        shard_offset_seconds = compute_shard_offset_seconds(alert_id, cadence_minutes)
+        return advance_next_check_at(
+            next_check_at,
+            cadence_minutes,
+            now,
+            shard_offset_seconds=shard_offset_seconds,
+        )
+
     match interval:
         case CalendarInterval.REAL_TIME | CalendarInterval.EVERY_15_MINUTES | CalendarInterval.HOURLY:
             interval_delta = {
                 CalendarInterval.REAL_TIME: timedelta(minutes=REAL_TIME_CADENCE_MINUTES),
                 CalendarInterval.EVERY_15_MINUTES: timedelta(minutes=EVERY_15_MINUTES_CADENCE_MINUTES),
-                CalendarInterval.HOURLY: timedelta(hours=1),
+                CalendarInterval.HOURLY: timedelta(minutes=HOURLY_CADENCE_MINUTES),
             }[interval]
             candidate = (next_check_at or now) + interval_delta
             if candidate <= now:

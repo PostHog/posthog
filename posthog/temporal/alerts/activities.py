@@ -107,6 +107,7 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
                     ],
                 ),
             )
+            .filter(_team_rank__lte=inputs.max_alerts_per_team_per_run)
             .order_by(
                 "_team_rank",
                 "_interval_order",

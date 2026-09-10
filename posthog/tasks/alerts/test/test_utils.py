@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from uuid import UUID
 
 import pytest
 import time_machine
@@ -34,6 +35,7 @@ class TestAlertUtils:
 
     def test_next_check_time_advances_by_2_minutes(self) -> None:
         alert = MagicMock(spec=AlertConfiguration)
+        alert.id = UUID(int=0)
         alert.calculation_interval = AlertCalculationInterval.REAL_TIME
         alert.next_check_at = datetime(2026, 4, 6, 14, 0, 0, tzinfo=UTC)
         alert.team = MagicMock()
@@ -44,6 +46,20 @@ class TestAlertUtils:
 
         with time_machine.travel("2026-04-06T14:00:00Z", tick=False):
             assert next_check_time(alert) == datetime(2026, 4, 6, 14, 2, 0, tzinfo=UTC)
+
+    def test_next_check_time_shards_default_start_by_alert_id(self) -> None:
+        alert = MagicMock(spec=AlertConfiguration)
+        alert.id = UUID(int=1)
+        alert.calculation_interval = AlertCalculationInterval.REAL_TIME
+        alert.next_check_at = datetime(2026, 4, 6, 14, 0, 0, tzinfo=UTC)
+        alert.team = MagicMock()
+        alert.team.timezone = "UTC"
+        alert.schedule_start_time = None
+        alert.schedule_restriction = None
+        alert.skip_weekend = False
+
+        with freeze_time("2026-04-06T14:00:00Z"):
+            assert next_check_time(alert) == datetime(2026, 4, 6, 14, 1, 0, tzinfo=UTC)
 
     @parameterized.expand(
         [

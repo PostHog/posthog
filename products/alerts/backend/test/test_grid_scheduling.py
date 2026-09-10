@@ -381,14 +381,14 @@ class TestAdvanceNextCheckAtWithShard(TestCase):
                 datetime(2026, 3, 19, 12, 12, tzinfo=UTC),
             ),
             (
-                # Pre-shard NCA on canonical grid (12:05) self-heals to shard
-                # grid (12:12) on next eval. One transient longer gap.
+                # A pre-shard NCA on the canonical grid heals to the first
+                # shifted-grid slot after now instead of skipping a full cadence.
                 "drifted_to_canonical_self_heals_to_shard",
                 datetime(2026, 3, 19, 12, 5, tzinfo=UTC),
                 5,
                 datetime(2026, 3, 19, 12, 6, tzinfo=UTC),
                 120,
-                datetime(2026, 3, 19, 12, 12, tzinfo=UTC),
+                datetime(2026, 3, 19, 12, 7, tzinfo=UTC),
             ),
             (
                 # shard_offset=0 (default behaviour) preserves canonical grid.
@@ -400,13 +400,13 @@ class TestAdvanceNextCheckAtWithShard(TestCase):
                 datetime(2026, 3, 19, 12, 5, tzinfo=UTC),
             ),
             (
-                # First-run with shard offset lands on shifted grid.
+                # A first run lands on the first shifted slot after now.
                 "first_run_shard_240_lands_at_shifted_first_slot",
                 None,
                 5,
                 datetime(2026, 3, 19, 12, 0, tzinfo=UTC),
                 240,
-                datetime(2026, 3, 19, 12, 9, tzinfo=UTC),
+                datetime(2026, 3, 19, 12, 4, tzinfo=UTC),
             ),
         ]
     )
@@ -462,3 +462,21 @@ class TestAdvanceNextCheckAtWithShard(TestCase):
         # Next gap is exactly the new cadence.
         next_check = advance_next_check_at(result, new_cadence, result, shard_offset_seconds=new_shard_offset)
         assert next_check - result == timedelta(minutes=new_cadence)
+
+    @given(
+        cadence=st.sampled_from([2, 3, 5, 7, 10, 11, 15, 30, 60]),
+        shard_index=st.integers(min_value=0, max_value=59),
+        now_minute=st.integers(min_value=0, max_value=59),
+        now_second=st.integers(min_value=0, max_value=59),
+    )
+    @settings(max_examples=500, deadline=None)
+    def test_null_and_off_grid_inputs_land_within_one_cadence(
+        self, cadence: int, shard_index: int, now_minute: int, now_second: int
+    ) -> None:
+        shard_count = max(1, (cadence * 60) // DEFAULT_SCHEDULE_INTERVAL_SECONDS)
+        offset = (shard_index % shard_count) * DEFAULT_SCHEDULE_INTERVAL_SECONDS
+        now = _anchor.replace(minute=now_minute, second=now_second)
+
+        for current in (None, now):
+            result = advance_next_check_at(current, cadence, now, shard_offset_seconds=offset)
+            assert now < result <= now + timedelta(minutes=cadence)
