@@ -644,12 +644,16 @@ export function captureInboxSettingsChanged(params: {
     success: boolean
     /** Whether the setting governs the whole team or just the person changing it. */
     scope: 'team' | 'user'
+    /** Which kind of target a Slack notification setting points at. The target itself names the
+     * customer's own channel or teammate, so only its kind travels. */
+    targetKind?: 'direct_message' | 'channel' | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.SETTINGS_CHANGED, {
         setting: params.setting,
         ...settingValueProperties('new_value', params.newValue),
         success: params.success,
         setting_scope: params.scope,
+        ...(params.targetKind === undefined ? {} : { target_kind: params.targetKind }),
     })
 }
 

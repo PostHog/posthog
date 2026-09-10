@@ -473,12 +473,6 @@ CREATE TABLE posthog.kafka_flag_evaluations (
   distinct_id String,
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
-  person_properties String,
-  group0_properties String,
-  group1_properties String,
-  group2_properties String,
-  group3_properties String,
-  group4_properties String,
   inserted_at DateTime64(6, 'UTC')
 ) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_flag_evaluations', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_flag_evaluations';
 CREATE TABLE posthog.kafka_groups (
@@ -1386,7 +1380,6 @@ GROUP BY
   team_id, time_bucket, toStartOfMinute(timestamp), service_name, metric_name, metric_type, resource_fingerprint)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.metrics1', '{replica}') ORDER BY (team_id, time_bucket, service_name, metric_name, resource_fingerprint, timestamp) PARTITION BY toDate(timestamp) SETTINGS index_granularity = 8192, index_granularity_bytes = 104857600, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metrics2 (
-  uuid String,
   team_id Int32,
   metric_name LowCardinality(String),
   time_bucket DateTime MATERIALIZED toStartOfHour(timestamp),
@@ -1418,22 +1411,6 @@ CREATE TABLE posthog.metrics2 (
   INDEX idx_trace_id_bf trace_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
-  PROJECTION projection_series_minute (SELECT
-  team_id,
-  metric_name,
-  service_name,
-  metric_type,
-  resource_fingerprint,
-  series_fingerprint,
-  toStartOfMinute(timestamp) AS minute,
-  count() AS sample_count,
-  sum(value) AS total_value,
-  min(value) AS min_value,
-  max(value) AS max_value,
-  argMin(value, timestamp) AS first_value,
-  argMax(value, timestamp) AS last_value
-GROUP BY
-  team_id, metric_name, service_name, metric_type, resource_fingerprint, series_fingerprint, minute),
   PROJECTION projection_series_activity (SELECT
   team_id,
   service_name,
@@ -1477,7 +1454,6 @@ CREATE TABLE posthog.metrics2_input (
   _offset UInt64
 ) ENGINE = Null();
 CREATE TABLE posthog.metrics_distributed (
-  uuid String,
   team_id Int32,
   metric_name LowCardinality(String),
   time_bucket DateTime MATERIALIZED toStartOfHour(timestamp),
@@ -2187,12 +2163,6 @@ CREATE TABLE posthog.sharded_flag_evaluations (
   distinct_id String,
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
-  person_properties String,
-  group0_properties String,
-  group1_properties String,
-  group2_properties String,
-  group3_properties String,
-  group4_properties String,
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
   $group_0 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0',
   $group_1 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1',
@@ -3766,12 +3736,6 @@ CREATE TABLE posthog.writable_flag_evaluations (
   distinct_id String,
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
-  person_properties String,
-  group0_properties String,
-  group1_properties String,
-  group2_properties String,
-  group3_properties String,
-  group4_properties String,
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
   _timestamp DateTime,
   _offset UInt64,
@@ -4572,7 +4536,7 @@ CREATE MATERIALIZED VIEW posthog.events_recent_json_mv TO posthog.writable_event
   _timestamp,
   _offset
 FROM posthog.sharded_events;
-CREATE MATERIALIZED VIEW posthog.flag_evaluations_mv TO posthog.writable_flag_evaluations (uuid UUID, event LowCardinality(String), properties String, timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, created_at DateTime64(6, 'UTC'), person_id UUID, person_properties String, group0_properties String, group1_properties String, group2_properties String, group3_properties String, group4_properties String, inserted_at Nullable(DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+CREATE MATERIALIZED VIEW posthog.flag_evaluations_mv TO posthog.writable_flag_evaluations (uuid UUID, event LowCardinality(String), properties String, timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, created_at DateTime64(6, 'UTC'), person_id UUID, inserted_at Nullable(DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   uuid,
   event,
   properties,
@@ -4581,12 +4545,6 @@ CREATE MATERIALIZED VIEW posthog.flag_evaluations_mv TO posthog.writable_flag_ev
   distinct_id,
   created_at,
   person_id,
-  person_properties,
-  group0_properties,
-  group1_properties,
-  group2_properties,
-  group3_properties,
-  group4_properties,
   if(inserted_at = toDateTime64('1970-01-01 00:00:00', 6, 'UTC'), _timestamp, inserted_at) AS inserted_at,
   _timestamp,
   _offset,
@@ -5168,8 +5126,7 @@ CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metric_series TO posthog.metr
   original_expiry_timestamp
 FROM posthog.metrics2_input
 WHERE has_labels;
-CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metrics TO posthog.metrics2 (uuid String, team_id Int32, metric_name LowCardinality(String), series_fingerprint UInt64, resource_fingerprint UInt64, timestamp DateTime64(6), observed_timestamp DateTime64(6), original_expiry_timestamp DateTime64(6), service_name LowCardinality(String), metric_type LowCardinality(String), value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32, has_labels Bool, unit LowCardinality(String), aggregation_temporality LowCardinality(String), is_monotonic Bool, instrumentation_scope String, _partition UInt32, _topic String, _offset UInt64) AS SELECT
-  uuid,
+CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metrics TO posthog.metrics2 (team_id Int32, metric_name LowCardinality(String), series_fingerprint UInt64, resource_fingerprint UInt64, timestamp DateTime64(6), observed_timestamp DateTime64(6), original_expiry_timestamp DateTime64(6), service_name LowCardinality(String), metric_type LowCardinality(String), value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32, has_labels Bool, unit LowCardinality(String), aggregation_temporality LowCardinality(String), is_monotonic Bool, instrumentation_scope String, _partition UInt32, _topic String, _offset UInt64) AS SELECT
   team_id,
   metric_name,
   series_fingerprint,
@@ -6382,12 +6339,6 @@ CREATE TABLE posthog.flag_evaluations (
   distinct_id String,
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
-  person_properties String,
-  group0_properties String,
-  group1_properties String,
-  group2_properties String,
-  group3_properties String,
-  group4_properties String,
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
   $group_0 String COMMENT 'column_materializer::$group_0',
   $group_1 String COMMENT 'column_materializer::$group_1',

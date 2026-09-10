@@ -394,6 +394,9 @@ start:
         services:
             - redis
         hidden: true
+    start:hogql-lang-service:
+        cmd: env GOTOOLCHAIN=auto HOGQL_LANGUAGE_SERVICE_ALLOW_INSECURE=1 MAX_CATALOGS=2 CATALOG_CACHE_MAX_BYTES=268435456 go -C services/hogql-language-service run ./cmd/server
+        description: Run the HogQL language service locally with a two-catalog cache
     start:celery:
         bin_script: start-celery
         description: Start Celery worker or beat scheduler with auto-reload
