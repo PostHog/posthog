@@ -149,7 +149,7 @@ def validate_azure_blob_connection_string(connection_string: str) -> None:
         if validation_applies:
             allowed, error = is_url_allowed(endpoint)
             if not allowed:
-                raise EndpointNotAllowedError(f"Invalid endpoint found in connection string: {error}")
+                raise EndpointNotAllowedError("Invalid endpoint found in connection string")
 
 
 def strip_leading_whitespace(conn_str: str) -> str:
