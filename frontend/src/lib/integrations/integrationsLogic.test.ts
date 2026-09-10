@@ -213,6 +213,43 @@ describe('integrationsLogic', () => {
             })
         })
 
+        // Slack answers `access_denied` when a workspace parks the install as an admin-approval
+        // request, and the user's next move is the connect button on the landing page. A toast is
+        // gone by then, so that page takes the reason in the URL and keeps it on screen; the
+        // settings page has no such banner and still needs the toast.
+        it.each([
+            [
+                'the integration landing page',
+                '%2Fintegrations%2Fslack',
+                `/project/${MOCK_TEAM_ID}/integrations/slack`,
+                true,
+            ],
+            [
+                'the settings page',
+                '%2Fproject%2F228502%2Fsettings%2Fproject-integrations',
+                '/project/228502/settings/project-integrations',
+                false,
+            ],
+        ])('carries a rejected connect back to %s', async (_name, encodedNext, expectedPathname, expectBanner) => {
+            const errorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
+
+            await expectLogic(logic, () => {
+                logic.actions.handleOauthCallback('slack' as IntegrationKind, {
+                    state: `next=${encodedNext}&token=csrf-tok`,
+                    error: 'access_denied',
+                })
+            }).toFinishAllListeners()
+
+            expect(createSpy).not.toHaveBeenCalled()
+            expect(router.values.location.pathname).toBe(expectedPathname)
+            expect(router.values.searchParams.integration_error).toBe(expectBanner ? 'access_denied' : undefined)
+            if (expectBanner) {
+                expect(errorSpy).not.toHaveBeenCalled()
+            } else {
+                expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('admin to approve new apps'))
+            }
+        })
+
         it('does not create the integration when the OAuth state token no longer matches the cookie', async () => {
             // A stale/expired flow: the cookie minted at authorize time is gone or changed, so the token
             // carried in the state can't match. The callback must recover by redirecting back rather than
