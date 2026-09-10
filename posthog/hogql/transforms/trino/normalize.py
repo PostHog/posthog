@@ -314,13 +314,13 @@ class TrinoNormalizer(TraversingVisitor):
             raise TrinoLoweringError(
                 "TRINO_ARRAY_JOIN_MODE_UNSUPPORTED", node.array_join_op or "ARRAY JOIN without an operation", node
             )
-        if node.array_join_list is None or len(node.array_join_list) != 1:
-            raise TrinoLoweringError("TRINO_ARRAY_JOIN_MULTIPLE_ARRAYS_UNSUPPORTED", "multiple-array ARRAY JOIN", node)
-        array_expr = node.array_join_list[0]
-        if not isinstance(array_expr, ast.Alias):
+        if not node.array_join_list or not all(
+            isinstance(array_expr, ast.Alias) for array_expr in node.array_join_list
+        ):
             raise TrinoLoweringError("TRINO_ARRAY_JOIN_ALIAS_REQUIRED", "ARRAY JOIN without an output alias", node)
         if node.select_from is None:
             raise TrinoLoweringError("TRINO_ARRAY_JOIN_RELATION_REQUIRED", "ARRAY JOIN without a FROM relation", node)
+        array_exprs = [array_expr for array_expr in node.array_join_list if isinstance(array_expr, ast.Alias)]
         table_name = f"__trino_unnest_{self.unnest_index}"
         self.unnest_index += 1
         final_join = node.select_from
@@ -329,9 +329,13 @@ class TrinoNormalizer(TraversingVisitor):
         final_join.next_join = ast.JoinExpr(
             join_type="CROSS JOIN",
             table=ast.Field(chain=[TRINO_UNNEST_TABLE_NAME]),
-            table_args=[_wrap_unnest_elements(array_expr.expr, f"{table_name}_value")],
+            table_args=[
+                _wrap_unnest_elements(array_exprs[0].expr, f"{table_name}_value")
+                if len(array_exprs) == 1
+                else ast.Call(name="arrayZip", args=[array_expr.expr for array_expr in array_exprs])
+            ],
             alias=table_name,
-            column_aliases=[array_expr.alias],
+            column_aliases=[array_expr.alias for array_expr in array_exprs],
         )
         node.array_join_op = None
         node.array_join_list = None

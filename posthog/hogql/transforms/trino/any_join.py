@@ -23,7 +23,9 @@ class TrinoAnyJoinLowerer(CloningVisitor):
         if target_join_type is None:
             raise TrinoLoweringError("TRINO_ANY_JOIN_MODE_UNSUPPORTED", join_type, lowered)
         if lowered.alias is None:
-            raise TrinoLoweringError("TRINO_ANY_JOIN_ALIAS_REQUIRED", f"{join_type} without a right alias", lowered)
+            if not isinstance(lowered.table, ast.Field) or not isinstance(lowered.table.chain[-1], str):
+                raise TrinoLoweringError("TRINO_ANY_JOIN_ALIAS_REQUIRED", f"{join_type} without a right alias", lowered)
+            lowered.alias = lowered.table.chain[-1]
         if lowered.column_aliases:
             raise TrinoLoweringError(
                 "TRINO_ANY_JOIN_COLUMN_ALIASES_UNSUPPORTED", f"{join_type} with column aliases", lowered
@@ -37,14 +39,29 @@ class TrinoAnyJoinLowerer(CloningVisitor):
                 table_type = table_type.cte_table_type
                 continue
             table_type = table_type.table_type
+        key_names = self._right_key_names(lowered.constraint.expr, lowered.alias, table_type)
+        if isinstance(table_type, ast.LazyTableType) and table_type.table.name == "persons" and key_names == ["id"]:
+            lowered.join_type = target_join_type
+            return lowered
         if isinstance(table_type, ast.CTETableType):
             column_names = list(table_type.select_query_type.columns)
         elif isinstance(table_type, ast.SelectQueryAliasType):
             column_names = list(table_type.select_query_type.columns)
-        elif not isinstance(table_type, ast.TableType) or not getattr(table_type.table, "has_complete_columns", False):
+        elif isinstance(lowered.table, (ast.SelectQuery, ast.SelectSetQuery)) and isinstance(
+            lowered.table.type, (ast.SelectQueryType, ast.SelectSetQueryType)
+        ):
+            column_names = list(lowered.table.type.columns)
+        elif isinstance(table_type, ast.LazyTableType):
+            column_names = [
+                field.name
+                for field in table_type.table.fields.values()
+                if isinstance(field, DatabaseField)
+                and not (table_type.table.name == "persons" and field.name == "last_seen_at")
+            ]
+        elif not isinstance(table_type, ast.TableType):
             raise TrinoLoweringError(
                 "TRINO_ANY_JOIN_COMPLETE_TABLE_REQUIRED",
-                f"{join_type} against a relation without a complete physical column list",
+                f"{join_type} against a relation without a physical column list",
                 lowered,
             )
         else:
@@ -53,7 +70,6 @@ class TrinoAnyJoinLowerer(CloningVisitor):
             ]
         if not column_names:
             raise TrinoLoweringError("TRINO_ANY_JOIN_EMPTY_TABLE_UNSUPPORTED", f"{join_type} without columns", lowered)
-        key_names = self._right_key_names(lowered.constraint.expr, lowered.alias)
 
         index = self.join_index
         self.join_index += 1
@@ -99,7 +115,7 @@ class TrinoAnyJoinLowerer(CloningVisitor):
         lowered.column_aliases = None
         return lowered
 
-    def _right_key_names(self, constraint: ast.Expr, alias: str) -> list[str]:
+    def _right_key_names(self, constraint: ast.Expr, alias: str, right_table_type: ast.BaseTableType) -> list[str]:
         terms = constraint.exprs if isinstance(constraint, ast.And) else [constraint]
         key_names: list[str] = []
         for term in terms:
@@ -109,8 +125,8 @@ class TrinoAnyJoinLowerer(CloningVisitor):
                     "ANY JOIN with a non-equality ON term",
                     term,
                 )
-            left_name = self._right_field_name(term.left, alias)
-            right_name = self._right_field_name(term.right, alias)
+            left_name = self._right_field_name(term.left, alias, right_table_type)
+            right_name = self._right_field_name(term.right, alias, right_table_type)
             if (left_name is None) == (right_name is None):
                 raise TrinoLoweringError(
                     "TRINO_ANY_JOIN_EQUI_KEYS_REQUIRED",
@@ -120,7 +136,7 @@ class TrinoAnyJoinLowerer(CloningVisitor):
             key_names.append(left_name or right_name or "")
         return list(dict.fromkeys(key_names))
 
-    def _right_field_name(self, expression: ast.Expr, alias: str) -> str | None:
+    def _right_field_name(self, expression: ast.Expr, alias: str, right_table_type: ast.BaseTableType) -> str | None:
         while isinstance(expression, ast.Alias):
             expression = expression.expr
         if not isinstance(expression, ast.Field):
@@ -138,6 +154,18 @@ class TrinoAnyJoinLowerer(CloningVisitor):
         if isinstance(table_type, ast.CTETableAliasType) and table_type.alias == alias:
             return field_type.name
         if isinstance(table_type, ast.SelectQueryAliasType) and table_type.alias == alias:
+            return field_type.name
+        if (
+            isinstance(table_type, ast.TableType)
+            and isinstance(right_table_type, ast.TableType)
+            and table_type.table is right_table_type.table
+        ):
+            return field_type.name
+        if (
+            isinstance(table_type, ast.LazyTableType)
+            and isinstance(right_table_type, ast.LazyTableType)
+            and table_type.table is right_table_type.table
+        ):
             return field_type.name
         return None
 

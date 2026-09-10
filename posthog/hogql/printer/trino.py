@@ -464,16 +464,23 @@ class TrinoPrinter(PostgresPrinter):
             parameter = f"element_at(filter(split({query}, '&'), __hogql_parameter -> split_part(__hogql_parameter, '=', 1) = {binary_args.right}), 1)"
             return f"coalesce(substr({parameter}, length({binary_args.right}) + 2), '')"
         if name == "arrayzip":
-            if not 2 <= len(node.args) <= 5 or not all(isinstance(arg, ast.Array) for arg in node.args):
+            if not 2 <= len(node.args) <= 5:
                 self._unsupported(
                     "TRINO_ARRAY_ZIP_DYNAMIC_UNSUPPORTED",
-                    "arrayZip requires two to five explicit equal-length arrays in Trino mode.",
+                    "arrayZip requires two to five arrays in Trino mode.",
                     node,
                 )
-            arrays = [arg for arg in node.args if isinstance(arg, ast.Array)]
-            if len({len(arg.exprs) for arg in arrays}) != 1:
+            if (
+                all(isinstance(arg, ast.Array) for arg in node.args)
+                and len({len(arg.exprs) for arg in node.args if isinstance(arg, ast.Array)}) != 1
+            ):
                 self._invalid_function_arguments(node, "arrayZip requires equal-length arrays.")
-            return f"zip({', '.join(self.visit(arg) for arg in arrays)})"
+            arrays = [self.visit(arg) for arg in node.args]
+            zipped = f"zip({', '.join(arrays)})"
+            if all(isinstance(arg, ast.Array) for arg in node.args):
+                return zipped
+            same_length = " AND ".join(f"cardinality({arrays[0]}) = cardinality({array})" for array in arrays[1:])
+            return f"IF({same_length}, {zipped}, fail('arrayZip requires equal-length arrays'))"
         if name in {"extractallgroups", "replaceregexpone"}:
             return self._visit_constant_regex(node)
         if name == "median":
@@ -482,6 +489,16 @@ class TrinoPrinter(PostgresPrinter):
                     "TRINO_MEDIAN_MODIFIER_UNSUPPORTED", "median modifiers are not supported in Trino mode.", node
                 )
             return f"approx_percentile({self._visit_unary_arg(node)}, 0.5)"
+        if name == "medianif":
+            if node.distinct or node.order_by or node.filter_expr or node.params or len(node.args) != 2:
+                self._unsupported(
+                    "TRINO_MEDIAN_MODIFIER_UNSUPPORTED",
+                    "medianIf requires exactly one value and one condition in Trino mode.",
+                    node,
+                )
+            return f"approx_percentile({self.visit(node.args[0])}, 0.5) FILTER (WHERE {self._visit_predicate(node.args[1])})"
+        if name == "topk":
+            return self._visit_top_k(node)
         if name == "quantileexact":
             return self._visit_quantile(node, filtered=False)
         if name == "aggregate_funnel_trends":
@@ -660,6 +677,16 @@ class TrinoPrinter(PostgresPrinter):
             return self._visit_lambda_array_call(node, "transform")
         if name == "arrayfilter":
             return self._visit_lambda_array_call(node, "filter")
+        if name == "arrayfold":
+            if len(node.args) != 3 or not isinstance(node.args[0], ast.Lambda) or len(node.args[0].args) != 2:
+                self._invalid_function_arguments(
+                    node, "arrayFold expects a two-argument lambda, array, and initial state."
+                )
+            state = self._print_identifier("__hogql_array_fold_state")
+            return (
+                f"reduce({self.visit(node.args[1])}, {self.visit(node.args[2])}, {self.visit(node.args[0])}, "
+                f"{state} -> {state})"
+            )
         if name == "arraycount":
             return f"cardinality({self._visit_lambda_array_call(node, 'filter')})"
         if name == "countequal":
@@ -684,6 +711,10 @@ class TrinoPrinter(PostgresPrinter):
             if len(node.args) == 2 and isinstance(node.args[0], ast.Lambda):
                 return self._visit_array_sort_key(node)
             return self._visit_unary_function(node, "array_sort")
+        if name == "arrayreversesort":
+            if len(node.args) == 2 and isinstance(node.args[0], ast.Lambda):
+                return f"reverse({self._visit_array_sort_key(node)})"
+            return f"reverse({self._visit_unary_function(node, 'array_sort')})"
         if name == "arrayflatten":
             return self._visit_unary_function(node, "flatten")
         if name == "arraymin":
@@ -1053,6 +1084,7 @@ class TrinoPrinter(PostgresPrinter):
 
     def _visit_json_extract(self, node: ast.Call) -> str:
         name = node.name.lower()
+        path: str | None
         if name == "jsonextractarrayraw" and len(node.args) == 1:
             source = self.visit(node.args[0])
             value = self._print_identifier("__hogql_json_value")
@@ -1204,6 +1236,8 @@ class TrinoPrinter(PostgresPrinter):
 
     def _visit_json_metadata(self, node: ast.Call) -> str:
         name = node.name.lower()
+        extracted: str | None
+        path: str | None
         if name == "jsonextractkeysandvaluesraw":
             if len(node.args) != 1:
                 self._invalid_function_arguments(
@@ -1308,10 +1342,12 @@ class TrinoPrinter(PostgresPrinter):
         return converted
 
     def _visit_to_datetime64(self, node: ast.Call) -> str:
-        if len(node.args) not in {1, 2}:
-            self._invalid_function_arguments(node, "toDateTime64 expects a value and optional precision in Trino mode.")
+        if len(node.args) not in {1, 2, 3}:
+            self._invalid_function_arguments(
+                node, "toDateTime64 expects a value, optional precision, and optional timezone in Trino mode."
+            )
         precision = 3
-        if len(node.args) == 2:
+        if len(node.args) >= 2:
             precision_arg = node.args[1]
             if (
                 not isinstance(precision_arg, ast.Constant)
@@ -1325,7 +1361,8 @@ class TrinoPrinter(PostgresPrinter):
                     node,
                 )
             precision = precision_arg.value
-        return f"CAST({self.visit(node.args[0])} AS TIMESTAMP({precision}))"
+        timestamp = f"CAST({self.visit(node.args[0])} AS TIMESTAMP({precision}))"
+        return f"with_timezone({timestamp}, {self.visit(node.args[2])})" if len(node.args) == 3 else timestamp
 
     def _visit_parse_datetime_best_effort(self, node: ast.Call) -> str:
         if len(node.args) not in {1, 2}:
@@ -1465,6 +1502,19 @@ class TrinoPrinter(PostgresPrinter):
         return self.context.add_value(path)
 
     def _visit_lambda_array_call(self, node: ast.Call, target: str) -> str:
+        if (
+            node.name.lower() == "arraymap"
+            and len(node.args) == 3
+            and isinstance(node.args[0], ast.Lambda)
+            and len(node.args[0].args) == 2
+        ):
+            left = self.visit(node.args[1])
+            right = self.visit(node.args[2])
+            mapped = f"zip_with({left}, {right}, {self.visit(node.args[0])})"
+            return (
+                f"IF(cardinality({left}) = cardinality({right}), {mapped}, "
+                "fail('arrayMap requires equal-length arrays'))"
+            )
         if len(node.args) != 2 or not isinstance(node.args[0], ast.Lambda):
             self._invalid_function_arguments(node, f"{node.name} expects a lambda and array in Trino mode.")
         return f"{target}({self.visit(node.args[1])}, {self.visit(node.args[0])})"
@@ -1598,6 +1648,27 @@ class TrinoPrinter(PostgresPrinter):
         arguments = [self.visit(arg) for arg in node.args]
         value = arguments[0] if len(arguments) == 1 else f"ROW({', '.join(arguments)})"
         return f"count(DISTINCT {value})"
+
+    def _visit_top_k(self, node: ast.Call) -> str:
+        if (
+            node.params is None
+            or len(node.params) != 1
+            or not isinstance(node.params[0], ast.Constant)
+            or isinstance(node.params[0].value, bool)
+            or not isinstance(node.params[0].value, int)
+            or node.params[0].value <= 0
+            or len(node.args) != 1
+        ):
+            self._invalid_function_arguments(node, "topK expects one positive integer parameter and one value.")
+        count = node.params[0].value
+        value = self.visit(node.args[0])
+        entries = f"map_entries(histogram({value}))"
+        ordered = (
+            f"array_sort({entries}, (__hogql_left, __hogql_right) -> "
+            "CASE WHEN __hogql_left[2] > __hogql_right[2] THEN -1 "
+            "WHEN __hogql_left[2] < __hogql_right[2] THEN 1 ELSE 0 END)"
+        )
+        return f"transform(slice({ordered}, 1, {count}), __hogql_entry -> __hogql_entry[1])"
 
     def _visit_to_decimal(self, node: ast.Call) -> str:
         if len(node.args) != 2:
@@ -1866,6 +1937,7 @@ class TrinoPrinter(PostgresPrinter):
             return self._visit_window_count_distinct(node)
         if name in {"laginframe", "leadinframe"}:
             return self._visit_offset_in_frame_function(node)
+        exprs = [self.visit(expr) for expr in node.exprs or []]
         if name in {"quantile", "quantileexact", "quantileif", "quantileexactif"}:
             filtered = name.endswith("if")
             expected_args = 2 if filtered else 1
@@ -1884,9 +1956,21 @@ class TrinoPrinter(PostgresPrinter):
                 f"Parametric window function '{node.name}' is not supported in Trino mode.",
                 node,
             )
-        exprs = [self.visit(expr) for expr in node.exprs or []]
         if name in {"quantile", "quantileexact", "quantileif", "quantileexactif"}:
             pass
+        elif name in {"uniq", "uniqexact", "uniqif", "uniqexactif"}:
+            filtered = name.endswith("if")
+            values = exprs[:-1] if filtered else exprs
+            if not values or (filtered and len(exprs) < 2):
+                self._unsupported(
+                    "TRINO_WINDOW_FUNCTION_ARGUMENTS_UNSUPPORTED",
+                    f"Window function '{node.name}' requires values{' and a condition' if filtered else ''}.",
+                    node,
+                )
+            value = values[0] if len(values) == 1 else f"ROW({', '.join(values)})"
+            if filtered:
+                value = f"IF({self._visit_predicate((node.exprs or [])[-1])}, {value}, NULL)"
+            call = f"count(DISTINCT {value})"
         elif name in _TRINO_CONDITIONAL_WINDOW_FUNCTIONS:
             if not exprs:
                 self._unsupported(
@@ -2178,10 +2262,14 @@ class TrinoPrinter(PostgresPrinter):
         self._unsupported("TRINO_WITH_TIES_NOT_LOWERED", "WITH TIES must be lowered before Trino printing.")
 
     def visit_cte(self, node: ast.CTE) -> str:
-        if node.materialized is not None or node.using_key is not None:
+        if node.using_key is not None:
             self._unsupported(
                 "TRINO_CTE_MODIFIER_UNSUPPORTED",
-                "CTE materialization hints and USING KEY are not supported in Trino mode.",
+                "CTE USING KEY is not supported in Trino mode.",
                 node,
             )
-        return super().visit_cte(node)
+        if node.materialized is None:
+            return super().visit_cte(node)
+        lowered = clone_expr(node, clear_types=False)
+        lowered.materialized = None
+        return super().visit_cte(lowered)

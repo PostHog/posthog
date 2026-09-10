@@ -23,6 +23,7 @@ TRINO_FUNCTION_RENAMES: dict[str, str] = {
     "dateTrunc": "date_trunc",
     "substringUTF8": "substring",
     "lowerUTF8": "lower",
+    "upperUTF8": "upper",
     "encodeURLComponent": "url_encode",
     "lengthUTF8": "length",
     "toLastDayOfMonth": "last_day_of_month",
@@ -33,6 +34,9 @@ TRINO_FUNCTION_RENAMES: dict[str, str] = {
     "decodeURLComponent": "url_decode",
     "trimLeft": "ltrim",
     "trimRight": "rtrim",
+    "leftPad": "lpad",
+    "indexOf": "array_position",
+    "TRUNC": "truncate",
 }
 
 
@@ -214,8 +218,21 @@ def _identity(name: str) -> Callable[[list[str]], str]:
 
 
 def _format_date_time(args: list[str]) -> str:
-    _require_args("formatDateTime", args, 2)
-    return f"date_format({args[0]}, {args[1]})"
+    if len(args) == 2:
+        return f"date_format({args[0]}, {args[1]})"
+    if len(args) == 3:
+        return f"date_format(at_timezone(with_timezone(CAST({args[0]} AS TIMESTAMP), 'UTC'), {args[2]}), {args[1]})"
+    raise _invalid_arguments("formatDateTime", "formatDateTime expects a value, format, and optional timezone.")
+
+
+def _from_unix_timestamp64_milli(args: list[str]) -> str:
+    _require_args("fromUnixTimestamp64Milli", args, 1)
+    return f"from_unixtime((CAST({args[0]} AS DOUBLE) / 1000e0))"
+
+
+def _right(args: list[str]) -> str:
+    _require_args("right", args, 2)
+    return f"substr({args[0]}, -({args[1]}))"
 
 
 def _position(args: list[str]) -> str:
@@ -378,6 +395,7 @@ TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "toYYYYMMDD": _formatted_date_number("toYYYYMMDD", "%Y%m%d", "INTEGER"),
     "toYYYYMMDDhhmmss": _formatted_date_number("toYYYYMMDDhhmmss", "%Y%m%d%H%i%s", "BIGINT"),
     "toUnixTimestamp": _to_unix_timestamp,
+    "fromUnixTimestamp64Milli": _from_unix_timestamp64_milli,
     "if": _if,
     "multiIf": _multi_if,
     "_caseWithExpression": _case_with_expression,
@@ -441,6 +459,7 @@ TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "formatDateTime": _format_date_time,
     "position": _position,
     "positionCaseInsensitive": _position_case_insensitive,
+    "right": _right,
     "replaceOne": _replace_one,
     "arraySlice": _array_slice,
     "arrayIntersect": _array_intersect,

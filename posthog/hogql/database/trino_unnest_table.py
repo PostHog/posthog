@@ -16,7 +16,13 @@ TRINO_UNNEST_TABLE_NAME = "__trino_unnest"
 
 class TrinoUnnestTable(FunctionCallTable, DANGEROUS_NoTeamIdCheckTable):
     name: str
-    fields: dict[str, FieldOrTable] = {"value": UnknownDatabaseField(name="value")}
+    fields: dict[str, FieldOrTable] = {
+        "value": UnknownDatabaseField(name="value"),
+        "value_2": UnknownDatabaseField(name="value_2"),
+        "value_3": UnknownDatabaseField(name="value_3"),
+        "value_4": UnknownDatabaseField(name="value_4"),
+        "value_5": UnknownDatabaseField(name="value_5"),
+    }
     min_args: int = 1
     max_args: int = 1
 
