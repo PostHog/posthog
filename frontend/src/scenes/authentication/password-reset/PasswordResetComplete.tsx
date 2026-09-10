@@ -16,10 +16,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { passwordResetLogic } from './passwordResetLogic'
-
-/** Matches the DRF error code the reset API returns once a link has been used. */
-const PASSWORD_ALREADY_RESET_CODE = 'password_already_reset'
+import { PASSWORD_ALREADY_RESET_CODE, passwordResetLogic } from './passwordResetLogic'
 
 export const scene: SceneExport = {
     component: PasswordResetComplete,
