@@ -125,6 +125,12 @@ const AssistantDataVisualizationChartSettings = z.object({
         .describe('Horizontal goal lines drawn across the chart.')
         .optional(),
     leftYAxisSettings: AssistantDataVisualizationYAxisSettings.describe('Settings for the left Y axis.').optional(),
+    legendPosition: z
+        .enum(['top', 'bottom', 'left', 'right'])
+        .describe(
+            'Where the legend sits relative to the chart. Only applies when `showLegend` is true. Unset falls back per chart type: right for pie, top for the rest.'
+        )
+        .optional(),
     rightYAxisSettings: AssistantDataVisualizationYAxisSettings.describe(
         'Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: "right"`.'
     ).optional(),
@@ -133,6 +139,12 @@ const AssistantDataVisualizationChartSettings = z.object({
         .nullable()
         .describe(
             'Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by x value, so it is ignored when `display` is `ScatterPlot`.'
+        )
+        .optional(),
+    showAnnotations: z.coerce
+        .boolean()
+        .describe(
+            'Draw project annotations on the chart. Only applies to line, area, and bar charts whose X axis column is a date or datetime.'
         )
         .optional(),
     showLegend: z.coerce.boolean().describe('Show the chart legend.').optional(),

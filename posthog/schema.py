@@ -3493,6 +3493,14 @@ class AssistantDataVisualizationChartSettings(BaseModel):
     leftYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
         default=None, description="Settings for the left Y axis."
     )
+    legendPosition: LegendPosition | None = Field(
+        default=None,
+        description=(
+            "Where the legend sits relative to the chart. Only applies when"
+            " `showLegend` is true. Unset falls back per chart type: right for pie, top"
+            " for the rest."
+        ),
+    )
     rightYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
         default=None,
         description=(
@@ -3507,6 +3515,13 @@ class AssistantDataVisualizationChartSettings(BaseModel):
             " breaking down a line chart by `country`. Set to `null` or omit to"
             " disable. A breakdown buckets rows by x value, so it is ignored when"
             " `display` is `ScatterPlot`."
+        ),
+    )
+    showAnnotations: bool | None = Field(
+        default=None,
+        description=(
+            "Draw project annotations on the chart. Only applies to line, area, and bar"
+            " charts whose X axis column is a date or datetime."
         ),
     )
     showLegend: bool | None = Field(default=None, description="Show the chart legend.")

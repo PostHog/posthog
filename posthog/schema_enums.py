@@ -227,6 +227,13 @@ class Style(StrEnum):
     PERCENT = "percent"
 
 
+class LegendPosition(StrEnum):
+    TOP = "top"
+    BOTTOM = "bottom"
+    LEFT = "left"
+    RIGHT = "right"
+
+
 class AssistantDataVisualizationDisplayType(StrEnum):
     ACTIONS_TABLE = "ActionsTable"
     BOLD_NUMBER = "BoldNumber"
@@ -688,13 +695,6 @@ class ChartDisplayType(StrEnum):
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
     SCATTER_PLOT = "ScatterPlot"
-
-
-class LegendPosition(StrEnum):
-    TOP = "top"
-    BOTTOM = "bottom"
-    LEFT = "left"
-    RIGHT = "right"
 
 
 class Curve(StrEnum):

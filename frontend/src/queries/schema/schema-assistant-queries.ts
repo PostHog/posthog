@@ -1941,12 +1941,22 @@ export interface AssistantDataVisualizationChartSettings {
     stackBars100?: boolean
     /** Show the chart legend. */
     showLegend?: boolean
+    /**
+     * Where the legend sits relative to the chart. Only applies when `showLegend` is true.
+     * Unset falls back per chart type: right for pie, top for the rest.
+     */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** Render each data point's value as a label directly on the series. */
     showValuesOnSeries?: boolean
     /** Replace null aggregation results with zero. */
     showNullsAsZero?: boolean
     /** Show a total summing all Y series. Applies to line, bar, and area charts. */
     showTotalRow?: boolean
+    /**
+     * Draw project annotations on the chart. Only applies to line, area, and bar charts whose
+     * X axis column is a date or datetime.
+     */
+    showAnnotations?: boolean
 }
 
 export interface AssistantDataVisualizationTableSettings {
