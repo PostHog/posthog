@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import { MCP_TOOL_OUTPUT_CHAR_BUDGET } from '@/lib/constants'
+import { formatResponse } from '@/lib/response'
 import {
     MAX_SUMMARY_CHARS,
     MAX_TRACE_CHARS,
@@ -243,5 +245,46 @@ describe('compactTraceResults', () => {
 
     it('passes a non-array result through untouched', () => {
         expect(compactTraceResults(null)).toBeNull()
+    })
+
+    // These measure the TOON text the client receives, not the JSON size the walk
+    // budgets against, because TOON runs larger for a nested trace.
+    describe('delivered response size', () => {
+        const message = (role: string, repeat: number): unknown => ({
+            role,
+            content: 'Some conversation text about the user request. '.repeat(repeat),
+        })
+        const largeTrace = {
+            id: 'trace-1',
+            inputState: { messages: [message('user', 40)] },
+            outputState: { messages: [message('assistant', 40)] },
+            events: Array.from({ length: 40 }, (_, i) => ({
+                id: `e${i}`,
+                event: '$ai_generation',
+                properties: {
+                    $ai_span_id: `span-${i}`,
+                    $ai_parent_id: 'root',
+                    $ai_model: 'gpt-4o',
+                    $ai_input: [message('system', 30), message('user', 40)],
+                    $ai_output_choices: [message('assistant', 35)],
+                },
+            })),
+        }
+
+        it.each(['full', 'summary'] as const)(
+            'keeps a %s read of a large trace inside the client output budget',
+            (detail) => {
+                const results = compactTraceResults([largeTrace], detail)
+
+                expect(formatResponse({ results }).length).toBeLessThanOrEqual(MCP_TOOL_OUTPUT_CHAR_BUDGET)
+            }
+        )
+
+        it('points a truncated full-detail read at summary detail', () => {
+            const [result] = compactTraceResults([largeTrace], 'full') as any[]
+
+            expect(result._truncated.totalEvents).toBe(40)
+            expect(result._truncated.note).toContain('summary')
+        })
     })
 })
