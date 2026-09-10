@@ -184,8 +184,7 @@ class TestVerifyGitHubOidc:
         _fetch.assert_called_once()
 
     def test_an_unknown_kid_refetches_once_then_stops(self, _fetch):
-        # The amplification this bounds: PyJWKClient refetches on every miss, so
-        # without the interval each invented token would reach GitHub.
+        # Without the interval, every invented kid would reach GitHub.
         for _ in range(5):
             with pytest.raises(WizardCiOidcError):
                 verify_github_oidc(token(kid="made-up"))
@@ -285,14 +284,12 @@ class TestVerifyGitHubOidc:
         assert consume_token_id(claims)
 
     def test_a_token_valid_for_longer_than_we_track_is_refused(self):
-        # Admitting it would need a replay marker held for as long, so the token
-        # is refused rather than remembered.
+        # The replay marker would have to be held for as long.
         with pytest.raises(WizardCiOidcError):
             verify_github_oidc(token(exp=int(time.time()) + 10**9))
 
     def test_the_replay_marker_outlives_the_token(self):
-        # The single use is only real while the marker is still there. A marker
-        # that expires first leaves the rest of the token's life replayable.
+        # A marker that expires first leaves the rest of the token's life open.
         claims = verify_github_oidc(token(exp=int(time.time()) + 900))
         with patch("posthog.api.wizard.ci_oidc.cache.add", return_value=True) as add:
             consume_token_id(claims)

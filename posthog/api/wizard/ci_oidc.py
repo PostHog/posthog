@@ -24,18 +24,14 @@ GITHUB_OIDC_ISSUER = "https://token.actions.githubusercontent.com"
 GITHUB_OIDC_JWKS_URL = f"{GITHUB_OIDC_ISSUER}/.well-known/jwks"
 
 _JWKS_TIMEOUT_SECONDS = 10
-# How long a fetched key set serves before the next verification refetches it.
 _JWKS_TTL_SECONDS = 300
-# How far past that a set still serves while refetches fail, and so how long a
-# key GitHub revoked stays accepted.
+# How long a key GitHub revoked still verifies, when refetches keep failing.
 _JWKS_MAX_STALE_SECONDS = 3600
-# Bounds the outbound work an anonymous caller can force. The per-address throttle
-# on the endpoint cannot: cloud trusts every proxy, so the address it reads comes
-# from a header the caller writes.
+# The bound on outbound work an anonymous caller can force. The per-address
+# throttle is not one: cloud trusts every proxy, so that address is caller-written.
 _JWKS_MIN_FETCH_INTERVAL_SECONDS = 60
 _JTI_CLOCK_SKEW_SECONDS = 60
-# The single use is only real while the marker outlives the token, so a token
-# valid for longer than this is refused rather than remembered.
+# A token valid for longer is refused: the replay marker has to outlive it.
 _MAX_TOKEN_LIFETIME_SECONDS = 3600
 
 
@@ -236,7 +232,6 @@ def verify_github_oidc(raw: str) -> GitHubOidcClaims:
     if repository != settings.WIZARD_CI_REPOSITORY:
         raise WizardCiOidcError("token was issued to another repository")
 
-    # Bounded so the replay marker can cover the whole life of what it admits.
     expires_at = int(claims["exp"])
     if expires_at - int(time.time()) > _MAX_TOKEN_LIFETIME_SECONDS:
         raise WizardCiOidcError("token is valid for longer than this path accepts")
@@ -246,14 +241,12 @@ def verify_github_oidc(raw: str) -> GitHubOidcClaims:
     if repository_id != str(settings.WIZARD_CI_REPOSITORY_ID):
         raise WizardCiOidcError("token was issued to another repository")
 
-    # `sub` carries the trigger and the ref, so it pins which branch ran. Compared
-    # whole because `refs/heads/main` is a prefix of `refs/heads/main-x`.
+    # Compared whole: `refs/heads/main` is a prefix of `refs/heads/main-x`.
     subject = str(claims.get("sub") or "")
     if subject != settings.WIZARD_CI_SUBJECT:
         raise WizardCiOidcError("token was issued to another workflow")
 
-    # workflow_ref is "<owner>/<repo>/<path>@<ref>"; a prefix stopping at the "@"
-    # would leave every ref matching.
+    # workflow_ref is "<path>@<ref>"; a prefix match there accepts every ref.
     workflow_ref = str(claims.get("workflow_ref") or "")
     if workflow_ref.split("@", 1)[0] != settings.WIZARD_CI_WORKFLOW_PATH:
         raise WizardCiOidcError("token was issued to another workflow")

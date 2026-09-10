@@ -36,7 +36,6 @@ def _verified(*_args, **_kwargs) -> GitHubOidcClaims:
     return _claims()
 
 
-# These cases patch the verifier, so they exercise the endpoint.
 CI_BEARER = "header.payload.signature"
 
 
@@ -216,10 +215,8 @@ class WizardCiMintTests(APIBaseTest):
         assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
     def test_a_forwarded_header_does_buy_a_fresh_bucket_on_cloud(self):
-        # Cloud sets TRUST_ALL_PROXIES, so this throttle reads an address the caller
-        # writes and is a first line rather than a bound. What bounds the outbound
-        # work is the key-set fetch interval in ci_oidc. Pinned so nobody reads this
-        # limit as the protection.
+        # Cloud sets TRUST_ALL_PROXIES, so this throttle reads a caller-written
+        # address. Pinned so nobody reads the limit as the protection.
         with self._settings(WIZARD_CI_VERIFY_PER_MINUTE=1, TRUST_ALL_PROXIES=True, USE_X_FORWARDED_HOST=True):
             with patch(
                 "posthog.api.wizard.http.verify_github_oidc",
@@ -359,8 +356,7 @@ class WizardCiMintTests(APIBaseTest):
 
     def test_a_mint_failure_returns_its_hourly_slot(self):
         # Asserted on the refund itself: the hourly counter buckets on the wall
-        # clock, so a rollover between the two posts below would let a retry
-        # succeed with the refund deleted.
+        # clock, so a rollover could let a retry succeed with the refund deleted.
         with self._settings(WIZARD_CI_MINTS_PER_HOUR=1):
             with patch("posthog.api.wizard.http.refund_wizard_mint") as refund:
                 with patch("posthog.api.wizard.http.verify_github_oidc", side_effect=_verified):

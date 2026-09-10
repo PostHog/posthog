@@ -1277,7 +1277,6 @@ WIZARD_CI_REPOSITORY_ID = get_from_env("WIZARD_CI_REPOSITORY_ID", "")
 WIZARD_CI_REPOSITORY_OWNER_ID = get_from_env("WIZARD_CI_REPOSITORY_OWNER_ID", "")
 WIZARD_CI_WORKFLOW_PATH = get_from_env("WIZARD_CI_WORKFLOW_PATH", "")
 WIZARD_CI_SUBJECT = get_from_env("WIZARD_CI_SUBJECT", "")
-# Charged before the key fetch an anonymous caller would otherwise force.
 WIZARD_CI_VERIFY_PER_MINUTE = get_from_env("WIZARD_CI_VERIFY_PER_MINUTE", 30, type_cast=int)
 # The team is the organization billed, so 0 refuses the path. Programs are a
 # subset of WIZARD_GATEWAY_PROGRAM_IDS; an id absent from either is refused.

@@ -212,9 +212,6 @@ def _ci_mint(request: Request, bearer: str, *, program: object, product: str | N
     def refuse(outcome: str, exc: exceptions.APIException) -> NoReturn:
         _refuse_mint(outcome, exc, program=program, product_node=product)
 
-    # Charged before verification, which anonymous callers reach. Cloud trusts every
-    # proxy, so this address is caller-written and a rotating one buys a fresh
-    # bucket; the outbound bound is the fetch interval in ci_oidc, not this.
     try:
         reserve_wizard_ci_verify(get_trusted_client_ip(request), settings.WIZARD_CI_VERIFY_PER_MINUTE)
     except exceptions.Throttled as e:
@@ -223,18 +220,16 @@ def _ci_mint(request: Request, bearer: str, *, program: object, product: str | N
     try:
         claims = verify_github_oidc(bearer)
     except WizardCiOidcUnavailable as e:
-        # A subclass, so it is caught first. Our outage, not the caller's token.
+        # A subclass, so it must be caught first.
         refuse("ci_verify_unavailable", exceptions.APIException(str(e)))
     except WizardCiOidcError as e:
         refuse("ci_invalid_token", AuthenticationFailed(str(e)))
 
-    # After the token verifies, so the instance cannot be probed for which half of
-    # its configuration is missing.
+    # After verification, so an anonymous caller cannot probe the configuration.
     if not settings.WIZARD_CI_TEAM_ID:
         refuse("ci_unconfigured", exceptions.PermissionDenied("Wizard CI minting is not configured."))
 
-    # The CI list authorizes and the product node is what a budget matches on, so a
-    # program missing from either has nowhere to bill.
+    # A program missing from either has nowhere to bill.
     if product is None or not isinstance(program, str) or program not in set(settings.WIZARD_CI_PROGRAM_IDS):
         refuse("ci_program_unknown", exceptions.PermissionDenied("This wizard program cannot mint from CI."))
 
@@ -242,9 +237,8 @@ def _ci_mint(request: Request, bearer: str, *, program: object, product: str | N
     if team is None:
         refuse("ci_team_missing", exceptions.PermissionDenied("The configured wizard CI team does not exist."))
 
-    # The same switch the user path reads, keyed on the repository because no person
-    # owns this run. No release condition matches that id, so only a global
-    # switch-off reaches CI. Only a literal False refuses: a flag outage still mints.
+    # Keyed on the repository: no person owns this run, and no release condition
+    # matches that id, so only a global switch-off reaches CI.
     if _wizard_gateway_switched_off(f"wizard-ci:{claims.repository}", team):
         refuse("ci_not_rolled_out", exceptions.PermissionDenied("Wizard gateway tokens are switched off."))
 
@@ -253,11 +247,9 @@ def _ci_mint(request: Request, bearer: str, *, program: object, product: str | N
     except exceptions.Throttled as e:
         refuse("ci_throttled", e)
 
-    # Spent here rather than during verification, so a refused mint can hand both
-    # the slot and the single use back and let the same run retry.
+    # Spent at the mint so a refused mint can hand it back and let the run retry.
     if not consume_token_id(claims):
-        # Hand the slot back: otherwise one captured token can burn the hour's
-        # mints and refuse the runs it was captured from.
+        # Or one captured token burns the hour and refuses the runs it came from.
         refund_wizard_mint(reserved)
         refuse("ci_token_replayed", AuthenticationFailed("This CI token has already been used."))
 
@@ -676,8 +668,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
         if not wizard_gateway_configured():
             refuse_absent_gateway("unconfigured", "The PostHog AI gateway is not configured on this instance.")
 
-        # A JWT bearer cannot authenticate below (OAuthAccessTokenAuthentication
-        # takes pha_ only), and the branch is off unless every CI pin is set.
+        # Nothing below takes a JWT, and the branch is off unless every pin is set.
         if wizard_ci_oidc_configured():
             ci_bearer = _ci_bearer(request)
             if ci_bearer is not None:
