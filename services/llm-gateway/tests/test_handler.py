@@ -1,7 +1,9 @@
 from collections.abc import Iterator
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
+from fastapi import HTTPException
 
 from llm_gateway.api.handler import (
     ANTHROPIC_CONFIG,
@@ -28,12 +30,13 @@ from llm_gateway.request_context import effort_var, get_effort
 class ProviderException(Exception):
     """Stands in for the litellm exceptions the provider call raises."""
 
-    def __init__(self, status_code: int, code: str | None, message: str) -> None:
+    def __init__(self, status_code: int, code: str | None, message: str, body: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
         self.type = "invalid_request_error"
+        self.body = body
 
 
 class TestEffortExtractors:
@@ -121,26 +124,39 @@ class TestEffortInstrumentation:
 
 class TestProviderFailureClassification:
     @pytest.mark.parametrize(
-        "status_code, code, message",
+        "status_code, code, message, body",
         [
             # The status and code litellm exposes on an OpenAI organization refusal.
-            (401, "invalid_organization", "You do not have access to the organization tied to the API key."),
-            # litellm maps the same refusal onto a 400 with the provider body in the message.
-            (400, None, 'OpenAIException - {"error": {"code": "invalid_organization"}, "status": 401}'),
-            (401, None, "Incorrect API key provided: sk-***."),
-            (403, "invalid_api_key", "Invalid API key"),
+            (401, "invalid_organization", "You do not have access to the organization tied to the API key.", None),
+            # litellm maps the same refusal onto a 400 while retaining the structured provider body.
+            (
+                400,
+                None,
+                'OpenAIException - {"error": {"code": "invalid_organization"}, "status": 401}',
+                {"code": "invalid_organization", "type": "invalid_request_error"},
+            ),
+            (401, None, "Incorrect API key provided: sk-***.", None),
+            (403, "invalid_api_key", "Invalid API key", None),
+            (
+                403,
+                None,
+                "The security token included in the request is invalid",
+                {"Error": {"Code": "UnrecognizedClientException"}},
+            ),
         ],
     )
     def test_credential_rejection_replaces_the_upstream_message(
-        self, status_code: int, code: str | None, message: str
+        self, status_code: int, code: str | None, message: str, body: dict[str, Any] | None
     ) -> None:
-        error = ProviderException(status_code=status_code, code=code, message=message)
+        error = ProviderException(status_code=status_code, code=code, message=message, body=body)
 
         error_type, provider_error = classify_provider_failure(error, "openai")
 
         assert error_type == CREDENTIAL_REJECTION_ERROR_TYPE
         assert provider_error.status_code == status_code
+        assert isinstance(provider_error.detail, dict)
         detail = provider_error.detail["error"]
+        assert isinstance(detail, dict)
         assert detail["type"] == CREDENTIAL_REJECTION_ERROR_TYPE
         assert "PostHog's openai credentials were rejected" in detail["message"]
         assert "not a usage limit" in detail["message"]
@@ -150,8 +166,8 @@ class TestProviderFailureClassification:
     @pytest.mark.parametrize(
         "status_code, code, message",
         [
-            # A caller-side 401 keeps its own message, so an expired token still says so.
-            (401, "authentication_error", "Your token has expired"),
+            # An ambiguous provider error without a credential code keeps its own message.
+            (400, "authentication_error", "Your token has expired"),
             # The signatures only apply to auth-shaped statuses.
             (500, "invalid_organization", "Internal server error"),
             (400, None, "Model 'invalid_organization' is not supported"),
@@ -160,6 +176,7 @@ class TestProviderFailureClassification:
             # provider sends directly.
             (400, None, "litellm.BadRequestError: model 'incorrect api key provided' not found"),
             (400, None, "litellm.BadRequestError: model 'no such organization' not found"),
+            (400, None, 'LLM Provider NOT provided for model=bogus/"invalid_api_key"'),
         ],
     )
     def test_other_failures_pass_the_upstream_message_through(
@@ -170,4 +187,69 @@ class TestProviderFailureClassification:
         error_type, provider_error = classify_provider_failure(error, "openai")
 
         assert error_type == "ProviderException"
-        assert provider_error.detail["error"]["message"] == message
+        assert isinstance(provider_error.detail, dict)
+        detail = provider_error.detail["error"]
+        assert isinstance(detail, dict)
+        assert detail["message"] == message
+
+    @pytest.mark.parametrize("is_streaming", [False, True])
+    @pytest.mark.asyncio
+    async def test_handle_llm_request_classifies_credential_rejections(
+        self,
+        authenticated_user: AuthenticatedUser,
+        monkeypatch: pytest.MonkeyPatch,
+        is_streaming: bool,
+    ) -> None:
+        provider_error_labels = MagicMock()
+        monkeypatch.setattr("llm_gateway.api.handler.PROVIDER_ERRORS.labels", provider_error_labels)
+        monkeypatch.setattr("llm_gateway.api.handler.capture_exception", MagicMock())
+
+        async def rejected_call(**kwargs: Any) -> dict[str, Any]:
+            raise ProviderException(401, "authentication_error", "invalid x-api-key")
+
+        with pytest.raises(HTTPException) as raised:
+            await handle_llm_request(
+                request_data={"model": "test-model"},
+                user=authenticated_user,
+                model="test-model",
+                is_streaming=is_streaming,
+                provider_config=ANTHROPIC_CONFIG,
+                llm_call=rejected_call,
+            )
+
+        assert isinstance(raised.value.detail, dict)
+        detail = raised.value.detail["error"]
+        assert isinstance(detail, dict)
+        assert detail["type"] == CREDENTIAL_REJECTION_ERROR_TYPE
+        provider_error_labels.assert_called_once_with(
+            provider="anthropic",
+            error_type=CREDENTIAL_REJECTION_ERROR_TYPE,
+            product="llm_gateway",
+        )
+
+    @pytest.mark.asyncio
+    async def test_handle_llm_request_removes_caller_headers(
+        self,
+        authenticated_user: AuthenticatedUser,
+    ) -> None:
+        captured: dict[str, Any] = {}
+
+        async def capture_call(**kwargs: Any) -> dict[str, Any]:
+            captured.update(kwargs)
+            return {"ok": True}
+
+        await handle_llm_request(
+            request_data={
+                "model": "test-model",
+                "headers": {"Authorization": "Bearer attacker"},
+                "extra_headers": {"OpenAI-Organization": "attacker"},
+                "temperature": 0,
+            },
+            user=authenticated_user,
+            model="test-model",
+            is_streaming=False,
+            provider_config=OPENAI_CONFIG,
+            llm_call=capture_call,
+        )
+
+        assert captured == {"model": "test-model", "temperature": 0}

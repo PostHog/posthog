@@ -1316,6 +1316,48 @@ class TestAnthropicCountTokensEndpoint:
 
         assert response.status_code == error_status
 
+    @patch("llm_gateway.api.anthropic.PROVIDER_ERRORS.labels")
+    @patch("llm_gateway.api.anthropic.get_settings")
+    @patch("llm_gateway.api.anthropic.httpx.AsyncClient")
+    def test_anthropic_count_tokens_classifies_rejected_credentials(
+        self,
+        mock_httpx_client_cls: MagicMock,
+        mock_get_settings: MagicMock,
+        mock_provider_error_labels: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+    ) -> None:
+        mock_settings = MagicMock()
+        mock_settings.anthropic_api_key = "test-anthropic-key"
+        mock_settings.request_timeout = 300.0
+        mock_get_settings.return_value = mock_settings
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.post = AsyncMock(
+            return_value=httpx.Response(
+                status_code=401,
+                json={"error": {"message": "invalid x-api-key", "type": "authentication_error"}},
+            )
+        )
+        mock_httpx_client_cls.return_value = mock_client
+
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 401
+        assert response.json()["error"]["type"] == CREDENTIAL_REJECTION_ERROR_TYPE
+        assert "PostHog's anthropic credentials were rejected" in response.json()["error"]["message"]
+        mock_provider_error_labels.assert_called_once_with(
+            provider="anthropic",
+            error_type=CREDENTIAL_REJECTION_ERROR_TYPE,
+            product="llm_gateway",
+        )
+
     @patch("llm_gateway.api.anthropic.get_settings")
     @patch("llm_gateway.api.anthropic.httpx.AsyncClient")
     def test_product_prefix_route(

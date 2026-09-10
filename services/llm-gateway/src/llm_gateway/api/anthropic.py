@@ -20,6 +20,7 @@ from llm_gateway.api.handler import (
     _sanitize_request_data,
     handle_llm_request,
     normalize_litellm_model_name,
+    provider_credential_rejection_error,
 )
 from llm_gateway.bedrock import (
     count_tokens_with_bedrock,
@@ -44,6 +45,7 @@ from llm_gateway.metrics.prometheus import (
     BEDROCK_FALLBACK_SUCCESS,
     BEDROCK_FALLBACK_TRIGGERED,
     BEDROCK_PARAM_STRIPPED,
+    PROVIDER_ERRORS,
     REQUEST_COUNT,
     REQUEST_LATENCY,
 )
@@ -724,6 +726,28 @@ async def _anthropic_count_tokens_impl(
                 error_body = response.json()
             except Exception:
                 error_body = {"error": {"message": response.text, "type": "api_error"}}
+            error = error_body.get("error") if isinstance(error_body, dict) else None
+            error_message = str(error.get("message", "")) if isinstance(error, dict) else response.text
+            error_code = error.get("code") if isinstance(error, dict) else None
+            credential_error = provider_credential_rejection_error(
+                response.status_code,
+                error_code,
+                error_message,
+                "anthropic",
+                error_body,
+            )
+            if credential_error is not None:
+                PROVIDER_ERRORS.labels(
+                    provider="anthropic",
+                    error_type=CREDENTIAL_REJECTION_ERROR_TYPE,
+                    product=product,
+                ).inc()
+                logger.error(
+                    "anthropic_count_tokens_credentials_rejected",
+                    status_code=response.status_code,
+                    error_message=error_message,
+                )
+                raise credential_error
             raise HTTPException(status_code=response.status_code, detail=error_body)
 
         return response.json()
