@@ -42,7 +42,7 @@ def classify_experiment(
         files=list(reference.files),
         reference_count=reference.total,
         decisive=plan.confident,
-        summary=f'Experiment "{experiment.name}" {experiment.conclusion} on {ended}; {keep}, remove {removed}',
+        summary=f"Experiment on this flag {experiment.conclusion} on {ended}; {keep}, remove {removed}",
         evidence={
             "experiment_id": experiment.id,
             "experiment_name": experiment.name,

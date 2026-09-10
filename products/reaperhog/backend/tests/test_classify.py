@@ -164,9 +164,9 @@ def _stamp(days: int, subject: str = "Add thing") -> CommitStamp:
     "stamp,author_left,fragment",
     [
         (_stamp(541), False, "no real commit in 541 days"),
-        (_stamp(181), True, "no longer in the org"),
+        (_stamp(181), True, "no real commit in 181 days"),
         (_stamp(91, "Hackathon: add thing"), False, "hackathon or spike"),
-        (_stamp(541, "wip spike"), True, "no real commit in 541 days; last committer"),
+        (_stamp(541, "wip spike"), True, "no real commit in 541 days; last real commit reads like a hackathon"),
     ],
 )
 def test_classify_directory_hits(stamp: CommitStamp, author_left: bool, fragment: str) -> None:
@@ -174,6 +174,8 @@ def test_classify_directory_hits(stamp: CommitStamp, author_left: bool, fragment
 
     assert hit is not None
     assert fragment in hit.summary.lower()
+    assert "no longer in the org" not in hit.summary.lower()
+    assert hit.evidence["author_left"] == author_left
     assert hit.files == ["products/old"]
 
 

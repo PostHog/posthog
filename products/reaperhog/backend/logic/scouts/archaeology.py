@@ -37,15 +37,19 @@ class ArchaeologyScout:
 
 def classify_directory(path: str, stamp: CommitStamp, now: datetime, author_left: bool | None) -> Hit | None:
     days = days_between(now, stamp.committed_at)
+    orphaned = bool(author_left) and days >= DIRECTORY_ORPHAN_DAYS
     reasons: list[str] = []
     if days >= DIRECTORY_STALE_DAYS:
         reasons.append(f"no real commit in {days} days")
-    if author_left and days >= DIRECTORY_ORPHAN_DAYS:
-        reasons.append(f"last committer is no longer in the org ({days} days ago)")
     if HACKATHON_SUBJECT.search(stamp.subject) and days >= DIRECTORY_HACKATHON_DAYS:
         reasons.append(f"last real commit reads like a hackathon or spike ({days} days ago)")
-    if not reasons:
+    if not reasons and not orphaned:
         return None
+    # The orphan signal reads the organization membership of the last committer, so it stays in the
+    # evidence, which is tenant-scoped. A published summary states the commit age instead, because a
+    # pull request body must not say that the author of a public commit left the organization.
+    if not reasons:
+        reasons.append(f"no real commit in {days} days")
     return Hit(
         scout=ScoutName.ARCHAEOLOGY,
         root_kind=RootKind.DIRECTORY,

@@ -101,6 +101,10 @@ def pr_title(view: ClusterView) -> str:
     return f"chore(reaper): remove {view.root_kind.value} {view.root}"
 
 
+def _table_cell(text: str) -> str:
+    return text.replace("|", "\\|").replace("\n", " ")
+
+
 def render_pr_body(candidate: HarvestCandidate) -> str:
     view, verdict = candidate.view, candidate.verdict
     lines = [
@@ -129,7 +133,7 @@ def render_pr_body(candidate: HarvestCandidate) -> str:
     if verdict.searches:
         lines += ["", "| Search | Command | Hits |", "| --- | --- | --- |"]
         for search in verdict.searches:
-            lines.append(f"| {search.purpose} | `{search.command}` | {search.hits} |")
+            lines.append(f"| {_table_cell(search.purpose)} | `{_table_cell(search.command)}` | {search.hits} |")
     if verdict.could_not_prove:
         lines += ["", "Open questions for the reviewer:", ""]
         lines += [f"- {item}" for item in verdict.could_not_prove]

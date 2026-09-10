@@ -44,7 +44,7 @@ def _verdict(*, files: int = 2) -> Verdict:
         confidence=Confidence.HIGH,
         files_to_delete=[f"f{i}.py" for i in range(files)],
         deletion_plan="Delete the flag check in a.py",
-        searches=[SearchRun(purpose="key", command="rg -F 'k'", hits=0)],
+        searches=[SearchRun(purpose="key", command="rg -F 'a|b'", hits=0)],
         argumentation="- **Checked:** a.py:1",
         could_not_prove=["whether docs mention it"],
     )
@@ -83,7 +83,7 @@ def test_pr_body_carries_the_evidence_and_the_archive_checklist():
 
     assert "- **experiments**: Experiment lost" in body
     assert "conclusion=lost" in body
-    assert "| key | `rg -F 'k'` | 0 |" in body
+    assert "| key | `rg -F 'a\\|b'` | 0 |" in body
     assert "- whether docs mention it" in body
     assert "Archive the flag `hero-copy`" in body
     assert "never merged automatically" in body
