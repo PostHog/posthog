@@ -10,6 +10,43 @@ import { startFramerateTracking } from './framerateTracker'
 
 export const SDK_DEFAULTS_DATE = '2026-05-30'
 
+interface StackFrame {
+    filename?: string
+}
+
+const SCRIPT_FILE_RE = /\.[cm]?[jt]sx?$/
+
+/** True when the frame names a file we could have shipped, rather than an HTML document. */
+const isScriptFrame = (frame: StackFrame | undefined): boolean => {
+    const path = frame?.filename?.split(/[?#]/)[0]
+    return !!path && SCRIPT_FILE_RE.test(path)
+}
+
+/**
+ * Drops unhandled exceptions raised by scripts the browser injects into the page.
+ *
+ * Chrome iOS and the Google app inject their own content scripts into every page they render, and
+ * WebKit attributes an injected script's frames to the document rather than to a file. An error
+ * inside one therefore reaches error tracking looking like ours: unhandled, on an app URL, with a
+ * minified stack that no source map resolves. Our code always loads from `/static/*.js`, so a stack
+ * that has frames but names no script file did not come from it. The app shell's own inline
+ * scripts report their failures directly, so nothing of ours is lost here.
+ */
+export const dropInjectedScriptExceptions: BeforeSendFn = (event) => {
+    if (!event || event.event !== '$exception') {
+        return event
+    }
+    const exceptions: { stacktrace?: { frames?: StackFrame[] } }[] | undefined = event.properties?.$exception_list
+    if (!Array.isArray(exceptions)) {
+        return event
+    }
+    const frames = exceptions.flatMap((exception) => exception?.stacktrace?.frames ?? [])
+    if (frames.length === 0) {
+        return event
+    }
+    return frames.some(isScriptFrame) ? event : null
+}
+
 const shouldDefer = (): boolean => {
     const sessionId = posthog.get_session_id()
     return sampleOnProperty(sessionId, 0.5)
@@ -56,7 +93,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            before_send: options.beforeSend,
+            before_send: [dropInjectedScriptExceptions, ...[options.beforeSend ?? []].flat()],
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
