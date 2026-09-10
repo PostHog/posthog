@@ -1,8 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { mcpAnalyticsSessionsList, mcpAnalyticsSessionsToolCalls } from '../generated/api'
+import { mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
 import { mcpSessionsLogic } from './mcpSessionsLogic'
 
 jest.mock('../generated/api', () => ({
@@ -69,5 +71,50 @@ describe('mcpSessionsLogic', () => {
 
         expect(logic.values.selectedSessionToolCalls.loading).toBe(true)
         expect(logic.values.selectedSessionToolCalls.calls.map((c) => c.event_id)).not.toContain('a2')
+    })
+
+    describe('shared filters', () => {
+        const TOOL_FILTER: AnyPropertyFilter = {
+            key: '$mcp_tool_name',
+            value: ['create_insight'],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        }
+
+        it.each([
+            [
+                'property filters',
+                () => mcpAnalyticsFiltersLogic.actions.setPropertyFilters([TOOL_FILTER]),
+                { properties: JSON.stringify([TOOL_FILTER]) },
+            ],
+            [
+                'the test-account switch',
+                () => mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true),
+                { filter_test_accounts: true },
+            ],
+        ])('reloads the list with %s', async (_label, change, expectedParams) => {
+            listMock.mockClear()
+
+            await expectLogic(logic, change).toDispatchActions(['loadSessionsSuccess'])
+
+            expect(listMock).toHaveBeenCalledTimes(1)
+            expect(listMock.mock.calls[0][1]).toMatchObject(expectedParams)
+        })
+
+        // Without this the list narrows but the open session's detail panel keeps showing calls
+        // the list no longer counts.
+        it("reloads the selected session's calls with the same filters", async () => {
+            toolCallsMock.mockResolvedValue({ results: [toolCall('a1')], has_next: false })
+            await expectLogic(logic, () => {
+                logic.actions.selectSession('A')
+            }).toDispatchActions(['loadToolCallsSuccess'])
+            toolCallsMock.mockClear()
+
+            await expectLogic(logic, () => {
+                mcpAnalyticsFiltersLogic.actions.setPropertyFilters([TOOL_FILTER])
+            }).toDispatchActions(['loadToolCallsSuccess'])
+
+            expect(toolCallsMock.mock.calls[0][2]).toMatchObject({ properties: JSON.stringify([TOOL_FILTER]) })
+        })
     })
 })
