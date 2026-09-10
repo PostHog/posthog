@@ -11,6 +11,16 @@ import { screenshotAccessNotice, screenshotHostnameSuggestions } from '../heatma
 import { heatmapScreenshotSettingsLogic } from './heatmapScreenshotSettingsLogic'
 
 describe('screenshot access settings', () => {
+    it('explains when the installation has disabled cookie delivery despite complete project settings', () => {
+        expect(
+            screenshotAccessNotice('https://www.example.com', {
+                allowed_hostnames: ['www.example.com'],
+                has_secret: true,
+                cookie_delivery_enabled: false,
+            })
+        ).toContain('cookie delivery is disabled')
+    })
+
     it('suggests exact toolbar hostnames without expanding wildcards or shared hosting domains', () => {
         expect(
             screenshotHostnameSuggestions([
@@ -31,7 +41,11 @@ describe('screenshot access settings', () => {
         ['https://www.example.com', true, [], 'without a bypass cookie'],
         ['http://www.example.com', true, ['www.example.com'], 'uses HTTP'],
     ] as const)('explains cookie delivery for %s, secret=%s, approvals=%j', (url, hasSecret, hostnames, expected) => {
-        const notice = screenshotAccessNotice(url, { allowed_hostnames: [...hostnames], has_secret: hasSecret })
+        const notice = screenshotAccessNotice(url, {
+            allowed_hostnames: [...hostnames],
+            has_secret: hasSecret,
+            cookie_delivery_enabled: true,
+        })
         if (expected === null) {
             expect(notice).toBeNull()
         } else {
@@ -41,7 +55,13 @@ describe('screenshot access settings', () => {
 
     it('keeps toolbar suggestions unapproved until the admin saves, and preserves drafts on failure', async () => {
         useMocks({
-            get: { '/api/projects/:id/heatmap_screenshot/settings/': { allowed_hostnames: [], has_secret: true } },
+            get: {
+                '/api/projects/:id/heatmap_screenshot/settings/': {
+                    allowed_hostnames: [],
+                    has_secret: true,
+                    cookie_delivery_enabled: true,
+                },
+            },
             patch: {
                 '/api/projects/:id/heatmap_screenshot/settings/': () => [
                     400,
@@ -56,13 +76,17 @@ describe('screenshot access settings', () => {
         logic.mount()
         await expectLogic(logic)
             .toFinishAllListeners()
-            .toMatchValues({ hostnames: [], settings: { allowed_hostnames: [], has_secret: true }, hasChanges: false })
+            .toMatchValues({
+                hostnames: [],
+                settings: { allowed_hostnames: [], has_secret: true, cookie_delivery_enabled: true },
+                hasChanges: false,
+            })
         logic.actions.setHostnames(['https://www.example.com'])
         await expectLogic(logic, () => logic.actions.saveSettings())
             .toDispatchActions(['saveSettingsFailure'])
             .toMatchValues({
                 hostnames: ['https://www.example.com'],
-                settings: { allowed_hostnames: [], has_secret: true },
+                settings: { allowed_hostnames: [], has_secret: true, cookie_delivery_enabled: true },
                 hasChanges: true,
             })
         useMocks({
@@ -70,6 +94,7 @@ describe('screenshot access settings', () => {
                 '/api/projects/:id/heatmap_screenshot/settings/': {
                     allowed_hostnames: ['www.example.com'],
                     has_secret: true,
+                    cookie_delivery_enabled: true,
                 },
             },
         })
@@ -77,7 +102,7 @@ describe('screenshot access settings', () => {
         await expectLogic(logic, () => logic.actions.saveSettings())
             .toDispatchActions(['saveSettingsSuccess'])
             .toMatchValues({
-                settings: { allowed_hostnames: ['www.example.com'], has_secret: true },
+                settings: { allowed_hostnames: ['www.example.com'], has_secret: true, cookie_delivery_enabled: true },
                 hasChanges: false,
                 saveError: null,
             })

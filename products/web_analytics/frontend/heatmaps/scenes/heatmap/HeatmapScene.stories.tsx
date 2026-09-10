@@ -38,7 +38,11 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/heatmap_screenshot/settings/': { allowed_hostnames: [], has_secret: false },
+                '/api/projects/:team_id/heatmap_screenshot/settings/': {
+                    allowed_hostnames: [],
+                    has_secret: false,
+                    cookie_delivery_enabled: true,
+                },
                 '/api/projects/:team_id/saved/hm_gen/': generatingSaved,
                 '/api/projects/:team_id/heatmap_screenshots/:id/content/': () => [202, generatingSaved],
             },

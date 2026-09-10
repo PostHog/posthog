@@ -39,7 +39,11 @@ const meta: Meta<StoryProps> = {
                 },
                 '/api/billing/': { products: [] },
                 '/api/projects/:id/integrations': { results: [] },
-                '/api/projects/:id/heatmap_screenshot/settings/': { allowed_hostnames: [], has_secret: false },
+                '/api/projects/:id/heatmap_screenshot/settings/': {
+                    allowed_hostnames: [],
+                    has_secret: false,
+                    cookie_delivery_enabled: true,
+                },
                 // The GitHub section fetches both on mount; unmocked, their error toasts land in the snapshot.
                 '/api/projects/:id/integrations/github/available_installations/': {
                     installations: [],
@@ -95,6 +99,7 @@ export const SettingsEnvironmentHeatmapsScreenshotCookie: Story = {
                 '/api/projects/:id/heatmap_screenshot/settings/': {
                     allowed_hostnames: ['example.com'],
                     has_secret: true,
+                    cookie_delivery_enabled: true,
                 },
             },
         }),

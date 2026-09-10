@@ -20,12 +20,13 @@ const meta: Meta<typeof HeatmapScreenshotCookieSettings> = {
                 '/api/projects/:id/heatmap_screenshot/settings/': {
                     allowed_hostnames: ['example.com', 'www.example.com'],
                     has_secret: true,
+                    cookie_delivery_enabled: true,
                 },
             },
             patch: {
                 '/api/projects/:id/heatmap_screenshot/settings/': async ({ request }) => [
                     200,
-                    { ...((await request.json()) as object), has_secret: true },
+                    { ...((await request.json()) as object), has_secret: true, cookie_delivery_enabled: true },
                 ],
             },
         }),
@@ -66,7 +67,13 @@ export const NeedsApproval: Story = {
     ...Admin,
     decorators: [
         mswDecorator({
-            get: { '/api/projects/:id/heatmap_screenshot/settings/': { allowed_hostnames: [], has_secret: true } },
+            get: {
+                '/api/projects/:id/heatmap_screenshot/settings/': {
+                    allowed_hostnames: [],
+                    has_secret: true,
+                    cookie_delivery_enabled: true,
+                },
+            },
         }),
     ],
 }
@@ -79,5 +86,20 @@ export const Narrow: Story = {
                 <Story />
             </div>
         ),
+    ],
+}
+
+export const DeliveryDisabled: Story = {
+    ...Admin,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/heatmap_screenshot/settings/': {
+                    allowed_hostnames: ['example.com'],
+                    has_secret: true,
+                    cookie_delivery_enabled: false,
+                },
+            },
+        }),
     ],
 }

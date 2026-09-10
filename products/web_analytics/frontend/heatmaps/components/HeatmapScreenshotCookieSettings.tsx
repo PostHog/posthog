@@ -43,6 +43,12 @@ export function HeatmapScreenshotCookieSettings(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-3 max-w-160">
+            {!settings.cookie_delivery_enabled && (
+                <LemonBanner type="info">
+                    Screenshot cookie delivery is disabled on this installation. You can save your settings, but
+                    screenshots will run without the cookie. Contact your PostHog administrator to enable delivery.
+                </LemonBanner>
+            )}
             <p className="mb-0">
                 Allow screenshots of public pages behind bot protection. Approve the hostnames that may receive this
                 project's screenshot cookie, then add a matching exception in your bot protection settings.
@@ -104,6 +110,7 @@ export function HeatmapScreenshotCookieSettings(): JSX.Element {
                 <>
                     {secret && (
                         <CodeSnippet
+                            className="ph-no-capture ph-replay-block"
                             language={Language.HTTP}
                             thing="cookie"
                         >{`Cookie: ${HEATMAP_SCREENSHOT_COOKIE_NAME}=${secret}`}</CodeSnippet>
