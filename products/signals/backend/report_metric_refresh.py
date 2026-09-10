@@ -26,16 +26,13 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.schema import ChartDisplayType, TrendsQuery
-
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.schema import ChartDisplayType
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
-from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 
-from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
+from products.product_analytics.backend.facade.queries import run_cached_trends_query
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metrics import MAX_METRIC_SERIES_POINTS, ReportMetric
@@ -97,7 +94,7 @@ def snapshot_is_fresh(metric: dict[str, Any], now: datetime) -> bool:
     return now - measured_at < REPORT_METRIC_SNAPSHOT_FRESH_FOR
 
 
-def _run_metric_query(query: dict[str, Any], team: Team, display: ChartDisplayType) -> tuple[dict, Any]:
+def _run_metric_query(query: dict[str, Any], team: Team, display: ChartDisplayType) -> tuple[dict, datetime | None]:
     """Run the stored query in one derived display shape and return its first series and response.
 
     The derived shapes match the ones the report detail sends through the frontend Query path, so
@@ -115,17 +112,16 @@ def _run_metric_query(query: dict[str, Any], team: Team, display: ChartDisplayTy
         shaped_filter["showPercentStackView"] = False
         shaped_filter.pop("hiddenLegendIndexes", None)
     shaped_source["trendsFilter"] = shaped_filter
-    runner = TrendsQueryRunner(
-        query=TrendsQuery.model_validate(shaped_source),
-        team=team,
-        hogql_settings=HogQLGlobalSettings(max_execution_time=REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS),
-    )
     tag_queries(trigger="signals_report_metric_refresh")
-    response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-    results = getattr(response, "results", None)
+    response = run_cached_trends_query(
+        query=shaped_source,
+        team=team,
+        max_execution_time_seconds=REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS,
+    )
+    results = response.results
     if not isinstance(results, list) or not results or not isinstance(results[0], dict):
         raise ValueError("metric query returned no series")
-    return results[0], response
+    return results[0], response.last_refresh
 
 
 def _finite_number(raw: object, *, what: str) -> float:
@@ -138,9 +134,8 @@ def _finite_number(raw: object, *, what: str) -> float:
 
 
 def whole_window_value(query: dict[str, Any], team: Team) -> tuple[float, datetime]:
-    first_series, response = _run_metric_query(query, team, ChartDisplayType.BOLD_NUMBER)
+    first_series, last_refresh = _run_metric_query(query, team, ChartDisplayType.BOLD_NUMBER)
     value = _finite_number(first_series.get("aggregated_value"), what="aggregate")
-    last_refresh = getattr(response, "last_refresh", None)
     measured_at = last_refresh if isinstance(last_refresh, datetime) else timezone.now()
     if measured_at.tzinfo is None or measured_at.utcoffset() is None:
         measured_at = measured_at.replace(tzinfo=UTC)

@@ -1,4 +1,7 @@
+from types import SimpleNamespace
+
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.utils.timezone import now
 
@@ -7,6 +10,7 @@ from parameterized import parameterized
 from posthog.models.team import Team
 
 from products.product_analytics.backend.facade.api import insight_variables_for_team, record_insight_view
+from products.product_analytics.backend.facade.queries import run_cached_trends_query
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -54,3 +58,27 @@ class TestRecordInsightView(BaseTest):
         record_insight_view(insight_id=self.insight.pk)
 
         assert InsightViewed.objects.filter(insight_id=self.insight.pk).count() == 2
+
+
+class TestRunCachedTrendsQuery(BaseTest):
+    def test_returns_only_the_result_fields_exposed_by_the_facade(self) -> None:
+        refreshed_at = now()
+        query = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}
+        with patch(
+            "products.product_analytics.backend.hogql_queries.trends.trends_query_runner.TrendsQueryRunner"
+        ) as runner_type:
+            runner_type.return_value.run.return_value = SimpleNamespace(
+                results=[{"aggregated_value": 12}], last_refresh=refreshed_at
+            )
+
+            result = run_cached_trends_query(query=query, team=self.team, max_execution_time_seconds=20)
+
+        assert result.results == [{"aggregated_value": 12}]
+        assert result.last_refresh == refreshed_at
+        assert runner_type.call_args.kwargs["query"] == query
+        assert runner_type.call_args.kwargs["team"] == self.team
+        assert runner_type.call_args.kwargs["hogql_settings"].max_execution_time == 20
+        assert (
+            runner_type.return_value.run.call_args.kwargs["execution_mode"].name
+            == "RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE"
+        )

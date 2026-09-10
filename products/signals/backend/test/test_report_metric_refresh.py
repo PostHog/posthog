@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
@@ -9,11 +9,14 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.schema import ChartDisplayType
+
 from posthog.constants import AvailableFeature
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.product_analytics.backend.facade.contracts import TrendsQueryRunResult
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metric_refresh import (
@@ -25,6 +28,7 @@ from products.signals.backend.report_metric_refresh import (
     whole_window_value,
 )
 from products.signals.backend.serializers import SignalReportMetricRefreshRequestSerializer
+from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 
 _MEASURE = "products.signals.backend.report_metric_refresh.measure_metric"
 
@@ -48,10 +52,7 @@ def _metric(
         "value_at": value_at,
         "value_format": "count",
         "unit": "users",
-        "query": {
-            "kind": "InsightVizNode",
-            "source": {"kind": "TrendsQuery", "dateRange": {"date_from": "-14d"}, "series": series},
-        },
+        "query": trends_metric_query(series=series, date_from="-14d"),
         "caption": None,
         "comparison": None,
     }
@@ -260,24 +261,23 @@ class TestRefreshSkipsUnreadableSnapshots(APIBaseTest):
         assert (summary.refreshed, summary.skipped, summary.failed) == (0, 1, 0)
 
 
-class TestReportMetricRefreshClickHouse(ClickhouseTestMixin, APIBaseTest):
-    def test_whole_window_count_does_not_sum_daily_unique_users(self) -> None:
-        _create_person(team_id=self.team.id, distinct_ids=["repeat-user"])
-        _create_person(team_id=self.team.id, distinct_ids=["other-user"])
-        for distinct_id, days_ago in (("repeat-user", 2), ("repeat-user", 1), ("other-user", 1)):
-            _create_event(
-                team=self.team,
-                event="metric-refresh-event",
-                distinct_id=distinct_id,
-                timestamp=timezone.now() - timedelta(days=days_ago),
-            )
-        flush_persons_and_events()
-
+class TestReportMetricQueryShapes(APIBaseTest):
+    def test_uses_the_aggregate_for_the_value_and_trailing_buckets_for_the_series(self) -> None:
+        measured_at = timezone.now()
         query = _metric(event="metric-refresh-event")["query"]
-        value, measured_at = whole_window_value(query, self.team)
-        series = longitudinal_values(query, self.team)
+        with patch(
+            "products.signals.backend.report_metric_refresh.run_cached_trends_query",
+            side_effect=[
+                TrendsQueryRunResult(results=[{"aggregated_value": 2.0}], last_refresh=measured_at),
+                TrendsQueryRunResult(results=[{"data": list(range(17))}], last_refresh=measured_at),
+            ],
+        ) as run_query:
+            value, refreshed_at = whole_window_value(query, self.team)
+            series = longitudinal_values(query, self.team)
 
         assert value == 2
-        assert measured_at.tzinfo is not None
+        assert refreshed_at == measured_at
         assert len(series) == MAX_METRIC_SERIES_POINTS
-        assert series[-3:] == [1.0, 2.0, 0.0]
+        assert series == [float(value) for value in range(3, 17)]
+        assert run_query.call_args_list[0].kwargs["query"]["trendsFilter"]["display"] == ChartDisplayType.BOLD_NUMBER
+        assert run_query.call_args_list[1].kwargs["query"]["trendsFilter"]["display"] == ChartDisplayType.ACTIONS_BAR

@@ -60,6 +60,7 @@ from products.signals.backend.task_run_artefacts import (
     record_implementation_task,
     record_report_task,
 )
+from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 from products.signals.backend.views import (
     PR_CI_STATUS_MAX_REPORTS,
     SignalReportViewSet,
@@ -208,14 +209,7 @@ class TestSignalReportListAPI(APIBaseTest):
             "series": [4, 6, 7],
             "value_format": "count",
             "unit": "users",
-            "query": {
-                "kind": "InsightVizNode",
-                "source": {
-                    "kind": "TrendsQuery",
-                    "dateRange": {"date_from": "-30d"},
-                    "series": [series],
-                },
-            },
+            "query": trends_metric_query(series=[series]),
             "caption": "Unique people in the last 30 days.",
             "comparison": {"value": 11, "label": "Previous period"},
         }
@@ -247,14 +241,7 @@ class TestSignalReportListAPI(APIBaseTest):
             "value_at": "2026-08-29T12:00:00Z",
             "value_format": "count",
             "unit": "events",
-            "query": {
-                "kind": "InsightVizNode",
-                "source": {
-                    "kind": "TrendsQuery",
-                    "dateRange": {"date_from": "-30d"},
-                    "series": [series],
-                },
-            },
+            "query": trends_metric_query(series=[series]),
             "caption": None,
             "comparison": {"value": 9, "label": "Previous period"},
         }
@@ -319,14 +306,7 @@ class TestSignalReportListAPI(APIBaseTest):
             "series": [3, 5, 9],
             "value_format": "count",
             "unit": "users",
-            "query": {
-                "kind": "InsightVizNode",
-                "source": {
-                    "kind": "TrendsQuery",
-                    "dateRange": {"date_from": "-30d"},
-                    "series": [{"kind": "EventsNode", "event": "$exception", "math": "dau"}],
-                },
-            },
+            "query": trends_metric_query(series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}]),
             "caption": "Unique people in the last 30 days.",
             "comparison": None,
         }

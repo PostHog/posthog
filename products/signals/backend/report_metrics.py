@@ -24,8 +24,6 @@ from pydantic import BaseModel, Field, ValidationError, field_validator, model_v
 
 from posthog.hogql.errors import BaseHogQLError
 
-from posthog.hogql_queries.utils.formula_ast import FormulaAST
-
 from products.signals.backend.report_charts import validate_report_query
 
 _METRIC_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -116,6 +114,8 @@ def _validate_live_metric_formula(formula: object, series_count: int) -> None:
     # Replay the Trends formula parser against dummy series to reject it while the metric is written.
     if not isinstance(formula, str) or not formula.strip():
         raise ValueError("a live metric formula must be a non-empty arithmetic expression over the series")
+    from posthog.hogql_queries.utils.formula_ast import FormulaAST
+
     dummy_series = [[1.0] for _ in range(series_count)]
     try:
         FormulaAST(dummy_series).call(formula)

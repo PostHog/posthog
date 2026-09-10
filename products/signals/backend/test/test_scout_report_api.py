@@ -43,6 +43,7 @@ from products.signals.backend.scout_harness.tools.report import (
 from products.signals.backend.scout_report import ScoutReportSignal
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
 from products.signals.backend.temporal.types import SignalData, render_signal_to_text
+from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
 from products.tasks.backend.facade.repo_selection import RepoSelectionResult
@@ -119,14 +120,7 @@ class TestScoutReportAPI(APIBaseTest):
             "value_at": "2026-08-29T12:00:00Z",
             "value_format": "count",
             "unit": "users",
-            "query": {
-                "kind": "InsightVizNode",
-                "source": {
-                    "kind": "TrendsQuery",
-                    "dateRange": {"date_from": "-30d"},
-                    "series": [{"kind": "EventsNode", "event": "$exception", "math": "dau"}],
-                },
-            },
+            "query": trends_metric_query(series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}]),
             "caption": "People who experienced the exception",
             "comparison": None,
         }
@@ -1410,14 +1404,7 @@ class TestScoutReportAPI(APIBaseTest):
                 value_at="2026-08-29T12:00:00Z",
                 value_format="count",
                 unit="events",
-                query={
-                    "kind": "InsightVizNode",
-                    "source": {
-                        "kind": "TrendsQuery",
-                        "dateRange": {"date_from": "-30d"},
-                        "series": [{"kind": "EventsNode", "event": "$exception", "math": "total"}],
-                    },
-                },
+                query=trends_metric_query(series=[{"kind": "EventsNode", "event": "$exception", "math": "total"}]),
             )
 
         baseline = forward([metric(17)])
