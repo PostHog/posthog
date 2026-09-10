@@ -51,7 +51,7 @@ function isBoundedPayload(payload: unknown): boolean {
   }
 }
 
-export interface CanvasHostCallbacks {
+interface CanvasHostCallbacks {
   onDataRequest: (method: string, payload: unknown) => Promise<unknown>;
   onError?: (message: string, stack?: string) => void;
   onReady?: () => void;
@@ -61,10 +61,7 @@ export interface CanvasHostCallbacks {
   onCommentActivate?: (id: string) => void;
 }
 
-export type ExternalOpenBlockReason =
-  | "unsafe-url"
-  | "no-interaction"
-  | "throttled";
+type ExternalOpenBlockReason = "unsafe-url" | "no-interaction" | "throttled";
 
 export interface CanvasHostMessageRouterOptions {
   /** Transport back into the canvas (window.postMessage or a MessagePort). */
@@ -183,6 +180,8 @@ export function createCanvasHostMessageRouter(
         options.callbacks().onRendered?.();
         break;
       case "navigate":
+        if (message.nav.target === "connect" && !options.hasUserActivation())
+          break;
         // message.nav is already allowlist-validated by the schema parse.
         options.callbacks().onNavigate?.(message.nav);
         break;

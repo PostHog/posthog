@@ -16,17 +16,6 @@ export function useLoginMutation() {
   });
 }
 
-export function useSignupMutation() {
-  const hostClient = useHostTRPCClient();
-  const fx = useService<IAuthSideEffects>(AUTH_SIDE_EFFECTS);
-  return useMutation({
-    mutationFn: (region: CloudRegion) =>
-      hostClient.auth.signup.mutate({ region }).then((r) => r.state),
-    onSuccess: (state, region) =>
-      fx.onAuthSuccess(region, state.currentProjectId),
-  });
-}
-
 export function useSelectProjectMutation() {
   const hostClient = useHostTRPCClient();
   const fx = useService<IAuthSideEffects>(AUTH_SIDE_EFFECTS);

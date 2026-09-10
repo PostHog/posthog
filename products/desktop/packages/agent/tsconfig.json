@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "outDir": "dist",
     // Enable latest features
     "lib": ["ESNext", "DOM"],
     "target": "ES2022",

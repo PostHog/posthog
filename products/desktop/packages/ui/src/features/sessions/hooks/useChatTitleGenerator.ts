@@ -148,7 +148,7 @@ export function useChatTitleGenerator(task: Task): void {
                     task.id === taskId ? { ...task, title } : task,
                   ),
               );
-              queryClient.setQueriesData<Schemas.TaskSummary[]>(
+              queryClient.setQueriesData<Schemas.TaskSummaryDTO[]>(
                 { queryKey: taskKeys.allSummaries() },
                 (old) =>
                   old?.map((task) =>

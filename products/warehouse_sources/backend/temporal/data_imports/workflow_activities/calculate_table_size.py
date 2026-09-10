@@ -1,7 +1,7 @@
 import dataclasses
 
 from django.conf import settings
-from django.db import close_old_connections
+from django.db import DatabaseError, close_old_connections
 
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
@@ -71,13 +71,28 @@ def calculate_table_size_activity(inputs: CalculateTableSizeActivityInputs) -> N
     logger.debug(f"Table size delta in MiB = {table_size_delta:.2f}")
 
     job.storage_delta_mib = table_size_delta
-    job.save(update_fields=["storage_delta_mib", "updated_at"])
+    try:
+        job.save(update_fields=["storage_delta_mib", "updated_at"])
+    except DatabaseError:
+        # get_size_of_folder() (an S3 listing) can run long enough for the job's team to be
+        # deleted meanwhile, cascading away this row before the UPDATE lands. Not a defect —
+        # exit the same way the DoesNotExist checks above do.
+        if not ExternalDataJob.objects.filter(id=job.id).exists():
+            logger.debug(f"Job was deleted while calculating table size, exiting early. Job id = {job.id}")
+            return
+        raise
 
     table.size_in_s3_mib = total_mib
-    # Scoped to the field this activity actually changes: an unscoped save() compares this
-    # possibly-stale in-memory url_pattern (table was loaded before the potentially long
-    # get_size_of_folder() call above) against the row's current DB value, and a credential-less
-    # table with no other change in flight trips the url_pattern guard on that false mismatch.
-    table.save(update_fields=["size_in_s3_mib", "updated_at"])
+    try:
+        # Scoped to the field this activity actually changes: an unscoped save() compares this
+        # possibly-stale in-memory url_pattern (table was loaded before the potentially long
+        # get_size_of_folder() call above) against the row's current DB value, and a credential-less
+        # table with no other change in flight trips the url_pattern guard on that false mismatch.
+        table.save(update_fields=["size_in_s3_mib", "updated_at"])
+    except DatabaseError:
+        if not DataWarehouseTable.objects.filter(id=table.id).exists():
+            logger.debug(f"Table was deleted while calculating table size, exiting early. Table id = {table.id}")
+            return
+        raise
 
     logger.debug("Table model updated")

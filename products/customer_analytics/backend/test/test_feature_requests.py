@@ -791,6 +791,7 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([link["account"]["name"] for link in response.json()["account_links"]], ["Globex"])
         self.assertEqual(response.json()["account_links"][0]["evidence"][0]["summary"], "Visible account evidence")
+        self.assertEqual(response.json()["evidence_count"], 1)
         self.assertNotIn("Restricted account evidence", str(response.json()))
         self.assertNotIn("Restricted account evidence", str(history.json()))
         self.assertTrue(all(entry["changes"] for entry in history.json()))
@@ -798,8 +799,50 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertEqual(visible_filter.json()["count"], 1)
         self.assertFalse(response.json()["can_update"])
 
+    def test_list_sorts_by_full_creator_name(self) -> None:
+        later_creator = User.objects.create_and_join(self.organization, "alex-zimmerman@example.com", "testtest")
+        later_creator.first_name = "Alex"
+        later_creator.last_name = "Zimmerman"
+        later_creator.save(update_fields=["first_name", "last_name"])
+        earlier_creator = User.objects.create_and_join(self.organization, "alex-anderson@example.com", "testtest")
+        earlier_creator.first_name = "Alex"
+        earlier_creator.last_name = "Anderson"
+        earlier_creator.save(update_fields=["first_name", "last_name"])
+        self._set_access_level(later_creator, "editor")
+        self._set_access_level(earlier_creator, "editor")
+
+        self.client.force_login(later_creator)
+        later_payload = self._payload()
+        later_payload["title"] = "Later creator"
+        later_request = self.client.post(self.requests_url, later_payload, format="json").json()
+        self.client.force_login(earlier_creator)
+        earlier_payload = self._payload()
+        earlier_payload["title"] = "Earlier creator"
+        earlier_request = self.client.post(self.requests_url, earlier_payload, format="json").json()
+        self.client.force_login(self.user)
+
+        ascending = self.client.get(self.requests_url, {"request_ordering": "created_by"})
+        descending = self.client.get(self.requests_url, {"request_ordering": "-created_by"})
+
+        self.assertEqual(ascending.status_code, status.HTTP_200_OK)
+        self.assertEqual(descending.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [request["id"] for request in ascending.json()["results"]],
+            [earlier_request["id"], later_request["id"]],
+        )
+        self.assertEqual(
+            [request["id"] for request in descending.json()["results"]],
+            [later_request["id"], earlier_request["id"]],
+        )
+
     def test_list_combines_filters_orders_priorities_and_hides_archived_requests(self) -> None:
         first = self.client.post(self.requests_url, self._payload(), format="json").json()
+        first_with_evidence = self._add_evidence(
+            request_id=first["id"],
+            version=first["version"],
+            account_link_id=first["account_links"][0]["id"],
+            summary="First request evidence",
+        )
         other_creator = User.objects.create_and_join(
             self.organization, "feature-request-creator@example.com", "testtest"
         )
@@ -815,7 +858,7 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.client.patch(
             f"{self.requests_url}{first['id']}/",
             {
-                "expected_version": first["version"],
+                "expected_version": first_with_evidence["version"],
                 "request_status": "planned",
                 "request_priority": "low",
             },
@@ -852,6 +895,10 @@ class TestFeatureRequestsAPI(APIBaseTest):
             self.requests_url,
             {"archive_state": "all", "request_ordering": "-priority"},
         )
+        evidence_ordered = self.client.get(
+            self.requests_url,
+            {"archive_state": "all", "request_ordering": "-evidence_count"},
+        )
 
         self.assertEqual(active.status_code, status.HTTP_200_OK)
         self.assertEqual([request["id"] for request in active.json()["results"]], [first["id"]])
@@ -861,6 +908,27 @@ class TestFeatureRequestsAPI(APIBaseTest):
             [request["id"] for request in ordered.json()["results"]],
             [second["id"], first["id"], third["id"]],
         )
+        self.assertEqual(evidence_ordered.json()["results"][0]["id"], first["id"])
+        self.assertEqual(evidence_ordered.json()["results"][0]["evidence_count"], 1)
+        for request_ordering in (
+            "account",
+            "-account",
+            "product_area",
+            "-product_area",
+            "status",
+            "-status",
+            "created_by",
+            "-created_by",
+            "evidence_count",
+            "-evidence_count",
+        ):
+            self.assertEqual(
+                self.client.get(
+                    self.requests_url,
+                    {"archive_state": "all", "request_ordering": request_ordering},
+                ).status_code,
+                status.HTTP_200_OK,
+            )
 
     def test_archive_and_restore_preserve_links_and_history(self) -> None:
         created = self.client.post(self.requests_url, self._payload(), format="json").json()

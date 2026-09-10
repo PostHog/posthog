@@ -557,7 +557,10 @@ fn preregister_metrics() {
     use metrics::counter;
     counter!("personhog_router_stash_enqueued_total").increment(0);
     counter!("personhog_router_stash_replayed_total").increment(0);
-    counter!("personhog_router_forward_retries_exhausted_total").increment(0);
+    for reason in ["unrouted", "fenced", "transport"] {
+        counter!("personhog_router_forward_retries_exhausted_total", "reason" => reason)
+            .increment(0);
+    }
     for outcome in ["success", "error", "expired"] {
         counter!("personhog_router_stash_drained_total", "outcome" => outcome).increment(0);
     }

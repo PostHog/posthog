@@ -1527,24 +1527,6 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             },
             created_by=self.user,
         )
-        funnel_query = {
-            "kind": "ExperimentFunnelsQuery",
-            "funnels_query": {
-                "kind": "FunnelsQuery",
-                "series": [
-                    {"kind": "EventsNode", "name": "[jan-16-running] seen", "event": "[jan-16-running] seen"},
-                    {"kind": "EventsNode", "name": "[jan-16-running] payment", "event": "[jan-16-running] payment"},
-                ],
-                "dateRange": {"date_to": "2025-02-13T23:59", "date_from": "2025-01-30T12:16", "explicitDate": True},
-                "funnelsFilter": {
-                    "layout": "horizontal",
-                    "funnelVizType": "steps",
-                    "funnelWindowInterval": 14,
-                    "funnelWindowIntervalUnit": "day",
-                },
-                "filterTestAccounts": True,
-            },
-        }
         trends_query = {
             "kind": "ExperimentTrendsQuery",
             "count_query": {
@@ -1570,54 +1552,39 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             team=self.team,
             created_by=self.user,
         )
-        saved_funnel_metric = ExperimentSavedMetric.objects.create(
-            name="Test saved metric",
-            description="Test description",
-            query=funnel_query,
-            team=self.team,
-            created_by=self.user,
-        )
         experiment = Experiment.objects.create(
             name="Test Experiment with stale dates",
             team=self.team,
             feature_flag=test_feature_flag,
             start_date=datetime(2025, 2, 1),
             end_date=None,
-            metrics=[funnel_query],
+            metrics=[trends_query],
             metrics_secondary=[trends_query],
         )
 
-        for saved_metric_data in [saved_funnel_metric, saved_trends_metric]:
-            saved_metric_serializer = ExperimentToSavedMetricSerializer(
-                data={
-                    "experiment": experiment.id,
-                    "saved_metric": saved_metric_data.id,
-                    "metadata": {"type": "secondary"},
-                },
-            )
-            saved_metric_serializer.is_valid(raise_exception=True)
-            saved_metric_serializer.save()
+        saved_metric_serializer = ExperimentToSavedMetricSerializer(
+            data={
+                "experiment": experiment.id,
+                "saved_metric": saved_trends_metric.id,
+                "metadata": {"type": "secondary"},
+            },
+        )
+        saved_metric_serializer.is_valid(raise_exception=True)
+        saved_metric_serializer.save()
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.json()["metrics"][0]["funnels_query"]["dateRange"]["date_from"], "2025-02-01T00:00:00Z"
-        )
-        self.assertEqual(response.json()["metrics"][0]["funnels_query"]["dateRange"]["date_to"], "")
+        self.assertEqual(response.json()["metrics"][0]["count_query"]["dateRange"]["date_from"], "2025-02-01T00:00:00Z")
+        self.assertEqual(response.json()["metrics"][0]["count_query"]["dateRange"]["date_to"], "")
         self.assertEqual(
             response.json()["metrics_secondary"][0]["count_query"]["dateRange"]["date_from"], "2025-02-01T00:00:00Z"
         )
         self.assertEqual(response.json()["metrics_secondary"][0]["count_query"]["dateRange"]["date_to"], "")
         self.assertEqual(
-            response.json()["saved_metrics"][0]["query"]["funnels_query"]["dateRange"]["date_from"],
+            response.json()["saved_metrics"][0]["query"]["count_query"]["dateRange"]["date_from"],
             "2025-02-01T00:00:00Z",
         )
-        self.assertEqual(response.json()["saved_metrics"][0]["query"]["funnels_query"]["dateRange"]["date_to"], "")
-        self.assertEqual(
-            response.json()["saved_metrics"][1]["query"]["count_query"]["dateRange"]["date_from"],
-            "2025-02-01T00:00:00Z",
-        )
-        self.assertEqual(response.json()["saved_metrics"][1]["query"]["count_query"]["dateRange"]["date_to"], "")
+        self.assertEqual(response.json()["saved_metrics"][0]["query"]["count_query"]["dateRange"]["date_to"], "")
 
     def test_adding_behavioral_cohort_filter_to_experiment_fails(self):
         cohort = Cohort.objects.create(
@@ -7180,7 +7147,11 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         results = response.json()["results"]
 
         item_ids = {entry["item_id"] for entry in results}
-        self.assertNotIn(str(other_experiment_id), item_ids)
+        # Scoped, because experiments and feature flags number from separate sequences and so reuse
+        # each other's ids. Matching the id alone reads this experiment's own flag entry as the
+        # unrelated experiment leaking in, whenever the two sequences happen to line up.
+        experiment_item_ids = {entry["item_id"] for entry in results if entry["scope"] == "Experiment"}
+        self.assertNotIn(str(other_experiment_id), experiment_item_ids)
         self.assertLessEqual(item_ids, {str(experiment_id), str(holdout_id), str(saved_metric_id), str(flag_id)})
         flag_entries = [entry for entry in results if entry["scope"] == "FeatureFlag"]
         self.assertEqual({entry["item_id"] for entry in flag_entries}, {str(flag_id)})

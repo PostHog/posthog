@@ -120,7 +120,7 @@ from posthog.rate_limit import (
 from posthog.renderers import SafeJSONRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade import upgrade
-from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.shared_link_user import SharedLinkUser
 from posthog.user_permissions import UserPermissionsSerializerMixin
@@ -179,7 +179,7 @@ from products.product_analytics.backend.facade.api import (
     record_insight_views,
     with_last_viewed_at,
 )
-from products.product_analytics.backend.facade.models import Insight
+from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 from products.product_analytics.backend.presentation.insight_metadata import (
     InsightMetadataTimeoutError,
     generate_insight_metadata,
@@ -188,6 +188,7 @@ from products.product_analytics.backend.presentation.insight_suggestions import 
     get_insight_analysis,
     get_insight_suggestions,
 )
+from products.product_analytics.backend.presentation.insight_write_validation import validate_insight_write
 
 from common.hogvm.python.utils import HogVMException
 
@@ -195,7 +196,6 @@ logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
-LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG = "legacy-insight-filters-disabled"
 
 
 EXPORT_QUERY_CACHE_MISS = Counter(
@@ -267,26 +267,6 @@ def is_legacy_insight_endpoint_blocked(user: Any, team: Team) -> bool:
 
     return feature_enabled_or_false(
         LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG,
-        str(distinct_id),
-        groups={
-            "organization": str(team.organization_id),
-            "project": str(team.id),
-        },
-        group_properties={
-            "organization": {"id": str(team.organization_id)},
-            "project": {"id": str(team.id)},
-        },
-        send_feature_flag_events=False,
-    )
-
-
-def is_legacy_insight_filters_blocked(user: Any, team: Team) -> bool:
-    distinct_id = getattr(user, "distinct_id", None)
-    if not distinct_id:
-        return False
-
-    return feature_enabled_or_false(
-        LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG,
         str(distinct_id),
         groups={
             "organization": str(team.organization_id),
@@ -502,12 +482,11 @@ class InsightBasicSerializer(
         else:
             representation.pop("dashboards", None)
 
-        if instance.query is not None or instance.query_from_filters is not None:
+        if instance.query is not None:
             representation["filters"] = {}
-            representation["query"] = instance.query or instance.query_from_filters
+            representation["query"] = instance.query
         else:
-            filters = instance.dashboard_filters()
-            representation["filters"] = filters
+            representation["filters"] = instance.dashboard_filters()
 
         # upgrade the query to the latest version
         representation["query"] = upgrade(representation["query"])
@@ -726,15 +705,40 @@ class InsightSerializer(InsightBasicSerializer):
             "timezone",
             "refreshing",
             "is_cached",
+            # A read still serves the stored filters of an insight written before queries.
+            "filters",
         )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         query = attrs.get("query") if "query" in attrs else None
-        using_legacy_filters = "filters" in attrs and attrs.get("filters") is not None and query in (None, {})
-        if using_legacy_filters and is_legacy_insight_filters_blocked(
-            self.context["request"].user, self.context["get_team"]()
-        ):
-            raise PermissionDenied("Creating or updating insights with legacy filters is not available for this user.")
+        # `filters` is read-only, so DRF drops it before validation. The raw payload is the only
+        # place a legacy write still shows up, and it has to be answered rather than ignored.
+        sent_filters = self.initial_data.get("filters")
+        using_legacy_filters = sent_filters is not None and query in (None, {})
+        if using_legacy_filters:
+            # Opens with the sentence the deprecation notice told these callers to expect.
+            raise PermissionDenied(
+                "Creating or updating insights with legacy filters is not available for this user. "
+                "Send a query object instead. See https://posthog.com/docs/api/insights"
+            )
+
+        if self.instance is None and query in (None, {}):
+            raise ValidationError(
+                {
+                    "query": "Creating an insight needs a query. See https://posthog.com/docs/api/insights",
+                }
+            )
+
+        validate_insight_write(
+            query=query,
+            # No write reaches the stored filters, so only the query needs judging.
+            filters=None,
+            # A write that omits `query` keeps the stored one, which is still what renders.
+            unchanged_query=None if "query" in attrs else getattr(self.instance, "query", None),
+            team=self.context["get_team"](),
+            user=self.context["request"].user,
+            request=self.context["request"],
+        )
 
         new_dashboard_ids = attrs.get("dashboards")
         if new_dashboard_ids is not None:
@@ -1232,10 +1236,10 @@ class InsightSerializer(InsightBasicSerializer):
             tile_filters_override_requested_by_client(request, dashboard_tile, is_shared=is_shared) if request else {}
         )
 
-        if instance.query is not None or instance.query_from_filters is not None:
+        if instance.query is not None:
             # Upgrade before applying dashboard filters: the stored query may predate the current
             # schema, and apply_dashboard_filters_to_dict validates against the latest one
-            query = upgrade(instance.query or instance.query_from_filters)
+            query = upgrade(instance.query)
             if (
                 dashboard is not None
                 or dashboard_filters_override is not None
@@ -1274,9 +1278,6 @@ class InsightSerializer(InsightBasicSerializer):
                 dashboard_filters_override=dashboard_filters_override,
                 dashboard_variables_override=dashboard_variables_override,
             )
-
-            if "insight" not in representation["filters"] and not representation["query"]:
-                representation["filters"]["insight"] = "TRENDS"
 
         representation["filters_hash"] = self.insight_result(instance).cache_key
 
@@ -1337,7 +1338,7 @@ class InsightSerializer(InsightBasicSerializer):
                     message="Expected cache key not found during export - falling back to normal calculation",
                 )
 
-        with upgrade_query(insight):
+        with upgrade_insight(insight):
             try:
                 is_shared = self.context.get("is_shared", False)
                 execution_mode, shared_cache_age_seconds = resolve_execution_mode(
@@ -1913,15 +1914,7 @@ class InsightViewSet(
         return self.order_queryset(queryset)
 
     def safely_get_object(self, queryset: QuerySet) -> Insight | None:
-        lookup_value = self.kwargs[self.lookup_field]
-        if isinstance(lookup_value, str) and lookup_value.isdigit():
-            # A numeric lookup is ambiguous: usually it's a primary key, but a small number of
-            # legacy rows have numeric-only short_ids. Try pk first (preserving existing behavior)
-            # and fall back to short_id so those legacy insights stay retrievable.
-            pk_match = queryset.filter(pk=int(lookup_value)).first()
-            if pk_match is not None:
-                return pk_match
-        return queryset.filter(short_id=lookup_value).first()
+        return resolve_insight_by_id_or_short_id(queryset, self.kwargs[self.lookup_field])
 
     def filter_queryset(self, queryset: QuerySet) -> QuerySet:
         return drop_similar_when_exact_exists(super().filter_queryset(queryset))
@@ -2723,8 +2716,8 @@ When set, the specified dashboard's filters and date range override will be appl
         # equivalent today because team_id == project_id, and asymmetric only under the deprecated
         # multi-team-per-project path being removed. Same trade-off as the feature flag bulk endpoint.
         saved_insights = Insight.objects.filter(team__project_id=self.team.project_id, saved=True)
-        # Counted rather than silently dropped: these still carry the toggle through `filter_to_query`, so a run
-        # that leaves them behind has to say so instead of reporting that nothing needed changing.
+        # Counted rather than silently dropped: the toggle lives in the query, so a run that leaves these
+        # behind has to say so instead of reporting that nothing needed changing.
         legacy_count = saved_insights.filter(query__isnull=True).count()
 
         totals = {"updated": 0, "unchanged": 0, "unsupported": 0, "skipped": 0, "legacy": legacy_count}

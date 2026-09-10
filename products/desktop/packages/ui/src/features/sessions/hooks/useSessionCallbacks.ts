@@ -73,7 +73,6 @@ export function useSessionCallbacks({
         session: currentSession
           ? {
               taskRunId: currentSession.taskRunId,
-              logUrl: currentSession.logUrl,
               events: currentEvents,
             }
           : null,

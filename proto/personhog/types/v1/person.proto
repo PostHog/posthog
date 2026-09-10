@@ -170,6 +170,10 @@ message UpdatePersonPropertiesRequest {
   // flooring bounds record volume at one per person-hour regardless of
   // the caller's precision.
   optional int64 last_seen_at = 8;
+  // The event kind warrants a write regardless of which properties changed.
+  // Computed by the caller from the event alone; when false, filtered-only
+  // changes answer updated=false and write nothing.
+  bool force_update = 9;
 }
 
 message UpdatePersonPropertiesResponse {

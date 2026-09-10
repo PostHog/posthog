@@ -11,6 +11,7 @@ import type {
 } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme, useDateRangeZoom } from 'lib/charts/hooks'
+import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
 import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
@@ -30,9 +31,9 @@ import { ChartParams, type FlattenedFunnelStepByBreakdown } from '~/types'
 import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
-import { AnnotationsLayer } from '../../trends/shared/AnnotationsLayer'
 import { buildBaseLegendConfig } from '../../trends/shared/buildBaseLegendConfig'
 import { FUNNEL_CONVERSION_SERIES_LABEL, type FunnelSeriesMeta } from '../shared/funnelSeriesMeta'
+import { formatFunnelTrendsCounts } from '../shared/funnelTrendsCounts'
 import { buildFunnelLineSeries, buildFunnelLineTimeSeriesConfig, type IndexedFunnelStep } from './funnelChartTransforms'
 import { type FunnelLineChartClickDeps, handleFunnelLineChartClick } from './handleFunnelLineChartClick'
 
@@ -223,7 +224,10 @@ export function FunnelLineChart({
                 dateRange={insightData?.resolved_date_range ?? undefined}
                 groupTypeLabel={resolvedGroupTypeLabel}
                 renderSeriesOverride={(datum) => datum.label ?? ''}
-                renderCount={(value) => `${value}%`}
+                renderCount={(value, entry) => {
+                    const counts = entry.series.meta ? formatFunnelTrendsCounts(entry.series.meta, ctx.dataIndex) : null
+                    return counts ? `${value}% (${counts})` : `${value}%`
+                }}
                 onRowClick={
                     showPersonsModal
                         ? (datum) => {

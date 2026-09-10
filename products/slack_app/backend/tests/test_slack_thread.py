@@ -6,6 +6,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
+from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 from posthog.models.integration import Integration
 
 from products.slack_app.backend.services.slack_messages import RunFooter
@@ -372,8 +373,6 @@ class TestReplyFooterGate(SimpleTestCase):
         return SlackThreadHandler(context, footer or RunFooter(model="claude-opus-5"))
 
     @parameterized.expand([("withheld", False), ("granted", True)])
-    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=True)
-    @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_withholding_the_links_still_leaves_the_model_and_configure(
@@ -382,11 +381,9 @@ class TestReplyFooterGate(SimpleTestCase):
         code_access: bool,
         mock_get_client,
         mock_get_integration,
-        _mock_flag,
-        _mock_home,
     ) -> None:
-        # Whether this reader can open a task page changes which segments render, never
-        # whether the line appears: the model and the way to change it are theirs either way.
+        # Desktop access changes only the desktop segment: the web link works for anyone
+        # with a PostHog login, and the model and the way to change it are theirs either way.
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
         mock_get_integration.return_value = Integration(config={"app_id": "A1"}, integration_id="T1")
@@ -402,47 +399,28 @@ class TestReplyFooterGate(SimpleTestCase):
         line = mock_client.chat_postMessage.call_args.kwargs["blocks"][-1]["elements"][0]["text"]
         assert "*Claude Opus 5*" in line
         assert "|Configure>" in line
-        assert ("View on web" in line) is code_access
+        assert "View on web" in line
         assert ("View on desktop" in line) is code_access
 
-    @parameterized.expand([("off", False, False), ("on", True, True)])
-    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=False)
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_streamed_reply_carries_the_footer_only_inside_the_rollout(
-        self,
-        _name: str,
-        flag_enabled: bool,
-        expected: bool,
-        mock_get_client,
-        mock_get_integration,
-        _mock_home_enabled,
-    ) -> None:
-        # Losing this gate would put the footer under every workspace's replies at once.
+    def test_streamed_reply_carries_the_footer(self, mock_get_client, mock_get_integration) -> None:
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
         mock_get_integration.return_value = Integration(config={}, integration_id="T1")
 
-        with patch(
-            "products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled",
-            return_value=flag_enabled,
-        ):
-            self._handler().stop_status_stream(ts="1.0", final_markdown="Done.")
+        self._handler().stop_status_stream(ts="1.0", final_markdown="Done.")
 
         chunks = mock_client.chat_appendStream.call_args.kwargs["chunks"]
         # The footer rides as a `blocks` chunk: a `context` block is the only muted text,
         # and Slack's streamed markdown_text has no equivalent.
-        assert any(chunk.get("type") == "blocks" for chunk in chunks) is expected
+        assert any(chunk.get("type") == "blocks" for chunk in chunks)
 
 
 class TestFooterNeverCostsTheAnswer(SimpleTestCase):
-    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=False)
-    @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_a_rejected_footer_reposts_the_answer_as_plain_text(
-        self, mock_get_client, mock_get_integration, _mock_flag, _mock_home
-    ) -> None:
+    def test_a_rejected_footer_reposts_the_answer_as_plain_text(self, mock_get_client, mock_get_integration) -> None:
         # Slack fails the whole request when blocks are invalid — the text fallback does
         # not rescue it — so without this the reader loses the answer, not just its footer.
         mock_client = MagicMock()
@@ -476,8 +454,6 @@ class TestRelayedAnswerFooter(SimpleTestCase):
             ("earlier_chunk", RunFooter(model="claude-opus-5"), False, False),
         ]
     )
-    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=False)
-    @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_footer_rides_the_last_chunk_only(
@@ -488,8 +464,6 @@ class TestRelayedAnswerFooter(SimpleTestCase):
         expected: bool,
         mock_get_client,
         mock_get_integration,
-        _mock_flag,
-        _mock_home,
     ) -> None:
         # A non-streamed answer is split only to fit Slack's length cap, so a footer on
         # any chunk but the last would appear mid-answer.
@@ -574,12 +548,10 @@ class TestForkMenuOnReplies(SimpleTestCase):
         return SlackThreadHandler(context, RunFooter(model="claude-opus-5"))
 
     @patch("products.slack_app.backend.slack_thread.is_slack_app_forking_enabled", return_value=True)
-    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=True)
-    @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_non_streamed_answer_hangs_the_menu_off_the_answer_not_the_footer(
-        self, mock_get_client, mock_get_integration, _flag, _home, _forking
+        self, mock_get_client, mock_get_integration, _forking
     ) -> None:
         # Hanging it off the answer's section buys both things the footer alone cannot
         # give: no extra line, and a footer that stays muted. A context block rejects
@@ -599,12 +571,10 @@ class TestForkMenuOnReplies(SimpleTestCase):
         assert blocks[1]["type"] == "context"
 
     @patch("products.slack_app.backend.slack_thread.is_slack_app_forking_enabled", return_value=False)
-    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=True)
-    @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_outside_the_rollout_the_footer_closes_the_message(
-        self, mock_get_client, mock_get_integration, _flag, _home, _forking
+        self, mock_get_client, mock_get_integration, _forking
     ) -> None:
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
@@ -615,3 +585,94 @@ class TestForkMenuOnReplies(SimpleTestCase):
         blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
         assert blocks[-1]["type"] == "context"
         assert "accessory" not in blocks[0]
+
+
+class TestMarkdownAnswerBlocks(SimpleTestCase):
+    """Under the gate the answer carries a `markdown` block, which takes no accessory and caps
+    at a different length than the `section` it replaces."""
+
+    def _handler(self) -> SlackThreadHandler:
+        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        return SlackThreadHandler(context, RunFooter(model="claude-opus-5"))
+
+    @parameterized.expand([("with_footer", True), ("without_footer", False)])
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_the_answer_always_carries_a_markdown_block(
+        self, _name: str, with_footer: bool, mock_get_client, mock_get_integration
+    ) -> None:
+        # A plain-text message renders mrkdwn on its own, which is why a footerless answer
+        # used to carry no blocks. Markdown has no such equivalent, so without the block
+        # Slack shows the source and `## Heading` reaches the reader as literal text.
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(id=7, config={"app_id": "A1"}, integration_id="T1")
+
+        self._handler().post_thread_message("## Heading\n\n**bold**", with_footer=with_footer, markdown=True)
+
+        blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
+        assert blocks[0] == {"type": "markdown", "text": "## Heading\n\n**bold**"}
+
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_forking_enabled", return_value=True)
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_the_menu_gets_its_own_block_because_markdown_takes_no_accessory(
+        self, mock_get_client, mock_get_integration, _forking
+    ) -> None:
+        # Slack rejects the whole message when a block carries a field it does not define,
+        # so an accessory left on the answer would cost the reader the answer itself.
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(id=7, config={"app_id": "A1"}, integration_id="T1")
+
+        self._handler().post_thread_message("the answer", with_footer=True, markdown=True)
+
+        blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
+        assert [block["type"] for block in blocks] == ["markdown", "context", "actions"]
+        assert "accessory" not in blocks[0]
+
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_an_answer_past_the_block_cap_posts_in_full_as_plain_text(
+        self, mock_get_client, mock_get_integration
+    ) -> None:
+        # A markdown block Slack would reject for its length must cost the answer its
+        # formatting, never any of its content.
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(id=7, config={"app_id": "A1"}, integration_id="T1")
+        text = "x" * (SLACK_MARKDOWN_TEXT_MAX_LEN + 1)
+
+        self._handler().post_thread_message(text, with_footer=True, markdown=True)
+
+        kwargs = mock_client.chat_postMessage.call_args.kwargs
+        assert kwargs["text"] == text
+        assert not kwargs.get("blocks")
+
+    @parameterized.expand([("invalid_blocks",), ("invalid_blocks_format",)])
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_a_rejected_markdown_block_falls_back_to_plain_text_without_looping(
+        self, error_code: str, mock_get_client, mock_get_integration
+    ) -> None:
+        # Under the gate every answer carries a block, and the relay has already claimed the
+        # message, so a rejection code this branch does not know loses the answer for good.
+        # Recovering by calling post_thread_message again would rebuild the same markdown
+        # block, so a rejection Slack repeats would recurse until the stack ran out.
+        mock_client = MagicMock()
+        mock_client.chat_postMessage.side_effect = SlackApiError(error_code, {"error": error_code})
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(id=7, config={"app_id": "A1"}, integration_id="T1")
+
+        self._handler().post_thread_message("the answer", with_footer=True, markdown=True)
+
+        assert mock_client.chat_postMessage.call_count == 2
+        retry = mock_client.chat_postMessage.call_args_list[1].kwargs
+        assert retry["text"] == "the answer"
+        assert not retry.get("blocks")
+
+    @patch.object(SlackThreadHandler, "_get_integration", side_effect=Integration.DoesNotExist)
+    def test_the_gate_closes_rather_than_raising_when_the_integration_is_gone(self, _mock_get_integration) -> None:
+        # The relay reads this gate outside any try block of its own, so a raise here would fail
+        # the activity and make Temporal replay a relay that can never succeed.
+        assert self._handler().renders_markdown() is False

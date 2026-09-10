@@ -22,6 +22,7 @@ from products.conversations.backend.temporal.ai_reply.activities.safety_filter i
 from products.conversations.backend.temporal.ai_reply.activities.validate import support_validate_activity
 from products.conversations.backend.temporal.ai_reply.constants import (
     AI_REPLY_TRACE_NAMESPACE,
+    DEFER_KNOWLEDGE_GAPS_UNTIL_RESOLUTION_PATCH,
     MAX_ATTEMPTS,
     MAX_SAFETY_REVIEWED_CHARS,
     SCORE_THRESHOLD,
@@ -46,7 +47,6 @@ from products.conversations.backend.temporal.ai_reply.schemas import (
 # them through the sandbox unmodified.
 with workflow.unsafe.imports_passed_through():
     pass
-
 
 # ---------------------------------------------------------------------------
 # Workflow
@@ -106,11 +106,11 @@ class SupportReplyWorkflow:
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
             except Exception:
-                workflow.logger.warning("support_reply: failed to record triage", status=patch.get("status"))
+                workflow.logger.warning("support_reply: failed to record triage", extra={"status": patch.get("status")})
 
         async def _persist_gaps(gap_missing: list[str], gap_ticket_type: str, gap_outcome: str) -> None:
             """Best-effort: record knowledge gaps without breaking the pipeline."""
-            if not gap_missing:
+            if not gap_missing or workflow.patched(DEFER_KNOWLEDGE_GAPS_UNTIL_RESOLUTION_PATCH):
                 return
             try:
                 await workflow.execute_activity(
@@ -163,8 +163,7 @@ class SupportReplyWorkflow:
             )
             if not safety_output.safe:
                 workflow.logger.info(
-                    "support_reply: ticket blocked by safety filter",
-                    threat_type=safety_output.threat_type,
+                    "support_reply: ticket blocked by safety filter", extra={"threat_type": safety_output.threat_type}
                 )
                 outcome = {"result": "blocked_unsafe"}
                 return "blocked_unsafe"
@@ -309,8 +308,7 @@ class SupportReplyWorkflow:
                     )
                     if not review_output.safe:
                         workflow.logger.info(
-                            "support_reply: reply blocked by output review",
-                            reason=review_output.reason,
+                            "support_reply: reply blocked by output review", extra={"reason": review_output.reason}
                         )
                         outcome = {
                             "result": "blocked_unsafe_reply",
@@ -373,8 +371,7 @@ class SupportReplyWorkflow:
                 )
                 if not review_output.safe:
                     workflow.logger.info(
-                        "support_reply: reply blocked by output review",
-                        reason=review_output.reason,
+                        "support_reply: reply blocked by output review", extra={"reason": review_output.reason}
                     )
                     outcome = {
                         "result": "blocked_unsafe_reply",

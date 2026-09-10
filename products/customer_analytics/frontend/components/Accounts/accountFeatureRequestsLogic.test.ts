@@ -32,6 +32,7 @@ const existingRequest: FeatureRequestApi = {
             updated_at: '2026-01-01T00:00:00Z',
         },
     ],
+    evidence_count: 0,
     product_areas: [],
     created_by: 1,
     updated_by: 1,

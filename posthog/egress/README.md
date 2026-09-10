@@ -15,6 +15,29 @@ It is unrelated to `posthog.rate_limit`, which throttles _inbound_ DRF requests 
 All three lanes are **domain-generic** and domain-free; each third-party API is an incarnation under its own subpackage (`github/`, `logodev/`, `firecrawl/`), supplying a budget policy, a metric set + parser, and a transport subclass.
 Adding a new outbound API is another `<domain>/` folder, not a change to the mechanisms.
 
+## Non-goals
+
+This section records what egress does not do, and why.
+Each item below was a real proposal.
+
+**Egress does not store response data.**
+The limiter keeps control state about a budget, which stays O(1) per scope and expires on its own, so its footprint does not grow with traffic.
+A response body is the opposite, because its footprint tracks request volume.
+The test is the entry count, not the entry size.
+A small entry per URL still grows with the number of URLs, so a store of validators fails this the same way a store of bodies does.
+Storing either therefore needs a size budget, an eviction policy, and a store of its own.
+The shared Django cache is not that store, because it also serves the request path.
+Cache what a caller needs in that caller's own cache, where the data is already smaller and better shaped than the raw response.
+
+**Egress does not hide an API's response semantics from callers.**
+A transport that replays a `304` as a `200`, or an error as an empty result, leaves the caller unable to act on what the API said.
+Classify the response instead, and hand the caller a typed result it can act on.
+"No call site changes" is not a reason to break this. If a caller has to know that nothing changed, change the caller.
+
+**Egress does not decide what a caller should request.**
+A caller that fetches data it does not need is a product bug, and the limiter only makes that bug cheaper to survive.
+Fix the request pattern first, then measure what is left.
+
 ## Rate limiting
 
 ### Using it
@@ -49,6 +72,8 @@ if pace > 0:
 `pace_seconds` returns **0 while a window still holds more than half of that priority's allowance**, so a short run is never slowed for a budget it cannot dent.
 Below that it spreads the allowance that is left over the time left in the window, which is the interval that keeps the caller admitted instead of shed.
 It reads the same reserved floors admission does, so a `BATCH` caller paces off the share it may actually take, not the whole window.
+A caller that keeps several calls in flight also asks `admission_interval_seconds(key, priority=...)` for the gap between admissions that fits its share of every window, and waits for whichever of the two is longer.
+`pace_seconds` reads the window, so it cannot see calls the caller admitted but has not consumed yet; the interval comes from the policy alone and holds through that gap and through a store outage.
 
 Two things it is not.
 It is **advisory** — `acquire`/`consume_sync` remain the only authority on whether a call is admitted, so a bug here cannot over-admit.
@@ -80,6 +105,13 @@ Firecrawl's per-plan limits are not discoverable from the running process, so th
 One scrape is one credit, so those numbers cap a bill as much as a rate; they are sized for traffic of roughly one scrape per event a person triggers, and are meant to be raised in settings as that grows.
 Every Firecrawl call runs on a sheddable lane: what gets scraped is derived from user-supplied input and callers can do without the scrape, so nothing in this domain runs `CRITICAL`.
 `FIRECRAWL_API_KEY` authenticates every call as a bearer token; an instance without one makes no request at all (`FirecrawlNotConfigured`).
+
+Harmonic (`harmonic/`) meters one account-wide rate limit, and an instance holds a single API key, so it uses one constant scope like the two above.
+The budget is a single per-second ceiling read from settings at acquire time: `HARMONIC_EGRESS_PER_SECOND_BUDGET` (default 15).
+Harmonic documents a per-second limit for most endpoints and answers 429 above it, reporting the current limit and remaining allowance in `X-Ratelimit-Limit-Second` and `X-Ratelimit-Remaining-Second` on every response.
+The default sits above that so the `BATCH` reserve floor lands the bulk lane near the documented rate, and it is tuned against the values this domain records from those headers.
+Harmonic is the first async domain: it subclasses `AsyncEgressClient` rather than `EgressClient`, because its client speaks `aiohttp`.
+Its lanes carry very different traffic, so the reserve floor matters: signup enrichment and the ICP re-enrichment sweep run `CRITICAL` inside a short Temporal activity budget, while the Salesforce enrichment sweep runs `BATCH` and yields to them.
 
 ### Priority lanes
 
@@ -158,7 +190,7 @@ It is **never** a PostHog DB row id (`Integration.id`).
 Several PostHog integration rows can point at the same installation (multiple projects, one org), and GitHub gives that installation one shared budget: key a gauge by the row and one real budget splits into N flip-flopping series; key by the installation and you get one true series.
 Per-caller attribution is the `source` label's job, not the identity's.
 
-> The cache-hit counter in `github_integration_base` is a separate concern (cache efficiency per connection) and legitimately keys by the integration row — it is not egress-budget telemetry.
+> The cache-hit counter in `github_integration_base` is a separate concern (which rows are reading a warm cache) and legitimately keys by the integration row, not by the installation — it is not egress-budget telemetry. The caches it counts are installation-scoped, so a row can record a hit on an entry another row on the same installation filled.
 
 ## Identity-blind callers and the PAT scope decision
 

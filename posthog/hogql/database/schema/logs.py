@@ -85,6 +85,16 @@ class LogsTable(Table):
         "service_name": StringDatabaseField(
             name="service_name", nullable=False, description="Name of the service that emitted the log."
         ),
+        "pattern": StringDatabaseField(
+            name="pattern",
+            nullable=False,
+            description="Masked template of the log message, with variable parts replaced. Logs that share a pattern are the same kind of message. Empty when the log was not stamped.",
+        ),
+        "pattern_version": IntegerDatabaseField(
+            name="pattern_version",
+            nullable=False,
+            description="Version of the masking rules that produced `pattern`. 0 means the log was not stamped, so compare patterns only within one version.",
+        ),
         # internal fields for query optimization
         # Physical type-suffixed backing map of `attributes`. A bare arrayElement() on it reads only
         # the serialization bucket holding the key; membership guards (has/mapContains) force reading

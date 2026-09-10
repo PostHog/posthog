@@ -176,6 +176,47 @@ export function getRunnableNotebookVariables(
 }
 
 /**
+ * A row the person added but has not named yet. It cannot be referenced or saved, so the bar
+ * treats it as a draft: no validation message, and no attempt to persist it.
+ */
+export function isNotebookVariableDraft(variable: NotebookVariable): boolean {
+    return !variable.name
+}
+
+/**
+ * The declarations the API accepts. Conflicts with a cell's dataframe name are deliberately not
+ * filtered here: the server stores such a declaration happily, and dropping it would delete the
+ * person's work because another cell was renamed. One bad row must not fail the whole PATCH.
+ */
+export function getSavableNotebookVariables(variables: NotebookVariable[]): NotebookVariable[] {
+    const errors = getNotebookVariableErrors(variables)
+    return variables.filter((_, index) => errors[index] === null)
+}
+
+/**
+ * The saved declarations that `savable` would remove. A PATCH replaces the whole list, so this is
+ * what the server would lose by sending it.
+ */
+export function droppedSavedNotebookVariables(
+    savable: NotebookVariable[],
+    saved: NotebookVariable[]
+): NotebookVariable[] {
+    const savableNames = new Set(savable.map((variable) => variable.name))
+    return saved.filter((variable) => !savableNames.has(variable.name))
+}
+
+/** Whether two declaration lists hold the same variables in the same order. */
+export function sameNotebookVariables(a: NotebookVariable[], b: NotebookVariable[]): boolean {
+    return (
+        a.length === b.length &&
+        a.every(
+            (variable, index) =>
+                variable.name === b[index].name && variable.type === b[index].type && variable.value === b[index].value
+        )
+    )
+}
+
+/**
  * Whether a cell's code reads `variableName`. SQL reads it as a `{name}` placeholder; Python reads
  * it as a plain global, so the rough identifier scan is reused (a false positive only marks an
  * extra cell stale).

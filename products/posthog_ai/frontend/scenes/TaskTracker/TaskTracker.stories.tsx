@@ -6,7 +6,7 @@ import { App } from 'scenes/App'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 
@@ -53,7 +53,7 @@ const TASKS: Task[] = [
         title: 'Add retention graph export',
         description: 'Let users download the retention graph as a CSV from the insight menu.',
         origin_product: OriginProduct.USER_CREATED,
-        runtime: RuntimeEnumApi.Acp,
+        runtime: TaskRuntimeEnumApi.Acp,
         repository: 'PostHog/posthog',
         github_integration: 1,
         signal_report: null,
@@ -71,7 +71,7 @@ const TASKS: Task[] = [
         title: 'Fix cohort empty state in query builder',
         description: 'Handle an empty cohort gracefully instead of throwing in the query builder.',
         origin_product: OriginProduct.USER_CREATED,
-        runtime: RuntimeEnumApi.Acp,
+        runtime: TaskRuntimeEnumApi.Acp,
         repository: 'PostHog/posthog',
         github_integration: 1,
         signal_report: null,
@@ -89,7 +89,7 @@ const TASKS: Task[] = [
         title: 'Investigate slow dashboard load',
         description: 'Profile the dashboard scene and find the slowest tiles on first paint.',
         origin_product: OriginProduct.USER_CREATED,
-        runtime: RuntimeEnumApi.Acp,
+        runtime: TaskRuntimeEnumApi.Acp,
         repository: 'PostHog/posthog',
         github_integration: 1,
         signal_report: null,
@@ -125,6 +125,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/code/invites/check-access/': { has_access: true, has_loops_access: false },
                 '/api/projects/:team_id/tasks/': listResponse(TASKS),
                 '/api/projects/:team_id/tasks/repositories/': { repositories: ['PostHog/posthog'] },
                 // Exact ids (not `:id`) so they never shadow the `repositories` action route.

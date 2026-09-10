@@ -927,7 +927,6 @@
     'last_refresh',
     'objects',
     'objects_including_soft_deleted',
-    'query_from_filters',
     'refresh_attempt',
     'refreshing',
     'save',

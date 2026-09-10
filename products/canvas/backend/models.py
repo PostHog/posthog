@@ -33,6 +33,10 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
     KIND_COMPONENT = "component"
     KINDS = [KIND_FREEFORM, KIND_GRID, KIND_COMPONENT]
 
+    SOURCE_POLICY_STANDARD = "standard"
+    SOURCE_POLICY_NOTEBOOK_WIDGET = "notebook_widget"
+    SOURCE_POLICIES = [SOURCE_POLICY_STANDARD, SOURCE_POLICY_NOTEBOOK_WIDGET]
+
     # db_constraint=False: a real FK constraint to the hot posthog_team table
     # takes a parent lock during migration; scoping is enforced app-side.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
@@ -41,13 +45,12 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
 
     name = models.CharField(max_length=400)
     kind = models.CharField(max_length=16, default=KIND_FREEFORM)
+    source_policy = models.CharField(max_length=32, default=SOURCE_POLICY_STANDARD, db_default=SOURCE_POLICY_STANDARD)
     # Short prose describing what the canvas is/does. For components this is
     # the store-search text agents match against, so it should say what the
     # widget shows and what its config controls.
     description = models.TextField(blank=True, default="")
     template_id = models.CharField(max_length=64, default="freeform")
-    # Author-written markdown handed to generation tasks as background context.
-    context = models.TextField(blank=True, default="")
     # The task currently generating/editing this canvas. A plain UUID rather
     # than a FK: Task lives in the tasks app and a schema-level FK would chain
     # the two products' migrations together for a soft pointer.

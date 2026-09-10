@@ -25,8 +25,8 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     seeding_object_storage,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.ci_views"
 GITHUB_SOURCE_PREFIX = "myprefix"

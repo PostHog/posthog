@@ -164,7 +164,7 @@ class TestModelPath(BaseTest):
             persons.properties
           from events
           left join persons on events.person_id = persons.id
-          where events.event = 'login' and person.pdi != 'some_distinct_id'
+          where events.event = 'login' and events.distinct_id != 'some_distinct_id'
         """
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -273,7 +273,7 @@ class TestModelPath(BaseTest):
             persons.properties
           from events
           left join persons on events.person_id = persons.id
-          where events.event = 'login' and person.pdi != 'some_distinct_id'
+          where events.event = 'login' and events.distinct_id != 'some_distinct_id'
         """
         parent_saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -308,7 +308,7 @@ class TestModelPath(BaseTest):
             persons.properties
           from events
           left join persons on events.person_id = persons.id
-          where events.event = 'login' and person.pdi != 'some_distinct_id'
+          where events.event = 'login' and events.distinct_id != 'some_distinct_id'
         """
         parent_saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -356,7 +356,7 @@ class TestModelPath(BaseTest):
             persons.properties
           from events
           left join persons on events.person_id = persons.id
-          where events.event = 'login' and person.pdi != 'some_distinct_id'
+          where events.event = 'login' and events.distinct_id != 'some_distinct_id'
         """
         parent_saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -449,7 +449,7 @@ class TestModelPath(BaseTest):
             persons.properties
           from events
           left join persons on events.person_id = persons.id
-          where events.event = 'login' and person.pdi != 'some_distinct_id'
+          where events.event = 'login' and events.distinct_id != 'some_distinct_id'
         """
         parent_saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,

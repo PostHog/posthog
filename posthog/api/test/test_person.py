@@ -303,6 +303,34 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
 
+    @parameterized.expand(
+        [
+            ("hogql", {"type": "hogql", "key": "properties.email like '%@example.com'"}, 2),
+            ("type_less_person", {"key": "email", "value": "someone@example.com"}, 1),
+        ]
+    )
+    def test_properties_without_an_operator(self, _name: str, prop: dict, expected_count: int) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id"],
+            properties={"email": "someone@example.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id_2"],
+            properties={"email": "another@example.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id_3"],
+            properties={"email": "nobody@other.test"},
+        )
+        flush_persons_and_events()
+
+        response = self.client.get("/api/person/?properties={}".format(json.dumps([prop])))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(len(response.json()["results"]), expected_count)
+
     @also_test_with_materialized_columns(person_properties=["random_prop"])
     @snapshot_clickhouse_queries
     def test_person_property_values(self):
@@ -1897,7 +1925,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         returned_ids = []
         # The property-access-control feature check reuses the request's already-loaded team,
         # so listing persons no longer pays a per-request Team lookup (was 16). +1 for the
-        # saved-expressions fetch in the HogQL database build.
+        # saved-expressions fetch in the HogQL database build. +1 for the shared-database
+        # kill-switch instance setting, cold-cache here but TTL-cached per worker in production.
         with self.assertNumQueries(16):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
@@ -1911,7 +1940,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # 16 as above, plus the include_total counting queries (was 20); the count runs a second
         # HogQL database build, which pays the saved-expressions fetch again.
-        with self.assertNumQueries(21):
+        with self.assertNumQueries(19):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 

@@ -13,6 +13,7 @@ const remoteMcpServerSchema: z.ZodType<McpServerConnection> = z.object({
   name: z.string().min(1, "MCP server name is required"),
   url: z.url({ error: "MCP server url must be a valid URL" }),
   headers: z.array(httpHeaderSchema).default([]),
+  description: z.string().optional(),
 });
 
 export const mcpServersSchema = z.array(remoteMcpServerSchema);
@@ -114,6 +115,21 @@ export const mcpResponseParamsSchema = z
     error: "Exactly one of payload or error is required",
   });
 
+export const credentialResponseParamsSchema = z
+  .object({
+    requestId: z.string().min(1, "requestId is required").max(128),
+    credential: z.literal("claude_subscription_token"),
+    token: z.string().min(1).max(4096).optional(),
+    error: z.enum(["no_token", "store_unavailable"]).optional(),
+  })
+  .refine((params) => Boolean(params.token) !== Boolean(params.error), {
+    error: "Exactly one of token or error is required",
+  });
+
+export type CredentialResponseParams = z.infer<
+  typeof credentialResponseParamsSchema
+>;
+
 export const closeParamsSchema = z.object({}).optional();
 
 export const commandParamsSchemas = {
@@ -133,6 +149,9 @@ export const commandParamsSchemas = {
   mcp_response: mcpResponseParamsSchema,
   "posthog/mcp_response": mcpResponseParamsSchema,
   "_posthog/mcp_response": mcpResponseParamsSchema,
+  credential_response: credentialResponseParamsSchema,
+  "posthog/credential_response": credentialResponseParamsSchema,
+  "_posthog/credential_response": credentialResponseParamsSchema,
   side_question: sideQuestionParamsSchema,
   "posthog/side_question": sideQuestionParamsSchema,
 } as const;

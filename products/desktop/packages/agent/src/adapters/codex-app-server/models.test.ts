@@ -26,6 +26,7 @@ describe("getReasoningEffortOptions", () => {
   );
 
   it.each([
+    "gpt-6-astra",
     "gpt-5.6-sol",
     "gpt-5.6-terra",
     "gpt-5.6-luna",
@@ -51,7 +52,8 @@ describe("getReasoningEffortOptions", () => {
 });
 
 describe("supportsXhighEffort", () => {
-  it("is true for the gpt-5.5 family and false for other models", () => {
+  it("is true for current GPT families and false for other models", () => {
+    expect(supportsXhighEffort("gpt-6-astra")).toBe(true);
     expect(supportsXhighEffort("gpt-5.5-codex")).toBe(true);
     expect(supportsXhighEffort("GPT-5.5")).toBe(true);
     expect(supportsXhighEffort("gpt-5.3-codex")).toBe(false);
@@ -59,7 +61,8 @@ describe("supportsXhighEffort", () => {
 });
 
 describe("supportsMaxEffort", () => {
-  it("is true only for the gpt-5.6 family", () => {
+  it("is true for current GPT families with Max support", () => {
+    expect(supportsMaxEffort("gpt-6-astra")).toBe(true);
     expect(supportsMaxEffort("gpt-5.6-sol")).toBe(true);
     expect(supportsMaxEffort("GPT-5.6-LUNA")).toBe(true);
     expect(supportsMaxEffort("gpt-5.5")).toBe(false);

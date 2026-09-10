@@ -16,7 +16,13 @@ from posthog.models import User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
+from posthog.synthetic_user import SyntheticUser
 
+from products.access_control.backend.facade.enums import (
+    RESOLVED_ACCESS_SOURCE_CHOICES,
+    RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES,
+)
+from products.access_control.backend.facade.object_names import display_model
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
 from products.access_control.backend.facade.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
@@ -46,14 +52,10 @@ def _inherited_source_display_name(obj: Model, access: ResolvedAccess) -> str | 
     fallback relation (that's where the walk got its id), so it is read off the object — cached
     by Django, free when already loaded — never refetched by id. The name field comes from the
     same registry the settings UI names objects with, so a new fallback parent needs no code here."""
-    from .access_control_settings import (
-        _display_model,  # noqa: PLC0415 — access_control_settings imports this module; deferring breaks the cycle
-    )
-
     if access.source != "parent_object":
         return None
     parent = fallback_parent_object(obj, access.source_resource)
-    display = _display_model(access.source_resource)
+    display = display_model(access.source_resource)
     if parent is None or display is None:
         return None
     name = getattr(parent, display.name_field, None)
@@ -80,23 +82,15 @@ class ResolvedAccessSerializer(serializers.Serializer):
 
     access_level = serializers.CharField(help_text="The access level that applies.")
     source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
-        choices=[
-            "object",
-            "parent_object",
-            "resource",
-            "parent_resource",
-            "system_default",
-            "org_admin",
-            "creator",
-            "org_membership",
-        ],
+        choices=RESOLVED_ACCESS_SOURCE_CHOICES,
         help_text="How the level was derived: a rule on the object, its parent object, the resource, the parent "
-        "resource, the built-in default, or one of the bypasses (org admin, creator, organization membership).",
+        "resource, the PostHog default, an organization admin's or a creator's full access, or organization "
+        "membership when the object is the organization itself.",
     )
     source_subject = serializers.ChoiceField(
-        choices=["member", "role", "default"],
+        choices=RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES,
         allow_null=True,
-        help_text="Whose rule decided: a member's own, a role's, or the default for everyone. Null when no rule did.",
+        help_text="Whose rule decided: a member's own, a role's, or the default for everyone in the project. Null when no rule did.",
     )
     source_resource = serializers.CharField(help_text="The resource the deciding rule belongs to.")
     source_resource_id = serializers.CharField(
@@ -293,6 +287,10 @@ def upsert_access_control(
 
 
 class AccessControlViewSetMixin(_GenericViewSet):
+    # The facade's route walk (object_names.resources_with_object_access_controls) keys on this
+    # marker instead of importing the class
+    object_access_controls = True
+
     # Why a mixin? We want to easily add this to any existing resource, including providing easy helpers for adding access control info such
     # as the current users access level to any response.
     # This mixin does:
@@ -576,6 +574,11 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
 
         # The user could be anonymous - if so there is no access control to be used
         if request and request.user.is_anonymous:
+            return None
+
+        # Service credentials (TST, PSAK) authenticate as synthetic users UserAccessControl
+        # can't evaluate — per-user access levels are meaningless for them, so report none.
+        if request and isinstance(request.user, SyntheticUser):
             return None
 
         # NOTE: The user_access_control is typically on the view but in specific cases,

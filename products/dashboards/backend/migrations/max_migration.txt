@@ -1,1 +1,1 @@
-0015_dashboard_customization
+0018_squash_2026_09_07_schema_addons

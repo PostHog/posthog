@@ -19,7 +19,10 @@ by the sibling ``organization_members`` module.
 """
 
 import json
+from datetime import timedelta
 from typing import Any
+
+from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
@@ -48,6 +51,7 @@ from products.customer_analytics.backend.facade.contracts import (
     AccountChannelSummaryView,
     AccountNotebookView,
     AccountNoteView,
+    AccountPresenceViewer,
     AccountRelationship,
     AccountRelationshipDefinition,
     AccountTableField,
@@ -74,6 +78,7 @@ from products.customer_analytics.backend.facade.contracts import (
     MeetingParticipantView,
     MeetingView,
 )
+from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 
 
 class AccountTrackRuleFieldSerializer(serializers.Serializer):
@@ -250,6 +255,16 @@ _FEATURE_REQUEST_ORDERING_CHOICES = [
     ("priority", "Priority: low to high"),
     ("title", "Title: A to Z"),
     ("-title", "Title: Z to A"),
+    ("account", "Accounts: A to Z"),
+    ("-account", "Accounts: Z to A"),
+    ("product_area", "Product areas: A to Z"),
+    ("-product_area", "Product areas: Z to A"),
+    ("status", "Status: A to Z"),
+    ("-status", "Status: Z to A"),
+    ("created_by", "Created by: A to Z"),
+    ("-created_by", "Created by: Z to A"),
+    ("evidence_count", "Evidence: low to high"),
+    ("-evidence_count", "Evidence: high to low"),
 ]
 
 
@@ -411,6 +426,11 @@ class FeatureRequestSerializer(DataclassSerializer):
         read_only=True,
         help_text="Active account links visible to the caller, with account-specific evidence.",
     )
+    evidence_count = serializers.IntegerField(
+        read_only=True,
+        min_value=0,
+        help_text="Total evidence items recorded across visible account links.",
+    )
     product_areas = FeatureRequestProductAreaSerializer(
         many=True,
         read_only=True,
@@ -441,6 +461,7 @@ class FeatureRequestSerializer(DataclassSerializer):
             "can_update",
             "account",
             "account_links",
+            "evidence_count",
             "product_areas",
             "created_by",
             "updated_by",
@@ -982,6 +1003,17 @@ class AccountSerializer(DataclassSerializer):
         return value
 
 
+class AccountPresenceViewerSerializer(DataclassSerializer):
+    user_id = serializers.IntegerField(
+        read_only=True, help_text="PostHog user ID of the teammate viewing this account."
+    )
+    display_name = serializers.CharField(read_only=True, help_text="Display name of the teammate viewing this account.")
+
+    class Meta:
+        dataclass = AccountPresenceViewer
+        fields = ["user_id", "display_name"]
+
+
 class AccountOrganizationMemberSerializer(serializers.ModelSerializer):
     """Slim organization-member representation for Customer analytics account rows."""
 
@@ -989,10 +1021,15 @@ class AccountOrganizationMemberSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Basic profile of the member's user (uuid, distinct_id, first_name, last_name, email).",
     )
+    last_login = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the member last signed in, or null if they have never signed in.",
+    )
 
     class Meta:
         model = OrganizationMembership
-        fields = ["id", "user", "level"]
+        fields = ["id", "user", "level", "last_login"]
         read_only_fields = ["id", "user", "level"]
         extra_kwargs = {
             "id": {"help_text": "Organization membership ID."},
@@ -1365,6 +1402,23 @@ class CalendarSyncTriggerResponseSerializer(serializers.Serializer):
         choices=[("started", "started"), ("already_running", "already_running")],
         help_text="'started' (a sync run began) or 'already_running' (a sync for this calendar was already in flight, so this was a no-op).",
     )
+
+
+class CalendarSyncBackfillSerializer(serializers.Serializer):
+    integration_id = serializers.IntegerField(help_text="Id of the Google account integration to backfill.")
+    start_date = serializers.DateField(help_text="First UTC date to include. Must be within the last 365 days.")
+    end_date = serializers.DateField(help_text="Final UTC date to include. Cannot be after today.")
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        today = timezone.now().date()
+        earliest_date = today - timedelta(days=365)
+        if attrs["start_date"] < earliest_date:
+            raise serializers.ValidationError({"start_date": "Start date must be within the last 365 days."})
+        if attrs["end_date"] > today:
+            raise serializers.ValidationError({"end_date": "End date cannot be after today."})
+        if attrs["start_date"] > attrs["end_date"]:
+            raise serializers.ValidationError({"end_date": "End date must be on or after the start date."})
+        return attrs
 
 
 class MeetingParticipantSerializer(DataclassSerializer):
@@ -1757,8 +1811,8 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
     display_type = serializers.ChoiceField(
         choices=CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
         help_text=(
-            "How the property is interpreted and rendered: 'text', 'number', 'currency', "
-            "'percent', 'date', 'datetime', 'boolean', or 'select'."
+            "How the property is interpreted and rendered: 'text', 'link', 'number', 'currency', "
+            "'percent', 'date', 'datetime', 'boolean', or 'select'. Links require an HTTP or HTTPS URL."
         ),
     )
     target_type = serializers.ChoiceField(
@@ -1813,7 +1867,11 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
     references = CustomPropertyReferenceSerializer(
         many=True,
         read_only=True,
-        help_text="Workflows that use this property, resolved by definition id.",
+        help_text="Workflows that use this property, resolved by definition id when the caller can view workflows.",
+    )
+    has_workflow_reference = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether a workflow updates this property. Always returned, even when workflow details are hidden.",
     )
 
     def validate(self, attrs):
@@ -1848,6 +1906,7 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
             "created_by",
             "updated_at",
             "references",
+            "has_workflow_reference",
         ]
 
 
@@ -1888,10 +1947,12 @@ class CustomPropertyValueWriteSerializer(serializers.Serializer):
         help_text="UUID of the custom property definition whose value to set for this account."
     )
     value = CustomPropertyValueField(
+        allow_null=True,
         help_text=(
             "Value to store, matching the definition's type: a number for number/currency/percent, a "
-            "boolean for boolean, an ISO-8601 string for date/datetime, or text for text properties."
-        )
+            "boolean for boolean, an ISO-8601 string for date/datetime, an HTTP or HTTPS URL for link properties, "
+            "or text for text properties. Null clears the current value while preserving its history."
+        ),
     )
 
 
@@ -1926,6 +1987,36 @@ class CustomPropertyValueSuggestionsResponseSerializer(serializers.Serializer):
     )
     refreshing = serializers.BooleanField(
         read_only=True, help_text="Always false — present for compatibility with the property-values consumer."
+    )
+
+
+class PinnedAccountPropertySerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=[
+            (AccountPropertyPinKind.CUSTOM_PROPERTY.value, "Custom property"),
+            (AccountPropertyPinKind.RELATIONSHIP.value, "Relationship"),
+        ],
+        help_text="Definition type for this pinned account property.",
+    )
+    id = serializers.UUIDField(
+        help_text="Team-scoped custom property or relationship definition UUID.",
+    )
+
+
+class UserCustomerAnalyticsConfigSerializer(serializers.Serializer):
+    pinned_properties = PinnedAccountPropertySerializer(
+        many=True,
+        read_only=True,
+        help_text="Account properties pinned in sidebar display order.",
+    )
+
+
+class UserCustomerAnalyticsConfigUpdateSerializer(serializers.Serializer):
+    pinned_properties = PinnedAccountPropertySerializer(
+        many=True,
+        allow_empty=True,
+        required=False,
+        help_text="Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them.",
     )
 
 

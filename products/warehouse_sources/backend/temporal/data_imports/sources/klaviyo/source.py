@@ -151,10 +151,13 @@ The campaign and flow performance tables need a conversion metric. Leave the con
     ) -> list[SourceSchema]:
         # Events are immutable - append-only is the only sync mode
         append_only_endpoints = {"events"}
-        # An endpoint's incremental lookback intentionally re-pulls a window of rows each run; only
-        # merge dedupes those on the primary key, append would materialize them as duplicates.
+        # An endpoint's incremental lookback intentionally re-pulls a window of rows each run, and a
+        # report re-posts its whole window every run; only merge dedupes those on the primary key,
+        # append would materialize them as duplicates.
         merge_only_endpoints = {
-            name for name, endpoint_config in KLAVIYO_ENDPOINTS.items() if endpoint_config.incremental_lookback
+            name
+            for name, endpoint_config in KLAVIYO_ENDPOINTS.items()
+            if endpoint_config.incremental_lookback or endpoint_config.values_report is not None
         }
 
         def _build_schema(endpoint: str) -> SourceSchema:

@@ -55,14 +55,19 @@ export const SeriesTab = (): JSX.Element => {
     const { addSeriesBreakdown } = useActions(breakdownLogic)
 
     const isScatterPlot = effectiveVisualizationType === ChartDisplayType.ScatterPlot
+    const isMetric = effectiveVisualizationType === ChartDisplayType.Metric
     const availableBreakdownColumns = getAvailableSeriesBreakdownColumns(columns, selectedXAxis, selectedYAxis)
-    const hideAddYSeries = yData.length >= numericalColumns.length
-    // A breakdown buckets rows by x value, which a point cloud can't survive — a scatter reads the x
-    // column's own values instead, so the option does nothing there.
+    const hideAddYSeries = isMetric ? yData.length >= 1 : yData.length >= numericalColumns.length
+    // Metric and scatter charts accept one series, so a breakdown does not apply.
     const hideAddSeriesBreakdown =
-        isScatterPlot || showSeriesBreakdown || selectedXAxis === null || availableBreakdownColumns.length === 0
+        isScatterPlot ||
+        isMetric ||
+        showSeriesBreakdown ||
+        selectedXAxis === null ||
+        availableBreakdownColumns.length === 0
     const showSeriesBreakdownSelector =
         !isScatterPlot &&
+        !isMetric &&
         selectedXAxis !== null &&
         showSeriesBreakdown &&
         (selectedSeriesBreakdownColumn !== null || availableBreakdownColumns.length > 0)
@@ -499,8 +504,11 @@ export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YS
     const { updateSeriesIndex } = useActions(dataVisualizationLogic)
 
     const isPieChart = effectiveVisualizationType === ChartDisplayType.ActionsPie
-    // Neither a pie nor a scatter has a second gutter, a trend line, or a bar/line/area choice.
-    const hideChartSpecificOptions = isPieChart || effectiveVisualizationType === ChartDisplayType.ScatterPlot
+    // Pie, metric, and scatter charts do not use these series controls.
+    const hideChartSpecificOptions =
+        isPieChart ||
+        effectiveVisualizationType === ChartDisplayType.Metric ||
+        effectiveVisualizationType === ChartDisplayType.ScatterPlot
     const showColorPicker = !showTableSettings && !selectedSeriesBreakdownColumn
     const showLabelInput = showTableSettings || !selectedSeriesBreakdownColumn
 

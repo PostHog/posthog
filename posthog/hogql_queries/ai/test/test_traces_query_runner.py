@@ -347,6 +347,48 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
     # test_trace_id_filter removed - TracesQuery no longer supports traceId parameter
 
     @freeze_time("2025-01-16T00:00:00Z")
+    def test_sums_distinguish_reported_zero_from_no_report(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_zero",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0),
+            properties={
+                "$ai_input_tokens": 0,
+                "$ai_output_tokens": 0,
+                "$ai_input_cost_usd": 0,
+                "$ai_output_cost_usd": 0,
+                "$ai_total_cost_usd": 0,
+            },
+        )
+        # A generation whose provider never reported usage carries no token or
+        # cost properties at all.
+        _create_event(
+            event="$ai_generation",
+            distinct_id="person1",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 1),
+            properties={
+                "$ai_trace_id": "trace_unpriced",
+                "$ai_latency": 1,
+            },
+        )
+
+        response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
+        traces = {trace.id: trace for trace in response.results}
+
+        zero_trace = traces["trace_zero"]
+        self.assertEqual(zero_trace.totalCost, 0)
+        self.assertEqual(zero_trace.inputCost, 0)
+        self.assertEqual(zero_trace.inputTokens, 0)
+
+        unpriced_trace = traces["trace_unpriced"]
+        self.assertIsNone(unpriced_trace.totalCost)
+        self.assertIsNone(unpriced_trace.inputCost)
+        self.assertIsNone(unpriced_trace.inputTokens)
+
+    @freeze_time("2025-01-16T00:00:00Z")
     def test_stored_sentiment_evaluations_are_mapped_to_trace_and_generation(self):
         event_uuid = uuid.uuid4()
         generation_id = "generation-id-1"
@@ -1795,6 +1837,45 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         # Should count: Span A (250) + Direct Generation (200) = 450
         # Should NOT double-count the children of Span A
         self.assertEqual(response.results[0].totalLatency, 450.0)
+
+    def test_latency_root_trace_event_reports_wall_clock(self):
+        """
+        Test the root $ai_trace latency wins over the sum of its children.
+
+        Tree structure:
+        Trace "trace_root_latency" (1.806s wall clock)
+        └── Generation ($ai_parent_id=trace_id, 0.917s, contained in the trace)
+
+        Expected: the root value 1.806s, rounded to 1.81, not 1.806 + 0.917
+        """
+        _create_person(distinct_ids=["person1"], team=self.team)
+        trace_id = "trace_root_latency"
+
+        _create_ai_trace_event(
+            trace_id=trace_id,
+            trace_name="root-latency-trace",
+            input_state={},
+            output_state={},
+            team=self.team,
+            distinct_id="person1",
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            properties={"$ai_latency": 1.806},
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 1),
+            properties={"$ai_latency": 0.917, "$ai_parent_id": trace_id},
+        )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z")),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].totalLatency, 1.81)
 
     def test_latency_no_span_id_automatic_leaves(self):
         """

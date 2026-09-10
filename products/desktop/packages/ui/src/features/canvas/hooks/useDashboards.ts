@@ -21,13 +21,8 @@ import {
 } from "./spaceQueryPolicy";
 
 const log = logger.scope("dashboards");
-
 // The naming helpers moved to @posthog/core (CanvasApplicationService uses them
 // for auto-naming); re-exported here for the UI surfaces that import them.
-export {
-  isPlaceholderCanvasName,
-  UNTITLED_CANVAS_NAME,
-} from "@posthog/core/canvas/canvasNaming";
 
 /** Saved canvases for a channel. */
 export function useDashboards(
@@ -72,31 +67,6 @@ export function useAllCanvases(): {
     }),
   );
   return { dashboards: data ?? [], isLoading };
-}
-
-/**
- * Warm the dashboards-list cache for a channel ahead of opening it (e.g. on
- * hover), so expanding the channel shows its canvases without a cold fetch.
- * Respects the same staleTime, so it no-ops when the data is already fresh.
- */
-export function usePrefetchDashboards(): (channelId: string) => void {
-  const trpc = useHostTRPC();
-  const queryClient = useQueryClient();
-  return useCallback(
-    (channelId: string) => {
-      void queryClient.prefetchQuery(
-        trpc.dashboards.list.queryOptions(
-          { channelId },
-          {
-            gcTime: SPACE_QUERY_GC_TIME_MS,
-            meta: AUTH_SCOPED_QUERY_META,
-            staleTime: SPACE_QUERY_STALE_TIME_MS,
-          },
-        ),
-      );
-    },
-    [trpc, queryClient],
-  );
 }
 
 /** A single saved canvas record (metadata + lifecycle pointers). */
@@ -179,9 +149,6 @@ export function useDashboardMutations() {
   const remove = useMutation(
     trpc.dashboards.delete.mutationOptions({ onSuccess: invalidate }),
   );
-  const saveContext = useMutation(
-    trpc.dashboards.saveContext.mutationOptions({ onSuccess: invalidate }),
-  );
   const revertToVersion = useMutation(
     trpc.dashboards.revertToVersion.mutationOptions({
       // A revert moves the head and queues a rebuild; refresh the reverted
@@ -224,9 +191,6 @@ export function useDashboardMutations() {
     createDashboard: (channelId: string, name: string, templateId?: string) =>
       create.mutateAsync({ channelId, name, templateId }),
     deleteDashboard: (id: string) => remove.mutateAsync({ id }),
-    // Persist the author-written context (markdown) passed to generation tasks.
-    saveContext: (id: string, context: string) =>
-      saveContext.mutateAsync({ id, context }),
     // Move the canvas's head back to an existing version (and rebuild it).
     revertToVersion: (
       id: string,
@@ -256,7 +220,6 @@ export function useDashboardMutations() {
       file.mutateAsync({ id, channelId }),
     isCreating: create.isPending,
     isDeleting: remove.isPending,
-    isSavingContext: saveContext.isPending,
     isReverting: revertToVersion.isPending,
     isPromoting: promoteDraft.isPending,
   };

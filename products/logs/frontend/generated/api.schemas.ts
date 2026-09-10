@@ -396,10 +396,10 @@ export interface LogsAlertFiltersApi {
  * * `above` - Above
  * * `below` - Below
  */
-export type LogsAlertThresholdOperatorEnumApi =
-    (typeof LogsAlertThresholdOperatorEnumApi)[keyof typeof LogsAlertThresholdOperatorEnumApi]
+export type LogsAlertConfigurationThresholdOperatorEnumApi =
+    (typeof LogsAlertConfigurationThresholdOperatorEnumApi)[keyof typeof LogsAlertConfigurationThresholdOperatorEnumApi]
 
-export const LogsAlertThresholdOperatorEnumApi = {
+export const LogsAlertConfigurationThresholdOperatorEnumApi = {
     Above: 'above',
     Below: 'below',
 } as const
@@ -546,7 +546,7 @@ export interface LogsAlertConfigurationApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator?: LogsAlertThresholdOperatorEnumApi
+    threshold_operator?: LogsAlertConfigurationThresholdOperatorEnumApi
     /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
     /** How often the alert is evaluated, in minutes. Server-managed. */
@@ -675,7 +675,7 @@ export interface LogsAlertConfigurationDetailApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator?: LogsAlertThresholdOperatorEnumApi
+    threshold_operator?: LogsAlertConfigurationThresholdOperatorEnumApi
     /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
     /** How often the alert is evaluated, in minutes. Server-managed. */
@@ -777,7 +777,7 @@ export interface PatchedLogsAlertConfigurationApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator?: LogsAlertThresholdOperatorEnumApi
+    threshold_operator?: LogsAlertConfigurationThresholdOperatorEnumApi
     /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
     /** How often the alert is evaluated, in minutes. Server-managed. */
@@ -944,7 +944,7 @@ export interface LogsAlertSimulateRequestApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator: LogsAlertThresholdOperatorEnumApi
+    threshold_operator: LogsAlertConfigurationThresholdOperatorEnumApi
     /** Window size in minutes — determines bucket interval. */
     window_minutes: number
     /**
@@ -1242,23 +1242,58 @@ export interface LogsAnomalyScanErrorApi {
     error: string
 }
 
+export interface _SeriesBandsDateRangeApi {
+    /**
+     * Start of the window. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1wStart, etc.
+     * @nullable
+     */
+    date_from?: string | null
+    /**
+     * End of the window. Same format as date_from. Omit or null for "now".
+     * @nullable
+     */
+    date_to?: string | null
+}
+
 /**
+ * * `5` - 5
+ * * `15` - 15
+ * * `30` - 30
  * * `60` - 60
  */
 export type IntervalMinutesEnumApi = (typeof IntervalMinutesEnumApi)[keyof typeof IntervalMinutesEnumApi]
 
 export const IntervalMinutesEnumApi = {
+    Number5: 5,
+    Number15: 15,
+    Number30: 30,
     Number60: 60,
 } as const
 
 export interface LogsSeriesBandsRequestApi {
     /** Service whose per-series volume to chart (the log record's service_name). */
     serviceName: string
-    /** Display grain in minutes for buckets and bands. Only hourly is supported today.
+    /** Window to chart. Defaults to the last 7 days. It may span at most 7 days and start at most 35 days ago, past which the volume rollup no longer reaches. */
+    dateRange?: _SeriesBandsDateRangeApi
+    /** Display grain in minutes for buckets and bands. One of 5, 15, 30, 60. The window may hold at most 500 buckets per series at the chosen grain, so a finer grain needs a shorter window. Omit it to let the window pick its grain, the coarsest that still cuts it into about 168 buckets. A series too sparse to read at this grain is returned at a coarser one; see each series' interval_minutes.
      *
+     * * `5` - 5
+     * * `15` - 15
+     * * `30` - 30
      * * `60` - 60 */
-    intervalMinutes?: IntervalMinutesEnumApi
+    intervalMinutes?: IntervalMinutesEnumApi | null
 }
+
+/**
+ * * `sparse` - sparse
+ * * `quiet` - quiet
+ */
+export type CoarsenedReasonEnumApi = (typeof CoarsenedReasonEnumApi)[keyof typeof CoarsenedReasonEnumApi]
+
+export const CoarsenedReasonEnumApi = {
+    Sparse: 'sparse',
+    Quiet: 'quiet',
+} as const
 
 export interface LogsSeriesBandBucketApi {
     /** Start of the display bucket (UTC). */
@@ -1288,7 +1323,21 @@ export interface LogsSeriesBandSeriesApi {
     total_count: number
     /** Full weeks of history behind the band, 0 to 5. Below 2 the series is still learning and its buckets carry no band. */
     baseline_weeks: number
-    /** One entry per display bucket across the whole window, oldest first, zero-filled. */
+    /** Start of sustained traffic inside the fetched lookback: the first bucket followed by a week with enough non-empty buckets. A stray earlier row does not move it. The window start when no traffic is sustained yet. */
+    history_start: string
+    /**
+     * When this series gains its band, so a learning series can count down to it. Null once the band is drawn.
+     * @nullable
+     */
+    band_ready_at: string | null
+    /** Grain of this series' buckets, in minutes. Equals the response interval_minutes unless the series was too sparse at that grain and was coarsened to the next rung it is dense enough to read at. */
+    interval_minutes: number
+    /** Why this series was too thin to read at the requested grain, or null when it was not. sparse: fewer than 20% of its buckets held any records. quiet: its non-empty buckets averaged under 5 records. A series that fails every rung is returned at the coarsest one. A series that a coarser rung has no rows for, or that the request's time budget cannot refetch, keeps the requested grain and still carries its reason.
+     *
+     * * `sparse` - sparse
+     * * `quiet` - quiet */
+    coarsened_reason: CoarsenedReasonEnumApi | null
+    /** One entry per display bucket across the window at this series' interval_minutes, oldest first, zero-filled. A coarsened series' window is snapped to its grain, so it can end short of window_end. */
     buckets: LogsSeriesBandBucketApi[]
 }
 
@@ -1299,7 +1348,7 @@ export interface LogsSeriesBandsResponseApi {
     window_start: string
     /** End of the observed window (UTC, exclusive). */
     window_end: string
-    /** Display grain of the buckets, in minutes. */
+    /** Display grain requested, or picked to cut the window into about 168 buckets when the request left it out. */
     interval_minutes: number
     /** True when the service has more series than the response carries; the quietest were dropped. */
     series_truncated: boolean
@@ -1580,6 +1629,8 @@ export interface _LogsFacetValuesBodyApi {
     filterGroup?: _LogPropertyFilterApi[]
     /** Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
     personId?: string
+    /** Scope counts to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsFacetValuesRequestApi {
@@ -1673,6 +1724,10 @@ export interface _LogsGroupByBodyApi {
      * @maximum 500
      */
     limit?: number
+    /** Scope grouping to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+    personId?: string
+    /** Scope grouping to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsGroupByRequestApi {
@@ -1702,6 +1757,24 @@ export interface _LogsGroupByResponseApi {
     total_logs: number
     /** True when more groups matched than were returned (total_groups > groups length). */
     truncated: boolean
+}
+
+export interface _LogsImpactRequestApi {
+    /** The impact query to execute. Takes the same filters as the count query. */
+    query: _LogsCountBodyApi
+}
+
+export interface _LogsImpactResponseApi {
+    /** Number of log entries matching the filters. */
+    total: number
+    /** How many of the matching logs carry a session ID under the team's configured or conventional attribute keys. */
+    logsWithSessionId: number
+    /** Estimated number of unique session IDs across the matching logs (HyperLogLog, about 1-2% error). */
+    sessions: number
+    /** How many of the matching logs carry a person distinct ID under the team's configured or conventional attribute keys. */
+    logsWithDistinctId: number
+    /** Estimated number of unique distinct IDs across the matching logs (HyperLogLog, about 1-2% error). */
+    users: number
 }
 
 export interface LogsMetricRuleApi {
@@ -1796,6 +1869,10 @@ export interface _LogsPatternsBodyApi {
     searchTerm?: string
     /** Property filters applied before mining. Same shape as the query-logs endpoint. */
     filterGroup?: _LogPropertyFilterApi[]
+    /** Scope mining to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+    personId?: string
+    /** Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsPatternsRequestApi {
@@ -1989,6 +2066,8 @@ export interface _LogsQueryBodyApi {
     customColumns?: string[]
     /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
     personId?: string
+    /** Scope results to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsQueryRequestApi {
@@ -2142,9 +2221,10 @@ export interface LogsRetentionRuleNameSuggestionApi {
  * * `path_drop` - Path exclusion
  * * `rate_limit` - Rate limit
  */
-export type RuleTypeEnumApi = (typeof RuleTypeEnumApi)[keyof typeof RuleTypeEnumApi]
+export type LogsExclusionRuleRuleTypeEnumApi =
+    (typeof LogsExclusionRuleRuleTypeEnumApi)[keyof typeof LogsExclusionRuleRuleTypeEnumApi]
 
-export const RuleTypeEnumApi = {
+export const LogsExclusionRuleRuleTypeEnumApi = {
     SeveritySampling: 'severity_sampling',
     PathDrop: 'path_drop',
     RateLimit: 'rate_limit',
@@ -2173,7 +2253,7 @@ export interface LogsSamplingRuleApi {
      * * `severity_sampling` - Severity-based reduction
      * * `path_drop` - Path exclusion
      * * `rate_limit` - Rate limit */
-    rule_type: RuleTypeEnumApi
+    rule_type: LogsExclusionRuleRuleTypeEnumApi
     /**
      * Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.
      * @maxLength 512
@@ -2230,7 +2310,7 @@ export interface PatchedLogsSamplingRuleApi {
      * * `severity_sampling` - Severity-based reduction
      * * `path_drop` - Path exclusion
      * * `rate_limit` - Rate limit */
-    rule_type?: RuleTypeEnumApi
+    rule_type?: LogsExclusionRuleRuleTypeEnumApi
     /**
      * Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.
      * @maxLength 512
@@ -2390,6 +2470,8 @@ export interface _LogsSparklineBodyApi {
     sparklineRankBy?: SparklineRankByEnumApi
     /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
     personId?: string
+    /** Scope results to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
 }
 
 export interface _LogsSparklineRequestApi {
@@ -2436,6 +2518,9 @@ export interface _LogsValuesResponseApi {
  * * `source` - source
  * * `trace_id` - trace_id
  * * `span_id` - span_id
+ * * `person` - person
+ * * `session` - session
+ * * `pattern` - pattern
  * * `message` - message
  * * `custom` - custom
  */
@@ -2447,6 +2532,9 @@ export const LogsViewColumnTypeEnumApi = {
     Source: 'source',
     TraceId: 'trace_id',
     SpanId: 'span_id',
+    Person: 'person',
+    Session: 'session',
+    Pattern: 'pattern',
     Message: 'message',
     Custom: 'custom',
 } as const
@@ -2454,13 +2542,16 @@ export const LogsViewColumnTypeEnumApi = {
 export interface LogsViewColumnApi {
     /** Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server. */
     id: string
-    /** Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.
+    /** Column type. Most built-in types resolve client-side from log row fields; `pattern` and `custom` columns are computed server-side, the latter from `expression`.
      *
      * * `timestamp` - timestamp
      * * `level` - level
      * * `source` - source
      * * `trace_id` - trace_id
      * * `span_id` - span_id
+     * * `person` - person
+     * * `session` - session
+     * * `pattern` - pattern
      * * `message` - message
      * * `custom` - custom */
     type: LogsViewColumnTypeEnumApi

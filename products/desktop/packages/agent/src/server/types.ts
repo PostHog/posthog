@@ -35,6 +35,7 @@ export interface AgentServerConfig {
   taskId: string;
   runId: string;
   sandboxId?: string;
+  launcherToProcessMs?: number;
   createPr?: boolean;
   // User-opted auto-publish: push and open a draft PR on completion even for
   // manual (non-automated-origin) cloud runs. createPr=false still wins.
@@ -58,6 +59,7 @@ export interface AgentServerConfig {
   piRpcHostPath?: string;
   runtimeAdapter?: Adapter;
   model?: string;
+  claudeModelAccess?: "posthog-gateway" | "own-subscription";
   reasoningEffort?: EffortLevel | "off" | "minimal";
   contextWindow?: "200k" | "1m";
   fastMode?: boolean;
