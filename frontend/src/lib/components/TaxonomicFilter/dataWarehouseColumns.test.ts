@@ -60,6 +60,19 @@ describe('dataWarehouseColumnsWithJoins', () => {
         expect(columns.map((column) => column.name)).toEqual(['spend', 'campaign.title'])
     })
 
+    it('drops a table-valued traverser on the joined table', () => {
+        const columns = dataWarehouseColumnsWithJoins(
+            ['ad_spend'],
+            {
+                ad_spend: table('ad_spend', [field('spend', 'integer'), field('evt', 'lazy_table', 'events')]),
+                events: table('events', [field('event', 'string'), field('person', 'field_traverser')]),
+            },
+            true
+        )
+
+        expect(columns.map((column) => column.name)).toEqual(['spend', 'evt.event'])
+    })
+
     it('keeps a table without joins unchanged and tolerates an unknown joined table', () => {
         expect(dataWarehouseColumnsWithJoins(['unknown_table'], tablesMap, true)).toEqual([])
         expect(
