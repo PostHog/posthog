@@ -260,8 +260,19 @@ def edit_check(
     raise ConcurrentEditError()
 
 
-def _stored_definition(check: DataQualityCheck) -> tuple[str, UUID | None, str]:
-    return check.subject_type, check.subject_uuid, check.fingerprint
+@frozen
+class _StoredDefinition:
+    subject_type: str
+    subject_uuid: UUID | None
+    fingerprint: str
+
+
+def _stored_definition(check: DataQualityCheck) -> _StoredDefinition:
+    return _StoredDefinition(
+        subject_type=check.subject_type,
+        subject_uuid=check.subject_uuid,
+        fingerprint=check.fingerprint,
+    )
 
 
 def _commit_edit(
