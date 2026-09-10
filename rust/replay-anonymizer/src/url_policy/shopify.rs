@@ -62,17 +62,21 @@ fn is_shopify_image(url: &Url) -> bool {
     if !matches!(extension, "jpg" | "jpeg" | "png" | "webp" | "avif" | "gif") {
         return false;
     }
-    if [
-        "/cdn/shop/files/",
-        "/cdn/shop/products/",
-        "/cdn/shop/collections/",
-    ]
-    .iter()
-    .any(|prefix| {
-        path.strip_prefix(prefix)
-            .is_some_and(|file| !file.contains('/'))
-    }) {
-        return true;
+    if url
+        .host_str()
+        .and_then(|host| host.strip_suffix(".myshopify.com"))
+        .is_some_and(|store| !store.is_empty() && !store.contains('.'))
+    {
+        return [
+            "/cdn/shop/files/",
+            "/cdn/shop/products/",
+            "/cdn/shop/collections/",
+        ]
+        .iter()
+        .any(|prefix| {
+            path.strip_prefix(prefix)
+                .is_some_and(|file| !file.contains('/'))
+        });
     }
     if url.host_str() != Some("cdn.shopify.com") {
         return false;

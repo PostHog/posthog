@@ -239,11 +239,24 @@ mod tests {
     #[test]
     fn a_resize_parameter_is_not_volatile() {
         // Collapsing these onto one ref would point one ref at two different images.
-        let mut c = collector();
-        let small = c.collect("https://cdn.example.com/a.png?w=100").unwrap();
-        let large = c.collect("https://cdn.example.com/a.png?w=900").unwrap();
-        assert_ne!(small, large);
-        assert_eq!(c.into_urls().len(), 2);
+        for (small_url, large_url) in [
+            (
+                "https://cdn.example.com/a.png?w=100",
+                "https://cdn.example.com/a.png?w=900",
+            ),
+            (
+                "https://store.example.com/cdn/shop/files/photo.jpg?width=100",
+                "https://store.example.com/cdn/shop/files/photo.jpg?width=900",
+            ),
+            (
+                "https://store.example.com/cdn/shop/files/photo_480x.jpg",
+                "https://store.example.com/cdn/shop/files/photo_960x.jpg",
+            ),
+        ] {
+            let mut c = collector();
+            assert_ne!(c.collect(small_url).unwrap(), c.collect(large_url).unwrap());
+            assert_eq!(c.into_urls().len(), 2);
+        }
     }
 
     #[test]
@@ -270,8 +283,8 @@ mod tests {
             ("photo.jpg?width=800", "photo.jpg?width=300"),
         ] {
             let mut c = collector();
-            let first_url = format!("https://store.example.com/cdn/shop/files/{first}");
-            let second_url = format!("https://store.example.com/cdn/shop/files/{second}");
+            let first_url = format!("https://example-store.myshopify.com/cdn/shop/files/{first}");
+            let second_url = format!("https://example-store.myshopify.com/cdn/shop/files/{second}");
             assert_eq!(c.collect(&first_url), c.collect(&second_url));
             let urls = c.into_urls();
             assert_eq!(urls.len(), 1);

@@ -14,7 +14,7 @@ A usable candidate is an admitted HTTPS image URL or a supported base64 image da
 
 ## Shopify resizing
 
-The policy recognises raster images on `cdn.shopify.com/s/files/<numeric store path>/{files,products,collections}/` and the Shopify storefront routes `/cdn/shop/{files,products,collections}/`. It keeps the hostname, store path, asset name, file extension, version, and other retained query bytes distinct.
+The policy recognises raster images on `cdn.shopify.com/s/files/<numeric store path>/{files,products,collections}/` and `/cdn/shop/{files,products,collections}/` on a single-label `*.myshopify.com` storefront. Custom domains keep their resize values because the path alone does not prove Shopify semantics. It keeps the hostname, store path, asset name, file extension, version, and other retained query bytes distinct.
 
 Recognised resizes use a consistent size in the dedup URL, which determines the global identity. The fetch URL retains its observed resize suffix and query bytes:
 

@@ -753,7 +753,11 @@ mod tests {
         ] {
             for prefix in [
                 "https://cdn.shopify.com/s/files/1/0000/0001/files/",
-                "https://store.example.com/cdn/shop/files/",
+                "https://cdn.shopify.com/s/files/1/0000/0001/products/",
+                "https://cdn.shopify.com/s/files/1/0000/0001/collections/",
+                "https://example-store.myshopify.com/cdn/shop/files/",
+                "https://example-store.myshopify.com/cdn/shop/products/",
+                "https://example-store.myshopify.com/cdn/shop/collections/",
             ] {
                 let first_url = format!("{prefix}{first}");
                 let second_url = format!("{prefix}{second}");
@@ -764,6 +768,34 @@ mod tests {
                 assert_eq!(first.dedup, format!("{prefix}{expected}"));
                 assert_eq!(first.dedup, second.dedup);
                 assert_eq!(canonicalize(&first.fetch).unwrap(), first);
+            }
+        }
+    }
+
+    #[test]
+    fn shopify_paths_on_unknown_hosts_preserve_distinct_resources() {
+        for prefix in [
+            "https://store.example.com/cdn/shop/files/",
+            "https://store.example.com/cdn/shop/products/",
+            "https://store.example.com/cdn/shop/collections/",
+            "https://notmyshopify.com/cdn/shop/files/",
+            "https://example-store.myshopify.com.example.com/cdn/shop/files/",
+            "https://nested.example-store.myshopify.com/cdn/shop/files/",
+            "https://myshopify.com/cdn/shop/files/",
+            "https://cdn.shopify.com.example.com/s/files/1/0000/0001/files/",
+        ] {
+            for suffix in [
+                "photo.jpg?width=300",
+                "photo.jpg?width=800",
+                "photo.jpg?height=100",
+                "photo.jpg?height=200",
+                "photo_480x.jpg",
+                "photo_960x.jpg",
+            ] {
+                let raw = format!("{prefix}{suffix}");
+                let canonical = canonicalize(&raw).unwrap();
+                assert_eq!(canonical.fetch, raw);
+                assert_eq!(canonical.dedup, raw);
             }
         }
     }
