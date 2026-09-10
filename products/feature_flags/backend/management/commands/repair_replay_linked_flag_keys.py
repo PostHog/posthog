@@ -9,7 +9,10 @@ plus any left by a writer that bypasses `save()`, such as the `bulk_update` in `
 Only rows whose stored id resolves to a live flag in the team's own project are rewritten. Rows
 pointing at a soft-deleted flag or at a flag in another project are counted and reported but
 left alone, because neither has a safe new key to adopt: a human has to decide whether the team
-still wants a recording gate at all.
+still wants a recording gate at all. A flag soft-deleted between the scan and the write is the
+one exception. The write reads the key under the team's row lock, so that team follows the flag
+onto its current key, which is the tombstone key when the soft delete freed the original for a
+new flag to claim.
 """
 
 import json

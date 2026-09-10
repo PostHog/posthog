@@ -169,6 +169,37 @@ class TestRelinkTeamsConvergesOnTheStoredKey(BaseTest):
         assert self.team.session_recording_linked_flag == {"id": flag.id, "key": "gate-c"}
         assert self.team.session_recording_trigger_groups["groups"][0]["conditions"]["flag"] == "gate-c"
 
+    def test_a_rename_landing_mid_loop_does_not_strand_the_teams_after_it(self) -> None:
+        # The loop writes one team at a time, so a rename can commit between two of them. A key
+        # read once before the loop leaves every team after that point on a key no flag holds,
+        # which is the state the SDKs read as "do not record".
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-b")
+        later_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        set_linked_flag(self.team, {"id": flag.id, "key": "gate-a"})
+        set_linked_flag(later_team, {"id": flag.id, "key": "gate-a"})
+
+        real_save = save_replay_gate_rewrites
+        renamed: list[int] = []
+
+        def rename_after_the_first_team(team_id: int, compute: Any) -> None:
+            real_save(team_id, compute)
+            if renamed:
+                return
+            renamed.append(team_id)
+            flag.key = "gate-c"
+            with self.captureOnCommitCallbacks(execute=True):
+                flag.save()
+
+        with patch(
+            "products.feature_flags.backend.session_recording_links.save_replay_gate_rewrites",
+            side_effect=rename_after_the_first_team,
+        ):
+            relink_teams(flag, old_key="gate-a")
+
+        for team in (self.team, later_team):
+            team.refresh_from_db()
+            assert team.session_recording_linked_flag == {"id": flag.id, "key": "gate-c"}
+
 
 class TestRelinkTeamsIsolatesAWriteFailure(BaseTest):
     def test_one_teams_write_failure_does_not_strand_its_siblings(self) -> None:
