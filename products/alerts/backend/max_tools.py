@@ -345,6 +345,7 @@ class UpsertAlertTool(MaxTool):
         *,
         enabling_llm_alert: bool,
         conditions_or_threshold_changed: bool,
+        reschedule: bool,
     ) -> _SaveRefusal | None:
         """Write the threshold and the alert together.
 
@@ -355,8 +356,15 @@ class UpsertAlertTool(MaxTool):
         """
         with transaction.atomic():
             if enabling_llm_alert:
+                # Lock the alert row before the team's cap lock. The API's writer locks in
+                # that order, and opposite orders between the two writers deadlock.
+                AlertConfiguration.objects.select_for_update().filter(pk=alert.pk).first()
                 lock_llm_alert_limit(team_id=alert.team_id)
-                if error := llm_alert_limit_error(team_id=alert.team_id, exclude_alert_id=str(alert.id)):
+                if error := llm_alert_limit_error(
+                    team_id=alert.team_id,
+                    exclude_alert_id=str(alert.id),
+                    organization_id=self._team.organization_id,
+                ):
                     return _SaveRefusal(message=error, error_code="plan_limit_reached")
             if self._has_threshold_changes(action):
                 try:
@@ -365,8 +373,9 @@ class UpsertAlertTool(MaxTool):
                     return _SaveRefusal(message=str(e), error_code="validation_failed")
             if conditions_or_threshold_changed:
                 update_fields.extend(apply_threshold_change(alert))
-            alert.next_check_at = None
-            update_fields.append("next_check_at")
+            if reschedule:
+                alert.next_check_at = None
+                update_fields.append("next_check_at")
             alert.save(update_fields=update_fields)
         return None
 
@@ -392,6 +401,7 @@ class UpsertAlertTool(MaxTool):
             ):
                 return interval_msg, {"error": "validation_failed"}
 
+            previous_interval = alert.calculation_interval
             new_interval = (
                 action.calculation_interval if action.calculation_interval is not None else alert.calculation_interval
             )
@@ -448,12 +458,16 @@ class UpsertAlertTool(MaxTool):
             if not update_fields and not has_threshold_changes:
                 return "No changes provided. Specify at least one field to update.", {"error": "no_changes"}
 
+            # Only an evaluation-relevant edit re-schedules. Clearing it on a rename would
+            # make the next sweep re-check immediately, and for an AI alert that is a
+            # billable model call outside the configured cadence.
             if refusal := await sync_to_async(self._save_alert)(
                 alert,
                 action,
                 update_fields,
                 enabling_llm_alert=enabling_llm_alert,
                 conditions_or_threshold_changed=conditions_or_threshold_changed,
+                reschedule=conditions_or_threshold_changed or new_interval != previous_interval,
             ):
                 return refusal.message, {"error": refusal.error_code}
             await sync_to_async(alert.report_updated)(self._user, {"source": EventSource.POSTHOG_AI})

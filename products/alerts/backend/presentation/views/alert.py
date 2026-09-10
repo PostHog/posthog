@@ -216,13 +216,25 @@ def _enforce_llm_detector_rules(detector_config: Any) -> None:
             )
 
 
-def _enforce_llm_feature_access(context: dict[str, Any], detector_config: Any) -> None:
+def _enforce_llm_feature_access(context: dict[str, Any], detector_config: Any, *, principal: Any = None) -> None:
+    """Refuse an AI detector the principal its checks will run as cannot use.
+
+    ``principal`` is whoever the scheduled check attributes its model calls to, which is the
+    alert's creator, not always the person saving. An editor with the rollout could otherwise
+    convert a teammate's alert and leave it erroring on every check.
+    """
     if DetectorType.LLM.value not in _detector_types(detector_config):
         return
+    evaluated_as = principal if principal is not None else context["request"].user
+    if evaluated_as is None:
+        raise ValidationError(
+            "This alert has no creator to attribute AI detector calls to, which happens when that person was "
+            "deleted. Recreate the alert to use the AI detector."
+        )
     # The detector refuses the call too, but an alert that errors on every check is a
     # worse way to learn this than a message at save time.
     error = llm_detector_access_error(
-        distinct_id=str(context["request"].user.distinct_id), organization=context["get_organization"]()
+        distinct_id=str(evaluated_as.distinct_id), organization=context["get_organization"]()
     )
     if error:
         raise ValidationError(error)
@@ -326,7 +338,9 @@ def _enforce_llm_alert_limit(
     if not _adds_enabled_llm_alert(detector_config=detector_config, enabled=enabled, instance=instance):
         return
     error = llm_alert_limit_error(
-        team_id=context["team_id"], exclude_alert_id=str(instance.id) if instance is not None else None
+        team_id=context["team_id"],
+        exclude_alert_id=str(instance.id) if instance is not None else None,
+        organization_id=context["get_organization"]().id,
     )
     if error:
         raise ValidationError({"detector_config": [error]})
@@ -781,14 +795,20 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         subscribed_users = validated_data.pop("subscribed_users")
         threshold_data = validated_data.pop("threshold", None)
 
+        detector_config = validated_data.get("detector_config")
+        enabled = validated_data.get("enabled", True) is True
+
         with transaction.atomic():
-            lock_llm_alert_limit(team_id=team.id)
-            _enforce_llm_alert_limit(
-                self.context,
-                detector_config=validated_data.get("detector_config"),
-                enabled=validated_data.get("enabled", True) is True,
-                instance=None,
-            )
+            # The cap lock serializes every writer of the team's AI alerts, so a create that
+            # cannot add one must not queue behind it.
+            if _adds_enabled_llm_alert(detector_config=detector_config, enabled=enabled, instance=None):
+                lock_llm_alert_limit(team_id=team.id)
+                _enforce_llm_alert_limit(
+                    self.context,
+                    detector_config=detector_config,
+                    enabled=enabled,
+                    instance=None,
+                )
             if threshold_data:
                 threshold_instance = self.add_threshold(threshold_data, validated_data)
                 validated_data["threshold"] = threshold_instance
@@ -1032,7 +1052,12 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 self.instance is None or not previous_is_llm or (not self.instance.enabled and resulting_enabled)
             )
             if needs_feature_access:
-                _enforce_llm_feature_access(self.context, detector_config)
+                # An existing alert keeps its creator, and that is who its checks run as.
+                _enforce_llm_feature_access(
+                    self.context,
+                    detector_config,
+                    principal=self.instance.created_by if self.instance else self.context["request"].user,
+                )
             if interval_error := llm_detector_interval_error(calculation_interval):
                 raise ValidationError({"calculation_interval": [interval_error]})
         organization = self.context["get_organization"]()

@@ -500,30 +500,35 @@ class TestUpsertAlertTool(BaseTest):
                 {"name": "Old Name"},
                 {"name": "New Name"},
                 lambda a, t: a.name == "New Name",
+                False,
             ),
             (
                 "enabled",
                 {"enabled": True},
                 {"enabled": False},
                 lambda a, t: a.enabled is False,
+                False,
             ),
             (
                 "unchanged_enabled_preserves_firing_state",
                 {"enabled": True},
                 {"enabled": True},
                 lambda a, t: a.enabled is True and a.state == AlertState.FIRING,
+                False,
             ),
             (
                 "condition_type",
                 {"condition_type": AlertConditionType.ABSOLUTE_VALUE},
                 {"condition_type": AlertConditionType.RELATIVE_INCREASE},
                 lambda a, t: a.condition == {"type": AlertConditionType.RELATIVE_INCREASE},
+                True,
             ),
             (
                 "calculation_interval",
                 {"calculation_interval": AlertCalculationInterval.DAILY},
                 {"calculation_interval": AlertCalculationInterval.WEEKLY},
                 lambda a, t: a.calculation_interval == AlertCalculationInterval.WEEKLY,
+                True,
             ),
             # Threshold updates
             (
@@ -533,6 +538,7 @@ class TestUpsertAlertTool(BaseTest):
                 lambda a, t: (
                     t.configuration["bounds"]["lower"] == 100.0 and t.configuration["bounds"]["upper"] == 200.0
                 ),
+                True,
             ),
             (
                 "change_threshold_type",
@@ -542,6 +548,7 @@ class TestUpsertAlertTool(BaseTest):
                     t.configuration["type"] == InsightThresholdType.PERCENTAGE
                     and t.configuration["bounds"]["lower"] == 0.5
                 ),
+                True,
             ),
             # Recheck side effects
             (
@@ -549,24 +556,27 @@ class TestUpsertAlertTool(BaseTest):
                 {"lower_threshold": 100.0},
                 {"upper_threshold": 200.0},
                 lambda a, t: a.state == AlertState.NOT_FIRING and a.next_check_at is None,
+                True,
             ),
             (
                 "condition_change_resets_state",
                 {"condition_type": AlertConditionType.ABSOLUTE_VALUE},
                 {"condition_type": AlertConditionType.RELATIVE_INCREASE},
                 lambda a, t: a.state == AlertState.NOT_FIRING and a.next_check_at is None,
+                True,
             ),
             (
                 "interval_change_clears_next_check_only",
                 {"calculation_interval": AlertCalculationInterval.DAILY},
                 {"calculation_interval": AlertCalculationInterval.WEEKLY},
                 lambda a, t: a.state == AlertState.FIRING and a.next_check_at is None,
+                True,
             ),
         ]
     )
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_update_alert(self, _name, create_kwargs, update_kwargs, check):
+    async def test_update_alert(self, _name, create_kwargs, update_kwargs, check, reschedules):
         insight = await self._create_insight()
         alert = await self._create_alert(insight, **create_kwargs)
         await sync_to_async(AlertConfiguration.objects.filter(team=self.team, id=alert.id).update)(
@@ -581,7 +591,9 @@ class TestUpsertAlertTool(BaseTest):
         await sync_to_async(alert.refresh_from_db)()
         threshold = await sync_to_async(lambda: alert.threshold)()
         assert check(alert, threshold), f"Check failed for {_name}"
-        assert alert.next_check_at is None
+        # A presentation-only edit keeps the cadence. Clearing it would make the next sweep
+        # re-check at once, which for an AI alert is a charged model call off-cadence.
+        assert (alert.next_check_at is None) is reschedules, f"Reschedule expectation failed for {_name}"
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
