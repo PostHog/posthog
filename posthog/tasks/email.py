@@ -52,6 +52,11 @@ from products.batch_exports.backend.models.batch_export import BatchExport, Batc
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.conversations.backend.models import Ticket
+from products.data_modeling.backend.facade.api import (
+    is_suspension_enforced,
+    suspended_saved_query_ids_by_team,
+    suspension_state_for_saved_query,
+)
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.tasks.backend.facade import api as tasks_facade
@@ -170,6 +175,66 @@ def filter_members_by_warehouse_access(
     except Exception:
         logger.exception("Warehouse access check failed, sending to all subscribed members", team_id=team.id)
         return memberships
+
+
+def group_members_by_visible_views(
+    memberships: list[OrganizationMembership],
+    team: Team,
+    views: list[dict],
+    queries: dict[str, DataWarehouseSavedQuery],
+) -> list[tuple[list[OrganizationMembership], list[dict]]]:
+    """Split a digest into one audience per set of views its members may open.
+
+    `filter_members_by_warehouse_access` takes one view, so a digest naming many of them can only
+    use its resource gate. A deny on a single view would then still reach every subscriber as a
+    name, an error and a link. Grouping repeats the object check `Database._is_warehouse_view_denied`
+    makes when the same member opens that view.
+
+    Each member lands in exactly one group, so every audience can share one campaign key.
+
+    Falls back to one audience holding every view when access controls are unavailable: not being
+    able to check must not silently stop the whole digest.
+
+    Raises when every member's check failed, so the task retries rather than reporting a send it
+    never made. A member dropped while others are grouped is a real deny often enough to swallow.
+    """
+    if not memberships:
+        return []
+
+    try:
+        if not UserAccessControl(memberships[0].user, team).access_controls_supported:
+            return [(memberships, views)]
+    except Exception:
+        logger.exception("Warehouse access check failed, sending one digest to all members", team_id=team.id)
+        return [(memberships, views)]
+
+    audiences: dict[tuple[str, ...], list[OrganizationMembership]] = {}
+    last_failure: Exception | None = None
+    for membership in memberships:
+        try:
+            access = UserAccessControl(membership.user, team)
+            if access.is_organization_admin:
+                visible = tuple(str(view["id"]) for view in views)
+            else:
+                visible = tuple(
+                    str(view["id"])
+                    for view in views
+                    if access.check_access_level_for_object(queries[str(view["id"])], required_level="viewer")
+                )
+        except Exception as error:
+            # Dropping only the member whose check failed. Admitting them instead would name a view,
+            # its error and its link to someone the same check may be about to deny.
+            logger.exception("Warehouse access check failed for one member", team_id=team.id)
+            last_failure = error
+            continue
+        if visible:
+            audiences.setdefault(visible, []).append(membership)
+
+    if last_failure is not None and not audiences:
+        raise last_failure
+
+    by_id = {str(view["id"]): view for view in views}
+    return [(members, [by_id[view_id] for view_id in visible]) for visible, members in audiences.items()]
 
 
 def get_members_to_notify_for_pipeline_error(
@@ -1009,6 +1074,10 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
     return delivered
 
 
+MAX_VIEWS_PER_DIGEST_EMAIL = 30
+MAX_ERROR_CHARS = 255
+
+
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def send_matview_failure_digest() -> None:
@@ -1028,7 +1097,7 @@ def send_matview_failure_digest() -> None:
     )
 
     failed_queries = (
-        DataWarehouseSavedQuery.objects.filter(deleted=False)
+        DataWarehouseSavedQuery.objects.exclude(deleted=True)
         .annotate(
             latest_job_status=Subquery(latest_job.values("status")[:1]),
             latest_job_run_at=Subquery(latest_job.values("last_run_at")[:1]),
@@ -1043,22 +1112,41 @@ def send_matview_failure_digest() -> None:
     for sq in failed_queries:
         failed_ids_by_team.setdefault(sq.team_id, []).append(str(sq.id))
 
-    if not failed_ids_by_team:
+    # A suspended view runs no jobs, so its last failure ages out of the 24h window above.
+    suspended_ids_by_team = suspended_saved_query_ids_by_team(DataModelingJobEngine.CLICKHOUSE)
+
+    team_ids = sorted(set(failed_ids_by_team) | set(suspended_ids_by_team))
+    if not team_ids:
         logger.info("No matview failures found")
         return
 
-    logger.info("Found %d teams with matview failures", len(failed_ids_by_team))
+    logger.info("Found %d teams with matview failures", len(team_ids))
 
-    for team_id, failed_ids in failed_ids_by_team.items():
-        send_team_matview_failure_digest.delay(team_id, failed_ids, [])
-        logger.info("Dispatching matview failure digest for team %d with %d failed views.", team_id, len(failed_ids))
+    for team_id in team_ids:
+        suspended_ids = suspended_ids_by_team.get(team_id, [])
+        # Markers are written fleet-wide, but a view only stops running where enforcement is on.
+        # Asked only where a marker exists, so a team with failures alone pays no team lookup.
+        if suspended_ids and not is_suspension_enforced(team_id):
+            suspended_ids = []
+        suspended = set(suspended_ids)
+        # A suspended view failed too, so report it once, under the status that asks for action.
+        failed_ids = [qid for qid in failed_ids_by_team.get(team_id, []) if qid not in suspended]
+        if not failed_ids and not suspended_ids:
+            continue
+        send_team_matview_failure_digest.delay(team_id, failed_ids, suspended_ids)
+        logger.info(
+            "Dispatching matview failure digest for team %d with %d failed and %d suspended views.",
+            team_id,
+            len(failed_ids),
+            len(suspended_ids),
+        )
 
     logger.info("Completed materialized view failure digest fan-out")
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], paused_query_ids: list[str]) -> None:
+def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], suspended_query_ids: list[str]) -> None:
 
     if not is_email_available(with_absolute_urls=True):
         return
@@ -1076,7 +1164,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
     if not memberships_to_email:
         return
 
-    all_ids = list(set(failed_query_ids + paused_query_ids))
+    all_ids = list(set(failed_query_ids + suspended_query_ids))
     queries = {str(sq.id): sq for sq in DataWarehouseSavedQuery.objects.filter(id__in=all_ids, team_id=team_id)}
 
     latest_jobs: dict[str, DataModelingJob] = {}
@@ -1089,14 +1177,22 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         latest_jobs[str(latest_job.saved_query_id)] = latest_job
 
     views = []
-    for qid, paused in [(qid, False) for qid in failed_query_ids] + [(qid, True) for qid in paused_query_ids]:
+    for qid, suspended in [(qid, False) for qid in failed_query_ids] + [(qid, True) for qid in suspended_query_ids]:
         sq = queries.get(qid)
         if not sq:
             continue
         job: DataModelingJob | None = latest_jobs.get(qid)
-        error = (job.error if job else None) or sq.latest_error or "Unknown error"
-        if len(error) > 255:
-            error = error[:252] + "..."
+        # Suspending rewrites the job error to lead with a sentence about the suspension, which the
+        # status column already says. The marker kept the error that caused it, so read that instead
+        # and leave the row's 90 characters to the part the reader can act on.
+        marker_reason: str | None = (
+            suspension_state_for_saved_query(sq).get(str(DataModelingJobEngine.CLICKHOUSE), {}).get("reason")
+            if suspended
+            else None
+        )
+        error = marker_reason or (job.error if job else None) or sq.latest_error or "Unknown error"
+        if len(error) > MAX_ERROR_CHARS:
+            error = error[: MAX_ERROR_CHARS - 3] + "..."
         run_at = (job.last_run_at if job else None) or sq.last_run_at
         views.append(
             {
@@ -1105,45 +1201,56 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
                 "error": error,
                 "last_run_at": run_at.strftime("%b %d, %H:%M UTC") if run_at else "Unknown",
                 "last_run_at_ts": run_at.timestamp() if run_at else 0,
-                "paused": paused,
+                "suspended": suspended,
+                # Reverting clears the schedule, so promising a retry here would be false. `is not
+                # False` keeps a never-written flag on the retrying side, as `exclude(deleted=True)`
+                # does above.
+                "scheduled": sq.is_materialized is not False,
                 "url": f"{settings.SITE_URL}/project/{team_id}/sql?open_view={sq.id}",
             }
         )
 
     if not views:
-        logger.warning("No failed or paused views found")
+        logger.warning("No failed or suspended views found")
         return
 
-    # Paused views first, then most recent run first.
-    views.sort(key=lambda v: (not v["paused"], -cast(float, v["last_run_at_ts"])))
+    # Rows needing action outrank rows that heal themselves, so the cap keeps them.
+    views.sort(key=lambda v: (not v["suspended"], v["scheduled"], -cast(float, v["last_run_at_ts"])))
     for v in views:
         v.pop("last_run_at_ts", None)
 
     today = datetime.date.today().strftime("%Y-%m-%d")
     campaign_key = f"matview_failure_digest_{team_id}_{today}"
 
-    message = EmailMessage(
-        campaign_key=campaign_key,
-        subject=f"PostHog: Materialized view failures in {team.name}",
-        template_name="matview_failure_digest",
-        template_context={
-            "team": team,
-            "views": views,
-            "site_url": settings.SITE_URL,
-        },
-    )
+    for memberships, visible_views in group_members_by_visible_views(memberships_to_email, team, views, queries):
+        omitted_count = max(0, len(visible_views) - MAX_VIEWS_PER_DIGEST_EMAIL)
+        listed_views = visible_views[:MAX_VIEWS_PER_DIGEST_EMAIL]
 
-    for membership in memberships_to_email:
-        message.add_user_recipient(membership.user)
-    message.send()
+        message = EmailMessage(
+            campaign_key=campaign_key,
+            subject=f"PostHog: Materialized view failures in {team.name}",
+            template_name="matview_failure_digest",
+            template_context={
+                "team": team,
+                "views": listed_views,
+                "has_suspended": any(v["suspended"] for v in listed_views),
+                "has_unscheduled": any(not v["suspended"] and not v["scheduled"] for v in listed_views),
+                "omitted_count": omitted_count,
+                "views_url": f"{settings.SITE_URL}/project/{team_id}/models",
+            },
+        )
 
-    paused_count = sum(1 for v in views if v["paused"])
-    logger.info(
-        "Sent materialized view failure digest email for team %d: %d views (%d paused)",
-        team_id,
-        len(views),
-        paused_count,
-    )
+        for membership in memberships:
+            message.add_user_recipient(membership.user)
+        message.send()
+
+        logger.info(
+            "Sent materialized view failure digest email for team %d: %d views (%d suspended) to %d members",
+            team_id,
+            len(listed_views),
+            sum(1 for v in listed_views if v["suspended"]),
+            len(memberships),
+        )
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -1180,6 +1287,11 @@ def send_matview_failure_immediate_email(team_id: int, saved_query_id: str, job_
     if not memberships_to_email:
         return
 
+    job = DataModelingJob.objects.filter(id=job_id, team_id=team_id).first()
+    error = (job.error if job else None) or saved_query.latest_error or ""
+    if len(error) > MAX_ERROR_CHARS:
+        error = error[: MAX_ERROR_CHARS - 3] + "..."
+
     message = EmailMessage(
         campaign_key=f"matview_failure_immediate_{saved_query_id}_{job_id}",
         subject=f"PostHog: Materialized view '{saved_query.name}' failed in {team.name}",
@@ -1188,6 +1300,7 @@ def send_matview_failure_immediate_email(team_id: int, saved_query_id: str, job_
             "team": team,
             "saved_query_name": saved_query.name,
             "saved_query_id": str(saved_query.id),
+            "error": error,
         },
     )
     for membership in memberships_to_email:

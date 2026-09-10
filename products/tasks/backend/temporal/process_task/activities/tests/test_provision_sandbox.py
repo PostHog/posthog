@@ -157,33 +157,78 @@ def test_sandbox_image_kind(image_source: str, custom_image_name: str | None, ex
 
 
 @pytest.mark.parametrize(
-    "snapshot_kind, state, capability, expected",
+    "task_runtime, snapshot_id, snapshot_external_id, snapshot_kind, state, capability, expected",
     [
         (
+            Task.Runtime.ACP,
+            None,
+            "snapshot-1",
             SNAPSHOT_KIND_FILESYSTEM,
             {"prewarmed": True, "resume_from_run_id": "previous-run"},
             False,
             True,
         ),
         (
+            Task.Runtime.ACP,
+            None,
+            "snapshot-1",
             SNAPSHOT_KIND_FILESYSTEM,
             {"prewarmed": True, "resume_from_run_id": "previous-run"},
             True,
             False,
         ),
         (
+            Task.Runtime.ACP,
+            None,
+            "snapshot-1",
             SNAPSHOT_KIND_DIRECTORY,
             {"prewarmed": True, "resume_from_run_id": "previous-run"},
             False,
             False,
         ),
-        (SNAPSHOT_KIND_FILESYSTEM, {"resume_from_run_id": "previous-run"}, False, False),
+        (
+            Task.Runtime.ACP,
+            None,
+            "snapshot-1",
+            SNAPSHOT_KIND_FILESYSTEM,
+            {"resume_from_run_id": "previous-run"},
+            False,
+            False,
+        ),
+        (
+            Task.Runtime.ACP,
+            "snapshot-row-1",
+            None,
+            SNAPSHOT_KIND_FILESYSTEM,
+            {"prewarmed": True, "resume_from_run_id": "previous-run"},
+            False,
+            True,
+        ),
+        (
+            Task.Runtime.ACP,
+            "snapshot-row-1",
+            None,
+            SNAPSHOT_KIND_DIRECTORY,
+            {"prewarmed": True, "resume_from_run_id": "previous-run"},
+            False,
+            False,
+        ),
+        (
+            Task.Runtime.PI,
+            None,
+            "snapshot-1",
+            SNAPSHOT_KIND_FILESYSTEM,
+            {"prewarmed": True, "resume_from_run_id": "previous-run"},
+            False,
+            False,
+        ),
     ],
 )
 def test_old_full_snapshot_agent_is_rejected_only_for_prewarmed_resume(
-    mocker, snapshot_kind, state, capability, expected
+    mocker, task_runtime, snapshot_id, snapshot_external_id, snapshot_kind, state, capability, expected
 ):
     context = _context_for_desktop_bootstrap()
+    context.task_runtime = task_runtime
     context.state = state
     prepared = PrepareSandboxForRepositoryOutput(
         sandbox_name="task-sandbox-task-id",
@@ -191,8 +236,8 @@ def test_old_full_snapshot_agent_is_rejected_only_for_prewarmed_resume(
         github_token="",
         branch=None,
         environment_variables={},
-        snapshot_id=None,
-        snapshot_external_id="snapshot-1",
+        snapshot_id=snapshot_id,
+        snapshot_external_id=snapshot_external_id,
         used_snapshot=True,
         should_create_snapshot=False,
         shallow_clone=True,
@@ -201,7 +246,7 @@ def test_old_full_snapshot_agent_is_rejected_only_for_prewarmed_resume(
         snapshot_kind=snapshot_kind,
     )
     sandbox = mocker.Mock()
-    sandbox.agent_server_supports_prewarmed_resume_idle.return_value = capability
+    sandbox.agent_server_supports_prewarmed_resume_message_driven.return_value = capability
 
     assert _prewarmed_resume_needs_fresh_agent(context, prepared, sandbox, used_snapshot=True) is expected
 

@@ -6,6 +6,7 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
 )
 from products.signals.backend.temporal.agentic.scout_scheduler import (
     RunSignalsScoutWorkflow,
+    resume_signals_scout_workflow_step,
     run_signals_scout_activity,
 )
 from products.signals.backend.temporal.agentic.scout_suggestions import (
@@ -150,6 +151,7 @@ ACTIVITIES = [
     run_signal_semantic_search_activity,
     run_signals_scout_activity,
     plan_scout_suggestion_runs_activity,
+    resume_signals_scout_workflow_step,
     run_scout_suggestions_activity,
     stamp_requested_scout_suggestions_activity,
     report_safety_judge_activity,

@@ -10,6 +10,9 @@ import {
 import {
     buildRunCreateRequest,
     getCapabilityLadder,
+    getEffortsForModel,
+    getModelLabel,
+    getRuntimeAdapterForModel,
     listRuntimeAdapters,
     modelsForRuntimeAdapter,
 } from './composerModels'
@@ -52,6 +55,27 @@ describe('composerModels', () => {
             initial_permission_mode: expectedMode,
             branch: 'main',
         })
+    })
+
+    // The gateway serves some models provider-qualified, so a run or workflow config can hold either spelling.
+    // The backend and the desktop app both fold them onto the bare id; without this the web alone reads a stored
+    // `anthropic/...` run as an unknown model — raw id for a name, and the generic effort floor.
+    it.each([
+        ['anthropic/claude-opus-4-8', 'Claude Opus 4.8'],
+        ['openai/gpt-5.6-luna', 'GPT-5.6 Luna'],
+    ])('resolves the provider-qualified id %s like the bare one', (qualified, expectedLabel) => {
+        const bare = qualified.split('/')[1]
+        expect(getModelLabel(CATALOGUE, qualified)).toBe(expectedLabel)
+        expect(getEffortsForModel(CATALOGUE, qualified)).toEqual(getEffortsForModel(CATALOGUE, bare))
+        expect(
+            buildRunCreateRequest(
+                CATALOGUE,
+                qualified,
+                ReasoningEffortEnumApi.High,
+                InitialPermissionModeEnumApi.Auto as PermissionMode,
+                {}
+            )
+        ).toMatchObject({ runtime_adapter: getRuntimeAdapterForModel(CATALOGUE, bare) })
     })
 
     // A model absent from the catalogue (still loading, or retired from the gateway) must still produce a
@@ -116,6 +140,28 @@ describe('composerModels', () => {
             { model: 'claude-opus-5', effort: ReasoningEffortEnumApi.Xhigh },
         ])
         expect(getCapabilityLadder(catalogue, RuntimeAdapterEnumApi.Codex)).toEqual([])
+    })
+
+    it('uses GPT-6 Astra at Max as the smartest Codex rung', () => {
+        const catalogue: ModelChoiceApi[] = [
+            {
+                runtime_adapter: 'codex',
+                model: 'gpt-5.6-sol',
+                display_name: 'GPT-5.6 Sol',
+                supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+            },
+            {
+                runtime_adapter: 'codex',
+                model: 'gpt-6-astra',
+                display_name: 'GPT-6 Astra',
+                supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+            },
+        ]
+
+        expect(getCapabilityLadder(catalogue, RuntimeAdapterEnumApi.Codex).at(-1)).toEqual({
+            model: 'gpt-6-astra',
+            effort: ReasoningEffortEnumApi.Max,
+        })
     })
 
     // The picker groups by harness and offers one row per runtime, so both have to come off the catalogue rather

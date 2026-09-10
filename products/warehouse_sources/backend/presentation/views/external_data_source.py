@@ -154,6 +154,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     filter_integration_accounts,
     get_cdc_adapter,
     get_primary_key_columns,
+    new_source_requires_ssl,
     purge_buffer_prefix,
     repair_cdc_source,
     source_requires_ssl,
@@ -1462,12 +1463,27 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         source_config: Config = source.parse_config(new_job_inputs)
         validated_job_inputs = source_config.to_dict()
+
+        # The settings form resubmits the whole connection config on every save, so changing an
+        # unrelated setting (auto-syncing new tables, the prefix, the description) re-probed the
+        # live connection too — and a momentarily unreachable database then failed the whole save,
+        # leaving nothing to do but retry. Compare the parsed config against what's stored so the
+        # probe below only runs when the connection actually changed. Direct query sources still
+        # probe on every save: the same call refreshes their schemas and connection metadata.
+        try:
+            stored_job_inputs = source.parse_config(existing_job_inputs).to_dict()
+        except Exception:
+            # A stored config that no longer parses can't be compared, so treat it as changed and
+            # let the probe run rather than skipping validation on a config we can't read.
+            stored_job_inputs = None
+        connection_config_changed = stored_job_inputs is None or stored_job_inputs != validated_job_inputs
+
         for key in _CDC_EXPOSED_JOB_INPUT_KEYS:
             if key in existing_job_inputs:
                 validated_job_inputs[key] = existing_job_inputs[key]
         validated_data["job_inputs"] = validated_job_inputs
 
-        if job_inputs_were_submitted:
+        if job_inputs_were_submitted and (connection_config_changed or instance.is_direct_query):
             effective_api_version = source.resolve_api_version(instance.api_version)
             try:
                 if isinstance(source, (PostgresSource, MySQLSource)):
@@ -1989,6 +2005,19 @@ class IntegrationAccountsResponseSerializer(serializers.Serializer):
     )
 
 
+class AccountPickerManagementPermission(TeamMemberAdminManagementPermission):
+    """Admin gate for the account picker, with a message the customer can act on.
+
+    The base message names no next step. Free entry stays open on the account field, so a
+    member who cannot list accounts can still finish the source by filling the account in.
+    """
+
+    message = (
+        "You need admin access to this project to list the accounts this connection can reach. "
+        "Ask an admin to finish the setup, or fill in the account yourself."
+    )
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class ResolvedStoredCredential:
     payload: dict = dataclasses.field(repr=False)
@@ -2094,7 +2123,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 APIScopePermission(),
                 AccessControlPermission(),
                 TeamMemberAccessPermission(),
-                TeamMemberAdminManagementPermission(),
+                AccountPickerManagementPermission(),
             ]
         raise NotImplementedError()
 
@@ -3432,7 +3461,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         try:
             if isinstance(source, (PostgresSource, MySQLSource)):
                 credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                    cast(Any, source_config), self.team_id, access_method
+                    cast(Any, source_config),
+                    self.team_id,
+                    access_method,
+                    require_ssl=new_source_requires_ssl(source_config),
                 )
             elif isinstance(source, CustomSource):
                 # Schema discovery for an as-yet-uncreated source: an integration-backed manifest may only use
@@ -3909,7 +3941,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         try:
             if isinstance(source, (PostgresSource, MySQLSource)):
                 credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                    cast(Any, source_config), self.team_id, access_method
+                    cast(Any, source_config),
+                    self.team_id,
+                    access_method,
+                    require_ssl=new_source_requires_ssl(source_config),
                 )
             elif isinstance(source, CustomSource):
                 # Create-time validation for an integration-backed manifest may only use an unbound integration

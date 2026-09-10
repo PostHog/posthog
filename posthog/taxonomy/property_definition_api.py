@@ -26,6 +26,7 @@ from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
+from posthog.taxonomy.definition_search import search_plan
 from posthog.taxonomy.taxonomy import (
     CORE_FILTER_DEFINITIONS_BY_GROUP,
     PROPERTY_NAME_ALIASES,
@@ -678,8 +679,11 @@ class PropertyDefinitionViewSet(
             span.set_attribute("limit", limit or 0)
             span.set_attribute("offset", offset or 0)
 
+            plan = search_plan("posthog_propertydefinition", self.project_id, read_db_alias()) if search else None
             search_extra = add_name_alias_to_search_query(search, prop_type)
-            search_query, search_kwargs = term_search_filter_sql(self.search_fields, search, search_extra)
+            search_query, search_kwargs = term_search_filter_sql(
+                self.search_fields, search, search_extra, avoid_trigram_index=plan == "project_scan"
+            )
 
             query_context = (
                 QueryContext(

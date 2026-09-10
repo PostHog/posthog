@@ -86,8 +86,9 @@ class TestSignalScoutCreateAPI(APIBaseTest):
         config = SignalScoutConfig.all_teams.get(team=self.team, skill_name=payload["name"])
         assert config.tags == ["on-call", "revenue"]
 
-    def test_matching_definition_retry_is_idempotent_and_applies_config(self) -> None:
-        payload = self._payload()
+    @parameterized.expand([("prefixed", "signals-scout-checkout-failures"), ("bare", "my-churn-watch")])
+    def test_matching_definition_retry_is_idempotent_and_applies_config(self, _name: str, skill_name: str) -> None:
+        payload = {**self._payload(), "name": skill_name}
 
         first = self.client.post(self._url(), data=payload, format="json")
         second = self.client.post(
@@ -146,6 +147,37 @@ class TestSignalScoutCreateAPI(APIBaseTest):
         assert skill.body == payload["body"]
         config = SignalScoutConfig.all_teams.get(team=self.team, skill_name=payload["name"])
         assert config.enabled is True
+
+    def test_create_accepts_a_name_without_the_scout_prefix(self) -> None:
+        # The config row created alongside the skill is what makes it a scout, so the name only
+        # has to pass the ordinary skill-name rules.
+        payload = {**self._payload(), "name": "my-churn-watch"}
+
+        response = self.client.post(self._url(), data=payload, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert SignalScoutConfig.all_teams.filter(team=self.team, skill_name="my-churn-watch").exists()
+        # `category` is derived from the name prefix on skill creation, so a bare-named scout only
+        # reaches the skills UI's Scouts tab if the endpoint stamps it.
+        skill = LLMSkill.objects.get(team=self.team, name="my-churn-watch", deleted=False)
+        assert skill.category == "scout"
+
+    @parameterized.expand([("scratchpad",), ("findings",), ("runs",)])
+    def test_create_rejects_a_name_the_inbox_reserves(self, name: str) -> None:
+        # `/inbox/scouts/<name>` reads these as sub-pages, so a scout under one could never be
+        # opened. They stay valid as ordinary skill names.
+        response = self.client.post(self._url(), data={**self._payload(), "name": name}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not LLMSkill.objects.filter(team=self.team, name=name, deleted=False).exists()
+
+    def test_create_rejects_a_name_another_product_owns(self) -> None:
+        # `review-hog-` names carry that product's category, which its own sync re-stamps. A scout
+        # under one would sit on the Code review tab and flip between tabs on every sync.
+        response = self.client.post(self._url(), data={**self._payload(), "name": "review-hog-security"}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not LLMSkill.objects.filter(team=self.team, name="review-hog-security", deleted=False).exists()
 
     def test_invalid_slack_destination_does_not_create_skill(self) -> None:
         other_organization = Organization.objects.create(name="Other")

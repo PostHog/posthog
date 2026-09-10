@@ -1,5 +1,3 @@
-WIZARD_ANALYTICS_TASK = "wizard.capture_run_event"
-
 WIZARD_RUN_CREATED_EVENT = "wizard run created"
 WIZARD_RUN_DISPATCH_FINISHED_EVENT = "wizard run dispatch finished"
 WIZARD_RUN_STAGE_ENTERED_EVENT = "wizard run stage entered"

@@ -942,6 +942,10 @@ describe('scoutFleetLogic', () => {
         it.each([
             ['a backend fault, which reaches error tracking', 500, true],
             ['a gateway blip, which does not', 503, false],
+            // Deploy skew: a bundle that has the cost feature can reach a backend that does not
+            // have the endpoint yet, and DRF answers 405 when only the method is missing.
+            ['a method the backend does not serve yet, which does not', 405, false],
+            ['a path the backend does not serve yet, which does not', 404, false],
         ])('recovers from %s', async (_name: string, status: number, reported: boolean) => {
             mockSignalsScoutRunsRecentPerScout.mockResolvedValue([makeRun({ run_id: 'run-priced' })])
             mockSignalsScoutRunsTokenCosts.mockRejectedValue(new ApiError('nope', status))

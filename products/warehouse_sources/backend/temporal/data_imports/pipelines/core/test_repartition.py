@@ -809,6 +809,67 @@ class TestRewriteIntoTemp:
         assert final.num_rows == len(rows)
         assert set(final.column("id").to_pylist()) == set(range(len(rows)))
 
+    def test_resume_does_not_re_read_the_source_files_it_already_copied(self, tmp_path):
+        # The prefix temp already holds is charged to the resumed attempt's own budget when it is
+        # skipped row by row, so on a table that needs several budgets the re-read grows until it fills
+        # a budget on its own and the attempt appends nothing — which is what the controller counts
+        # against its give-up cap before abandoning the table. One row per month means one source file
+        # per row, so a copied prefix is a whole number of files and the scan must never open them.
+        rows = [(i, datetime.datetime(2024, 1, 1) + datetime.timedelta(days=40 * i)) for i in range(6)]
+        live = _write_month_partitioned(str(tmp_path / "live"), rows)
+        temp_uri = str(tmp_path / "tmp")
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+
+        clock = Mock(side_effect=itertools.chain([0.0] * 8, itertools.repeat(100.0)))
+        with (
+            patch.object(repartition_module, "time", Mock(monotonic=clock)),
+            patch.object(repartition_module, "REWRITE_BUFFER_MAX_ROWS", 1),
+        ):
+            with pytest.raises(RepartitionBudgetExceededError):
+                asyncio.run(
+                    _rewrite_into_temp(
+                        old_delta=live,
+                        temp_uri=temp_uri,
+                        storage_options={},
+                        target=target,
+                        batch_size=1,
+                        logger=logger,
+                        deadline=50.0,
+                    )
+                )
+        copied = deltalake.DeltaTable(temp_uri).to_pyarrow_table().num_rows
+        assert 0 < copied < len(rows)
+
+        reads = 0
+        read_batch = repartition_module._read_next_batch
+
+        def counting_read(reader):
+            nonlocal reads
+            reads += 1
+            return read_batch(reader)
+
+        with patch.object(repartition_module, "_read_next_batch", counting_read):
+            rows_written, _ = asyncio.run(
+                _rewrite_into_temp(
+                    old_delta=live,
+                    temp_uri=temp_uri,
+                    storage_options={},
+                    target=target,
+                    batch_size=1,
+                    logger=logger,
+                    skip_rows=copied,
+                )
+            )
+
+        # One read per uncopied file, plus the read that exhausts the scan.
+        assert reads == (len(rows) - copied) + 1
+        assert rows_written == len(rows) - copied
+        final = deltalake.DeltaTable(temp_uri).to_pyarrow_table()
+        assert final.num_rows == len(rows)
+        assert set(final.column("id").to_pylist()) == set(range(len(rows)))
+
     def test_a_finished_rewrite_beats_the_deadline(self, tmp_path):
         # One source file, one batch, so the reader is exhausted on the second loop iteration. The
         # clock is over the deadline by then: a rewrite that has already copied every row must still

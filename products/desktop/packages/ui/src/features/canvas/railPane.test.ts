@@ -12,6 +12,7 @@ describe("railPaneForPath", () => {
     ["/activity", "activity"],
     ["/command-center", "command-center"],
     ["/inbox", "inbox"],
+    ["/reports/$reportId", "reports"],
     ["/inbox/pulls/$reportId", "inbox"],
     ["/loops", "loops"],
     ["/loops/$loopId/edit", "loops"],
@@ -76,7 +77,7 @@ describe("isRestorableVisitHref", () => {
 });
 
 describe("railPaneHasSidebar", () => {
-  it.each(["home", "inbox", "command-center", "loops"] as const)(
+  it.each(["home", "inbox", "reports", "command-center", "loops"] as const)(
     "gives %s the whole screen",
     (pane) => {
       expect(railPaneHasSidebar(pane)).toBe(false);
