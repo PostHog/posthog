@@ -17,8 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .ast_helpers import module_import_targets
-from .baseline import read_facade_shape_baseline
-from .crossings import driven_wiring_locations
+from .crossings import driven_wiring_locations, facade_shape_use, recorded_facade_shape_rows
 from .isolation import (
     IsolationStatus,
     compute_isolation_status,
@@ -962,6 +961,8 @@ class IsolationChainCheck(ProductCheck):
         return result
 
 
+_CROSSING_LEDGER = "products/model_crossing_uses_baseline.txt"
+
 # The remedy the lint prints per finding kind. Each one is the move that removes the row, not advice
 # to think about the row.
 _FACADE_SHAPE_REMEDIES: dict[str, str] = {
@@ -986,6 +987,9 @@ class FacadeShapeCheck(ProductCheck):
 
     Runs in both lint modes. A lenient product with a facade folder is exactly where the drawer
     forms: the folder is public by location while nothing holds its shape.
+
+    The findings are ratcheted as the `facade-*` kinds of the model-crossing ledger, next to the
+    other couplings the import graph cannot see.
     """
 
     label = "facade shape"
@@ -995,8 +999,8 @@ class FacadeShapeCheck(ProductCheck):
 
     def run(self, ctx: CheckContext) -> CheckResult:
         findings = ctx.isolation_status().facade_shape
-        recorded = {row for row in read_facade_shape_baseline() if row.startswith(f"{ctx.name} ")}
-        current = {f.as_baseline_line(): f for f in findings}
+        recorded = recorded_facade_shape_rows(ctx.name)
+        current = {facade_shape_use(f).as_baseline_line(): f for f in findings}
 
         result = CheckResult(file=f"products/{ctx.name}/backend/facade")
         for row, finding in sorted(current.items()):
@@ -1005,18 +1009,18 @@ class FacadeShapeCheck(ProductCheck):
             remedy = _FACADE_SHAPE_REMEDIES[finding.kind]
             result.issues.append(
                 f"facade/{finding.facade_module} {finding.kind} {finding.detail} at "
-                f"{finding.symbol} — {remedy}. The baseline only shrinks, so this is not a row to add"
+                f"{finding.symbol} — {remedy}. The ledger only shrinks, so this is not a row to add"
             )
         for row in sorted(recorded - set(current)):
             result.issues.append(
-                f"'{row}' is in products/facade_shape_baseline.txt but no longer occurs — run "
-                f"`hogli product:lint --regenerate-baseline` to shrink the baseline"
+                f"'{row}' is in {_CROSSING_LEDGER} but no longer occurs — run "
+                f"`bin/hogli product:crossings --all --write-baseline` to shrink the ledger"
             )
 
         if result.issues:
             result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
         elif recorded:
-            result.warnings.append(f"facade shape debt: {len(recorded)} row(s) in products/facade_shape_baseline.txt")
+            result.warnings.append(f"facade shape debt: {len(recorded)} row(s) in {_CROSSING_LEDGER}")
             result.lines = [f"⚠ facade shape debt: {len(recorded)} rows"]
         else:
             result.lines = ["✓ ok"]

@@ -2,7 +2,7 @@
 # One line per (product.Class, consumer module, kind, count); see products/architecture.md
 # § Wiring couplings for which shapes are allowed.
 #
-# Four channels land here. Name-level uses of a watched-models crossing class, in any kind the
+# Five channels land here. Name-level uses of a watched-models crossing class, in any kind the
 # doctrine does not call instance-free. The kind `get_model`: an `apps.get_model` reference
 # from outside the owning product, which covers every product model, not only the allowance ones.
 # Test modules and migrations are out of scope on both: a migration reaches a model through the
@@ -18,6 +18,17 @@
 # related_name="+", remove any explicit related_query_name (a query:<name> row means one keeps
 # filter() traversal alive), and delete the line in the same change; a caller that needs reverse
 # access gets a facade read function. See products/architecture.md § Cross-product foreign keys.
+# And the `facade-*` kinds, read from the facade signatures rather than from a caller: what the
+# boundary itself promises. `facade-returns` and `facade-accepts(<parameter>)` mean a public facade
+# function names a Django, a DRF or an ORM type, or hides one behind `Any` on a team, request or
+# user parameter; return a frozen contract from facade/contracts.py, and take an id or a typed core
+# model instead. `facade-exports` means the facade hands the name out; stop re-exporting it.
+# `facade-logic` means a capability submodule holds a body rather than a re-export; move it to the
+# product's wiring location (backend/hogql_queries/, backend/max_tools.py, backend/temporal/,
+# backend/tasks/). The consumer column holds the facade symbol, and the first column says what
+# crosses: `<product>.<Class>` for a product model, the source library for everything else
+# (django, rest_framework, typing), and the facade module for a `facade-logic` line.
+# See products/architecture.md § The shape check.
 #
 # Counts may only go down, and a line that disappears must be deleted here too.
 # A new line needs a doctrine amendment, not a baseline edit.
@@ -30,11 +41,61 @@ actions.Action posthog.TaggedItem.action reverse-accessor(tagged_items) 1
 actions.Action surveys.Survey.actions reverse-accessor(survey_set) 1
 approvals.ChangeRequest feature_flags.ScheduledChange.change_request reverse-accessor(scheduled_changes) 1
 batch_exports.BatchExport cdp.HogFunction.batch_export reverse-accessor(hogfunction_set) 1
+billing_alerts.BillingAlertConfiguration products.billing_alerts.backend.facade.api.apply_billing_alert_configuration_lifecycle facade-accepts(alert) 1
+billing_alerts.BillingAlertConfiguration products.billing_alerts.backend.facade.api.apply_destination_changes facade-accepts(alert) 1
+billing_alerts.BillingAlertConfiguration products.billing_alerts.backend.facade.api.create_destination facade-accepts(alert) 1
+billing_alerts.BillingAlertConfiguration products.billing_alerts.backend.facade.api.delete_alert_and_destinations facade-accepts(alert) 1
+billing_alerts.BillingAlertConfiguration products.billing_alerts.backend.facade.api.delete_destination facade-accepts(alert) 1
+billing_alerts.BillingAlertConfiguration products.billing_alerts.backend.facade.api.destinations_for_alerts facade-accepts(alerts) 1
+billing_alerts.BillingAlertConfiguration products.billing_alerts.backend.facade.api.evaluate_and_dispatch_alert facade-accepts(alert) 1
+billing_alerts.BillingAlertConfiguration products.billing_alerts.backend.facade.api.initialize_billing_alert_lifecycle facade-accepts(alert) 1
+billing_alerts.BillingAlertConfiguration products.billing_alerts.backend.facade.api.preview_alert facade-accepts(alert) 1
+billing_alerts.BillingAlertConfiguration products.billing_alerts.backend.facade.api.reschedule_billing_alert_configuration facade-accepts(alert) 1
+billing_alerts.BillingAlertConfiguration products.billing_alerts.backend.facade.api.visible_events_for_alert facade-accepts(alert) 1
+billing_alerts.BillingAlertEvent products.billing_alerts.backend.facade.api.visible_events_for_alert facade-returns 1
 canvas.Canvas products.tasks.backend.logic.services.loop_runs get_model 1
 cohorts.Cohort experiments.Experiment.exposure_cohort reverse-accessor(experiment_set) 1
 conversations.Ticket posthog.TaggedItem.ticket reverse-accessor(tagged_items) 1
 customer_analytics.Account notebooks.ResourceNotebook.account reverse-accessor(notebooks) 1
 customer_analytics.Account posthog.TaggedItem.account reverse-accessor(tagged_items) 1
+customer_analytics.Account products.customer_analytics.backend.facade.api.create_account facade-returns 1
+customer_analytics.Account products.customer_analytics.backend.facade.api.update_account facade-accepts(account) 1
+customer_analytics.Account products.customer_analytics.backend.facade.api.update_account facade-returns 1
+customer_analytics.AccountProperties products.customer_analytics.backend.facade.api.create_account facade-accepts(properties) 1
+customer_analytics.AccountProperties products.customer_analytics.backend.facade.api.update_account facade-accepts(properties) 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._AccountCustomPropertiesHistoryTable facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._AccountCustomPropertiesTable facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._AccountEmailThreadsTable facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._AccountFeatureRequestsTable facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._AccountMeetingsTable facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._AccountNotebooksTable facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._AccountRelationshipsTable facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._AccountScopedPostgresTable facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._AccountSlackSummariesTable facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._AccountSupportTicketsTable facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._AccountTagsTable facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._account_custom_properties_history_select facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._account_custom_properties_select facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._account_email_threads_select facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._account_feature_requests_select facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._account_meetings_select facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._account_notebooks_select facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._account_relationships_select facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._account_slack_summaries_select facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._account_support_tickets_select facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._account_tags_select facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._join_on_account_id facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql._require_ticket_access facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql.account_custom_properties_history_join facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql.account_custom_properties_join facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql.account_email_threads_join facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql.account_feature_requests_join facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql.account_meetings_join facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql.account_notebooks_join facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql.account_relationships_join facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql.account_slack_summaries_join facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql.account_support_tickets_join facade-logic 1
+customer_analytics:backend/facade/hogql.py products.customer_analytics.backend.facade.hogql.account_tags_join facade-logic 1
 customer_analytics:backend/hogql_queries/ posthog.api.test.test_sharing drives(AccountsQuery) 1
 dashboards.Dashboard ee.DashboardPrivilege.dashboard reverse-accessor(privileges) 1
 dashboards.Dashboard exports.ExportedAsset.dashboard reverse-accessor(exportedasset_set) 1
@@ -43,7 +104,57 @@ dashboards.Dashboard posthog.SharingConfiguration.dashboard reverse-accessor(sha
 dashboards.Dashboard posthog.TaggedItem.dashboard reverse-accessor(tagged_items) 1
 dashboards.Dashboard posthog.Team.primary_dashboard reverse-accessor(primary_dashboard_teams) 1
 dashboards.Dashboard product_analytics.Insight.dashboard reverse-accessor(items) 1
+dashboards.Dashboard products.dashboards.backend.facade.api.tile_for_render facade-accepts(dashboard) 1
+dashboards.DashboardTile products.dashboards.backend.facade.api.tile_for_insight_on_dashboard facade-returns 1
+dashboards.DashboardTile products.dashboards.backend.facade.api.tile_for_render facade-returns 1
 data_modeling.DataWarehouseSavedQuery products.customer_analytics.backend.facade.api get_model 5
+django.Exists products.dashboards.backend.facade.api.insight_has_listed_tile facade-returns 1
+django.HttpResponseBase products.exports.backend.facade.api.get_export_asset_content_response facade-returns 1
+django.Model products.access_control.backend.facade.object_names.model_has_field facade-accepts(model) 1
+django.Model products.access_control.backend.facade.object_names.resources_with_object_access_controls facade-returns 1
+django.Model products.access_control.backend.facade.resolution_preview.object_models facade-returns 1
+django.Model products.access_control.backend.facade.subject_access_control.SubjectAccessControl.inherited_access_for_object facade-accepts(obj) 1
+django.Model products.access_control.backend.facade.user_access_control.UserAccessControl.access_level_for_object facade-accepts(obj) 1
+django.Model products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object facade-accepts(obj) 1
+django.Model products.access_control.backend.facade.user_access_control.UserAccessControl.check_can_modify_access_levels_for_object facade-accepts(obj) 1
+django.Model products.access_control.backend.facade.user_access_control.UserAccessControl.get_access_source_for_object facade-accepts(obj) 1
+django.Model products.access_control.backend.facade.user_access_control.UserAccessControl.get_user_access_level facade-accepts(obj) 1
+django.Model products.access_control.backend.facade.user_access_control.UserAccessControl.preload_object_access_controls facade-accepts(objects) 1
+django.Model products.access_control.backend.facade.user_access_control.UserAccessControl.resolve_most_specific_object_access facade-accepts(obj) 1
+django.Model products.access_control.backend.facade.user_access_control.UserAccessControl.specific_access_level_for_object facade-accepts(obj) 1
+django.Model products.access_control.backend.facade.user_access_control.fallback_parent_object facade-accepts(obj) 1
+django.Model products.access_control.backend.facade.user_access_control.fallback_parent_object facade-returns 1
+django.Model products.access_control.backend.facade.user_access_control.fallback_parent_object_id facade-accepts(obj) 1
+django.Model products.access_control.backend.facade.user_access_control.get_field_access_control_map facade-accepts(model_class) 1
+django.Model products.access_control.backend.facade.user_access_control.model_to_resource facade-accepts(model) 1
+django.Prefetch products.dashboards.backend.facade.api.tile_ids_prefetch facade-returns 1
+django.Prefetch products.dashboards.backend.facade.api.tile_permissions_prefetch facade-returns 1
+django.Q products.tasks.backend.facade.api.general_channel_q facade-returns 1
+django.Q products.tasks.backend.facade.api.get_latest_pr_url_by_task facade-accepts(conditions) 1
+django.Q products.tasks.backend.facade.api.get_merged_pr_task_ids facade-accepts(conditions) 1
+django.Q products.tasks.backend.facade.api.latest_task_run_pr_merged_subquery facade-accepts(conditions) 1
+django.Q products.tasks.backend.facade.api.latest_task_run_pr_url_subquery facade-accepts(conditions) 1
+django.Q products.tasks.backend.facade.api.personal_channel_q facade-returns 1
+django.Q products.tasks.backend.facade.api.task_ids_with_pr_url_subquery facade-accepts(conditions) 1
+django.Q products.tasks.backend.facade.api.visible_channels_q facade-returns 1
+django.Q products.tasks.backend.facade.api.visible_tasks_q facade-returns 1
+django.QuerySet products.access_control.backend.facade.user_access_control.UserAccessControl.filter_and_annotate_file_system_queryset facade-accepts(queryset) 1
+django.QuerySet products.access_control.backend.facade.user_access_control.UserAccessControl.filter_and_annotate_file_system_queryset facade-returns 1
+django.QuerySet products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level facade-accepts(queryset) 1
+django.QuerySet products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level facade-returns 1
+django.QuerySet products.access_control.backend.facade.user_access_control.visible_teams_for_user facade-returns 1
+django.QuerySet products.billing_alerts.backend.facade.api.visible_events_for_alert facade-returns 1
+django.QuerySet products.dashboards.backend.facade.api.insight_ids_on_dashboard facade-returns 1
+django.QuerySet products.error_tracking.backend.facade.api.query_new_error_issues facade-returns 1
+django.QuerySet products.legal_documents.backend.facade.api.annotate_signed_baa facade-accepts(queryset) 1
+django.QuerySet products.legal_documents.backend.facade.api.annotate_signed_baa facade-returns 1
+django.QuerySet products.product_analytics.backend.facade.api.with_last_viewed_at facade-accepts(insights) 1
+django.QuerySet products.product_analytics.backend.facade.api.with_last_viewed_at facade-returns 1
+django.QuerySet products.product_analytics.backend.facade.models.resolve_insight_by_id_or_short_id facade-accepts(queryset) 1
+django.QuerySet products.tasks.backend.facade.api.task_ids_with_pr_url_subquery facade-returns 1
+django.QuerySet products.tasks.backend.facade.loops.sandbox_environment_queryset facade-returns 1
+django.Subquery products.tasks.backend.facade.api.latest_task_run_pr_merged_subquery facade-returns 1
+django.Subquery products.tasks.backend.facade.api.latest_task_run_pr_url_subquery facade-returns 1
 endpoints.Endpoint posthog.TaggedItem.endpoint reverse-accessor(tagged_items) 1
 error_tracking.ErrorTrackingIssue products.demo.backend.logic.products.hedgebox.matrix get_model 1
 error_tracking.ErrorTrackingIssue products.posthog_ai.evals.error_tracking.seeders get_model 1
@@ -53,7 +164,9 @@ error_tracking.ErrorTrackingIssueFingerprintV2 posthog.management.commands.sync_
 error_tracking.ErrorTrackingIssueFingerprintV2 posthog.models.team.util get_model 1
 error_tracking.ErrorTrackingIssueFingerprintV2 products.demo.backend.logic.products.hedgebox.matrix get_model 1
 error_tracking.ErrorTrackingIssueFingerprintV2 products.posthog_ai.evals.error_tracking.seeders get_model 1
+error_tracking.ErrorTrackingIssueMergeResult products.error_tracking.backend.facade.issues.merge_issues facade-returns 1
 error_tracking.ErrorTrackingStackFrame products.demo.backend.logic.products.hedgebox.matrix get_model 1
+error_tracking:backend/facade/queries.py products.error_tracking.backend.facade.queries.run_error_tracking_query facade-logic 1
 error_tracking:backend/hogql_queries/ products.posthog_ai.eval_harness.test.test_eval_seeders drives(ErrorTrackingQueryRunner) 1
 error_tracking:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_insight_query drives(ErrorTrackingQuery) 1
 event_definitions.EventDefinition ee.EnterpriseEventDefinition.eventdefinition_ptr reverse-accessor(enterpriseeventdefinition) 1
@@ -72,16 +185,34 @@ experiments:backend/hogql_queries/ posthog.temporal.experiments.test_cache_warmi
 experiments:backend/hogql_queries/ posthog.temporal.experiments.test_cache_warming drives(get_experiment_stats_method) 2
 experiments:backend/hogql_queries/ products.actions.backend.api.test.test_action drives(ExperimentTrendsQuery) 3
 exports.ExportedAsset posthog.ObjectMediaPreview.exported_asset reverse-accessor(object_previews) 1
+exports.ExportedAsset products.exports.backend.facade.api.create_export_asset_async facade-returns 1
+exports.ExportedAsset products.exports.backend.facade.api.get_export_asset facade-returns 1
+exports.ExportedAsset products.exports.backend.facade.api.get_export_asset_content_response facade-accepts(asset) 1
+exports.ExportedAsset products.exports.backend.facade.api.render_png_export facade-returns 1
+exports.ExportedAsset products.exports.backend.facade.api.save_export_asset_content_from_file facade-accepts(asset) 1
 feature_flags.FeatureFlag access_control.FeatureFlagRoleAccess.feature_flag reverse-accessor(access) 1
 feature_flags.FeatureFlag early_access_features.EarlyAccessFeature.feature_flag reverse-accessor(features) 1
 feature_flags.FeatureFlag experiments.Experiment.feature_flag reverse-accessor(experiment_set) 1
 feature_flags.FeatureFlag posthog.TaggedItem.feature_flag reverse-accessor(tagged_items) 1
 feature_flags.FeatureFlag product_tours.ProductTour.internal_targeting_flag reverse-accessor(product_tours_internal_targeting_flag) 1
 feature_flags.FeatureFlag product_tours.ProductTour.linked_flag reverse-accessor(product_tours_linked_flag) 1
+feature_flags.FeatureFlag products.feature_flags.backend.facade.api.archive_flag facade-accepts(flag) 1
+feature_flags.FeatureFlag products.feature_flags.backend.facade.api.archive_flag facade-returns 1
+feature_flags.FeatureFlag products.feature_flags.backend.facade.api.create_flag facade-returns 1
+feature_flags.FeatureFlag products.feature_flags.backend.facade.api.set_flag_active facade-accepts(flag) 1
+feature_flags.FeatureFlag products.feature_flags.backend.facade.api.set_flag_active facade-returns 1
+feature_flags.FeatureFlag products.feature_flags.backend.facade.api.ship_variant facade-accepts(flag) 1
+feature_flags.FeatureFlag products.feature_flags.backend.facade.api.ship_variant facade-returns 1
+feature_flags.FeatureFlag products.feature_flags.backend.facade.api.unarchive_flag facade-accepts(flag) 1
+feature_flags.FeatureFlag products.feature_flags.backend.facade.api.unarchive_flag facade-returns 1
+feature_flags.FeatureFlag products.feature_flags.backend.facade.api.update_flag facade-accepts(flag) 1
+feature_flags.FeatureFlag products.feature_flags.backend.facade.api.update_flag facade-returns 1
+feature_flags.FeatureFlag products.feature_flags.backend.facade.api.user_can_edit_flag facade-accepts(flag) 1
 feature_flags.FeatureFlag surveys.Survey.internal_response_sampling_flag reverse-accessor(surveys_internal_response_sampling_flag) 1
 feature_flags.FeatureFlag surveys.Survey.internal_targeting_flag reverse-accessor(surveys_internal_targeting_flag) 1
 feature_flags.FeatureFlag surveys.Survey.linked_flag reverse-accessor(surveys_linked_flag) 1
 feature_flags.FeatureFlag surveys.Survey.targeting_flag reverse-accessor(surveys_targeting_flag) 1
+mcp_store.MCPServerInstallation products.mcp_store.backend.facade.api.member_installation_for_host facade-returns 1
 metrics:backend/hogql_queries/ posthog.tasks.alerts.test.test_metrics_alerts drives(MetricsQuery) 1
 notebooks.Notebook posthog.SharingConfiguration.notebook reverse-accessor(sharing_configurations) 1
 posthog.Comment conversations.EmailThreadMessage.comment reverse-accessor(email_thread_message) 1
@@ -366,6 +497,7 @@ product_analytics.Insight products.reminders.backend.constants in-collection 1
 product_analytics.Insight products.slack_app.backend.slack_link_unfurl instance-single 1
 product_analytics.Insight products.surveys.backend.api.survey instance-single 1
 product_analytics.Insight surveys.Survey.linked_insight reverse-accessor(surveys_linked_insight) 1
+product_analytics:backend/facade/models.py products.product_analytics.backend.facade.models.resolve_insight_by_id_or_short_id facade-logic 1
 product_analytics:backend/hogql_queries/ ee.clickhouse.views.test.test_experiment_saved_metrics drives(TrendsQuery) 2
 product_analytics:backend/hogql_queries/ posthog.api.test.dashboards.test_dashboard drives(TrendsQuery) 6
 product_analytics:backend/hogql_queries/ posthog.api.test.test_alert_15_minute_interval drives(TrendsQuery) 1
@@ -417,14 +549,68 @@ product_analytics:backend/hogql_queries/ products.web_analytics.backend.hogql_qu
 product_analytics:backend/hogql_queries/ products.web_analytics.backend.hogql_queries.test.test_web_vitals_timeseries_lazy_precompute drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.web_analytics.backend.hogql_queries.test.test_web_vitals_timeseries_lazy_precompute drives(TrendsQueryRunner) 1
 replay_vision.ReplayScanner posthog.TaggedItem.replay_scanner reverse-accessor(tagged_items) 1
+rest_framework.Request products.tasks.backend.facade.client_provenance.get_task_client_provenance facade-accepts(request) 1
+rest_framework.Request products.tasks.backend.facade.client_provenance.is_sandbox_oauth_request facade-accepts(request) 1
 signals.SignalReport tasks.Task.signal_report reverse-accessor(task) 1
+stamphog:backend/facade/tasks.py products.stamphog.backend.facade.tasks.queue_inbox_pr_review facade-logic 1
 surveys.Survey product_tours.ProductTour.linked_surveys reverse-accessor(product_tours) 1
 surveys.Survey products.early_access_features.backend.management.commands.migrate_enrollments_to_waitlist_surveys get_model 1
+tasks.Channel products.tasks.backend.facade.api.create_task_without_run facade-accepts(channel) 1
+tasks.MCPBuiltInAgentKey products.tasks.backend.facade.api.create_task_without_run facade-accepts(mcp_builtin_agent_key) 1
+tasks.SandboxEnvironment products.tasks.backend.facade.api.upsert_internal_sandbox_env facade-accepts(network_access_level) 1
+tasks.SandboxEnvironment products.tasks.backend.facade.loops.sandbox_environment_queryset facade-returns 1
 tasks.Task signals.SignalReportTask.task reverse-accessor(signal_report_tasks) 1
 tasks.Task slack_app.SlackThreadTaskMapping.task reverse-accessor(slack_thread_mappings) 1
+tasks.TaskClientProvenance products.tasks.backend.facade.api.create_task facade-accepts(client_provenance) 1
+tasks.TaskClientProvenance products.tasks.backend.facade.api.warm_task_sandbox facade-accepts(client_provenance) 1
+tasks.TaskClientProvenance products.tasks.backend.facade.client_provenance.get_task_client_provenance facade-returns 1
+tasks.TaskClientProvenance products.tasks.backend.facade.loops.create_loop facade-accepts(client_provenance) 1
 tasks.TaskRun products.review_hog.backend.receivers get_model 1
+tasks.TaskRun products.tasks.backend.facade.api.post_artifact_thread_update facade-accepts(run) 1
+tasks.TaskRun products.tasks.backend.facade.api.post_commits_pushed_thread_update facade-accepts(run) 1
+tasks.TaskRun products.tasks.backend.facade.api.post_pr_created_thread_update facade-accepts(run) 1
+tasks.TaskRun products.tasks.backend.facade.api.project_awaiting_input_activity facade-accepts(task_run) 1
+tasks.TaskRun products.tasks.backend.facade.api.project_completed_activity facade-accepts(task_run) 1
+tasks.TaskRun products.tasks.backend.facade.api.task_ids_with_pr_url_subquery facade-returns 1
 tasks.TaskRun signals.SignalScoutRun.task_run reverse-accessor(signal_scout_run) 1
 tasks.TaskRun slack_app.SlackThreadTaskMapping.task_run reverse-accessor(slack_thread_mappings) 1
+tasks.TaskThreadMessage products.tasks.backend.facade.api.project_thread_message_activity facade-accepts(message) 1
+tasks:backend/facade/tasks.py products.tasks.backend.facade.tasks.bake_dev_stack_image_task facade-logic 1
+tasks:backend/facade/tasks.py products.tasks.backend.facade.tasks.dispatch_loop_run_terminal_notification_task facade-logic 1
+tasks:backend/facade/tasks.py products.tasks.backend.facade.tasks.refresh_dev_stack_image_task facade-logic 1
+tasks:backend/facade/tasks.py products.tasks.backend.facade.tasks.refresh_stale_sandbox_custom_images_task facade-logic 1
+typing.Any products.billing_alerts.backend.facade.api.apply_destination_changes facade-accepts(request) 1
+typing.Any products.billing_alerts.backend.facade.api.create_destination facade-accepts(request) 1
+typing.Any products.error_tracking.backend.facade.api.auto_select_project_for_user facade-accepts(user) 1
+typing.Any products.error_tracking.backend.facade.api.build_team_digest_data facade-accepts(team) 1
+typing.Any products.error_tracking.backend.facade.api.get_crash_free_sessions facade-accepts(team) 1
+typing.Any products.error_tracking.backend.facade.api.get_daily_exception_counts facade-accepts(team) 1
+typing.Any products.error_tracking.backend.facade.api.get_exception_summary_for_team facade-accepts(team) 1
+typing.Any products.error_tracking.backend.facade.api.get_new_issues_for_team facade-accepts(team) 1
+typing.Any products.error_tracking.backend.facade.api.get_source_maps_recommendation_for_team facade-accepts(team) 1
+typing.Any products.error_tracking.backend.facade.api.get_top_issues_for_team facade-accepts(team) 1
+typing.Any products.error_tracking.backend.facade.issues.assign_issue facade-accepts(user) 1
+typing.Any products.error_tracking.backend.facade.issues.bulk_update_issues facade-accepts(user) 1
+typing.Any products.error_tracking.backend.facade.issues.update_issue facade-accepts(user) 1
+typing.Any products.error_tracking.backend.facade.symbol_sets.bulk_finish_upload facade-accepts(team) 1
+typing.Any products.error_tracking.backend.facade.symbol_sets.bulk_start_upload facade-accepts(team) 1
+typing.Any products.error_tracking.backend.facade.symbol_sets.create_deprecated_symbol_set facade-accepts(team) 1
+typing.Any products.error_tracking.backend.facade.symbol_sets.start_deprecated_upload facade-accepts(team) 1
+typing.Any products.feature_flags.backend.facade.api.archive_flag facade-accepts(request) 1
+typing.Any products.feature_flags.backend.facade.api.archive_flag facade-accepts(user) 1
+typing.Any products.feature_flags.backend.facade.api.create_flag facade-accepts(request) 1
+typing.Any products.feature_flags.backend.facade.api.create_flag facade-accepts(user) 1
+typing.Any products.feature_flags.backend.facade.api.set_flag_active facade-accepts(request) 1
+typing.Any products.feature_flags.backend.facade.api.set_flag_active facade-accepts(user) 1
+typing.Any products.feature_flags.backend.facade.api.ship_variant facade-accepts(request) 1
+typing.Any products.feature_flags.backend.facade.api.ship_variant facade-accepts(user) 1
+typing.Any products.feature_flags.backend.facade.api.unarchive_flag facade-accepts(request) 1
+typing.Any products.feature_flags.backend.facade.api.unarchive_flag facade-accepts(user) 1
+typing.Any products.feature_flags.backend.facade.api.update_flag facade-accepts(request) 1
+typing.Any products.feature_flags.backend.facade.api.update_flag facade-accepts(user) 1
+typing.Any products.feature_flags.backend.facade.api.user_can_edit_flag facade-accepts(user) 1
+typing.Any products.signals.backend.facade.api.create_scout_for_source facade-accepts(request) 1
+typing.Any products.signals.backend.facade.api.create_scout_for_source facade-accepts(user) 1
 user_interviews.IntervieweeContext posthog.SharingConfiguration.interviewee_context reverse-accessor(sharing_configurations) 1
 warehouse_sources.DataWarehouseCredential posthog.hogql.database.database instance-many(filter) 1
 warehouse_sources.DataWarehouseCredential products.data_warehouse.backend.presentation.views.table drf-model-serializer 1

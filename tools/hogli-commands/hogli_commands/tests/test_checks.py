@@ -31,6 +31,7 @@ from hogli_commands.product.checks import (
     validate_interface_blocks,
     validate_tach_references,
 )
+from hogli_commands.product.crossings import facade_shape_use
 from hogli_commands.product.isolation import (
     MODEL_SURFACE_PREFIXES,
     facade_carveout_modules,
@@ -2192,8 +2193,56 @@ class TestFacadeShape:
         assert {(f.symbol, f.kind, f.detail) for f in findings if f.kind == "logic"} == expected
 
 
+class TestFacadeShapeLedgerRows:
+    @pytest.mark.parametrize(
+        "facade_files, expected",
+        [
+            # a product model keeps `<product>.<Class>` in the first column, like every other
+            # crossing row, so one grep over the ledger finds every way the class leaves
+            (
+                {"api.py": "from ..models import Thing\n\n\ndef get_thing() -> Thing:\n    return Thing()\n"},
+                "my_product.Thing products.my_product.backend.facade.api.get_thing facade-returns 1",
+            ),
+            # everything else names the library it comes from, so `QuerySet` cannot read as a class
+            (
+                {"api.py": "from django.db.models import QuerySet\n\n\ndef things() -> QuerySet:\n    ...\n"},
+                "django.QuerySet products.my_product.backend.facade.api.things facade-returns 1",
+            ),
+            # the parameter rides in the kind, the way drives(...) and reverse-accessor(...) carry
+            # their detail, so the row stays four fields wide
+            (
+                {"api.py": "from typing import Any\n\n\ndef digest(team: Any) -> None:\n    return None\n"},
+                "typing.Any products.my_product.backend.facade.api.digest facade-accepts(team) 1",
+            ),
+            # a method keeps its class in the path, and the parameter never enters it
+            (
+                {
+                    "api.py": "from ..models import Thing\n\n\nclass Mapper:\n    def to_contract(self, row: Thing) -> None:\n        return None\n"
+                },
+                "my_product.Thing products.my_product.backend.facade.api.Mapper.to_contract facade-accepts(row) 1",
+            ),
+            (
+                {"models.py": "from django.db.models import QuerySet\n\n__all__ = ['QuerySet']\n"},
+                "django.QuerySet products.my_product.backend.facade.models.QuerySet facade-exports 1",
+            ),
+            # a logic row has no type to name, so it is keyed by the module that holds the body —
+            # the same location shape the drives(...) rows use
+            (
+                {"tasks.py": "from celery import shared_task\n\n\n@shared_task\ndef run_it() -> None:\n    print(1)\n"},
+                "my_product:backend/facade/tasks.py products.my_product.backend.facade.tasks.run_it facade-logic 1",
+            ),
+        ],
+    )
+    def test_a_finding_renders_one_ledger_row(
+        self, tmp_path: Path, facade_files: dict[str, str], expected: str
+    ) -> None:
+        _, backend = _write_facade_product(tmp_path, facade_files=facade_files)
+        findings = facade_shape_findings(backend, "my_product")
+        assert [facade_shape_use(f).as_baseline_line() for f in findings] == [expected]
+
+
 class TestFacadeShapeBaseline:
-    _ROW = "my_product api.py get_thing returns Thing"
+    _ROW = "my_product.Thing products.my_product.backend.facade.api.get_thing facade-returns 1"
 
     def _leaking_product(self, tmp_path: Path) -> CheckContext:
         ctx = _make_product(tmp_path, isolated=True)
@@ -2208,11 +2257,11 @@ class TestFacadeShapeBaseline:
         # Both directions of the same fixture: without the ratchet the debt would either block every
         # product on day one or never block anything.
         ctx = self._leaking_product(tmp_path)
-        monkeypatch.setattr(checks_module, "read_facade_shape_baseline", lambda: frozenset())
+        monkeypatch.setattr(checks_module, "recorded_facade_shape_rows", lambda name: frozenset())
         unrecorded = FacadeShapeCheck().run(ctx)
         assert any("returns Thing" in i and "frozen contract" in i for i in unrecorded.issues)
 
-        monkeypatch.setattr(checks_module, "read_facade_shape_baseline", lambda: frozenset({self._ROW}))
+        monkeypatch.setattr(checks_module, "recorded_facade_shape_rows", lambda name: frozenset({self._ROW}))
         recorded = FacadeShapeCheck().run(ctx)
         assert recorded.issues == []
         assert recorded.lines == ["⚠ facade shape debt: 1 rows"]
@@ -2221,7 +2270,7 @@ class TestFacadeShapeBaseline:
         # A stale row is a standing permission slip: the facade could clean up, keep the line, then
         # leak the same symbol again and still pass.
         ctx = self._leaking_product(tmp_path)
-        stale = "my_product api.py list_things returns QuerySet"
-        monkeypatch.setattr(checks_module, "read_facade_shape_baseline", lambda: frozenset({self._ROW, stale}))
+        stale = "django.QuerySet products.my_product.backend.facade.api.list_things facade-returns 1"
+        monkeypatch.setattr(checks_module, "recorded_facade_shape_rows", lambda name: frozenset({self._ROW, stale}))
         result = FacadeShapeCheck().run(ctx)
         assert [i for i in result.issues if stale in i and "no longer occurs" in i]

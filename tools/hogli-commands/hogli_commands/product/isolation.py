@@ -27,6 +27,7 @@ import functools
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 from .ast_helpers import (
     ast_parse_safe,
@@ -899,9 +900,29 @@ class FacadeShapeFinding:
     symbol: str  # "create_destination", "create_destination(team)", or "Mapper.to_contract"
     kind: str  # returns | accepts | exports | logic
     detail: str  # the type an annotation names, or what a capability submodule defines
+    # Where `detail` is defined, so the ledger row names the type unambiguously: the product for a
+    # product model, else the source library (django, rest_framework, typing). Empty for `logic`,
+    # whose row is keyed by the facade module instead of by a type.
+    qualifier: str = ""
 
-    def as_baseline_line(self) -> str:
-        return f"{self.product} {self.facade_module} {self.symbol} {self.kind} {self.detail}"
+    @property
+    def dotted_symbol(self) -> str:
+        """The symbol without the parameter an `accepts` finding carries: `Mapper.to_contract`."""
+        return self.symbol.partition("(")[0]
+
+    @property
+    def parameter(self) -> str:
+        """The parameter an `accepts` finding names, or '' for the other kinds."""
+        return self.symbol.partition("(")[2].rstrip(")")
+
+
+class _ShapeRow(NamedTuple):
+    """What one shape rule found, before the product and the facade module are attached."""
+
+    symbol: str
+    kind: str
+    detail: str
+    qualifier: str = ""
 
 
 @dataclass(frozen=True)
@@ -1066,26 +1087,39 @@ def _reportable(product: str, forbidden: _ForbiddenType) -> bool:
     return forbidden.category != "core-model" and not _is_sanctioned_crossing(product, forbidden.type_name)
 
 
+# The source a category's types come from, for the finding's qualifier. A product model uses the
+# owning product instead, so its row reads `<product>.<Class>` like every other crossing row.
+_CATEGORY_SOURCES: dict[str, str] = {
+    "orm": "django",
+    "http": "django",
+    "drf": "rest_framework",
+    "any": "typing",
+    "core-model": "posthog",
+}
+
+
+def _qualifier(forbidden: _ForbiddenType) -> str:
+    return forbidden.owner or _CATEGORY_SOURCES[forbidden.category]
+
+
 def _iter_signature_findings(
-    node: ast.FunctionDef | ast.AsyncFunctionDef, env: _FacadeImportEnv, product: str, qualifier: str
-) -> Iterator[tuple[str, str, str]]:
-    """(symbol, kind, type) for every forbidden type in one signature."""
-    symbol = f"{qualifier}{node.name}"
+    node: ast.FunctionDef | ast.AsyncFunctionDef, env: _FacadeImportEnv, product: str, prefix: str
+) -> Iterator[_ShapeRow]:
+    """One row per forbidden type in one signature."""
+    symbol = f"{prefix}{node.name}"
     for forbidden in _forbidden_types_in(env, node.returns):
         if _reportable(product, forbidden):
-            yield symbol, "returns", forbidden.type_name
+            yield _ShapeRow(symbol, "returns", forbidden.type_name, _qualifier(forbidden))
     args = node.args
     for arg in [*args.posonlyargs, *args.args, *args.kwonlyargs, args.vararg, args.kwarg]:
         if arg is None or arg.arg in ("self", "cls"):
             continue
         for forbidden in _forbidden_types_in(env, arg.annotation, arg.arg):
             if _reportable(product, forbidden):
-                yield f"{symbol}({arg.arg})", "accepts", forbidden.type_name
+                yield _ShapeRow(f"{symbol}({arg.arg})", "accepts", forbidden.type_name, _qualifier(forbidden))
 
 
-def _iter_module_signature_findings(
-    tree: ast.Module, env: _FacadeImportEnv, product: str
-) -> Iterator[tuple[str, str, str]]:
+def _iter_module_signature_findings(tree: ast.Module, env: _FacadeImportEnv, product: str) -> Iterator[_ShapeRow]:
     """Signature findings for the module's public call surface: its module-level functions and the
     public methods of the classes it defines. A leading underscore marks a helper the facade keeps
     to itself, and converting a model to a contract is exactly what such a helper is for."""
@@ -1098,8 +1132,8 @@ def _iter_module_signature_findings(
                     yield from _iter_signature_findings(child, env, product, f"{node.name}.")
 
 
-def _iter_export_findings(tree: ast.Module, env: _FacadeImportEnv, product: str) -> Iterator[tuple[str, str, str]]:
-    """(symbol, kind, type) for every ORM name the facade module hands out.
+def _iter_export_findings(tree: ast.Module, env: _FacadeImportEnv, product: str) -> Iterator[_ShapeRow]:
+    """One row per ORM name the facade module hands out.
 
     Own-product classes are left to facade_class_imports, which already splits them into leaks,
     carve-outs, and watched-models crossings. What is left for this rule is an ORM primitive
@@ -1118,7 +1152,7 @@ def _iter_export_findings(tree: ast.Module, env: _FacadeImportEnv, product: str)
             continue
         handed_out = is_pure_reexport or (advertised is not None and bound in advertised) or bound in env.self_aliased
         if handed_out:
-            yield bound, "exports", forbidden.type_name
+            yield _ShapeRow(bound, "exports", forbidden.type_name, _qualifier(forbidden))
 
 
 def _wiring_decorator(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> str | None:
@@ -1153,8 +1187,8 @@ def _is_passthrough_body(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.Clas
     )
 
 
-def _iter_capability_findings(tree: ast.Module) -> Iterator[tuple[str, str, str]]:
-    """(symbol, kind, type) for every definition a capability submodule holds beyond a re-export."""
+def _iter_capability_findings(tree: ast.Module) -> Iterator[_ShapeRow]:
+    """One row per definition a capability submodule holds beyond a re-export."""
     for node in ast.iter_child_nodes(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             continue
@@ -1162,9 +1196,9 @@ def _iter_capability_findings(tree: ast.Module) -> Iterator[tuple[str, str, str]
             continue
         decorator = _wiring_decorator(node)
         if decorator is not None:
-            yield node.name, "logic", decorator
+            yield _ShapeRow(node.name, "logic", decorator)
         elif not _is_passthrough_body(node):
-            yield node.name, "logic", "class" if isinstance(node, ast.ClassDef) else "function"
+            yield _ShapeRow(node.name, "logic", "class" if isinstance(node, ast.ClassDef) else "function")
 
 
 def _iter_facade_shape_modules(backend_dir: Path) -> Iterator[tuple[str, Path]]:
@@ -1186,6 +1220,9 @@ def facade_shape_findings(backend_dir: Path, name: str) -> list[FacadeShapeFindi
     An `accepts` row becomes ids and contracts, so the caller never holds the object. An `exports`
     row moves to the wiring location or stops being re-exported. A `logic` row moves the body to the
     wiring location and leaves the re-export behind.
+
+    crossings.py turns each finding into a `facade-*` line of the model-crossing ledger, which is
+    where the ratchet holds it.
     """
     findings: list[FacadeShapeFinding] = []
     for label, path in _iter_facade_shape_modules(backend_dir):
@@ -1199,8 +1236,8 @@ def facade_shape_findings(backend_dir: Path, name: str) -> list[FacadeShapeFindi
         ]
         if Path(label).stem in CAPABILITY_SUBMODULES:
             rows += list(_iter_capability_findings(tree))
-        findings.extend(FacadeShapeFinding(name, label, symbol, kind, detail) for symbol, kind, detail in rows)
-    return sorted(findings, key=lambda f: f.as_baseline_line())
+        findings.extend(FacadeShapeFinding(name, label, *row) for row in rows)
+    return sorted(findings, key=lambda f: (f.facade_module, f.symbol, f.kind, f.detail))
 
 
 # ---------------------------------------------------------------------------
@@ -1243,8 +1280,9 @@ class IsolationStatus:
     model_crossings: tuple[FacadeClassImport, ...] = ()
     uncovered_model_surface: tuple[str, ...] = ()
     # Facade signatures that name a Django or a DRF type, ORM names the facade hands out, and logic
-    # in a capability submodule. Ratcheted in products/facade_shape_baseline.txt, so a row that is
-    # already recorded warns and an unrecorded one fails (see FacadeShapeCheck).
+    # in a capability submodule. Ratcheted as the `facade-*` kinds in
+    # products/model_crossing_uses_baseline.txt, so a row that is already recorded warns and an
+    # unrecorded one fails (see FacadeShapeCheck).
     facade_shape: tuple[FacadeShapeFinding, ...] = ()
 
     @property

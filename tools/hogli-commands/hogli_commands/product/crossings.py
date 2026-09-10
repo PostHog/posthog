@@ -38,6 +38,12 @@ The fourth channel does not read source at all. A relation field that crosses a 
 without `related_name="+"` adds a reverse accessor to the target class — no import, no name-level
 use, only the model registry can see it. reverse_accessors.py walks the graph; each edge is counted
 as the disallowed kind `reverse-accessor(<name>)`.
+
+The fifth channel reads the other end of the boundary: what a facade signature promises. An import
+linter sees the same edge whether a facade imports a model module to build contracts or to return
+the model, so publicness has to come from the shape of the API and not from the location of the
+file. isolation.py reads the signatures; each finding is counted as one of the disallowed kinds
+`facade-returns`, `facade-accepts(<parameter>)`, `facade-exports` and `facade-logic`.
 """
 
 from __future__ import annotations
@@ -54,8 +60,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .ast_helpers import ast_parse_safe, get_model_names, lazy_reexport_map
-from .isolation import COMPUTED_WIRING_LOCATIONS, MODEL_CROSSINGS, facade_model_crossings
-from .paths import PRODUCTS_DIR, REPO_ROOT
+from .isolation import (
+    COMPUTED_WIRING_LOCATIONS,
+    MODEL_CROSSINGS,
+    FacadeShapeFinding,
+    facade_model_crossings,
+    facade_shape_findings,
+)
+from .paths import PRODUCTS_DIR, REPO_ROOT, backend_product_dirs
 from .reverse_accessors import reverse_accessor_edge_lines
 
 # Where Python that can consume a product model lives. Everything else at the repo root is
@@ -142,7 +154,8 @@ class CrossingUse:
     """One kind of use of one crossing class in one consumer module, with how often it appears.
 
     `reverse-accessor(...)` rows overload `consumer_module` with the relation declaration
-    (`app.Model.field`) — a path into the model graph, not an importable module."""
+    (`app.Model.field`) — a path into the model graph, not an importable module. `facade-*` rows
+    overload it with the facade symbol that carries the type (`...facade.api.read`)."""
 
     crossing: str  # CrossingClass.label
     consumer_module: str  # dotted, e.g. "products.product_analytics.backend.presentation.insight"
@@ -1417,6 +1430,20 @@ def driven_wiring_locations(product: str, path: Path | None = None) -> frozenset
     )
 
 
+def recorded_facade_shape_rows(product: str, path: Path | None = None) -> frozenset[str]:
+    """The `facade-*` baseline lines standing for one product's facade.
+
+    Read from the baseline for the same reason as the wiring locations above: the repo-invariant
+    test keeps the file equal to a fresh scan, so what stands here is what the ratchet accepted."""
+    prefix = f"products.{product}.backend.facade."
+    rows: set[str] = set()
+    for line in _baseline_lines(path or BASELINE_PATH):
+        _, consumer, kind, _ = line.split(" ")
+        if kind.startswith("facade-") and consumer.startswith(prefix):
+            rows.add(line)
+    return frozenset(rows)
+
+
 @functools.lru_cache(maxsize=4)
 def _baseline_lines(path: Path) -> tuple[str, ...]:
     """Read once per process: `product:lint --all` asks for every product's locations in one run."""
@@ -1619,9 +1646,52 @@ def reverse_accessor_uses(products: Iterable[str] | None = None) -> list[Crossin
     return uses
 
 
+# ---------------------------------------------------------------------------
+# Facade shapes — the fifth channel, read from the facade signatures
+# ---------------------------------------------------------------------------
+
+
+def _facade_symbol_path(finding: FacadeShapeFinding) -> str:
+    """The dotted path of the symbol a finding sits on, e.g. `products.x.backend.facade.api.read`."""
+    parts = [part for part in finding.facade_module.removesuffix(".py").split("/") if part != "__init__"]
+    return ".".join(["products", finding.product, "backend", "facade", *parts, finding.dotted_symbol])
+
+
+def facade_shape_use(finding: FacadeShapeFinding) -> CrossingUse:
+    """One facade shape finding as a baseline row.
+
+    The crossing slot names what crosses: the qualified type for a signature or an export row, and
+    the facade module for a `logic` row, which is keyed by a location the way `drives(...)` is. The
+    consumer slot holds the facade symbol that carries it, and the parameter of an `accepts` row
+    rides in the kind, the way the other detail-carrying kinds do.
+    """
+    crossing = (
+        wiring_location_label(finding.product, f"backend/facade/{finding.facade_module}")
+        if finding.kind == "logic"
+        else f"{finding.qualifier}.{finding.detail}"
+    )
+    kind = f"facade-{finding.kind}({finding.parameter})" if finding.parameter else f"facade-{finding.kind}"
+    return CrossingUse(crossing, _facade_symbol_path(finding), kind, 1)
+
+
+def facade_shape_uses(products: Iterable[str] | None = None) -> list[CrossingUse]:
+    """What every product facade puts on its boundary, as CrossingUse rows.
+
+    A finding belongs to the facade that carries it, so a product filter selects the facades to
+    read — the same one-sided scoping the reverse accessors use.
+    """
+    wanted = set(products) if products is not None else None
+    return [
+        facade_shape_use(finding)
+        for product_dir in backend_product_dirs()
+        if wanted is None or product_dir.name in wanted
+        for finding in facade_shape_findings(product_dir / "backend", product_dir.name)
+    ]
+
+
 def all_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUse]:
-    """Every channel: the three AST scans plus the model-graph reverse accessors."""
-    return scan_crossing_uses(products) + reverse_accessor_uses(products)
+    """Every channel: the three AST scans, the model-graph reverse accessors, and the facade shapes."""
+    return scan_crossing_uses(products) + reverse_accessor_uses(products) + facade_shape_uses(products)
 
 
 # ---------------------------------------------------------------------------
@@ -1689,7 +1759,7 @@ BASELINE_HEADER = """\
 # One line per (product.Class, consumer module, kind, count); see products/architecture.md
 # § Wiring couplings for which shapes are allowed.
 #
-# Four channels land here. Name-level uses of a watched-models crossing class, in any kind the
+# Five channels land here. Name-level uses of a watched-models crossing class, in any kind the
 # doctrine does not call instance-free. The kind `get_model`: an `apps.get_model` reference
 # from outside the owning product, which covers every product model, not only the allowance ones.
 # Test modules and migrations are out of scope on both: a migration reaches a model through the
@@ -1705,6 +1775,17 @@ BASELINE_HEADER = """\
 # related_name="+", remove any explicit related_query_name (a query:<name> row means one keeps
 # filter() traversal alive), and delete the line in the same change; a caller that needs reverse
 # access gets a facade read function. See products/architecture.md § Cross-product foreign keys.
+# And the `facade-*` kinds, read from the facade signatures rather than from a caller: what the
+# boundary itself promises. `facade-returns` and `facade-accepts(<parameter>)` mean a public facade
+# function names a Django, a DRF or an ORM type, or hides one behind `Any` on a team, request or
+# user parameter; return a frozen contract from facade/contracts.py, and take an id or a typed core
+# model instead. `facade-exports` means the facade hands the name out; stop re-exporting it.
+# `facade-logic` means a capability submodule holds a body rather than a re-export; move it to the
+# product's wiring location (backend/hogql_queries/, backend/max_tools.py, backend/temporal/,
+# backend/tasks/). The consumer column holds the facade symbol, and the first column says what
+# crosses: `<product>.<Class>` for a product model, the source library for everything else
+# (django, rest_framework, typing), and the facade module for a `facade-logic` line.
+# See products/architecture.md § The shape check.
 #
 # Counts may only go down, and a line that disappears must be deleted here too.
 # A new line needs a doctrine amendment, not a baseline edit.

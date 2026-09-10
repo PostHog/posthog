@@ -173,6 +173,7 @@ Production code may not add one.
 `drives(...)` lines record the tests outside a product that execute its query runners.
 They are keyed by the product's `backend/hogql_queries/` location instead of a class, and read from test modules only.
 A new line is a new outside test that drives product code, and that test belongs in the product.
+`facade-*` lines record what a facade signature promises, read from the facade itself rather than from a caller — see [The shape check](#the-shape-check).
 A repo-invariant test compares that file against a fresh scan, in both directions.
 A count can go down.
 A count must not go up.
@@ -354,8 +355,10 @@ It reports four kinds:
 
 Classes on the carve-out and watched-models lists above are sanctioned, so they are not reported.
 Core models are not reported either, because product to core is the sanctioned direction.
-`products/facade_shape_baseline.txt` records what the facades do today.
-It only shrinks: a finding that is not on it fails the lint, and a row whose finding is gone fails too, so regenerate with `hogli product:lint --regenerate-baseline` in the same change.
+`products/model_crossing_uses_baseline.txt` records what the facades do today, as the `facade-*` kinds next to the other couplings the import graph cannot see.
+The first column says what crosses: `<product>.<Class>` for a product model, the source library for everything else (`django`, `rest_framework`, `typing`), and the facade module for a `facade-logic` line.
+The second column is the facade symbol that carries it.
+The file only shrinks: a finding that is not on it fails the lint, and a row whose finding is gone fails too, so regenerate with `bin/hogli product:crossings --all --write-baseline` in the same change.
 
 ### Example
 

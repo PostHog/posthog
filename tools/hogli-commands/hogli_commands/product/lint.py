@@ -7,17 +7,9 @@ from pathlib import Path
 
 import click
 
-from .baseline import check_baseline, check_facade_shape_baseline
+from .baseline import check_baseline
 from .checks import CHECKS, CheckContext, ProductYamlOwnersCheck, is_isolated_product, validate_tach_toml
-from .paths import (
-    FACADE_SHAPE_BASELINE,
-    ISOLATION_BASELINE,
-    PRODUCTS_DIR,
-    REPO_ROOT,
-    TACH_TOML,
-    backend_product_dirs,
-    load_structure,
-)
+from .paths import ISOLATION_BASELINE, PRODUCTS_DIR, REPO_ROOT, TACH_TOML, backend_product_dirs, load_structure
 
 _IN_GH_ACTIONS = os.environ.get("GITHUB_ACTIONS") == "true"
 
@@ -137,32 +129,13 @@ def lint_all_products() -> None:
         click.echo("  ✓ ok")
     click.echo("")
 
-    click.echo("─ facade shape baseline")
-    shape_issues = check_facade_shape_baseline()
-    if shape_issues:
-        click.echo(f"  ✗ {len(shape_issues)} issue(s)")
-        for issue in shape_issues:
-            click.echo(f"    → {issue}")
-            _gh_annotation(
-                "error",
-                "products",
-                "facade shape baseline",
-                issue,
-                file=str(FACADE_SHAPE_BASELINE.relative_to(REPO_ROOT)),
-            )
-    else:
-        click.echo("  ✓ ok")
-    click.echo("")
-
-    if failed or tach_issues or baseline_issues or shape_issues:
+    if failed or tach_issues or baseline_issues:
         if failed:
             click.echo(f"✗ {len(failed)} product(s) failed: {', '.join(failed)}")
         if tach_issues:
             click.echo(f"✗ {len(tach_issues)} tach.toml issue(s)")
         if baseline_issues:
             click.echo(f"✗ {len(baseline_issues)} isolation baseline issue(s)")
-        if shape_issues:
-            click.echo(f"✗ {len(shape_issues)} facade shape baseline issue(s)")
         raise SystemExit(1)
 
     click.echo(f"✓ All {len(product_dirs)} products passed")
