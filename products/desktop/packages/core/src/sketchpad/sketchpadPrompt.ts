@@ -83,6 +83,15 @@ ${whitelistLines()}
 - The board provides the SDK:
   \`import { ph, useSharedState } from "${CANVAS_SDK_SPECIFIER}"\`.
 
+Capabilities:
+- Every fragment declares what it reaches through \`ph.*\`, and the board
+  refuses a call the fragment did not declare. Pass \`capabilities\` when you
+  add or update a fragment: \`inlineQueries: true\` for \`ph.query\`,
+  \`insights: ["<shortId>"]\` for \`ph.loadInsight\`, and \`state: ["shared"]\`
+  for \`useSharedState\` or any \`ph.state\` call.
+- Declare only what the code you wrote uses. A fragment that only draws needs
+  no capabilities.
+
 Data:
 - \`ph.query({ hogql: "select count() from events" })\` runs HogQL.
 - \`ph.query({ query: { kind: "TrendsQuery", ... } })\` runs a typed PostHog

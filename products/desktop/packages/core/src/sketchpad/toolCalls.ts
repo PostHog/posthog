@@ -11,6 +11,7 @@ import {
   SKETCHPAD_REMOVE_FRAGMENT_TOOL_NAME,
   SKETCHPAD_SET_STATE_TOOL_NAME,
   SKETCHPAD_UPDATE_FRAGMENT_TOOL_NAME,
+  type SketchpadCapabilities,
   type SketchpadFragmentPatch,
   type SketchpadOp,
   type SketchpadSnapshot,
@@ -86,7 +87,20 @@ function addFragmentOp(
       codeVersion: 1,
       surface: "card",
       hidden: false,
+      capabilities: declaredCapabilities(input.capabilities),
     },
+  };
+}
+
+function declaredCapabilities(
+  declared:
+    | { inlineQueries?: boolean; insights?: string[]; state?: "shared"[] }
+    | undefined,
+): SketchpadCapabilities {
+  return {
+    inlineQueries: declared?.inlineQueries ?? false,
+    insights: declared?.insights ?? [],
+    state: declared?.state ?? [],
   };
 }
 
@@ -101,6 +115,9 @@ function updateFragmentOp(rawInput: unknown): SketchpadOp | null {
   if (raw.y !== undefined) patch.y = raw.y;
   if (raw.w !== undefined) patch.w = raw.w;
   if (raw.h !== undefined) patch.h = raw.h;
+  if (raw.capabilities !== undefined) {
+    patch.capabilities = declaredCapabilities(raw.capabilities);
+  }
   if (Object.keys(patch).length === 0) return null;
   return { type: "update_fragment", id: normalizeFragmentId(id), patch };
 }

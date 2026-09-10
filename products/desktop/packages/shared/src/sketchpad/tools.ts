@@ -78,6 +78,28 @@ export const sketchpadGeometryShape = {
     ),
 };
 
+const capabilitiesField = z
+  .object({
+    inlineQueries: z
+      .boolean()
+      .optional()
+      .describe("Set this when the fragment calls ph.query."),
+    insights: z
+      .array(z.string().min(1).max(128))
+      .max(100)
+      .optional()
+      .describe("Short ids the fragment reads with ph.loadInsight."),
+    state: z
+      .array(z.literal("shared"))
+      .max(1)
+      .optional()
+      .describe('Pass ["shared"] when the fragment reads or writes ph.state.'),
+  })
+  .optional()
+  .describe(
+    "What the fragment reaches through ph.*. The board refuses a call the fragment does not declare here, so declare only what the code uses.",
+  );
+
 export const sketchpadAddFragmentShape = {
   id: idField,
   code: fragmentCodeSchema.describe(
@@ -88,6 +110,7 @@ export const sketchpadAddFragmentShape = {
     .max(120)
     .optional()
     .describe("Short human title shown above the fragment."),
+  capabilities: capabilitiesField,
   ...sketchpadGeometryShape,
 };
 
@@ -97,6 +120,7 @@ export const sketchpadUpdateFragmentShape = {
     .object({
       code: fragmentCodeSchema.optional(),
       title: z.string().max(120).optional(),
+      capabilities: capabilitiesField,
       ...sketchpadGeometryShape,
     })
     .refine(
