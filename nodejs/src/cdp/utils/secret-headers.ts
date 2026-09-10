@@ -26,8 +26,7 @@ export function resolveSecretHeaders(
     return { ok: true, headers }
 }
 
-// HTTP header names are case insensitive, so a plaintext header that a secret header also sets
-// is dropped rather than sent alongside it. Some receivers read the first of two same-name headers.
+// Some receivers read the first of two same-name headers, so a plaintext header a secret header also sets is dropped.
 export function mergeSecretHeaders(
     headers: Record<string, string>,
     secretHeaders: Record<string, string>

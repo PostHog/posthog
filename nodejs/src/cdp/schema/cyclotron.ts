@@ -139,9 +139,7 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     headers: z.record(z.string(), z.string()).optional(),
     aws_sigv4: CyclotronInvocationQueueParametersFetchAwsSigV4Schema.optional(),
     standard_webhooks: CyclotronInvocationQueueParametersFetchStandardWebhooksSchema.optional(),
-    // Input-key reference to a dictionary of credential headers. Like the `*_input`
-    // fields above, the executor resolves it at fetch time and merges the headers into
-    // the request, so the credential values never sit on the plaintext queue payload.
+    // An input-key reference, like the `*_input` fields above, so credential header values stay off the queue payload.
     secret_headers_input: z.string().optional(),
 })
 

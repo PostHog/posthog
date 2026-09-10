@@ -133,9 +133,8 @@ class Command(BaseCommand):
                     exc_info=True,
                 )
 
-        # Every coming-soon template comes from the Node.js service. If that fetch failed,
-        # current_template_ids holds none of them, and the cleanup below would delete every
-        # coming-soon template in the database.
+        # Every coming-soon template comes from the Node.js service, so after a failed fetch current_template_ids
+        # holds none of them and the cleanup below would delete every coming-soon template in the database.
         if nodejs_error:
             self.stdout.write(
                 self.style.WARNING("Skipping cleanup of unused templates because the Node.js fetch failed")
