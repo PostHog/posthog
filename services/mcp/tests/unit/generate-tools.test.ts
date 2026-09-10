@@ -1503,6 +1503,16 @@ describe('ToolConfigSchema validation', () => {
         expect(result.success).toBe(true)
     })
 
+    it('rejects response.strip_nulls on a list tool', () => {
+        const result = ToolConfigSchema.safeParse({
+            operation: 'things_list',
+            enabled: true,
+            list: true,
+            response: { strip_nulls: true },
+        })
+        expect(result.success).toBe(false)
+    })
+
     it('accepts response.exclude alone', () => {
         const result = ToolConfigSchema.safeParse({
             operation: 'things_list',
@@ -1522,7 +1532,7 @@ describe('buildResponseFilter', () => {
         const config: ToolConfig = { operation: 'things_list', enabled: true }
         const result = buildResponseFilter(config)
         expect(result.code).toBe('')
-        expect(result.helperImport).toBeNull()
+        expect(result.helperImports).toEqual([])
     })
 
     it('generates pickResponseFields for detail endpoint with response.include', () => {
@@ -1534,7 +1544,7 @@ describe('buildResponseFilter', () => {
         const result = buildResponseFilter(config)
         expect(result.code).toContain('pickResponseFields(result, ')
         expect(result.code).toContain("'id', 'name', 'status'")
-        expect(result.helperImport).toBe('pickResponseFields')
+        expect(result.helperImports).toEqual(['pickResponseFields'])
     })
 
     it('generates omitResponseFields for detail endpoint with response.exclude', () => {
@@ -1546,7 +1556,7 @@ describe('buildResponseFilter', () => {
         const result = buildResponseFilter(config)
         expect(result.code).toContain('omitResponseFields(result, ')
         expect(result.code).toContain("'filters', 'created_by'")
-        expect(result.helperImport).toBe('omitResponseFields')
+        expect(result.helperImports).toEqual(['omitResponseFields'])
     })
 
     it('maps pickResponseFields over results for list endpoint with response.include', () => {
@@ -1559,7 +1569,7 @@ describe('buildResponseFilter', () => {
         const result = buildResponseFilter(config)
         expect(result.code).toContain('(result.results ?? []).map')
         expect(result.code).toContain('pickResponseFields(item, ')
-        expect(result.helperImport).toBe('pickResponseFields')
+        expect(result.helperImports).toEqual(['pickResponseFields'])
     })
 
     it('maps omitResponseFields over results for list endpoint with response.exclude', () => {
@@ -1572,7 +1582,29 @@ describe('buildResponseFilter', () => {
         const result = buildResponseFilter(config)
         expect(result.code).toContain('(result.results ?? []).map')
         expect(result.code).toContain('omitResponseFields(item, ')
-        expect(result.helperImport).toBe('omitResponseFields')
+        expect(result.helperImports).toEqual(['omitResponseFields'])
+    })
+
+    it('wraps the exclude expression in stripNullFields for response.strip_nulls', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            response: { exclude: ['filters'], strip_nulls: true },
+        }
+        const result = buildResponseFilter(config)
+        expect(result.code).toContain("stripNullFields(omitResponseFields(result, ['filters']))")
+        expect(result.helperImports).toEqual(['omitResponseFields', 'stripNullFields'])
+    })
+
+    it('generates stripNullFields alone when no include or exclude is configured', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            response: { strip_nulls: true },
+        }
+        const result = buildResponseFilter(config)
+        expect(result.code).toContain('stripNullFields(result)')
+        expect(result.helperImports).toEqual(['stripNullFields'])
     })
 
     it('preserves wildcard dot-path patterns in generated code', () => {

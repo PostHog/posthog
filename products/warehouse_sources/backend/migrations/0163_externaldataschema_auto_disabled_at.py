@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("warehouse_sources", "0161_alter_customoauth2integration_created_by_and_more"),
+        ("warehouse_sources", "0162_repin_shopify_api_version"),
     ]
 
     operations = [

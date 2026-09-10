@@ -6184,6 +6184,15 @@ def create_task(
             space_repositories=channel.repositories,
         )
 
+    if signal_report_id and signal_report_task_relationship in (None, "implementation") and task.repository:
+        from products.signals.backend.tracker_issues import create_tracker_issue_for_report
+
+        create_tracker_issue_for_report(
+            team_id=team_id,
+            report_id=signal_report_id,
+            repository=task.repository,
+        )
+
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
 
 
