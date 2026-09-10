@@ -89,7 +89,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     TOPUP_RESOURCE_NAME,
     TRANSFER_RESOURCE_NAME,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import (
+    ClientFactory,
+    InvoiceListWithAllLines,
+    RateLimitCallback,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     APPEND_ONLY_INCREMENTAL_FIELDS,
     DEFAULT_PRIMARY_KEYS,
@@ -224,6 +228,10 @@ def _is_non_list_stripe_response(body: Any) -> bool:
     return not _head_mentions_list_object(raw, start)
 
 
+# Tries a 429 gets before it fails the request; the other retryable errors keep `max_network_retries`.
+RATE_LIMIT_RETRIES = 5
+
+
 class _RateLimitRetryingRequestsClient(RequestsClient):
     """Stripe's SDK retries 409/5xx (and whatever ``Stripe-Should-Retry`` advises) but never
     retries 429s on its own — ``_should_retry`` excludes them. A rate limit during a large sync,
@@ -231,7 +239,7 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
     straight out of ``get_rows`` and fails the whole import activity.
 
     Opt 429 into the SDK's existing ``Retry-After``-aware exponential backoff so transient rate
-    limits are absorbed in-process (bounded by ``max_network_retries``) instead of crashing the
+    limits are absorbed in-process (bounded by ``RATE_LIMIT_RETRIES``) instead of crashing the
     run. We also retry a connection reset that drops the response mid-body (the SDK declines it,
     see ``_is_retryable_connection_reset``), a 2xx whose list body was truncated mid-stream (Stripe
     surfaces the latter as a JSON decode failure only after the SDK's retry loop), and a 2xx GET
@@ -242,6 +250,10 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
     # Records the method of the in-flight request so `_should_retry` (whose signature omits it) can
     # scope the non-list-body retry to reads, never a single-object write response.
     _last_request_method: str = ""
+
+    def __init__(self, *args: Any, on_rate_limited: Optional[RateLimitCallback] = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._on_rate_limited = on_rate_limited
 
     def request(  # type: ignore[override]  # mirrors RequestsClient.request, which already narrows HTTPClient's (str→bytes)
         self,
@@ -260,20 +272,27 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
         num_retries: int,
         max_network_retries: Optional[int],
     ) -> bool:
+        if response is not None and response[1] == 429:
+            # A throttle gets its own, larger budget so it is absorbed here, with the SDK's
+            # Retry-After-aware backoff, before it costs a Temporal attempt. The pool that owns this
+            # client hears about it first so every worker slows down, not only the one that was hit.
+            headers = response[2] or {}
+            if self._on_rate_limited is not None:
+                self._on_rate_limited(self._retry_after_header((response[0], response[1], headers)))
+            if str(headers.get("stripe-should-retry", "")).lower() == "false":
+                return False
+            return num_retries < RATE_LIMIT_RETRIES
         if super()._should_retry(response, api_connection_error, num_retries, max_network_retries):
             return True
         # The base logic already enforced the retry budget and declined; the cases it leaves on the
-        # table are a 429 (the SDK omits it), a 2xx with a truncated or non-list body (the SDK only
-        # fails on either later — while parsing, or on `.is_empty` during pagination), and a
-        # connection reset that drops the response mid-body — all safe to retry on our idempotent
-        # list/GET calls.
+        # table are a 2xx with a truncated or non-list body (the SDK only fails on either later —
+        # while parsing, or on `.is_empty` during pagination) and a connection reset that drops the
+        # response mid-body — all safe to retry on our idempotent list/GET calls.
         if num_retries >= (max_network_retries or 0):
             return False
         if response is None:
             return api_connection_error is not None and _is_retryable_connection_reset(api_connection_error)
         body, status_code, _ = response
-        if status_code == 429:
-            return True
         if not (200 <= status_code < 300):
             return False
         if _is_truncated_stripe_list_response(body):
@@ -283,13 +302,13 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
         return self._last_request_method == "get" and _is_non_list_stripe_response(body)
 
 
-def _tracked_stripe_http_client() -> RequestsClient:
+def _tracked_stripe_http_client(on_rate_limited: Optional[RateLimitCallback] = None) -> RequestsClient:
     """Wrap a tracked `requests.Session` in Stripe's `RequestsClient` so every
     Stripe SDK call participates in our HTTP logging, metrics, and sample capture.
 
     Uses a subclass that additionally retries 429 rate limits and truncated list responses via the
-    SDK's built-in backoff."""
-    return _RateLimitRetryingRequestsClient(session=make_tracked_session())
+    SDK's built-in backoff, and reports each 429 to `on_rate_limited`."""
+    return _RateLimitRetryingRequestsClient(session=make_tracked_session(), on_rate_limited=on_rate_limited)
 
 
 def _clean_stripe_error_message(msg: str) -> str:
@@ -674,7 +693,7 @@ def _batch_and_yield(
 def _build_resources(
     client: StripeClient,
     logger: Optional[FilteringBoundLogger] = None,
-    client_factory: Optional[Callable[[], StripeClient]] = None,
+    client_factory: Optional[ClientFactory] = None,
 ) -> dict[str, Union[StripeResource, StripeNestedResource]]:
     """Single source of truth for the resources we sync from Stripe and how they relate.
 
@@ -696,7 +715,7 @@ def _build_resources(
         INVOICE_RESOURCE_NAME: StripeResource(
             method=(
                 (lambda params: InvoiceListWithAllLines(client, params, logger, client_factory=client_factory))  # type: ignore
-                if logger is not None
+                if logger is not None and client_factory is not None
                 else client.invoices.list
             )
         ),
@@ -844,14 +863,14 @@ def get_rows(
     should_use_incremental_field: bool = False,
     warehouse_parent: Optional["ParentTableRef"] = None,
 ):
-    def new_client() -> StripeClient:
+    def new_client(on_rate_limited: Optional[RateLimitCallback] = None) -> StripeClient:
         return StripeClient(
             api_key,
             stripe_account=account_id,
             stripe_version=api_version,
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
-            http_client=_tracked_stripe_http_client(),
+            http_client=_tracked_stripe_http_client(on_rate_limited=on_rate_limited),
         )
 
     client = new_client()
