@@ -36,6 +36,7 @@ impl TestContext {
             pool.clone(),
             50, // bulk_chunk_size — small so parallel path is exercised with fewer test rows
             5,  // bulk_max_concurrent_chunks
+            3,  // tombstoned_delete_max_distinct_ids — small so the oversized path needs few rows
         ));
         let team_id = random_team_id();
 
@@ -273,6 +274,16 @@ impl TestContext {
     pub async fn distinct_id_row_count(&self, person_id: i64) -> Result<i64, sqlx::Error> {
         sqlx::query_scalar(
             "SELECT count(*) FROM posthog_persondistinctid WHERE team_id = $1 AND person_id = $2",
+        )
+        .bind(self.team_id)
+        .bind(person_id)
+        .fetch_one(&self.pool)
+        .await
+    }
+
+    pub async fn hash_key_override_count(&self, person_id: i64) -> Result<i64, sqlx::Error> {
+        sqlx::query_scalar(
+            "SELECT count(*) FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND person_id = $2",
         )
         .bind(self.team_id)
         .bind(person_id)

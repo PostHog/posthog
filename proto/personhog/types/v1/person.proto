@@ -215,9 +215,9 @@ message DeletePersonsBatchForTeamResponse {
 // tombstoned (is_deleted = true) at the moment of the delete. The check and the
 // delete run under the same row locks, so a revival that races the request is
 // never lost: it either wins the lock and the person is skipped, or it waits and
-// then creates a fresh person. Deletes posthog_persondistinctid and
-// posthog_cohortpeople rows with the person; feature flag hash key overrides
-// cascade at the DB level. Used by the person_pg_cleanup_queue drain. Idempotent.
+// then creates a fresh person. Deletes posthog_persondistinctid,
+// posthog_cohortpeople and posthog_featureflaghashkeyoverride rows with the
+// person. Used by the person_pg_cleanup_queue drain. Idempotent.
 message DeleteTombstonedPersonsRequest {
   int64 team_id = 1;
   // Person UUIDs to delete. Max 1000 per request.
@@ -233,6 +233,10 @@ message DeleteTombstonedPersonsResponse {
   // Persons still tombstoned but referenced by a live distinct id. Nothing was
   // deleted for them; the caller must not treat them as cleaned.
   repeated string blocked_person_uuids = 3;
+  // Persons still tombstoned but owning more distinct ids than one delete
+  // transaction may touch (replica setting TOMBSTONED_DELETE_MAX_DISTINCT_IDS).
+  // Nothing was deleted for them; the caller must not treat them as cleaned.
+  repeated string oversized_person_uuids = 4;
 }
 
 // SplitPersonRequest splits specific distinct_ids off of a person onto new persons.

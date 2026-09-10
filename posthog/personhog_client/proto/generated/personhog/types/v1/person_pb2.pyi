@@ -433,19 +433,22 @@ class DeleteTombstonedPersonsRequest(_message.Message):
     def __init__(self, team_id: _Optional[int] = ..., person_uuids: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class DeleteTombstonedPersonsResponse(_message.Message):
-    __slots__ = ("deleted_count", "skipped_live_count", "blocked_person_uuids")
+    __slots__ = ("deleted_count", "skipped_live_count", "blocked_person_uuids", "oversized_person_uuids")
     DELETED_COUNT_FIELD_NUMBER: _ClassVar[int]
     SKIPPED_LIVE_COUNT_FIELD_NUMBER: _ClassVar[int]
     BLOCKED_PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
+    OVERSIZED_PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
     deleted_count: int
     skipped_live_count: int
     blocked_person_uuids: _containers.RepeatedScalarFieldContainer[str]
+    oversized_person_uuids: _containers.RepeatedScalarFieldContainer[str]
 
     def __init__(
         self,
         deleted_count: _Optional[int] = ...,
         skipped_live_count: _Optional[int] = ...,
         blocked_person_uuids: _Optional[_Iterable[str]] = ...,
+        oversized_person_uuids: _Optional[_Iterable[str]] = ...,
     ) -> None: ...
 
 class SplitPersonRequest(_message.Message):

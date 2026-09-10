@@ -451,6 +451,9 @@ export const PersonHogService: GenService<{
     }
     /**
      * Person deletes
+     * DeletePersons removes the persons in any state. A caller working from an advisory
+     * list of tombstoned persons must use DeleteTombstonedPersons instead, which re-checks
+     * the tombstone under the row lock.
      * WARNING: This is a write operation on person data. It should route to the leader
      * once personhog-leader supports deletes. Currently routed through the replica
      * (which uses the primary Postgres pool) as a temporary measure.

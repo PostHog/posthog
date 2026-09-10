@@ -26,6 +26,9 @@ pub struct TombstonedDeleteOutcome {
     /// Persons still tombstoned but referenced by a live distinct id. Untouched. Ingestion never
     /// produces this state, so the caller should surface it rather than retry blindly.
     pub blocked_uuids: Vec<Uuid>,
+    /// Persons still tombstoned but owning more distinct ids than one transaction may delete.
+    /// Untouched.
+    pub oversized_uuids: Vec<Uuid>,
 }
 
 #[derive(Debug, Clone)]

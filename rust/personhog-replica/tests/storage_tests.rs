@@ -2867,20 +2867,35 @@ enum SeededState {
     Tombstoned,
     TombstonedWithoutDistinctIds,
     TombstonedWithLiveDistinctId,
+    TombstonedOversized,
     Live,
 }
 
 #[rstest]
-#[case::tombstoned(SeededState::Tombstoned, 1, 0, false)]
-#[case::tombstoned_without_distinct_ids(SeededState::TombstonedWithoutDistinctIds, 1, 0, false)]
-#[case::tombstoned_with_live_distinct_id(SeededState::TombstonedWithLiveDistinctId, 0, 0, true)]
-#[case::live(SeededState::Live, 0, 1, false)]
+#[case::tombstoned(SeededState::Tombstoned, 1, 0, false, false)]
+#[case::tombstoned_without_distinct_ids(
+    SeededState::TombstonedWithoutDistinctIds,
+    1,
+    0,
+    false,
+    false
+)]
+#[case::tombstoned_with_live_distinct_id(
+    SeededState::TombstonedWithLiveDistinctId,
+    0,
+    0,
+    true,
+    false
+)]
+#[case::tombstoned_oversized(SeededState::TombstonedOversized, 0, 0, false, true)]
+#[case::live(SeededState::Live, 0, 1, false, false)]
 #[tokio::test]
 async fn test_delete_tombstoned_persons_single_person(
     #[case] state: SeededState,
     #[case] expected_deleted: i64,
     #[case] expected_skipped_live: i64,
     #[case] expected_blocked: bool,
+    #[case] expected_oversized: bool,
 ) {
     let ctx = TestContext::new().await;
     let person = ctx.insert_person("tomb_single", None).await.unwrap();
@@ -2888,6 +2903,9 @@ async fn test_delete_tombstoned_persons_single_person(
         .await
         .unwrap();
     ctx.add_person_to_cohort(person.id, 4242).await.unwrap();
+    ctx.insert_hash_key_override(person.id, "flag-under-test", "hash-under-test")
+        .await
+        .unwrap();
     match state {
         SeededState::Tombstoned => ctx.tombstone_person(person.id, None).await.unwrap(),
         SeededState::TombstonedWithoutDistinctIds => {
@@ -2898,6 +2916,14 @@ async fn test_delete_tombstoned_persons_single_person(
             .tombstone_person(person.id, Some("tomb_single_2"))
             .await
             .unwrap(),
+        SeededState::TombstonedOversized => {
+            for suffix in ["3", "4"] {
+                ctx.add_distinct_id_to_person(person.id, &format!("tomb_single_{suffix}"))
+                    .await
+                    .unwrap();
+            }
+            ctx.tombstone_person(person.id, None).await.unwrap();
+        }
         SeededState::Live => {}
     }
     let rows_kept = expected_deleted == 0;
@@ -2917,16 +2943,26 @@ async fn test_delete_tombstoned_persons_single_person(
         vec![]
     };
     assert_eq!(outcome.blocked_uuids, expected_blocked_uuids);
+    let expected_oversized_uuids = if expected_oversized {
+        vec![person.uuid]
+    } else {
+        vec![]
+    };
+    assert_eq!(outcome.oversized_uuids, expected_oversized_uuids);
     assert_eq!(ctx.person_row_exists(person.id).await.unwrap(), rows_kept);
     let expected_distinct_ids = if rows_kept { distinct_ids_before } else { 0 };
     assert_eq!(
         ctx.distinct_id_row_count(person.id).await.unwrap(),
         expected_distinct_ids
     );
-    let expected_memberships = if rows_kept { 1 } else { 0 };
+    let expected_dependents = if rows_kept { 1 } else { 0 };
     assert_eq!(
         ctx.cohort_membership_count(person.id).await.unwrap(),
-        expected_memberships
+        expected_dependents
+    );
+    assert_eq!(
+        ctx.hash_key_override_count(person.id).await.unwrap(),
+        expected_dependents
     );
 
     ctx.cleanup().await.ok();
@@ -2934,8 +2970,8 @@ async fn test_delete_tombstoned_persons_single_person(
 
 #[tokio::test]
 async fn test_delete_tombstoned_persons_mixed_batch_spans_chunks() {
-    // The test storage uses bulk_chunk_size 50, so 67 uuids run as two chunks with every
-    // outcome present in both.
+    // The test storage uses bulk_chunk_size 50, so 72 uuids (three of them duplicates) run as
+    // two chunks with every outcome present in both.
     let ctx = TestContext::new().await;
     let mut tombstoned = Vec::new();
     for i in 0..60 {
@@ -2963,13 +2999,30 @@ async fn test_delete_tombstoned_persons_mixed_batch_spans_chunks() {
             .unwrap();
         blocked.push(person);
     }
+    let mut oversized = Vec::new();
+    for i in 0..2 {
+        let person = ctx
+            .insert_person(&format!("tomb_mixed_o_{i}"), None)
+            .await
+            .unwrap();
+        for j in 0..3 {
+            ctx.add_distinct_id_to_person(person.id, &format!("tomb_mixed_o_{i}_{j}"))
+                .await
+                .unwrap();
+        }
+        ctx.tombstone_person(person.id, None).await.unwrap();
+        oversized.push(person);
+    }
     let mut uuids: Vec<Uuid> = tombstoned
         .iter()
         .chain(live.iter())
         .chain(blocked.iter())
+        .chain(oversized.iter())
         .map(|p| p.uuid)
         .collect();
     uuids.extend([Uuid::now_v7(), Uuid::now_v7()]);
+    // One duplicate per bucket: none may be counted or reported twice.
+    uuids.extend([tombstoned[0].uuid, live[0].uuid, blocked[0].uuid]);
     uuids.reverse();
 
     let outcome = ctx
@@ -2985,10 +3038,15 @@ async fn test_delete_tombstoned_persons_mixed_batch_spans_chunks() {
     let mut want_blocked: Vec<Uuid> = blocked.iter().map(|p| p.uuid).collect();
     want_blocked.sort();
     assert_eq!(got_blocked, want_blocked);
+    let mut got_oversized = outcome.oversized_uuids.clone();
+    got_oversized.sort();
+    let mut want_oversized: Vec<Uuid> = oversized.iter().map(|p| p.uuid).collect();
+    want_oversized.sort();
+    assert_eq!(got_oversized, want_oversized);
     for person in &tombstoned {
         assert!(!ctx.person_row_exists(person.id).await.unwrap());
     }
-    for person in live.iter().chain(blocked.iter()) {
+    for person in live.iter().chain(blocked.iter()).chain(oversized.iter()) {
         assert!(ctx.person_row_exists(person.id).await.unwrap());
     }
 

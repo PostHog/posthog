@@ -1266,6 +1266,13 @@ async fn test_delete_tombstoned_persons_reports_each_outcome() {
     ctx.tombstone_person(blocked.id, Some("svc_tomb_blocked"))
         .await
         .unwrap();
+    let oversized = ctx.insert_person("svc_tomb_oversized", None).await.unwrap();
+    for i in 0..3 {
+        ctx.add_distinct_id_to_person(oversized.id, &format!("svc_tomb_oversized_{i}"))
+            .await
+            .unwrap();
+    }
+    ctx.tombstone_person(oversized.id, None).await.unwrap();
 
     let response = ctx
         .service
@@ -1275,6 +1282,7 @@ async fn test_delete_tombstoned_persons_reports_each_outcome() {
                 gone.uuid.to_string(),
                 live.uuid.to_string(),
                 blocked.uuid.to_string(),
+                oversized.uuid.to_string(),
                 Uuid::now_v7().to_string(),
             ],
         }))
@@ -1288,9 +1296,14 @@ async fn test_delete_tombstoned_persons_reports_each_outcome() {
         response.blocked_person_uuids,
         vec![blocked.uuid.to_string()]
     );
+    assert_eq!(
+        response.oversized_person_uuids,
+        vec![oversized.uuid.to_string()]
+    );
     assert!(!ctx.person_row_exists(gone.id).await.unwrap());
     assert!(ctx.person_row_exists(live.id).await.unwrap());
     assert!(ctx.person_row_exists(blocked.id).await.unwrap());
+    assert!(ctx.person_row_exists(oversized.id).await.unwrap());
 
     ctx.cleanup().await.ok();
 }

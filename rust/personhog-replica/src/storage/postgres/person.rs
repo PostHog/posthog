@@ -571,10 +571,14 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
+        // One outcome per uuid: a duplicate must not be counted or reported twice.
+        let mut seen = HashSet::with_capacity(uuids.len());
+        let unique: Vec<Uuid> = uuids.iter().copied().filter(|u| seen.insert(*u)).collect();
+
         // Chunk the uuids rather than pre-resolved ids: the resolve has to happen inside each
         // chunk's transaction, under the row locks, or a revival between resolve and delete
         // would be lost.
-        let chunks: Vec<&[Uuid]> = uuids.chunks(self.bulk_chunk_size).collect();
+        let chunks: Vec<&[Uuid]> = unique.chunks(self.bulk_chunk_size).collect();
         common_metrics::histogram(
             DB_BULK_CHUNKS,
             &[(
@@ -588,12 +592,20 @@ impl PersonLookup for PostgresStorage {
         // time keeps its footprint on the persons writer small and predictable.
         let mut outcome = TombstonedDeleteOutcome::default();
         for chunk in chunks {
-            let chunk_outcome =
-                delete_tombstoned_persons_chunk(&self.bulk_primary_pool, team_id, chunk, &client)
-                    .await?;
+            let chunk_outcome = delete_tombstoned_persons_chunk(
+                &self.bulk_primary_pool,
+                team_id,
+                chunk,
+                self.tombstoned_delete_max_distinct_ids,
+                &client,
+            )
+            .await?;
             outcome.deleted += chunk_outcome.deleted;
             outcome.skipped_live += chunk_outcome.skipped_live;
             outcome.blocked_uuids.extend(chunk_outcome.blocked_uuids);
+            outcome
+                .oversized_uuids
+                .extend(chunk_outcome.oversized_uuids);
         }
 
         Ok(outcome)
@@ -1148,13 +1160,14 @@ async fn delete_persons_by_ids_in_tx(
 }
 
 /// One tombstone-guarded chunk in a single transaction. Row locks are taken in id
-/// order, persons first and then their distinct ids, because the persons writer
-/// and the identity saga lock the same rows in the same order; sorted acquisition
-/// on every side makes a deadlock cycle impossible.
+/// order, persons first and then their distinct ids. Live-traffic writers work on
+/// live persons, which are never locked here, and the identity saga locks in this
+/// same order; any wait that appears anyway ends at lock_timeout as a retryable error.
 async fn delete_tombstoned_persons_chunk(
     pool: &PgPool,
     team_id: i64,
     uuids: &[Uuid],
+    max_distinct_ids: usize,
     client: &str,
 ) -> StorageResult<TombstonedDeleteOutcome> {
     if uuids.is_empty() {
@@ -1175,8 +1188,9 @@ async fn delete_tombstoned_persons_chunk(
     let mut tx = pool.begin().await?;
 
     // A writer holding one of these rows is mid-revival or mid-merge. Wait briefly, then hand
-    // the whole chunk back to the caller to retry instead of queueing behind live traffic.
-    sqlx::query("SET LOCAL lock_timeout = '5s'")
+    // the whole chunk back to the caller to retry instead of queueing behind live traffic. Kept
+    // under the router's 5 s backend deadline so the caller sees an error, not a timeout.
+    sqlx::query("SET LOCAL lock_timeout = '2s'")
         .execute(&mut *tx)
         .await?;
 
@@ -1214,12 +1228,42 @@ async fn delete_tombstoned_persons_chunk(
     if candidates.is_empty() {
         tx.commit().await?;
         return Ok(TombstonedDeleteOutcome {
-            deleted: 0,
             skipped_live,
-            blocked_uuids: Vec::new(),
+            ..TombstonedDeleteOutcome::default()
         });
     }
 
+    // A person over the cap would hold row locks and write WAL far past the caller's deadline,
+    // so it is reported back instead. The probe reads at most cap + 1 index entries per person.
+    let all_candidate_ids: Vec<i64> = candidates.iter().map(|(id, _)| *id).collect();
+    let oversized_ids: HashSet<i64> = sqlx::query_scalar!(
+        r#"
+        SELECT p.id AS "id!"
+        FROM unnest($2::bigint[]) AS p(id)
+        WHERE EXISTS (
+            SELECT 1
+            FROM posthog_persondistinctid
+            WHERE team_id = $1 AND person_id = p.id
+            OFFSET $3 LIMIT 1
+        )
+        "#,
+        team_id as i32,
+        all_candidate_ids.as_slice(),
+        max_distinct_ids as i64
+    )
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .collect();
+    let oversized_uuids: Vec<Uuid> = candidates
+        .iter()
+        .filter(|(id, _)| oversized_ids.contains(id))
+        .map(|(_, uuid)| *uuid)
+        .collect();
+    let candidates: Vec<(i64, Uuid)> = candidates
+        .into_iter()
+        .filter(|(id, _)| !oversized_ids.contains(id))
+        .collect();
     let candidate_ids: Vec<i64> = candidates.iter().map(|(id, _)| *id).collect();
 
     // Lock the distinct ids too and read their state under the lock. A live mapping means
@@ -1255,6 +1299,7 @@ async fn delete_tombstoned_persons_chunk(
 
     for (operation, value) in [
         ("delete_tombstoned_persons_blocked", blocked_uuids.len()),
+        ("delete_tombstoned_persons_oversized", oversized_uuids.len()),
         (
             "delete_tombstoned_persons_skipped_live",
             skipped_live as usize,
@@ -1272,6 +1317,18 @@ async fn delete_tombstoned_persons_chunk(
         );
     }
 
+    // The hash key override FK cascades in production but not in every environment built from
+    // the sqlx migrations, so remove the overrides here instead of relying on the cascade.
+    if !victims.is_empty() {
+        sqlx::query!(
+            "DELETE FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND person_id = ANY($2)",
+            team_id as i32,
+            victims.as_slice()
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
     let deleted = delete_persons_by_ids_in_tx(&mut tx, team_id, &victims, client, true).await?;
 
     tx.commit().await?;
@@ -1280,5 +1337,6 @@ async fn delete_tombstoned_persons_chunk(
         deleted,
         skipped_live,
         blocked_uuids,
+        oversized_uuids,
     })
 }

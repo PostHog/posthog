@@ -70,6 +70,8 @@ class FakePersonHogClient:
         self._distinct_ids: dict[tuple[int, int], list[person_pb2.DistinctIdWithVersion]] = {}
         # keyed by (team_id, distinct_id): mappings tombstoned alongside their person
         self._tombstoned_distinct_ids: set[tuple[int, str]] = set()
+        # Mirrors the replica's TOMBSTONED_DELETE_MAX_DISTINCT_IDS.
+        self.max_distinct_ids_per_tombstoned_person = 1000
 
         # keyed by project_id -> list of GroupTypeMapping
         self._group_type_mappings_by_project: dict[int, list[group_pb2.GroupTypeMapping]] = {}
@@ -604,10 +606,10 @@ class FakePersonHogClient:
     def delete_tombstoned_persons(
         self, request: person_pb2.DeleteTombstonedPersonsRequest, timeout: float | None = None
     ) -> person_pb2.DeleteTombstonedPersonsResponse:
-        # Mirrors the server: a live person is skipped, a tombstoned person that still owns a
-        # live distinct id is reported blocked, everything else tombstoned is removed.
+        # Mirrors the server: a live person is skipped, an oversized one is reported before a
+        # blocked one is checked, everything else tombstoned is removed.
         response = person_pb2.DeleteTombstonedPersonsResponse()
-        for uuid in request.person_uuids:
+        for uuid in dict.fromkeys(request.person_uuids):
             person = self._persons_by_uuid.get((request.team_id, uuid))
             if person is None:
                 continue
@@ -615,6 +617,9 @@ class FakePersonHogClient:
                 response.skipped_live_count += 1
                 continue
             dids = self._distinct_ids.get((request.team_id, person.id), [])
+            if len(dids) > self.max_distinct_ids_per_tombstoned_person:
+                response.oversized_person_uuids.append(uuid)
+                continue
             if any((request.team_id, did.distinct_id) not in self._tombstoned_distinct_ids for did in dids):
                 response.blocked_person_uuids.append(uuid)
                 continue

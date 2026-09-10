@@ -465,6 +465,11 @@ impl PersonHogReplica for PersonHogReplicaService {
                 .iter()
                 .map(ToString::to_string)
                 .collect(),
+            oversized_person_uuids: outcome
+                .oversized_uuids
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
         }))
     }
 
