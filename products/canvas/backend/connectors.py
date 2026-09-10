@@ -630,13 +630,15 @@ def _native_tool_schema(tool: NativeConnectorTool) -> dict[str, Any]:
 
 
 def _native_field_schema(field: serializers.Field) -> dict[str, Any]:
+    schema: dict[str, Any]
     if isinstance(field, serializers.Serializer):
-        schema: dict[str, Any] = {
+        schema = {
             "type": "object",
             "properties": {name: _native_field_schema(child) for name, child in field.fields.items()},
             "required": [name for name, child in field.fields.items() if child.required],
         }
     elif isinstance(field, (serializers.ListField, serializers.ListSerializer)):
+        assert field.child is not None
         schema = {"type": "array", "items": _native_field_schema(field.child)}
     elif isinstance(field, serializers.DictField):
         schema = {"type": "object", "additionalProperties": _native_field_schema(field.child)}
@@ -669,7 +671,8 @@ def _native_field_schema(field: serializers.Field) -> dict[str, Any]:
         schema["minLength"] = max(schema.get("minLength", 0), 1)
     for validator in field.validators:
         if isinstance(validator, RegexValidator):
-            schema["pattern"] = validator.regex.pattern
+            regex = validator.regex
+            schema["pattern"] = regex if isinstance(regex, str) else regex.pattern
     if field.allow_null:
         if "type" in schema:
             schema["type"] = [schema["type"], "null"]
