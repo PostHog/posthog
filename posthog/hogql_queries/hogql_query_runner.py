@@ -33,6 +33,7 @@ from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.event_usage import AnalyticsProps
+from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.models import User
@@ -100,7 +101,15 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             # Keep their cached results apart during a rolling deploy.
             payload["hogql_modifier_precedence"] = "runner"
 
-        system_table_feature_flags = get_system_table_feature_flag_states(self.team, self.user)
+        table_names = self._queried_table_names
+        feature_flag_table_names = {name.removeprefix("system.") for name in table_names if name.startswith("system.")}
+        if any(not name.startswith("system.") for name in table_names):
+            queried_resources = queried_access_controlled_resources(self.query, self.team)
+            if queried_resources is None or "warehouse_view" in queried_resources:
+                feature_flag_table_names = None
+        system_table_feature_flags = get_system_table_feature_flag_states(
+            self.team, self.user, feature_flag_table_names
+        )
         if system_table_feature_flags:
             payload["system_table_feature_flags"] = system_table_feature_flags
 

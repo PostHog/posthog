@@ -606,8 +606,13 @@ def _system_table_required_feature_flags() -> Mapping[str, str]:
 def get_system_table_feature_flag_states(
     team: Team,
     user: Optional[User | SyntheticUser | SharedLinkUser],
+    table_names: Collection[str] | None = None,
 ) -> dict[str, bool]:
     required_feature_flags = _system_table_required_feature_flags()
+    if table_names is not None:
+        required_feature_flags = {
+            name: feature_flag for name, feature_flag in required_feature_flags.items() if name in table_names
+        }
     if not required_feature_flags:
         return {}
 
