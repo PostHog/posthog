@@ -38,11 +38,10 @@ TEAM_DELETE_BATCH_SIZE = 2000
 # activity bound.
 TEAM_DELETE_RPC_TIMEOUT_SECONDS = 30 * 60
 
-# Migration replay/0002 dropped this table's model from Django state only, so the table and its
-# DEFERRABLE INITIALLY DEFERRED foreign key on posthog_team survive. The cascade cannot see the
-# table, so a leftover row fails the team delete at COMMIT instead of at the DELETE. The table
-# itself survives because recording deletion in nodejs still writes to it. Delete this list with
-# the migration that drops the table.
+# The retired session-summary table. It has no foreign keys after replay/0004, so a leftover row
+# cannot block a team delete, but nothing else clears these rows either: replay/0002 took the model
+# out of Django state, so the cascade cannot see the table, and nodejs deletes only per recording.
+# This sweep stops a deleted team's summaries from outliving the team. Delete it with the table.
 RETIRED_SESSION_SUMMARY_TABLES = ("ee_single_session_summary",)
 
 actions_that_require_current_team = [
