@@ -114,7 +114,7 @@ export function Notebook({
                             onClick: loadNotebook,
                         }}
                     >
-                        We couldn't load this notebook.
+                        We couldn't load this notebook. Try again, and if it keeps happening contact support.
                     </LemonBanner>
                 </div>
             ) : notebookMissing ? (
