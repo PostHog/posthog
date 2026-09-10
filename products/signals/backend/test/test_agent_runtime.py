@@ -71,6 +71,26 @@ class TestResolveAgentRuntime:
         with patch(_READ_PATH, return_value=payload):
             assert resolve_agent_runtime(2, "research") == _CODEX_NO_EFFORT
 
+    def test_service_tier_resolves_alongside_the_runtime_triple(self) -> None:
+        payload = {
+            "team_configs": {
+                "2": {"steps": {"research": {"runtime_adapter": "codex", "model": "gpt-5.5", "service_tier": "flex"}}}
+            }
+        }
+        with patch(_READ_PATH, return_value=payload):
+            assert resolve_agent_runtime(2, "research") == AgentRuntime(
+                runtime_adapter="codex", model="gpt-5.5", reasoning_effort=None, service_tier="flex"
+            )
+
+    def test_non_string_service_tier_is_dropped_not_fatal(self) -> None:
+        payload = {
+            "team_configs": {
+                "2": {"steps": {"research": {"runtime_adapter": "codex", "model": "gpt-5.5", "service_tier": True}}}
+            }
+        }
+        with patch(_READ_PATH, return_value=payload):
+            assert resolve_agent_runtime(2, "research") == _CODEX_NO_EFFORT
+
     def test_payload_served_as_json_string_is_parsed(self) -> None:
         with patch(_PAYLOAD_FN_PATH, return_value=json.dumps(_PAYLOAD)):
             assert resolve_agent_runtime(2, "research") == _CODEX
