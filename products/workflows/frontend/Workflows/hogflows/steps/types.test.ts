@@ -127,6 +127,19 @@ describe('HogFlowActionSchema', () => {
         expect(HogFlowActionSchema.safeParse(waitAction(duration)).success).toBe(valid)
     })
 
+    it('reports a missing max_wait_duration as a duration the user must enter', () => {
+        const result = HogFlowActionSchema.safeParse({
+            ...waitAction('5m'),
+            config: { condition: { filters: {} } },
+        })
+
+        expect(result.success).toBe(false)
+        if (!result.success) {
+            const issue = result.error.issues.find((i) => i.path.at(-1) === 'max_wait_duration')
+            expect(issue?.message).toBe('Please enter a duration')
+        }
+    })
+
     // The message the user sees depends on which rule failed, and the order matters: an empty field must
     // read "Please enter a duration", not the technical format/min messages. delay_duration and
     // max_wait_duration share DURATION_STRING, so testing one covers both.

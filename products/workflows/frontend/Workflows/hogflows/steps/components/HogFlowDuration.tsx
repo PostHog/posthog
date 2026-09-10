@@ -28,14 +28,16 @@ export function HogFlowDuration({
     onChange,
     allowUnbounded = false,
 }: {
-    value: string
+    // A wait step saved through the API may carry no duration at all, which the executor reads as
+    // "wait indefinitely". Accept that shape and render an empty field for it.
+    value: string | undefined
     onChange: (value: string) => void
     // The per-unit ceilings bound how long a fixed delay waits. A date offset is bounded by the
     // step's max_delay_duration instead, so it opts out and keeps its full magnitude ("45 days before").
     allowUnbounded?: boolean
 }): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
-    const parts = value.match(DURATION_REGEX)
+    const parts = value?.match(DURATION_REGEX)
     const numberValueString = parts?.[1] ?? ''
     const unit = parts?.[2] ?? 'm'
 
