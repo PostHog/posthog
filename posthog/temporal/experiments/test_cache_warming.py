@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import datetime
 from uuid import uuid4
 
@@ -8,13 +9,24 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.test import override_settings
 
-from posthog.schema import CachedExperimentQueryResponse, EventsNode, ExperimentMeanMetric, ExperimentQuery
+from parameterized import parameterized
+
+from posthog.schema import (
+    CachedExperimentQueryResponse,
+    EventsNode,
+    ExperimentMeanMetric,
+    ExperimentQuery,
+    ExperimentRetentionMetric,
+    FunnelConversionWindowTimeUnit,
+    StartHandling,
+)
 
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.temporal.experiments.activities import (
     _calculate_experiment_regular_metric_sync,
     _calculate_experiment_saved_metric_sync,
 )
+from posthog.temporal.experiments.models import ExperimentRegularMetricResult, ExperimentSavedMetricResult
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
@@ -98,6 +110,60 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
         assert mock_runner_class.call_args.kwargs["as_of"] == expected_query_to
         result_row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid=metric_dict["uuid"])
         assert result_row.query_to == expected_query_to
+
+    # The regular and saved dispatches are separate code paths; each must accept every
+    # ExperimentMetric type, or the daily recalculation silently stores no timeseries row for it.
+    @parameterized.expand(["regular", "saved"])
+    @freeze_time("2020-01-10T12:00:00Z")
+    def test_recalc_activity_supports_retention_metrics(self, metric_kind: str):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 1, 0, 0, 0),
+            end_date=datetime(2020, 1, 5, 0, 0, 0),
+        )
+        metric = ExperimentRetentionMetric(
+            uuid=str(uuid4()),
+            start_event=EventsNode(event="signup"),
+            completion_event=EventsNode(event="purchase"),
+            retention_window_start=1,
+            retention_window_end=7,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+        metric_dict = metric.model_dump(mode="json")
+
+        calculate: Callable[..., ExperimentRegularMetricResult | ExperimentSavedMetricResult]
+        if metric_kind == "regular":
+            experiment.metrics = [metric_dict]
+            experiment.save()
+            calculate = _calculate_experiment_regular_metric_sync.func  # type: ignore[attr-defined]
+        else:
+            saved_metric = ExperimentSavedMetric.objects.create(
+                name="retention saved metric",
+                team=self.team,
+                query=metric_dict,
+                created_by=self.user,
+            )
+            ExperimentToSavedMetric.objects.create(
+                experiment=experiment,
+                saved_metric=saved_metric,
+                metadata={"type": "primary"},
+            )
+            calculate = _calculate_experiment_saved_metric_sync.func  # type: ignore[attr-defined]
+
+        with (
+            patch("posthog.temporal.experiments.activities.close_old_connections"),
+            patch("posthog.temporal.experiments.activities.ExperimentQueryRunner") as mock_runner_class,
+        ):
+            mock_runner_class.return_value.run.return_value.model_dump.return_value = {"variant_results": []}
+
+            activity_result = calculate(experiment.id, metric_dict["uuid"], "fingerprint")
+
+        self.assertTrue(activity_result.success, msg=activity_result.error_message)
+        built_metric = mock_runner_class.call_args.kwargs["query"].metric
+        assert isinstance(built_metric, ExperimentRetentionMetric)
+        assert ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid=metric_dict["uuid"]).exists()
 
     @freeze_time("2020-01-10T12:00:00Z")
     def test_temporal_activity_warms_query_cache(self):
