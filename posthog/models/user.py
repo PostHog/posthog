@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, NoReturn, Optional, TypedDict, cast
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.core.management.base import CommandError
 from django.db import models, transaction
+from django.db.models.functions import Lower
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
 from django.utils.translation import gettext_lazy as _
@@ -343,6 +344,8 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         verbose_name_plural = _("users")
         indexes = [
             models.Index(STRIPPED_EMAIL_EXPRESSION, name="user_stripped_alias_idx"),
+            # Serves the `LOWER(email)` fold `EmailLookupHandler.get_user_by_email` resolves on.
+            models.Index(Lower("email"), name="posthog_user_lower_email_idx"),
         ]
 
     # Remove unused attributes from `AbstractUser`
