@@ -152,6 +152,8 @@ def parse_dt(s: str) -> datetime | None:
 
 def stamp(dt: datetime, interval: str) -> str:
     """Bucket label, carrying time-of-day only where the interval needs it."""
+    if interval == "second":
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
     if interval in SUB_DAY_INTERVALS:
         return dt.strftime("%Y-%m-%d %H:%M")
     return dt.strftime("%Y-%m-%d")

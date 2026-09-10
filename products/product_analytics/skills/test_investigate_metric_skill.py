@@ -113,16 +113,22 @@ def test_in_progress_terminal_month_is_excluded_from_the_anomaly_count(monkeypat
     assert "within normal variance" in out
 
 
-def test_sub_day_rows_keep_their_time_of_day(monkeypatch, capsys, tmp_path):
+@pytest.mark.parametrize(
+    ("interval", "step"),
+    [("minute", timedelta(minutes=1)), ("second", timedelta(seconds=1))],
+)
+def test_sub_day_rows_keep_their_time_of_day(monkeypatch, capsys, tmp_path, interval, step):
     start = datetime(2026, 9, 10, 6, 0)
-    moments = [start + timedelta(minutes=i) for i in range(70)]
+    moments = [start + i * step for i in range(70)]
     payload = build_payload(
         [m.strftime("%Y-%m-%d %H:%M:%S") for m in moments],
         [500.0] * 70,
-        "minute",
+        interval,
         stamps=[m.strftime("%Y-%m-%dT%H:%M:%S-07:00") for m in moments],
     )
 
-    out = run(monkeypatch, capsys, tmp_path, payload, now="2026-09-10T07:20:00-07:00")
+    out = run(monkeypatch, capsys, tmp_path, payload, now="2026-09-10T08:00:00-07:00")
 
-    assert table_row(out, "2026-09-10 07:00") != table_row(out, "2026-09-10 07:01")
+    rows = [line for line in out.splitlines() if line.startswith("| 2026-09-10")]
+    assert len(rows) == 60
+    assert len({line.split("|")[1].strip() for line in rows}) == 60
