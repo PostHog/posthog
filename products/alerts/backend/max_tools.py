@@ -16,6 +16,7 @@ from posthog.schema import (
     QuerySchemaRoot,
 )
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
@@ -170,6 +171,14 @@ class UpdateAlertAction(BaseModel):
 
 
 UpsertAlertAction = Union[CreateAlertAction, UpdateAlertAction]
+
+
+@frozen
+class _SaveRefusal:
+    """A write the alert save refused, with the error code the tool reports."""
+
+    message: str
+    error_code: str
 
 
 class UpsertAlertToolArgs(BaseModel):
@@ -336,24 +345,24 @@ class UpsertAlertTool(MaxTool):
         *,
         enabling_llm_alert: bool,
         conditions_or_threshold_changed: bool,
-    ) -> tuple[str, str] | None:
+    ) -> _SaveRefusal | None:
         """Write the threshold and the alert together.
 
         Both writes sit in one transaction so a rejected save leaves no half-applied
         threshold behind. When the save enables an AI alert, the team's cap lock is held
-        across the count and the write. Returns ``(message, error_code)`` instead of saving
-        when the write is refused.
+        across the count and the write. Returns a `_SaveRefusal` instead of saving when the
+        write is refused.
         """
         with transaction.atomic():
             if enabling_llm_alert:
                 lock_llm_alert_limit(team_id=alert.team_id)
                 if error := llm_alert_limit_error(team_id=alert.team_id, exclude_alert_id=str(alert.id)):
-                    return error, "plan_limit_reached"
+                    return _SaveRefusal(message=error, error_code="plan_limit_reached")
             if self._has_threshold_changes(action):
                 try:
                     update_fields.extend(self._update_threshold(alert, action))
                 except ValidationError as e:
-                    return str(e), "validation_failed"
+                    return _SaveRefusal(message=str(e), error_code="validation_failed")
             if conditions_or_threshold_changed:
                 update_fields.extend(apply_threshold_change(alert))
             alert.next_check_at = None
@@ -446,8 +455,7 @@ class UpsertAlertTool(MaxTool):
                 enabling_llm_alert=enabling_llm_alert,
                 conditions_or_threshold_changed=conditions_or_threshold_changed,
             ):
-                message, error_code = refusal
-                return message, {"error": error_code}
+                return refusal.message, {"error": refusal.error_code}
             await sync_to_async(alert.report_updated)(self._user, {"source": EventSource.POSTHOG_AI})
 
             insight = await sync_to_async(lambda: alert.insight)()

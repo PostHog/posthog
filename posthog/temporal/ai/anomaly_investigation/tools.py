@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import re
 import json
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -21,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -134,7 +134,7 @@ def _run_detector_simulation(
         return str(err)
 
 
-@dataclass
+@frozen
 class InvestigationToolkit:
     """Bundles the tool implementations bound to a team and alert. Returned strings are
     compact — rough cap ~2KB per response to keep LLM context lean."""
