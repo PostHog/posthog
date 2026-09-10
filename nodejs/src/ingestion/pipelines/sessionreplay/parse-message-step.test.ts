@@ -6,6 +6,7 @@ import { PipelineResultType } from '~/ingestion/framework/results'
 
 import { SessionRecordingIngesterMetrics } from './metrics'
 import {
+    CLOCK_SKEW_DEADBAND_MS,
     ParseMessageStepInput,
     createParseMessageStep,
     decompressMessageValue,
@@ -706,33 +707,37 @@ describe('createParseMessageStep', () => {
         }
 
         it.each([
-            ['ahead', SEVEN_HOURS_MS],
-            ['behind', -SEVEN_HOURS_MS],
-        ])('shifts rrweb timestamps to server time when the device clock is %s', async (_name, deviceOffsetMs) => {
-            const baseMs = Date.now()
-            const step = createParseMessageStep()
+            ['ahead', SEVEN_HOURS_MS, CLOCK_SKEW_DEADBAND_MS],
+            ['behind', -SEVEN_HOURS_MS, -CLOCK_SKEW_DEADBAND_MS],
+        ])(
+            'shifts rrweb timestamps to within the deadband of server time when the device clock is %s',
+            async (_name, deviceOffsetMs, residualMs) => {
+                const baseMs = Date.now()
+                const step = createParseMessageStep()
 
-            const result = await step(skewedInput({ baseMs, deviceOffsetMs }))
+                const result = await step(skewedInput({ baseMs, deviceOffsetMs }))
 
-            expect(result.type).toBe(PipelineResultType.OK)
-            if (result.type === PipelineResultType.OK) {
-                const { parsedMessage } = result.value
-                expect(parsedMessage.eventsRange.start.toMillis()).toBe(baseMs)
-                expect(parsedMessage.eventsRange.end.toMillis()).toBe(baseMs + 1000)
-                expect(parsedMessage.eventsByWindowId['window-1'].map((e) => e.timestamp)).toEqual([
-                    baseMs,
-                    baseMs + 1000,
-                ])
+                expect(result.type).toBe(PipelineResultType.OK)
+                if (result.type === PipelineResultType.OK) {
+                    const { parsedMessage } = result.value
+                    const startMs = baseMs + residualMs
+                    expect(parsedMessage.eventsRange.start.toMillis()).toBe(startMs)
+                    expect(parsedMessage.eventsRange.end.toMillis()).toBe(startMs + 1000)
+                    expect(parsedMessage.eventsByWindowId['window-1'].map((e) => e.timestamp)).toEqual([
+                        startMs,
+                        startMs + 1000,
+                    ])
+                }
             }
-        })
+        )
 
-        it('corrects two messages of one session identically despite different latencies', async () => {
+        it('shifts two messages of one session by amounts that differ only by their latency', async () => {
             const baseMs = Date.now()
 
             const fast = await startMsOf(skewedInput({ baseMs, deviceOffsetMs: SEVEN_HOURS_MS, latencyMs: 50 }))
             const slow = await startMsOf(skewedInput({ baseMs, deviceOffsetMs: SEVEN_HOURS_MS, latencyMs: 2500 }))
 
-            expect(fast).toBe(slow)
+            expect(slow - fast).toBe(2450)
         })
 
         it('leaves a well-behaved clock untouched, so latency cannot reorder its events', async () => {

@@ -10,7 +10,7 @@ use chrono::DateTime;
 use common_ingestion_warnings::{
     WarningEmitter, CAPTURE_LEGACY_ANALYTICS, CAPTURE_LEGACY_RATE_LIMIT,
 };
-use common_types::timestamp::quantize_clock_skew;
+use common_types::timestamp::correctable_clock_skew;
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
 use metrics::{counter, histogram};
@@ -164,7 +164,7 @@ pub fn process_single_event(
         context.now,
     );
     if let Some(measured) = parsed_timestamp.clock_skew {
-        report_clock_skew(measured, quantize_clock_skew(measured));
+        report_clock_skew(measured, correctable_clock_skew(measured));
     }
 
     let event_name = event.event.clone();
@@ -867,7 +867,7 @@ mod tests {
 
         assert!(result.is_ok());
         let processed = result.unwrap();
-        let expected = Utc.with_ymd_and_hms(2023, 1, 1, 11, 54, 55).unwrap();
+        let expected = Utc.with_ymd_and_hms(2023, 1, 1, 11, 57, 25).unwrap();
         assert_eq!(processed.metadata.computed_timestamp, Some(expected));
     }
 

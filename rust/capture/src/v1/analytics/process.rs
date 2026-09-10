@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
-use common_types::timestamp::quantize_clock_skew;
+use common_types::timestamp::correctable_clock_skew;
 use metrics::histogram;
 use uuid::Uuid;
 
@@ -668,10 +668,9 @@ fn normalize_timestamp(
         return raw_event_ts;
     }
 
-    // Only the quantized part of the measured skew is safe to subtract, because
-    // the rest can be request transit delay. See
-    // `common_types::timestamp::quantize_clock_skew`.
-    let adjusted = raw_event_ts - quantize_clock_skew(context.clock_skew());
+    // Only the part of the measurement outside the deadband is safe to
+    // subtract, because the rest can be request transit delay.
+    let adjusted = raw_event_ts - correctable_clock_skew(context.clock_skew());
     let now = context.server_received_at;
     if adjusted.signed_duration_since(now).num_milliseconds() > FUTURE_EVENT_HOURS_CUTOFF_MS {
         metrics::counter!(CAPTURE_V1_EVENT_ADJUSTMENTS_APPLIED, "reason" => "future_timestamp_clamp")
@@ -1869,7 +1868,7 @@ mod tests {
         let ctx = ctx_with_skew(now, Duration::minutes(10));
         let event_ts = dt("2026-03-19T11:00:00Z");
         let result = normalize_timestamp(&ctx, false, event_ts);
-        assert_eq!(result, dt("2026-03-19T10:50:00Z"));
+        assert_eq!(result, dt("2026-03-19T10:52:30Z"));
     }
 
     #[test]
@@ -1878,7 +1877,7 @@ mod tests {
         let ctx = ctx_with_skew(now, Duration::minutes(-10));
         let event_ts = dt("2026-03-19T11:00:00Z");
         let result = normalize_timestamp(&ctx, false, event_ts);
-        assert_eq!(result, dt("2026-03-19T11:10:00Z"));
+        assert_eq!(result, dt("2026-03-19T11:07:30Z"));
     }
 
     #[test]
@@ -1924,7 +1923,7 @@ mod tests {
         let ctx = ctx_with_skew(now, Duration::minutes(10));
         let event_ts = dt("2026-03-19T11:00:00Z");
         let result = normalize_timestamp(&ctx, false, event_ts);
-        assert_eq!(result, dt("2026-03-19T10:50:00Z"));
+        assert_eq!(result, dt("2026-03-19T10:52:30Z"));
     }
 
     // --- apply_restrictions ---

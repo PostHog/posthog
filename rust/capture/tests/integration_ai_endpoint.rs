@@ -1550,13 +1550,9 @@ async fn test_ai_event_with_ignore_sent_at_false() {
     let event = &events[0];
     let computed_timestamp = event.metadata.computed_timestamp.unwrap();
 
-    // With clock skew correction:
-    // computed = now + (timestamp - sent_at)
-    // now = DEFAULT_TEST_TIME (2025-07-01T11:00:00Z)
-    // timestamp - sent_at = 11:59:55 - 12:00:00 = -5 seconds
-    // computed = 2025-07-01T11:00:00Z - 5s = 2025-07-01T10:59:55Z
+    // computed = now + (timestamp - sent_at) - deadband, where now is DEFAULT_TEST_TIME.
     let expected = chrono::Utc
-        .with_ymd_and_hms(2025, 7, 1, 10, 59, 55)
+        .with_ymd_and_hms(2025, 7, 1, 10, 57, 25)
         .unwrap();
 
     assert_eq!(
@@ -1618,7 +1614,7 @@ async fn test_ai_event_without_ignore_sent_at_defaults_to_false() {
 
     // Should apply clock skew correction by default
     let expected = chrono::Utc
-        .with_ymd_and_hms(2025, 7, 1, 10, 59, 55)
+        .with_ymd_and_hms(2025, 7, 1, 10, 57, 25)
         .unwrap();
 
     assert_eq!(
@@ -1908,13 +1904,9 @@ async fn test_ai_event_with_valid_sent_at_applies_clock_skew_correction() {
     let event = &events[0];
     let computed_timestamp = event.metadata.computed_timestamp.unwrap();
 
-    // With clock skew correction:
-    // computed = now + (timestamp - sent_at)
-    // now = DEFAULT_TEST_TIME (2025-07-01T11:00:00Z)
-    // timestamp - sent_at = 11:59:55 - 12:00:00 = -5 seconds
-    // computed = 2025-07-01T11:00:00Z - 5s = 2025-07-01T10:59:55Z
+    // computed = now + (timestamp - sent_at) - deadband, where now is DEFAULT_TEST_TIME.
     let expected = chrono::Utc
-        .with_ymd_and_hms(2025, 7, 1, 10, 59, 55)
+        .with_ymd_and_hms(2025, 7, 1, 10, 57, 25)
         .unwrap();
 
     assert_eq!(
