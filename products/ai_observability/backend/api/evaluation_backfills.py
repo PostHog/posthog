@@ -24,6 +24,7 @@ from temporalio.common import WorkflowIDReusePolicy
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.property import property_to_expr
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -355,13 +356,40 @@ class EvaluationBackfillViewSet(
         source = submitted if submitted is not None else (evaluation.conditions or [])
         if not source:
             raise ValidationError("Add at least one condition set to this backfill.")
-        return [
+        conditions = [
             {
                 "properties": condition.get("properties", []),
                 "rollout_percentage": condition.get("rollout_percentage", 100),
             }
             for condition in source
         ]
+        self._require_applicable_filters(evaluation, conditions)
+        return conditions
+
+    def _require_applicable_filters(self, evaluation: Evaluation, conditions: list[dict[str, Any]]) -> None:
+        """Refuse a property filter the candidate query would compile away instead of apply.
+
+        `property_to_expr` drops a filter it cannot read, such as a row that carries a key but no
+        value yet, and the condition set then matches every unit in the window. On the live path
+        that only mistimes some traffic. Here it would run and pay for an evaluation on every unit
+        in the range, with the count in the estimate as the only signal. Strict mode raises for
+        the filters it would otherwise drop, so the request is rejected instead.
+        """
+        for condition in conditions:
+            try:
+                property_to_expr(condition["properties"], self.team, strict=True)
+            except (BaseHogQLError, ValueError, TypeError) as error:
+                raise self._condition_rejected(evaluation, error)
+
+    def _condition_rejected(self, evaluation: Evaluation, error: Exception) -> ValidationError:
+        """A condition the query cannot apply is a bad request, not a server fault."""
+        # The message is logged rather than returned, because it names query internals.
+        logger.warning(
+            "llma.evaluation_backfill_condition_rejected",
+            evaluation_id=str(evaluation.id),
+            error=str(error),
+        )
+        return ValidationError("A condition could not be applied. Check the filters and try again.")
 
     def _count(
         self,
@@ -383,14 +411,7 @@ class EvaluationBackfillViewSet(
                 rerun_existing=rerun_existing,
             )
         except BaseHogQLError as error:
-            # A property filter HogQL cannot compile is a bad request, not a server fault. The
-            # message is logged rather than returned, because it names query internals.
-            logger.warning(
-                "llma.evaluation_backfill_condition_rejected",
-                evaluation_id=str(evaluation.id),
-                error=str(error),
-            )
-            raise ValidationError("A condition could not be applied. Check the filters and try again.")
+            raise self._condition_rejected(evaluation, error)
 
     @extend_schema(
         request=EvaluationBackfillRequestSerializer,

@@ -458,19 +458,23 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert response.json()["detail"] == expected_detail
         assert EvaluationBackfill.objects.unscoped().count() == 0
 
-    @parameterized.expand(["create", "estimate"])
-    def test_a_condition_hogql_cannot_compile_is_a_bad_request(self, case):
-        body = _body(
-            conditions=[
-                {"id": "c1", "properties": [{"type": "hogql", "key": "not ! valid"}], "rollout_percentage": 100}
-            ]
-        )
-        path = f"{self.url}/" if case == "create" else f"{self.url}/estimate/"
+    @parameterized.expand(
+        [
+            ("hogql_that_does_not_parse", {"type": "hogql", "key": "not ! valid"}),
+            # Outside strict mode these two compile to a constant true instead of a filter, which
+            # would run the backfill over every unit in the window rather than the ones asked for.
+            ("filter_row_left_without_a_value", {"type": "event", "key": "$ai_model", "operator": "exact"}),
+            ("filter_of_a_type_that_does_not_exist", {"type": "nonsense", "key": "x", "value": "y"}),
+        ]
+    )
+    def test_a_condition_the_query_cannot_apply_is_a_bad_request(self, _case, property_filter):
+        body = _body(conditions=[{"id": "c1", "properties": [property_filter], "rollout_percentage": 100}])
 
-        response = self.client.post(path, body, format="json")
+        for path in (f"{self.url}/", f"{self.url}/estimate/"):
+            response = self.client.post(path, body, format="json")
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["detail"] == "A condition could not be applied. Check the filters and try again."
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, (path, response.json())
+            assert response.json()["detail"] == "A condition could not be applied. Check the filters and try again."
         assert EvaluationBackfill.objects.unscoped().count() == 0
 
     @parameterized.expand(["create", "estimate"])
