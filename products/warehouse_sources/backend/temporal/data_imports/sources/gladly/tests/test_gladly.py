@@ -695,7 +695,6 @@ class TestGetReportRows:
         with pytest.raises(GladlyReportHeaderError, match="missing required columns"):
             list(get_rows("myorg", "agent@x.com", "token", endpoint, mock.MagicMock(), manager))
 
-        # A renamed column is the same on every request, so the window is not retried.
         assert mock_session.return_value.post.call_count == 1
 
     @freeze_time("2024-03-15T10:00:00Z")
@@ -717,7 +716,6 @@ class TestGetReportRows:
         with pytest.raises(GladlyReportUnavailableError, match="Gladly returned no report"):
             list(get_rows("myorg", "agent@x.com", "token", "contact_timestamps", mock.MagicMock(), manager))
 
-        # The window is requested again up to the retry budget, and never recorded as processed.
         assert mock_session.return_value.post.call_count == 5
         manager.save_state.assert_not_called()
 

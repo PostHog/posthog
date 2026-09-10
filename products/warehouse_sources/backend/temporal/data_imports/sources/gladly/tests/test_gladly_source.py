@@ -106,8 +106,6 @@ class TestGladlySource:
         retryable = self.source.get_retryable_errors()
         exhausted = self.source.get_retry_exhausted_errors()
 
-        # The finalizer consults the non-retryable map first, so the report-body failure must
-        # match no non-retryable entry or the schema is disabled after all.
         assert "Gladly returned no report" in retryable
         assert set(exhausted) <= retryable
         assert not any("Gladly returned no report" in key for key in self.source.get_non_retryable_errors())

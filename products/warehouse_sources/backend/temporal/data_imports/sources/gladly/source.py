@@ -67,12 +67,10 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url": "Gladly authentication failed. Please check your agent email and API token.",
             "403 Client Error: Forbidden for url": "Gladly denied access. Please check that the agent has the API User permission.",
-            # Raised by `_report_rows` when a CSV report is missing the columns the stream is
-            # keyed on, so a keyed column is renamed or absent. The same window returns the same
-            # header on a retry, so neither the sync nor the incremental-field picker can fix it.
-            # An error body served in place of the CSV is a different, retryable failure (see
-            # `get_retry_exhausted_errors`). The copy names Gladly first and PostHog support as the
-            # fallback for the renamed-column case, where the report exists.
+            # Raised by `_report_rows` when a CSV report lacks a keyed column. The same window returns
+            # the same header on a retry, so neither the sync nor the incremental-field picker can
+            # fix it. The copy names Gladly first and PostHog support as the fallback for the
+            # renamed-column case, where the report exists.
             "Gladly report is missing required columns": (
                 "Gladly returned data that doesn't match the report this table needs, so there was "
                 "no data to sync. This usually means Gladly could not build the report for your "
@@ -89,10 +87,6 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
         # regenerates the report and re-streams it; the resumable window state means only the
         # in-flight window is redone, deduped on merge, so this is self-recovering rather than a
         # tracked-exception-worthy failure.
-        #
-        # `Gladly returned no report` is a 200 response carrying an error body instead of the CSV.
-        # `_report_rows` retries the window in place; if Gladly keeps failing, the run fails and the
-        # next scheduled run requests the same window again, so the schema must stay enabled.
         return {"Read timed out", "Gladly returned no report"}
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:

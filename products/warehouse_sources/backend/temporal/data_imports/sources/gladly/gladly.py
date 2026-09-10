@@ -5,7 +5,7 @@ import json
 import time
 import hashlib
 import dataclasses
-from collections.abc import Buffer, Iterator
+from collections.abc import Buffer, Iterator, Sequence
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import quote, urlencode
@@ -50,15 +50,6 @@ class GladlyRetryableError(Exception):
 
 
 class GladlyReportHeaderError(Exception):
-    """A CSV report whose header is missing the columns the stream is keyed on.
-
-    The report exists, but a keyed column is renamed or absent, so the rows would
-    come out carrying junk columns or nothing but the injected `_row_id`, and the
-    sync would fail much later with a misleading complaint about the incremental
-    field. Stop at the source instead. Keep the message matching the entry in the
-    source's non-retryable errors.
-    """
-
     def __init__(self, metric_set: str, missing: list[str], present: list[str]) -> None:
         super().__init__(
             f"Gladly report is missing required columns {missing} for metricSet={metric_set}. "
@@ -67,21 +58,15 @@ class GladlyReportHeaderError(Exception):
 
 
 class GladlyReportUnavailableError(Exception):
-    """A 200 response whose body is not a CSV report at all.
-
-    Gladly answers a failed report generation with HTTP 200 and a plain-text or HTML
-    error body. Parsed as CSV, that body has a single header column and no keyed
-    columns. The same window produces a real report on a later request, so this is
-    retried in place, and when the retries run out the sync fails as retryable and
-    the schema stays enabled for the next scheduled run. Keep the message matching
-    the entry in the source's retry-exhausted errors.
-    """
-
     def __init__(self, metric_set: str, header: list[str]) -> None:
         super().__init__(
             f"Gladly returned no report for metricSet={metric_set}: the response body is not a CSV report. "
             f"First line: {header!r:.300}"
         )
+
+
+def _header_is_an_error_line(fieldnames: Sequence[str]) -> bool:
+    return len(fieldnames) == 1
 
 
 class _ResponseByteStream(io.RawIOBase):
@@ -469,9 +454,7 @@ def _report_rows(
                 f"Gladly: {config.name} report window {window_start} - {window_end} returned a header "
                 f"missing {missing}. Header row: {reader.fieldnames!r:.500}"
             )
-            # A real report has more than one column. A single unknown column is the first line
-            # of an error body served in place of the CSV, which a later request does not repeat.
-            if len(reader.fieldnames) == 1:
+            if _header_is_an_error_line(reader.fieldnames):
                 raise GladlyReportUnavailableError(metric_set, list(reader.fieldnames))
             raise GladlyReportHeaderError(metric_set, missing, present)
         return reader
