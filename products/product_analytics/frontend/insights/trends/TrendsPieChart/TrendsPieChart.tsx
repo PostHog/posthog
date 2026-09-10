@@ -263,6 +263,7 @@ export function TrendsPieChart({
             <InsightEmptyState
                 heading={context?.emptyStateHeading}
                 detail={context?.emptyStateDetail}
+                insightVizProps={insightProps}
                 sampleDataVariant="pie"
             />
         )

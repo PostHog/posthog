@@ -39,6 +39,65 @@ export const Empty: Story = {
     },
 }
 
+/** The internal-and-test-users filter is the cause the placeholder never used to name. */
+export const EmptyWithInternalUsersFiltered: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/insights/': async () => {
+                    await delay(100)
+                    return HttpResponse.json({
+                        count: 1,
+                        results: [
+                            {
+                                ...insight,
+                                result: [],
+                                query: {
+                                    ...insight.query,
+                                    source: { ...insight.query.source, filterTestAccounts: true },
+                                },
+                            },
+                        ],
+                    })
+                },
+            },
+        })
+
+        return <App />
+    },
+}
+
+/** A query that matched buckets but measures zero, which used to claim nothing matched at all. */
+export const EmptyAllZero: Story = {
+    render: () => {
+        const allZeroSeries = {
+            ...insight.result[0],
+            count: 0,
+            data: insight.result[0].data.map(() => 0),
+        }
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/insights/': async () => {
+                    await delay(100)
+                    return HttpResponse.json({ count: 1, results: [{ ...insight, result: [allZeroSeries] }] })
+                },
+            },
+            post: {
+                '/api/environments/:team_id/query/': async () => {
+                    await delay(100)
+                    return HttpResponse.json({ results: [allZeroSeries] })
+                },
+                '/api/environments/:team_id/query/:kind/': async () => {
+                    await delay(100)
+                    return HttpResponse.json({ results: [allZeroSeries] })
+                },
+            },
+        })
+
+        return <App />
+    },
+}
+
 export const ServerError: Story = {
     render: () => {
         useStorybookMocks({

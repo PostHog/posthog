@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, configure, screen, waitFor } from '@testing-library/react'
+import { cleanup, configure, fireEvent, screen, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 
 import { dimensions, dragSelection, rawDrag, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
@@ -603,6 +603,62 @@ describe('TrendsLineChart', () => {
                 expect(screen.getByLabelText(/chart with/i)).toBeInTheDocument()
             })
             expect(screen.queryByTestId('insight-empty-state')).not.toBeInTheDocument()
+        })
+
+        it('says the query adds up to zero instead of claiming nothing matched', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'NoActivity', name: 'NoActivity' }],
+                }),
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
+            })
+            expect(screen.getByText(/adds up to zero/i)).toBeInTheDocument()
+            expect(screen.queryByText(/no matching events/i)).not.toBeInTheDocument()
+        })
+
+        it('names the internal and test users filter when it is hiding the answer', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'NoActivity', name: 'NoActivity' }],
+                    filterTestAccounts: true,
+                }),
+            })
+
+            await waitFor(() => {
+                expect(screen.getByText(/internal and test users are filtered out/i)).toBeInTheDocument()
+            })
+        })
+
+        it('turns the internal and test users filter off from the empty state', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'NoActivity', name: 'NoActivity' }],
+                    filterTestAccounts: true,
+                }),
+            })
+
+            const button = await screen.findByTestId('insight-empty-state-include-test-accounts')
+            fireEvent.click(button)
+
+            await waitFor(() => {
+                expect(getQuerySource().filterTestAccounts).toBe(false)
+            })
+        })
+
+        it('keeps the filter hint out of the way when no filter is set', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'NoActivity', name: 'NoActivity' }],
+                }),
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
+            })
+            expect(screen.queryByText(/internal and test users/i)).not.toBeInTheDocument()
         })
 
         it('uses context.emptyStateHeading override when provided', async () => {

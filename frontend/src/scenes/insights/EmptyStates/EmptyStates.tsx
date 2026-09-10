@@ -52,9 +52,11 @@ import {
     InsightLogicProps,
     SavedInsightsTabs,
     SidePanelTab,
+    TrendResult,
 } from '~/types'
 
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
+import { hasTrendsChartData } from 'products/product_analytics/frontend/insights/shared/hasTrendsChartData'
 
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/types'
 import { insightDataLogic } from '../insightDataLogic'
@@ -72,13 +74,7 @@ const MEMORY_LIMIT_AI_PROMPT = autoRunMaxPrompt(
     "This insight ran out of memory before it could finish. Help me work out why it's scanning so much data and how to fix it: a shorter date range, narrower filters, or materializing the data."
 )
 
-export function InsightEmptyState({
-    heading,
-    detail,
-    icon: iconProp,
-    sampleDataVariant,
-    insightProps,
-}: {
+interface InsightEmptyStateProps {
     heading?: string
     detail?: string | JSX.Element
     icon?: JSX.Element
@@ -89,7 +85,73 @@ export function InsightEmptyState({
      */
     sampleDataVariant?: SampleDataVariant | null
     insightProps?: Pick<InsightLogicProps, 'dashboardId' | 'dashboardItemId'>
-}): JSX.Element {
+    /**
+     * Props of the InsightViz this placeholder sits inside. Only these call sites can read and edit the
+     * query behind the tile, so only they can say why it is empty and offer to loosen a filter.
+     */
+    insightVizProps?: InsightLogicProps
+}
+
+/** Why the placeholder is up, and which of the active filters could be hiding the answer. */
+interface EmptyStateQueryHints {
+    /** The query returned series, but every value in them is zero. */
+    allZero: boolean
+    filterTestAccounts: boolean
+    /** Turns the internal-and-test-users filter off in place, where the query is editable here. */
+    includeTestAccounts: (() => void) | null
+}
+
+export function InsightEmptyState(props: InsightEmptyStateProps): JSX.Element {
+    return props.insightVizProps ? (
+        <QueryAwareInsightEmptyState {...props} insightVizProps={props.insightVizProps} />
+    ) : (
+        <InsightEmptyStateDisplay {...props} />
+    )
+}
+
+function QueryAwareInsightEmptyState(
+    props: InsightEmptyStateProps & { insightVizProps: InsightLogicProps }
+): JSX.Element {
+    const { insightVizProps } = props
+    const { querySource, insightData } = useValues(insightVizDataLogic(insightVizProps))
+    const { updateQuerySource } = useActions(insightVizDataLogic(insightVizProps))
+
+    // `hasTrendsChartData` is the same predicate the trends charts use to put this placeholder up, so
+    // the copy can never contradict the decision behind it. Funnel steps and histogram bins reach here
+    // too, and carry neither `data` nor `aggregated_value`, so check for a trends series first.
+    const results: TrendResult[] = Array.isArray(insightData?.result) ? insightData.result : []
+    const allZero =
+        results.length > 0 &&
+        results.every((series) => Array.isArray(series.data) || Number.isFinite(series.aggregated_value)) &&
+        !hasTrendsChartData(results)
+    const filterTestAccounts = !!querySource && 'filterTestAccounts' in querySource && !!querySource.filterTestAccounts
+    // A dashboard tile renders a query it does not own, so editing it here would not stick.
+    const canEditQueryHere = insightVizProps.dashboardId == null
+
+    return (
+        <InsightEmptyStateDisplay
+            {...props}
+            insightProps={props.insightProps ?? insightVizProps}
+            hints={{
+                allZero,
+                filterTestAccounts,
+                includeTestAccounts:
+                    filterTestAccounts && canEditQueryHere
+                        ? () => updateQuerySource({ filterTestAccounts: false })
+                        : null,
+            }}
+        />
+    )
+}
+
+function InsightEmptyStateDisplay({
+    heading,
+    detail,
+    icon: iconProp,
+    sampleDataVariant,
+    insightProps,
+    hints,
+}: InsightEmptyStateProps & { hints?: EmptyStateQueryHints }): JSX.Element {
     const { shouldShowSampleData } = useValues(sampleDataStateLogic)
 
     // Before a project has ingested any events, "no matching events" is misleading — every chart is
@@ -110,6 +172,8 @@ export function InsightEmptyState({
             has_custom_copy: hasCustomCopy,
             dashboard_id: insightProps?.dashboardId ?? null,
             insight_short_id: typeof insightProps?.dashboardItemId === 'string' ? insightProps.dashboardItemId : null,
+            reason: hints ? (hints.allZero ? 'all_zero' : 'no_results') : null,
+            filter_test_accounts: hints?.filterTestAccounts ?? null,
         })
     })
 
@@ -117,8 +181,14 @@ export function InsightEmptyState({
         return <SampleDataState variant={sampleDataVariant ?? 'line'} />
     }
 
-    heading = heading ?? 'There are no matching events for this query'
-    detail = detail ?? 'Try changing the date range, or pick another action, event or breakdown.'
+    heading =
+        heading ??
+        (hints?.allZero ? 'Everything in this query adds up to zero' : 'There are no matching events for this query')
+    detail =
+        detail ??
+        (hints?.allZero
+            ? 'Nothing matched, or what matched has a value of zero. Try a different date range, event or breakdown.'
+            : 'Try changing the date range, or pick another action, event or breakdown.')
     const icon =
         iconProp ??
         (isChristmas() ? (
@@ -135,6 +205,21 @@ export function InsightEmptyState({
             {icon}
             <h2 className="text-xl leading-tight">{heading}</h2>
             <p className="text-sm text-tertiary">{detail}</p>
+            {hints?.filterTestAccounts && (
+                <div className="flex flex-wrap items-center justify-center gap-2 text-sm text-tertiary">
+                    <span>Internal and test users are filtered out of this query.</span>
+                    {hints.includeTestAccounts && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={hints.includeTestAccounts}
+                            data-attr="insight-empty-state-include-test-accounts"
+                        >
+                            Include them
+                        </LemonButton>
+                    )}
+                </div>
+            )}
         </div>
     )
 }

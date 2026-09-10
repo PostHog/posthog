@@ -57,7 +57,7 @@ export function MetricCard({ inCardView }: ChartParams): JSX.Element {
 
     // `count` is typed as a number but can be absent at runtime, which would render a blank tile.
     if (!resultSeries || resultSeries.count == null) {
-        return <InsightEmptyState sampleDataVariant="number" />
+        return <InsightEmptyState sampleDataVariant="number" insightVizProps={insightProps} />
     }
 
     const summary = trendsFilter?.metricSummary ?? METRIC_SUMMARY_DEFAULT
