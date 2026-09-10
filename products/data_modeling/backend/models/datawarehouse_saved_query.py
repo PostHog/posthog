@@ -1,6 +1,7 @@
 import re
 import uuid
 from datetime import datetime, timedelta
+from functools import partial
 from typing import TYPE_CHECKING, Any, Optional, Union
 from urllib.parse import urlparse
 
@@ -33,10 +34,9 @@ from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
 
 from products.warehouse_sources.backend.facade.hogql import (
-    CLICKHOUSE_HOGQL_MAPPING,
     LEGACY_CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
-    clean_type,
+    hogql_type_name_for_clickhouse_type,
     reconstruct_ordered_columns,
     remove_named_tuples,
 )
@@ -96,7 +96,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         MANAGED_VIEWSET = DataWarehouseSavedQueryOrigin.MANAGED_VIEWSET
 
     name = models.CharField(max_length=128, validators=[validate_saved_query_name])
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     latest_error = models.TextField(default=None, null=True, blank=True)
     columns = models.JSONField(
         default=dict,
@@ -125,7 +125,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     sync_frequency_interval = models.DurationField(default=None, null=True, blank=True)
 
     # In case the saved query is materialized to a table, this will be set
-    table = models.ForeignKey("warehouse_sources.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
+    table = models.ForeignKey(
+        "warehouse_sources.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
     is_materialized = models.BooleanField(default=False, blank=True, null=True)
 
     # The name of the view at the time of soft deletion
@@ -144,7 +146,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="saved_queries",
+        related_name="+",
         help_text="Optional folder used to organize this saved query in the SQL editor sidebar.",
     )
 
@@ -225,7 +227,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         else:
             DataWarehouseModelPath.objects.update_from_saved_query(self)
 
-    def schedule_materialization(self, reconcile: bool = True, trigger_immediate_run: bool = False):
+    def schedule_materialization(
+        self, reconcile: bool = True, trigger_immediate_run: bool = False, triggered_by_id: int | None = None
+    ):
         """
         Put this saved query on the schedule that will materialize it, at the frequency in
         sync_frequency_interval.
@@ -234,6 +238,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         materialization right away instead of waiting for the node's cadence tier to fire.
         Callers merely updating frequency must leave it False. The start is best effort, so a
         failure to start never disables materialization, because the tier still covers the query.
+
+        triggered_by_id is the person who enabled materialization, and is who hears about it if
+        that first run fails.
 
         A rejected frequency propagates to the caller. Any other failure disables
         materialization, because the alternative is a query that reports itself materialized
@@ -302,7 +309,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 if trigger_immediate_run:
                     # Deferred to commit so the run sees the enable's writes (endpoints enable
                     # runs inside an atomic block); immediate under autocommit.
-                    transaction.on_commit(self._start_immediate_materialization)
+                    transaction.on_commit(partial(self._start_immediate_materialization, triggered_by_id))
                 return
 
             raise NoSchedulableDagError(f"Saved query {self.id} has no DAG that can schedule it")
@@ -332,11 +339,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             self.is_materialized = False
             self.save(update_fields=["is_materialized"])
 
-    def _start_immediate_materialization(self) -> None:
+    def _start_immediate_materialization(self, triggered_by_id: int | None = None) -> None:
         from products.data_modeling.backend.logic.node_materialization import materialize_saved_query
 
         try:
-            materialize_saved_query(self)
+            materialize_saved_query(self, triggered_by_id=triggered_by_id)
         except Exception as e:
             capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
             logger.exception(
@@ -346,6 +353,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             )
 
     def revert_materialization(self):
+        from products.data_modeling.backend.logic.node_suspension import unsuspend_saved_query
         from products.data_modeling.backend.logic.schedule_reconcile import apply_saved_query_frequency_target
         from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
 
@@ -372,6 +380,18 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
             logger.exception(
                 "failed_to_clear_frequency_target_on_revert",
+                team_id=self.team_id,
+                saved_query_id=str(self.id),
+            )
+
+        # The circuit breaker suspended a materialization that no longer exists, so the marker
+        # would outlive it and keep reporting a view its owner stopped themselves.
+        try:
+            unsuspend_saved_query(self, by="revert")
+        except Exception as e:
+            capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
+            logger.exception(
+                "failed_to_clear_suspension_on_revert",
                 team_id=self.team_id,
                 saved_query_id=str(self.id),
             )
@@ -421,7 +441,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
         columns = {
             str(item[0]): {
-                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
                 "clickhouse": item[1],
                 "valid": True,
             }

@@ -13,7 +13,7 @@ class ReplayObservationUsage(UUIDModel):
     organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
-        related_name="replay_observation_usage",
+        related_name="+",
     )
     observation_id = models.UUIDField(
         unique=True,

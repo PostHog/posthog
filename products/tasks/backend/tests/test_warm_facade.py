@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -771,7 +771,9 @@ class TestCreateTaskWarmReuse(APIBaseTest):
                     retry_token += "invalid"
                 if outcome == "retry_workflow_changed":
                     TaskRun.update_state_atomic(run.id, updates={"workflow_id": "replacement-workflow"})
-                with freeze_time(django_timezone.now() + timedelta(seconds=61 if outcome == "retry_expired" else 0)):
+                with time_machine.travel(
+                    django_timezone.now() + timedelta(seconds=61 if outcome == "retry_expired" else 0), tick=False
+                ):
                     retry = self.client.post(url, payload, format="json", HTTP_X_POSTHOG_WARM_RETRY=retry_token)
                 if outcome != "retry":
                     assert retry.status_code == 503, retry.content

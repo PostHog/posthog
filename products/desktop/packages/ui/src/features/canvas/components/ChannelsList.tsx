@@ -528,7 +528,7 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
             <span className="sr-only">Archiving</span>
           </>
         ) : (
-          <TaskStatusDot dot={taskDot(status ?? {})} />
+          <TaskStatusDot dot={taskDot(status ?? {})} hitArea="row" />
         )}
         <span
           className={cn(
@@ -1302,39 +1302,44 @@ const ChannelSection = memo(
                 <ChannelActionItems actions={actions} kind="context" />
               </ContextMenuContent>
             </ContextMenu>
-          </SpaceHoverCard>
-          {/* Hover actions stay visible while the menu is open. */}
-          <div className="absolute top-1 right-1">
-            <ButtonGroup>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="outline"
-                      size="icon-xs"
-                      aria-label={`New task in ${channel.name}`}
-                      className={cn(
-                        "gap-1 transition-opacity group-hover:border-border",
-                        menuOpen
-                          ? "opacity-100"
-                          : "opacity-0 group-hover/chan:opacity-100",
-                      )}
-                      onClick={newTask}
-                    >
-                      <PlusIcon size={12} weight="bold" />
-                    </Button>
-                  }
+            {/* Inside the card's trigger rather than beside it. These overlay
+                the row's own right edge, so reaching for one is not leaving
+                the row — and the card, which the trigger's bounds decide,
+                should read it that way too. Still positioned against
+                `group/chan`, which is the nearest positioned ancestor either
+                way. */}
+            <div className="absolute top-1 right-1">
+              <ButtonGroup>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="outline"
+                        size="icon-xs"
+                        aria-label={`New task in ${channel.name}`}
+                        className={cn(
+                          "gap-1 transition-opacity group-hover:border-border",
+                          menuOpen
+                            ? "opacity-100"
+                            : "opacity-0 group-hover/chan:opacity-100",
+                        )}
+                        onClick={newTask}
+                      >
+                        <PlusIcon size={12} weight="bold" />
+                      </Button>
+                    }
+                  />
+                  <TooltipContent side="top">New task</TooltipContent>
+                </Tooltip>
+                <ChannelMenu
+                  channelName={channel.name}
+                  actions={actions}
+                  open={menuOpen}
+                  onOpenChange={setMenuOpen}
                 />
-                <TooltipContent side="top">New task</TooltipContent>
-              </Tooltip>
-              <ChannelMenu
-                channelName={channel.name}
-                actions={actions}
-                open={menuOpen}
-                onOpenChange={setMenuOpen}
-              />
-            </ButtonGroup>
-          </div>
+              </ButtonGroup>
+            </div>
+          </SpaceHoverCard>
           {/* One modal for both the dropdown and context-menu "Rename" actions. */}
           {renameMounted && (
             <RenameChannelModal

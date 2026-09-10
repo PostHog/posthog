@@ -106,6 +106,18 @@ One scrape is one credit, so those numbers cap a bill as much as a rate; they ar
 Every Firecrawl call runs on a sheddable lane: what gets scraped is derived from user-supplied input and callers can do without the scrape, so nothing in this domain runs `CRITICAL`.
 `FIRECRAWL_API_KEY` authenticates every call as a bearer token; an instance without one makes no request at all (`FirecrawlNotConfigured`).
 
+Browserless (`browserless/`) meters **concurrent sessions**, not requests, and a session is held for the whole page load: a few seconds for a screenshot, tens of seconds for a Lighthouse audit.
+So its budget counts browser loads asked of one fleet, and the ceilings are small next to an API budget: `BROWSERLESS_EGRESS_PER_MINUTE_BUDGET` (default 120) and `BROWSERLESS_EGRESS_HOURLY_BUDGET` (default 2,000).
+Browserless publishes no rate-limit headers at all — its `X-Response-*` headers describe the page it fetched, not the API's budget — so, like logo.dev and Firecrawl, the budgets are static operator ceilings and the rate-limit gauges stay unset.
+
+The identity is the **fleet**: a hash of host and token together.
+Either alone is wrong. The same credential against a different host is a different set of workers, and a self-hosted fleet often carries no token, which would collapse every such deployment onto one budget if the token were the whole identity.
+The fleet is also what actually runs out: two callers pointed at one Browserless draw from one pool of workers whatever product they serve, so a narrower key would let each stay inside its own limit and still exhaust the fleet between them.
+
+This domain is where priority earns its keep, because its callers differ sharply in urgency.
+Heatmap screenshots run `NORMAL` — somebody is watching a spinner — while background consumers such as the Signals scout's Lighthouse audits run `BATCH` and are shed first, which is what leaves headroom for the render a person is waiting on.
+A denied call raises `BrowserlessEgressBudgetExhausted`; the heatmap caller maps it to its existing retryable error, under its own failure cause so a busy fleet is not read as a broken one.
+
 Harmonic (`harmonic/`) meters one account-wide rate limit, and an instance holds a single API key, so it uses one constant scope like the two above.
 The budget is a single per-second ceiling read from settings at acquire time: `HARMONIC_EGRESS_PER_SECOND_BUDGET` (default 15).
 Harmonic documents a per-second limit for most endpoints and answers 429 above it, reporting the current limit and remaining allowance in `X-Ratelimit-Limit-Second` and `X-Ratelimit-Remaining-Second` on every response.
@@ -166,7 +178,8 @@ It's **token-agnostic** (installation token, user token, PAT, or PostHog's share
 The generic `EgressClient` base owns the gate → request → record algorithm and the priority-based denial semantics (CRITICAL proceeds even when the budget is spent — GitHub's own 429 is the backstop; sheddable lanes raise `EgressBudgetExhausted`); `GitHubClient` fills the domain hooks.
 Response handling — what to do on a 403/429 — stays with the caller: `raise_if_github_rate_limited` / `GitHubRateLimitError` (GitHub's own 429, the reactive twin of our `EgressBudgetExhausted`) live in `github/transport.py` for callers that want to raise-and-retry.
 The model-coupled `GitHubIntegrationBase.api_request` layers the installation-token lifecycle (proactive refresh, 401 refresh-retry, rate-limit raising, per-instance `source` attribution) on top — hold an integration, call that; hold a bare token, call `github_request`.
-Raw `requests` calls against `api.github.com` are blocked by the `github-api-calls-go-through-egress` semgrep rule (`.semgrep/devex-rules/`), so new callers land on one of these two paths by construction.
+The `github-api-calls-go-through-egress` semgrep rule (`.semgrep/rules/devex/`) fails CI on a raw `requests` call that names `api.github.com` in the URL argument, so a new caller written that way lands on one of these two paths.
+The rule reads that argument only. A call that binds the URL to a variable first gets through, which is why `posthog/plugins/utils.py` still calls `requests.get` directly. Keep the URL inline at the call site.
 
 Firecrawl callers go through `firecrawl/client.py` rather than `firecrawl_request` directly: `scrape(url, source=...)` returns a typed `FirecrawlScrape` (markdown, summary, plus the page title, description, status code and credits used) and raises `FirecrawlScrapeFailed` when Firecrawl answers with anything but a successful scrape, including the 200 responses that carry `success: false`.
 Only `POST /v2/scrape` is wired up, and the client reads `FIRECRAWL_API_KEY` from settings so the transport stays token-agnostic like the others.

@@ -5,8 +5,8 @@ from typing import Any, cast
 
 from django.conf import settings
 from django.db import models, transaction
-from django.db.models import Count, Model, OuterRef, Prefetch, Q, Subquery, TextField
-from django.db.models.functions import Cast
+from django.db.models import Count, IntegerField, Model, OuterRef, Prefetch, Q, Subquery, TextField
+from django.db.models.functions import Cast, Coalesce
 
 import structlog
 import posthoganalytics
@@ -29,6 +29,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
+from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
@@ -65,9 +66,8 @@ from products.data_warehouse.backend.presentation.views.column_annotation_base i
     upsert_annotation,
 )
 from products.warehouse_sources.backend.facade.hogql import (
-    CLICKHOUSE_HOGQL_MAPPING,
-    clean_type,
     get_view_or_table_by_name,
+    hogql_type_name_for_clickhouse_type,
 )
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
@@ -76,6 +76,16 @@ from products.warehouse_sources.backend.facade.models import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def _view_types_validation_error(e: Exception) -> serializers.ValidationError:
+    # Column inference runs the HogQL-to-ClickHouse path, so a raw exception can carry stack
+    # traces, internal table or column names, and S3 URIs. Surface only the errors already marked
+    # user-safe; reduce everything else to its class name. Mirrors validate_query below, which
+    # keeps the full cause in error tracking and logs instead of the response.
+    if isinstance(e, ExposedHogQLError | ExposedCHQueryError):
+        return serializers.ValidationError(f"Failed to retrieve types for view: {e}")
+    return serializers.ValidationError(f"Failed to retrieve types for view: unexpected {type(e).__name__}")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -870,7 +880,7 @@ class DataWarehouseSavedQuerySerializer(
                 else:
                     columns = {
                         str(item[0]): {
-                            "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                            "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
                             "clickhouse": item[1],
                             "valid": True,
                         }
@@ -882,7 +892,7 @@ class DataWarehouseSavedQuerySerializer(
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to retrieve types for view %s", view.name)
-                raise serializers.ValidationError("Failed to retrieve types for view")
+                raise _view_types_validation_error(e)
 
         with transaction.atomic():
             view.save()
@@ -1046,7 +1056,7 @@ class DataWarehouseSavedQuerySerializer(
                     else:
                         columns = {
                             str(item[0]): {
-                                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                                "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
                                 "clickhouse": item[1],
                                 "valid": True,
                             }
@@ -1060,7 +1070,7 @@ class DataWarehouseSavedQuerySerializer(
                 except Exception as e:
                     capture_exception(e)
                     logger.exception("Failed to retrieve types for view %s", view.name)
-                    raise serializers.ValidationError("Failed to retrieve types for view")
+                    raise _view_types_validation_error(e)
 
                 view.status = DataWarehouseSavedQuery.Status.MODIFIED
                 view.save()
@@ -1305,7 +1315,19 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
         return (
             queryset.filter(team_id=self.team_id)
             .select_related("created_by")
-            .annotate(view_count=Count("saved_queries", filter=Q(saved_queries__deleted=False)))
+            .annotate(
+                view_count=Coalesce(
+                    Subquery(
+                        DataWarehouseSavedQuery.objects.filter(folder=OuterRef("pk"), deleted=False)
+                        .order_by()
+                        .values("folder")
+                        .annotate(c=Count("id"))
+                        .values("c"),
+                        output_field=IntegerField(),
+                    ),
+                    0,
+                )
+            )
             .order_by(self.ordering)
         )
 
@@ -1318,7 +1340,9 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
         folder: DataWarehouseSavedQueryFolder = self.get_object()
         remaining_queries = {
             saved_query.id: saved_query
-            for saved_query in folder.saved_queries.filter(deleted=False).select_related("managed_viewset", "folder")
+            for saved_query in DataWarehouseSavedQuery.objects.filter(folder=folder, deleted=False).select_related(
+                "managed_viewset", "folder"
+            )
         }
 
         while remaining_queries:
@@ -1658,7 +1682,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             clear_incremental_state(saved_query)
 
         try:
-            materialize_saved_query(saved_query)
+            materialize_saved_query(saved_query, triggered_by_id=request.user.pk)
         except MissingDagNodeError:
             raise exceptions.ValidationError(
                 detail="This view isn't fully set up to materialize. Save the query again, then try syncing."
@@ -1731,9 +1755,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         Scheduled runs skip a suspended model and everything downstream of it, so it cannot succeed
         its way back on its own.
         """
-        from products.data_modeling.backend.facade.api import resume_saved_query
+        from products.data_modeling.backend.facade.api import unsuspend_saved_query
 
-        resumed = resume_saved_query(self.get_object())
+        resumed = unsuspend_saved_query(self.get_object())
 
         return response.Response({"resumed": bool(resumed)}, status=status.HTTP_200_OK)
 
@@ -1833,7 +1857,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         # Enable materialization - this handles model path setup and schedule creation
         # If this fails, it will set is_materialized = False
         try:
-            saved_query.schedule_materialization(trigger_immediate_run=True)
+            saved_query.schedule_materialization(trigger_immediate_run=True, triggered_by_id=request.user.pk)
         except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError):
             # The check above already refused every cadence the lineage forbids, so reaching here
             # means the lineage moved mid-request. Say so plainly rather than forwarding a message
@@ -1899,7 +1923,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         Accepts a list of view IDs in the request body: {"view_ids": ["id1", "id2", ...]}
         This endpoint is idempotent - calling it on models that are already running is safe.
         """
-        from products.data_modeling.backend.facade.api import resume_saved_query
+        from products.data_modeling.backend.facade.api import unsuspend_saved_query
 
         serializer = SavedQueryResumeSchedulesRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -1915,7 +1939,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         self.user_access_control.preload_object_access_controls(cast(list[Model], candidates))
         for saved_query in candidates:
             if self.user_access_control.check_access_level_for_object(saved_query, "editor"):
-                resume_saved_query(saved_query)
+                unsuspend_saved_query(saved_query)
         return response.Response(status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(request=SavedQueryLineageRequestSerializer, responses={200: SavedQueryAncestorsSerializer})

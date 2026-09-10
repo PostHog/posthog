@@ -1119,6 +1119,11 @@
         "params": ["tab"],
         "scope": "project"
     },
+    "mcpRegistry": {
+        "template": "/mcp-registry",
+        "params": [],
+        "scope": "project"
+    },
     "metrics": {
         "template": "/metrics",
         "params": [],
@@ -1746,11 +1751,6 @@
     },
     "webScriptsNew": {
         "template": "/web-scripts/new",
-        "params": [],
-        "scope": "project"
-    },
-    "wizard": {
-        "template": "/wizard",
         "params": [],
         "scope": "project"
     },
