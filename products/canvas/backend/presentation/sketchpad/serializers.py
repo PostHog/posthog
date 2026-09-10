@@ -18,6 +18,7 @@ from products.canvas.backend.sketchpad.schema import (
     SNAPSHOT_SCHEMA,
     validate_op,
 )
+from products.canvas.backend.sketchpad_presence import PRESENCE_MAX_CARETS, PRESENCE_MAX_SELECTED_IDS
 
 MAX_PREVIEW_BOXES = 24
 
@@ -293,3 +294,54 @@ class SketchpadAppendResultSerializer(serializers.Serializer):
         many=True, help_text="Accepted log entries for repeated operation IDs."
     )
     head_seq = serializers.IntegerField(help_text="Seq of the newest op after this append.")
+
+
+class SketchpadCursorSerializer(serializers.Serializer):
+    x = serializers.FloatField(help_text="Horizontal position in sketchpad world units.")
+    y = serializers.FloatField(help_text="Vertical position in sketchpad world units.")
+
+
+class SketchpadViewportSerializer(serializers.Serializer):
+    x = serializers.FloatField(help_text="Horizontal pan offset in screen pixels.")
+    y = serializers.FloatField(help_text="Vertical pan offset in screen pixels.")
+    zoom = serializers.FloatField(
+        min_value=0.01, max_value=64, help_text="Zoom factor, where 1 means one world unit per pixel."
+    )
+
+
+class SketchpadCaretSerializer(serializers.Serializer):
+    key = serializers.CharField(max_length=128, help_text="The shared state key the caller writes in.")
+    anchor = serializers.CharField(
+        max_length=64, required=False, allow_null=True, help_text="Entry id where the selection starts, or null."
+    )
+    focus = serializers.CharField(
+        max_length=64, required=False, allow_null=True, help_text="Entry id where the caret sits, or null."
+    )
+
+
+class SketchpadPresenceSerializer(serializers.Serializer):
+    client_id = serializers.CharField(
+        max_length=200, help_text="Id of the caller's sketchpad tab, so other clients can skip their own pings."
+    )
+    cursor = SketchpadCursorSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Pointer position in sketchpad world units, or null when the pointer left the sketchpad.",
+    )
+    viewport = SketchpadViewportSerializer(
+        required=False, allow_null=True, help_text="The caller's pan and zoom, or null to send none."
+    )
+    selected_ids = serializers.ListField(
+        child=serializers.CharField(max_length=64),
+        required=False,
+        default=list,
+        max_length=PRESENCE_MAX_SELECTED_IDS,
+        help_text=f"Ids of the fragments the caller has selected, at most {PRESENCE_MAX_SELECTED_IDS}.",
+    )
+    carets = serializers.ListField(
+        child=SketchpadCaretSerializer(),
+        required=False,
+        default=list,
+        max_length=PRESENCE_MAX_CARETS,
+        help_text=f"Where the caller writes, at most {PRESENCE_MAX_CARETS} fields at a time.",
+    )
