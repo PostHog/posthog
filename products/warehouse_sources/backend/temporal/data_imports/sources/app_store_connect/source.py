@@ -78,7 +78,7 @@ The analytics tables need a key with the Admin role. Apple lets only an Admin ke
             name=SchemaExternalDataSourceType.APP_STORE_CONNECT,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Apple (App Store Connect)",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["app store", "ios", "apple", "mobile analytics"],
             caption=caption,
             iconPath="/static/services/app_store_connect.png",
