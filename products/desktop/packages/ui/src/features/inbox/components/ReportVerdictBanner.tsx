@@ -30,6 +30,7 @@ import {
 import type { InboxReportActionSurface } from "@posthog/shared/analytics-events";
 import type { SignalReport, Task } from "@posthog/shared/types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { useInboxReportStatusConfirmed } from "@posthog/ui/features/inbox/context/inboxReportStatusContext";
 import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrReport";
 import { useDiscussReport } from "@posthog/ui/features/inbox/hooks/useDiscussReport";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
@@ -206,6 +207,12 @@ export function ReportVerdictBanner({
   const { generalChannel, isLoading: channelsLoading } = useTaskChannels();
   const taskChannelId = report.channel_id ?? generalChannel?.id ?? null;
   const awaitingChannel = taskChannelId === null && channelsLoading;
+  // A detail screen checks the report's status for one round trip after mount,
+  // and which action the report asks for depends on that status. The write
+  // actions below wait for the check, so none of them starts work on a report
+  // another session has already archived. Outside a detail screen the context
+  // reads as confirmed and the banner behaves as before.
+  const statusConfirmed = useInboxReportStatusConfirmed();
 
   const handleTaskCreated = useCallback(
     (task: Task) => {
@@ -262,6 +269,7 @@ export function ReportVerdictBanner({
     report.status === "pending_input";
 
   const handleCreatePr = useCallback(() => {
+    if (!statusConfirmed) return;
     const trimmed = prFeedback.trim();
     fireAction("create_pr", {
       has_feedback: trimmed.length > 0,
@@ -271,10 +279,10 @@ export function ReportVerdictBanner({
     // The view advances from onTaskCreated once the task exists, not here — a
     // failed create leaves the report and its actions in place.
     void createPrReport(trimmed || undefined);
-  }, [createPrReport, fireAction, prFeedback]);
+  }, [createPrReport, fireAction, prFeedback, statusConfirmed]);
 
   const handleComposeImplementation = useCallback(() => {
-    if (artefactsLoading || awaitingChannel) return;
+    if (artefactsLoading || awaitingChannel || !statusConfirmed) return;
     fireAction("implement");
     openTaskInput({
       initialPrompt: "Implement the recommended next step in this report.",
@@ -288,6 +296,7 @@ export function ReportVerdictBanner({
   }, [
     artefactsLoading,
     awaitingChannel,
+    statusConfirmed,
     cloudRepository,
     fireAction,
     report.id,
@@ -313,7 +322,13 @@ export function ReportVerdictBanner({
   }, [continuableTask, fireAction, onEngaged, openTask, setChatOpen, surface]);
 
   const handleAsk = useCallback(() => {
-    if (isCreatingPr || isDiscussing || awaitingChannel || reportTasksLoading) {
+    if (
+      isCreatingPr ||
+      isDiscussing ||
+      awaitingChannel ||
+      reportTasksLoading ||
+      !statusConfirmed
+    ) {
       return;
     }
     const trimmed = askQuestion.trim();
@@ -335,6 +350,7 @@ export function ReportVerdictBanner({
     isDiscussing,
     awaitingChannel,
     reportTasksLoading,
+    statusConfirmed,
     askQuestion,
     fireAction,
     hasPriorEngagement,
@@ -364,12 +380,19 @@ export function ReportVerdictBanner({
       if (externalPrUrl) {
         event.preventDefault();
         handleOpenPr();
-      } else if (canCreatePr) {
+      } else if (canCreatePr && statusConfirmed) {
         event.preventDefault();
         setPrOpen(true);
       }
     },
-    [report.status, isCreatingPr, externalPrUrl, canCreatePr, handleOpenPr],
+    [
+      report.status,
+      isCreatingPr,
+      externalPrUrl,
+      canCreatePr,
+      statusConfirmed,
+      handleOpenPr,
+    ],
   );
   const runResolveHotkey = useCallback(
     (event: KeyboardEvent) => {
@@ -387,11 +410,18 @@ export function ReportVerdictBanner({
   );
 
   useActionHotkey(prHotkey, runPrHotkey);
+  // Resolve and dismiss are write actions, so their shortcuts wait for the
+  // post-mount status check the same way their buttons do. Opening an existing
+  // PR from `runPrHotkey` is read-only and stays live; its create-PR branch
+  // already checks `statusConfirmed`.
   useActionHotkey(
-    canResolveReport(report) ? resolveHotkey : undefined,
+    canResolveReport(report) && statusConfirmed ? resolveHotkey : undefined,
     runResolveHotkey,
   );
-  useActionHotkey(dismissHotkey, runDismissHotkey);
+  useActionHotkey(
+    statusConfirmed ? dismissHotkey : undefined,
+    runDismissHotkey,
+  );
 
   if (
     initialEngagementOnly &&
@@ -405,6 +435,7 @@ export function ReportVerdictBanner({
       type="button"
       variant="outline"
       onClick={() => openDismissDialog()}
+      disabled={!statusConfirmed}
       className={buttonClass}
     >
       <EyeSlashIcon size={15} />
@@ -420,7 +451,7 @@ export function ReportVerdictBanner({
           variant="outline"
           onClick={() => openResolveDialog()}
           loading={resolvePending}
-          disabled={resolvePending}
+          disabled={resolvePending || !statusConfirmed}
           className={buttonClass}
           data-attr="inbox-triage-resolve"
         >
@@ -435,7 +466,7 @@ export function ReportVerdictBanner({
           variant="primary"
           onClick={handleComposeImplementation}
           loading={artefactsLoading}
-          disabled={artefactsLoading || awaitingChannel}
+          disabled={artefactsLoading || awaitingChannel || !statusConfirmed}
           className={buttonClass}
           data-attr="inbox-report-implement"
         >
@@ -476,7 +507,7 @@ export function ReportVerdictBanner({
               <Button
                 type="button"
                 variant="primary"
-                disabled={isCreatingPr || isDiscussing}
+                disabled={isCreatingPr || isDiscussing || !statusConfirmed}
                 className={buttonClass}
               >
                 {isCreatingPr ? <Spinner /> : <GitPullRequestIcon size={15} />}
@@ -524,7 +555,7 @@ export function ReportVerdictBanner({
                 variant="primary"
                 size="sm"
                 loading={isCreatingPr}
-                disabled={isCreatingPr || isDiscussing}
+                disabled={isCreatingPr || isDiscussing || !statusConfirmed}
                 onClick={handleCreatePr}
               >
                 Create PR
@@ -550,7 +581,8 @@ export function ReportVerdictBanner({
                   isCreatingPr ||
                   isDiscussing ||
                   awaitingChannel ||
-                  reportTasksLoading
+                  reportTasksLoading ||
+                  !statusConfirmed
                 }
                 className={buttonClass}
               >
@@ -606,7 +638,8 @@ export function ReportVerdictBanner({
                   isCreatingPr ||
                   isDiscussing ||
                   awaitingChannel ||
-                  reportTasksLoading
+                  reportTasksLoading ||
+                  !statusConfirmed
                 }
                 onClick={handleAsk}
               >
