@@ -561,8 +561,9 @@ class EventDefinitionViewSet(
 
         results: list[tuple[str, Literal["ASC", "DESC"]]] = []
 
-        # API client can send more than one ordering
-        orderings = self.request.GET.getlist("ordering")
+        # A client can send more than one ordering as repeated parameters or as one comma-joined value, which is
+        # how the generated client serializes `ordering: string[]`.
+        orderings = [value for raw in self.request.GET.getlist("ordering") for value in raw.split(",")]
 
         for ordering in orderings:
             if ordering and ordering.replace("-", "") in EVENT_DEFINITION_ORDERING_FIELDS:
@@ -688,7 +689,7 @@ class EventDefinitionViewSet(
             EVENT_DEFINITIONS_TIMED_OUT_COUNTER.inc()
             raise EventDefinitionsTimedOut from error
 
-    def _list_page(self, request, *args, **kwargs):
+    def _list_page(self, request, *args, **kwargs) -> response.Response:
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         objects = page if page is not None else list(queryset)

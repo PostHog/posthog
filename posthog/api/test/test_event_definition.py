@@ -218,6 +218,18 @@ class TestEventDefinitionAPI(APIBaseTest):
                     ("watched_movie", None),
                 ],
             ),
+            (
+                # The generated client joins `ordering: string[]` with commas.
+                "ordering=-last_seen_at::date,-name",
+                [
+                    ("installed_app", "2020-01-01T00:00:00Z"),
+                    ("entered_free_trial", "2020-01-01T23:00:00Z"),
+                    ("$pageview", "2020-01-01T22:56:00Z"),
+                    ("purchase", "2019-12-30T00:00:00Z"),
+                    ("rated_app", "2019-12-21T00:00:00Z"),
+                    ("watched_movie", None),
+                ],
+            ),
         ]
     )
     def test_list_event_definitions_ordering(self, query_params, expected_results):
