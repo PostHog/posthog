@@ -485,11 +485,13 @@ async def _verify_positive_verdict(
                     raise TypeError(f"verify draw returned {type(draw).__name__}")
                 draws.append(draw)
             except Exception as exc:
+                # No traceback or message: a provider error body can quote the prompt, as at the activity boundary.
                 logger.warning(
                     "replay_vision.call_scanner_provider.verify_draw_failed",
                     model=model,
                     error_type=type(exc).__name__,
-                    exc_info=True,
+                    code=getattr(exc, "code", None),
+                    status=getattr(exc, "status", None),
                 )
                 skipped_reason = "draw_failed"
 
