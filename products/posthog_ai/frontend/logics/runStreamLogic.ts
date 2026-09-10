@@ -1614,6 +1614,13 @@ export interface runStreamLogicActions {
         entry: StoredLogEntry
         source: FrameSource
     }
+    ingestAcpFrames: (
+        entries: StoredLogEntry[],
+        source?: FrameSource
+    ) => {
+        entries: StoredLogEntry[]
+        source: FrameSource
+    }
     ingestPermissionRequest: (
         record: PermissionRequestRecord,
         replayedFromHistory?: boolean
@@ -1889,6 +1896,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
          * per-frame key. The resume cursor (`cache.lastEventId`) is stamped by the SSE reader, not here.
          */
         ingestAcpFrame: (entry: StoredLogEntry, source: FrameSource = 'live') => ({ entry, source }),
+        /**
+         * Bulk frame ingestion for the bootstrap history replay. Runs the same per-frame side effects
+         * as `ingestAcpFrame`, but appends the whole batch to the log in one `appendEntries` dispatch:
+         * the thread projection is memoized on log identity, so a per-frame append re-folds the entire
+         * log once per frame, which is quadratic over a long history and locks the tab up while a big
+         * conversation opens. Live frames keep using `ingestAcpFrame` — they arrive one at a time.
+         */
+        ingestAcpFrames: (entries: StoredLogEntry[], source: FrameSource = 'live') => ({ entries, source }),
         /** Append frames to the ordered log (the single source of truth). */
         appendEntries: (entries: StoredEntry[]) => ({ entries }),
         replaceLog: (log: RunLog) => ({ log }),
@@ -2582,9 +2597,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 const replayEntries = replayResult
                 breakpoint()
                 if (values.log.entries.length === 0) {
-                    normalizeHistory(replayEntries, runId, isResumeRun(replayRun)).forEach((entry) =>
-                        actions.ingestAcpFrame(entry, 'replay')
-                    )
+                    actions.ingestAcpFrames(normalizeHistory(replayEntries, runId, isResumeRun(replayRun)), 'replay')
                 }
 
                 if (isTerminalRunStatus(replayRun.status ?? null)) {
@@ -2667,21 +2680,16 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // Replace the partial snapshot synchronously; ancestor lifecycle frames must not make
                 // a successor that is still provisioning appear started or finished.
                 actions.replaceLog(emptyRunLog())
-                let reachedSuccessor = false
-                history.forEach((entry) => {
-                    if (!reachedSuccessor && entry.source_run_id === runId) {
-                        actions.appendResumeBoundary()
-                        actions.prepareResumeRun()
-                        actions.permissionRunChanged()
-                        reachedSuccessor = true
-                    }
-                    actions.ingestAcpFrame(entry, 'replay')
-                })
-                if (!reachedSuccessor) {
-                    actions.appendResumeBoundary()
-                    actions.prepareResumeRun()
-                    actions.permissionRunChanged()
-                }
+                // The boundary splits the batch: it must be inserted before the successor's first
+                // frame (and after everything when the snapshot has none), and `appendResumeBoundary`
+                // reads the log, so the ancestor frames have to be appended before it runs.
+                const successorIndex = history.findIndex((entry) => entry.source_run_id === runId)
+                const boundaryAt = successorIndex === -1 ? history.length : successorIndex
+                actions.ingestAcpFrames(history.slice(0, boundaryAt), 'replay')
+                actions.appendResumeBoundary()
+                actions.prepareResumeRun()
+                actions.permissionRunChanged()
+                actions.ingestAcpFrames(history.slice(boundaryAt), 'replay')
                 const successorItems = foldLogToThread(
                     history
                         .filter((entry) => entry.source_run_id === runId)
@@ -2692,7 +2700,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     actions.pushHumanMessage(retainedMessage)
                 }
             } else {
-                history.forEach((entry) => actions.ingestAcpFrame(entry, 'replay'))
+                actions.ingestAcpFrames(history, 'replay')
             }
 
             if (terminal) {
@@ -2718,7 +2726,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             const buffered = (cache.bufferedLiveFrames as StoredLogEntry[] | undefined) ?? []
             cache.bufferingLiveFrames = false
             cache.bufferedLiveFrames = undefined
-            dedupeBufferedAgainstHistory(buffered, history).forEach((entry) => actions.ingestAcpFrame(entry, 'live'))
+            actions.ingestAcpFrames(dedupeBufferedAgainstHistory(buffered, history), 'live')
             actions.bootstrapLogReady()
         },
         openSseForRun: ({ taskId, runId, startLatest }) => {
@@ -3497,6 +3505,27 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 },
             ])
         },
+        ingestAcpFrames: ({ entries, source }) => {
+            if (entries.length === 0) {
+                return
+            }
+            // Collect this batch's appends instead of letting each frame dispatch its own, then append
+            // once — the projection folds the log a single time for the whole history rather than once
+            // per frame. `ingestAcpFrame` is dispatched synchronously here, so the per-frame side
+            // effects still run in wire order.
+            const batch: StoredEntry[] = []
+            cache.pendingLogEntries = batch
+            try {
+                for (const entry of entries) {
+                    actions.ingestAcpFrame(entry, source)
+                }
+            } finally {
+                cache.pendingLogEntries = undefined
+            }
+            if (batch.length > 0) {
+                actions.appendEntries(batch)
+            }
+        },
         ingestAcpFrame: ({ entry, source }) => {
             const notification = entry?.notification
             if (!notification) {
@@ -3539,7 +3568,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // deduped (see `bootstrapRun`) and steady-state live frames resume exclusively, so the
             // side effects below run exactly once per frame without a per-frame key; the
             // run-started/permission/tool-completion guards enforce fire-once on their own.
-            actions.appendEntries([{ entry, source }])
+            // Inside an `ingestAcpFrames` batch the append is deferred to a single dispatch at the end
+            // of the batch; nothing below reads the log or the projection, so the side effects don't
+            // care that their own frame isn't in it yet.
+            const batch = cache.pendingLogEntries as StoredEntry[] | undefined
+            if (batch) {
+                batch.push({ entry, source })
+            } else {
+                actions.appendEntries([{ entry, source }])
+            }
 
             // Custom `_posthog/*` notification namespace emitted by the agent-server. Thread items
             // (errors, status, compaction, task notifications, progress, human turns) are derived by
