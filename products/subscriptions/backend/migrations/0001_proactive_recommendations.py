@@ -39,7 +39,10 @@ class Migration(migrations.Migration):
                 (
                     "team",
                     models.ForeignKey(
-                        db_constraint=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="+",
+                        to="posthog.team",
                     ),
                 ),
             ],
@@ -61,7 +64,10 @@ class Migration(migrations.Migration):
                 (
                     "team",
                     models.ForeignKey(
-                        db_constraint=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="+",
+                        to="posthog.team",
                     ),
                 ),
                 (
@@ -92,7 +98,10 @@ class Migration(migrations.Migration):
                 (
                     "team",
                     models.ForeignKey(
-                        db_constraint=False, on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="+",
+                        to="posthog.team",
                     ),
                 ),
             ],

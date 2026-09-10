@@ -7,7 +7,7 @@ from posthog.models.utils import UUIDModel
 
 
 class ProactiveSubscriptionConfig(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     subscription_id = models.BigIntegerField()
@@ -26,7 +26,7 @@ class ProactiveRecommendationRun(TeamScopedRootMixin, UUIDModel):
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     subscription_id = models.BigIntegerField()
@@ -41,7 +41,7 @@ class ProactiveRecommendationRun(TeamScopedRootMixin, UUIDModel):
 
 
 class ProactiveRecommendation(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     run = models.ForeignKey(ProactiveRecommendationRun, on_delete=models.CASCADE, related_name="recommendations")
     semantic_key = models.CharField(max_length=128)
