@@ -8,6 +8,7 @@ import {
     expensiveRunCostThreshold,
     formatRunCost,
     mostRecentEmittedRuns,
+    rosterRunCosts,
     runMatchesFilter,
     dayTimeToWeeklyCron,
     getScoutScheduleMode,
@@ -118,6 +119,38 @@ describe('scoutRunsWindow report channel', () => {
             const threshold = expensiveRunCostThreshold(costs(values)) ?? 0
 
             expect(values.filter((cost) => cost >= threshold)).toEqual(expected)
+        })
+    })
+
+    describe('rosterRunCosts', () => {
+        it('drops the cost of a run that has left the roster', () => {
+            const runs = [makeRun({ run_id: 'run-1' }), makeRun({ run_id: 'run-2' })]
+            const costs = new Map([
+                ['run-1', 0.02],
+                ['run-2', 0.03],
+                ['run-gone', 9.99],
+            ])
+
+            expect(rosterRunCosts(runs, costs)).toEqual(
+                new Map([
+                    ['run-1', 0.02],
+                    ['run-2', 0.03],
+                ])
+            )
+        })
+
+        it('keeps a run that has left the roster from turning the cost marker on', () => {
+            // A cost batch that fails keeps the previous poll's entries, so a run nobody can see
+            // could otherwise carry the map over the minimum and rank a line the strip has no
+            // runs for.
+            const runs = Array.from({ length: 19 }, (_, index) => makeRun({ run_id: `run-${index}` }))
+            const costs = new Map<string, number>([
+                ...runs.map((run, index): [string, number] => [run.run_id, 0.02 + index / 1000]),
+                ['run-gone', 9.99],
+            ])
+
+            expect(expensiveRunCostThreshold(costs)).not.toBeNull()
+            expect(expensiveRunCostThreshold(rosterRunCosts(runs, costs))).toBeNull()
         })
     })
 

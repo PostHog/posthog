@@ -158,6 +158,23 @@ export function formatRunCost(costUsd: number): string {
     return humanFriendlyCurrency(costUsd, costUsd > 0 && costUsd < 0.01 ? 4 : 2)
 }
 
+/**
+ * The costs of the runs the roster holds right now. A cost batch that fails keeps the previous
+ * poll's entries, so the cost map can outlive the runs it priced. A run that has left the roster is
+ * invisible on the strip, so it must not move the cost line or count toward the minimum that turns
+ * the line on.
+ */
+export function rosterRunCosts(runs: SignalScoutRunSummary[], costs: Map<string, number>): Map<string, number> {
+    const onRoster = new Map<string, number>()
+    for (const run of runs) {
+        const cost = costs.get(run.run_id)
+        if (cost !== undefined) {
+            onRoster.set(run.run_id, cost)
+        }
+    }
+    return onRoster
+}
+
 // Below this many priced runs the top decile moves with every run that lands, so the marker would
 // point at a different box each poll and mean nothing.
 const MIN_PRICED_RUNS_FOR_COST_MARKER = 20

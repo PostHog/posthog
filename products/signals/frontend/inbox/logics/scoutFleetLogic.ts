@@ -71,6 +71,7 @@ import {
     expensiveRunCostThreshold,
     FleetSummary,
     isSettledRun,
+    rosterRunCosts,
     scoutDisplayName,
     SCOUT_ROSTER_WINDOW_HOURS,
     SCOUT_RUNS_PER_SCOUT,
@@ -533,6 +534,10 @@ export interface scoutFleetLogicMeta {
             dataProcessingApprovalDisabledReason: string | null
         ) => string | null
         rollups: (scoutRuns: SignalScoutRunSummary[]) => Map<string, ScoutRollup>
+        expensiveRunCostThreshold: (
+            scoutRuns: SignalScoutRunSummary[],
+            scoutRunCosts: Map<string, number>
+        ) => number | null
         isStaff: (user: null | import('~/types').UserType) => boolean
         fleetSummary: (
             scoutConfigs: SignalScoutConfigApi[] | null,
@@ -1078,8 +1083,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             (scoutRuns: SignalScoutRunSummary[]): Map<string, ScoutRollup> => computeScoutRollups(scoutRuns),
         ],
         expensiveRunCostThreshold: [
-            (s) => [s.scoutRunCosts],
-            (scoutRunCosts: Map<string, number>): number | null => expensiveRunCostThreshold(scoutRunCosts),
+            (s) => [s.scoutRuns, s.scoutRunCosts],
+            (scoutRuns: SignalScoutRunSummary[], scoutRunCosts: Map<string, number>): number | null =>
+                expensiveRunCostThreshold(rosterRunCosts(scoutRuns, scoutRunCosts)),
         ],
         isStaff: [
             () => [userLogic.selectors.user],
