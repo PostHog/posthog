@@ -2059,9 +2059,9 @@ class TestPasskeySignupAPI(APIBaseTest):
         self.assertFalse(user.has_usable_password())
         self.assertFalse(WebauthnCredential.objects.filter(user=user).exists())
         self.assertFalse(UserSocialAuth.objects.filter(id=stale_social_auth.id).exists())
-        self.assertFalse(TOTPDevice.objects.filter(id=totp_device.id).exists())
-        self.assertFalse(StaticDevice.objects.filter(id=static_device.id).exists())
-        self.assertFalse(PersonalAPIKey.objects.filter(id=personal_api_key.id).exists())
+        self.assertTrue(TOTPDevice.objects.filter(id=totp_device.id).exists())
+        self.assertTrue(StaticDevice.objects.filter(id=static_device.id).exists())
+        self.assertTrue(PersonalAPIKey.objects.filter(id=personal_api_key.id).exists())
 
     @pytest.mark.skip_on_multitenancy
     def test_password_signup_generates_random_uuid(self):

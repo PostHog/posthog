@@ -1188,7 +1188,6 @@ class UserViewSet(
                     user,
                     trusted_password=trusted_password,
                     trusted_passkey_id=trusted_passkey_id,
-                    preserve_second_factors=trusted_password or trusted_passkey_id is not None,
                 )
                 user.is_email_verified = True
                 user.save(update_fields=["is_email_verified"])

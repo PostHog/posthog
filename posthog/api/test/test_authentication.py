@@ -22,6 +22,7 @@ from django.utils import timezone
 from asgiref.sync import sync_to_async
 from django_otp.oath import totp
 from django_otp.plugins.otp_static.models import StaticDevice
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_otp.util import random_hex
 from httpx import ASGITransport, AsyncClient
 from parameterized import parameterized
@@ -1995,6 +1996,14 @@ class TestPasswordResetAPI(APIBaseTest):
             verified=True,
         )
         social_auth = UserSocialAuth.objects.create(user=self.user, provider="github", uid="stale-github")
+        totp_device = TOTPDevice.objects.create(user=self.user, name="default", confirmed=True)
+        static_device = StaticDevice.objects.create(user=self.user, name="backup", confirmed=True)
+        personal_api_key = PersonalAPIKey.objects.create(
+            label="Existing API key",
+            user=self.user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
+        )
 
         token = password_reset_token_generator.make_token(self.user)
         response = self.client.post(
@@ -2008,6 +2017,9 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertFalse(WebauthnCredential.objects.filter(user=self.user).exists())
         self.assertFalse(UserSocialAuth.objects.filter(id=social_auth.id).exists())
         self.assertFalse(self.user.passkeys_enabled_for_2fa)
+        self.assertTrue(TOTPDevice.objects.filter(id=totp_device.id).exists())
+        self.assertTrue(StaticDevice.objects.filter(id=static_device.id).exists())
+        self.assertTrue(PersonalAPIKey.objects.filter(id=personal_api_key.id).exists())
 
     def test_password_reset_does_not_clear_pending_email(self):
         self.user.is_email_verified = False
