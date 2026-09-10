@@ -210,6 +210,17 @@ PostgresErrors = {
     "the database system is starting up": "Your database is starting up or recovering. Wait a moment and try again.",
     "SSL/TLS connection is required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
     "server does not support SSL, but SSL was required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
+    # The plaintext half of the SNI rejection mapped above: with sslmode=prefer libpq retries
+    # without SSL after a failed encrypted attempt, and a provider that requires TLS refuses that
+    # too with "FATAL: SSL/TLS connection required. Connect with sslmode=require or higher." The
+    # key above ("SSL/TLS connection is required") is our own `SSLRequiredError` copy and carries an
+    # extra word the server message lacks, so it never substring-matched this. Placed after the
+    # "requires connecting via" entry so the host guidance wins when a message carries both.
+    "SSL/TLS connection required": (
+        'Your database refused an unencrypted connection ("SSL/TLS connection required"). PostHog '
+        "only tries an unencrypted connection after an encrypted one fails, so check that the host "
+        "is the hostname your database provider gave you rather than an IP address, then try again."
+    ),
     # An invalid SSL-negotiation response means the host/port isn't a PostgreSQL server speaking SSL
     # (wrong port, an HTTP/proxy/edge endpoint, or a TCP proxy fronting a paused/deleted database).
     # Map it to an actionable message so validation stops surfacing this expected user/upstream
@@ -779,6 +790,20 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "PostgreSQL server speaking SSL — for example an HTTP, proxy, or edge endpoint, the "
                 "wrong port, or a database that's paused or deleted behind a TCP proxy. Check your "
                 "host and port, then re-enable the sync."
+            ),
+            # The plaintext half of the SNI rejection mapped above: with sslmode=prefer libpq
+            # retries without SSL after a failed encrypted attempt, and a provider that requires
+            # TLS refuses that too with "FATAL: SSL/TLS connection required. Connect with
+            # sslmode=require or higher." The "SSL/TLS connection is required" key below is our own
+            # `SSLRequiredError` copy and carries an extra word the server message lacks, so it
+            # never substring-matched this, and the failure kept being retried. Placed after the
+            # "requires connecting via" entry so the host guidance wins when both wordings arrive
+            # together.
+            "SSL/TLS connection required": (
+                'Your database refused an unencrypted connection ("SSL/TLS connection required"). '
+                "PostHog only tries an unencrypted connection after an encrypted one fails, so "
+                "check that the host for this source is the hostname your database provider gave "
+                "you rather than an IP address, then re-enable the sync."
             ),
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
