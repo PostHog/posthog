@@ -3668,8 +3668,9 @@ def mint_audience_confirm_token(
             OpenApiParameter(
                 "origin_product",
                 OpenApiTypes.STR,
-                enum=HogFlow.OriginProduct.values,
-                description="Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
+                enum=["none", *HogFlow.OriginProduct.values],
+                description="Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops. "
+                "`none` returns workflows with no owning product.",
             ),
             OpenApiParameter(
                 "trigger",

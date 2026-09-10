@@ -23,9 +23,11 @@ export const HogFlowsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     origin_product: zod
-        .enum(['loops'])
+        .enum(['loops', 'none'])
         .optional()
-        .describe('Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.'),
+        .describe(
+            'Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops. `none` returns workflows with no owning product.'
+        ),
     search: zod.string().optional().describe('Case-insensitive search across workflow name and description.'),
     status: zod
         .enum(['active', 'archived', 'draft'])

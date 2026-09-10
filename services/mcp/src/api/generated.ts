@@ -98069,7 +98069,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.
+     * Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops. `none` returns workflows with no owning product.
      */
     origin_product?: HogFlowsListOriginProduct;
     /**
@@ -98098,6 +98098,7 @@ export namespace Schemas {
 
     export const HogFlowsListOriginProduct = {
       Loops: 'loops',
+      None: 'none',
     } as const;
 
     export type HogFlowsListStatus = typeof HogFlowsListStatus[keyof typeof HogFlowsListStatus];
