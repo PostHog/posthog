@@ -59,7 +59,10 @@ export function useSurveyResponseColumns(): Record<string, QueryContextColumn> {
                 render: ({ record }) => <PersonDisplay person={(record as EventType[])[0].person} />,
             },
             ...Object.fromEntries(
-                SURVEY_RESPONSE_CONTEXT_COLUMNS.map((column) => [column.key, { title: column.label }])
+                SURVEY_RESPONSE_CONTEXT_COLUMNS.map((column): [string, QueryContextColumn] => [
+                    column.key,
+                    { title: column.label },
+                ])
             ),
             actions: {
                 title: ' ',

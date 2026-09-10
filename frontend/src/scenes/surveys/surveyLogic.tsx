@@ -283,6 +283,7 @@ const SURVEY_QUERY_TAGS = {
     },
     aggregateResults: { ...SURVEY_QUERY_TAG_BASE, name: 'survey_results_aggregate' as const },
     openEndedResults: { ...SURVEY_QUERY_TAG_BASE, name: 'survey_results_open_ended' as const },
+    responses: { ...SURVEY_QUERY_TAG_BASE, name: 'survey_responses' as const },
 }
 
 const isChoiceSurveyQuestion = (question: SurveyQuestion): question is MultipleSurveyQuestion =>
@@ -3081,6 +3082,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.HogQLQuery,
+                        tags: SURVEY_QUERY_TAGS.responses,
                         query: buildSurveyResponsesQuery(
                             survey,
                             {

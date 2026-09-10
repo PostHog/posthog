@@ -16,7 +16,7 @@ Dismissals and abandonments with no answers do not count as responses.
 The responses table shows one column for each question, plus status, submission time, and person.
 The **Columns** control adds respondent context columns: person ID, session ID, and current URL.
 The query selects only the columns that are turned on, so an export carries the same columns as the table.
-The choice is saved for each user and each survey, because `surveyLogic` is keyed by survey ID.
+The choice is saved in the browser, separately for each survey.
 For any other property, expand a response row to see the full event, or use the SQL query helper.
 
 Survey performance appears on both the Summary and Responses tabs in the redesigned survey view.

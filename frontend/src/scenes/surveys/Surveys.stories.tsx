@@ -22,6 +22,7 @@ import {
 } from '~/types'
 
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
+import { SURVEY_RESPONSE_CONTEXT_COLUMNS, type SurveyResponseContextColumn } from './utils'
 
 const MOCK_BASIC_SURVEY: Survey = {
     id: '0187c279-bcae-0000-34f5-4f121921f005',
@@ -304,9 +305,10 @@ const MOCK_SURVEY_BASE_STATS = {
         ['outcome_counts', 'Tuple(UInt64, UInt64, UInt64)'],
     ],
     results: [
-        [SurveyEventName.SHOWN, 120, 110, '2023-05-02T10:00:00Z', '2023-06-20T10:00:00Z', [120, 0, 0]],
+        // Only the sent row carries real outcome counts; the query hardcodes zeros for the others.
+        [SurveyEventName.SHOWN, 120, 110, '2023-05-02T10:00:00Z', '2023-06-20T10:00:00Z', [0, 0, 0]],
         [SurveyEventName.SENT, 75, 70, '2023-05-02T11:00:00Z', '2023-06-20T09:00:00Z', [60, 9, 6]],
-        [SurveyEventName.DISMISSED, 18, 17, '2023-05-03T10:00:00Z', '2023-06-19T10:00:00Z', [0, 18, 0]],
+        [SurveyEventName.DISMISSED, 18, 17, '2023-05-03T10:00:00Z', '2023-06-19T10:00:00Z', [0, 0, 0]],
     ],
 }
 
@@ -359,12 +361,45 @@ const MOCK_SURVEY_RESPONSE_ROWS = {
     ],
 }
 
+// Respondent context column values, in the same row order as MOCK_SURVEY_RESPONSE_ROWS.
+const MOCK_SURVEY_RESPONSE_CONTEXT: Record<SurveyResponseContextColumn, string[]> = {
+    person_id: ['0187c279-bcae-0000-34f5-4f121921fb01', '0187c279-bcae-0000-34f5-4f121921fb02'],
+    session_id: ['0187c279-bcae-0000-34f5-4f121921fc01', '0187c279-bcae-0000-34f5-4f121921fc02'],
+    current_url: ['https://example.com/pricing', 'https://example.com/settings'],
+}
+
+/**
+ * A HogQL data table reads its columns from the response, so a fixed column list would leave the
+ * Columns control with no visible effect. This answers with the columns the SELECT asked for.
+ */
+function responseRowsFor(sql: string): Record<string, unknown> {
+    const chosen = SURVEY_RESPONSE_CONTEXT_COLUMNS.filter(({ expression }) => sql.includes(expression))
+    if (chosen.length === 0) {
+        return MOCK_SURVEY_RESPONSE_ROWS
+    }
+    const { columns, results } = MOCK_SURVEY_RESPONSE_ROWS
+    return {
+        ...MOCK_SURVEY_RESPONSE_ROWS,
+        // The actions column stays rightmost, matching the generated query.
+        columns: [...columns.slice(0, -1), ...chosen.map(({ key }) => key), 'actions'],
+        results: results.map((row, index) => [
+            ...row.slice(0, -1),
+            ...chosen.map(({ key }) => MOCK_SURVEY_RESPONSE_CONTEXT[key][index]),
+            row[row.length - 1],
+        ]),
+    }
+}
+
+interface SurveyQueryRequestBody {
+    kind?: string
+    query?: { tags?: { name?: string }; query?: string }
+}
+
 /**
  * Both the meta and the SurveyResults story mock the query endpoint, and whichever handler MSW
  * resolves first wins. Sharing one resolver keeps the results tab loading either way.
- * The responses table carries no query tag, so it is recognized by the `response` tuple it selects.
  */
-function resolveSurveyResultsQuery(body: any): Record<string, unknown> | null {
+function resolveSurveyResultsQuery(body: SurveyQueryRequestBody): Record<string, unknown> | null {
     switch (body?.query?.tags?.name) {
         case 'survey_results_aggregate':
             return MOCK_SURVEY_AGGREGATE_RESULTS
@@ -372,9 +407,8 @@ function resolveSurveyResultsQuery(body: any): Record<string, unknown> | null {
             return MOCK_SURVEY_BASE_STATS
         case 'survey_dismissed_sent_overlap':
             return { results: [[60]] }
-    }
-    if (String(body?.query?.query ?? '').includes('AS response')) {
-        return MOCK_SURVEY_RESPONSE_ROWS
+        case 'survey_responses':
+            return responseRowsFor(String(body.query?.query ?? ''))
     }
     return null
 }
@@ -643,7 +677,7 @@ export const SurveyResults: Story = {
             },
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) =>
-                    resolveSurveyResultsQuery(await request.json()) ?? { results: [] },
+                    resolveSurveyResultsQuery((await request.json()) as SurveyQueryRequestBody) ?? { results: [] },
             },
         }),
     ],

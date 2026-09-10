@@ -33,7 +33,7 @@ export function SurveyResponseColumnsMenu(): JSX.Element {
                 type="secondary"
                 size="small"
                 icon={<IconTuning />}
-                tooltip="Add respondent details to the table and to exports"
+                tooltip="Choose which respondent details appear in the table and in exports"
                 data-attr="survey-response-columns-menu"
             >
                 Columns
