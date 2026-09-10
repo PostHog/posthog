@@ -34,6 +34,9 @@ jest.mock('./runStreamLogic', () => {
         key((p: { streamKey: string }) => p.streamKey),
         actions({
             pushHumanMessage: (content: string) => ({ content }),
+            startOptimisticResume: (message: string) => ({ message }),
+            rollbackOptimisticResume: true,
+            attachOptimisticResume: (taskId: string, run: unknown) => ({ taskId, run }),
             pushConversationCleared: true,
             respondToPermission: (payload: unknown) => ({ payload }),
             cancelRun: (run?: unknown) => ({ run }),
@@ -682,11 +685,21 @@ describe('runInteractionLogic', () => {
     })
 
     it('starts a fresh run seeded with the message when the run is terminal', async () => {
+        let resolveRun!: (value: unknown) => void
+        ;(tasksRunCreate as jest.Mock).mockReturnValueOnce(
+            new Promise((resolve) => {
+                resolveRun = resolve
+            })
+        )
         setStatus('completed')
         logic.actions.setComposerFormValues({ draft: 'continue from here' })
+        logic.actions.submitComposerForm()
+        expect(logic.values.composerForm.draft).toBe('')
+        expect(logic.values.startingRun).toBe(true)
+        logic.actions.setComposerFormValues({ draft: 'also check the result' })
 
         await expectLogic(logic, () => {
-            logic.actions.submitComposerForm()
+            resolveRun({ latest_run: { id: 'run-2' } })
         }).toFinishAllListeners()
 
         // No live-run signal for a finished run — it resumes into a new run instead.
@@ -704,14 +717,48 @@ describe('runInteractionLogic', () => {
             },
             expect.objectContaining({ signal: expect.any(AbortSignal) })
         )
-        expect(onRunStarted).toHaveBeenCalledWith('run-2')
-        expect(toolEvents.values.applyBackTargetClaims[RUN_ID]).toBeUndefined()
-        expect(toolEvents.values.applyBackTargetClaims['run-2']).toEqual([
+        expect(onRunStarted).toHaveBeenCalledWith(
+            'run-2',
+            expect.objectContaining({ streamKey: RUN_ID, draft: 'also check the result' })
+        )
+        expect(toolEvents.values.applyBackTargetClaims[RUN_ID]).toEqual([
             { targetId: 'insight-1:activation-1', tools: ['create_insight'] },
         ])
         expect(logic.values.queuedMessages).toEqual([])
-        expect(logic.values.composerForm.draft).toBe('')
+        expect(logic.values.composerForm.draft).toBe('also check the result')
     })
+
+    it.each(['failure', 'missing run'])(
+        'restores the submitted message ahead of a newer draft after %s',
+        async (outcome) => {
+            let resolveRun!: (value: unknown) => void
+            let rejectRun!: (error: Error) => void
+            ;(tasksRunCreate as jest.Mock).mockReturnValueOnce(
+                new Promise((resolve, reject) => {
+                    resolveRun = resolve
+                    rejectRun = reject
+                })
+            )
+            setStatus('completed')
+            logic.actions.setComposerFormValues({ draft: 'continue from here' })
+            logic.actions.submitComposerForm()
+            expect(logic.values.composerForm.draft).toBe('')
+            logic.actions.setComposerFormValues({ draft: 'and check the tests' })
+
+            await expectLogic(logic, () => {
+                if (outcome === 'failure') {
+                    rejectRun(new Error('failed'))
+                } else {
+                    resolveRun({ latest_run: null })
+                }
+            }).toFinishAllListeners()
+
+            expect(logic.values.composerForm.draft).toBe('continue from here\n\nand check the tests')
+            expect(logic.values.startingRun).toBe(false)
+            expect(onRunStarted).not.toHaveBeenCalled()
+            expect(lemonToast.error).toHaveBeenCalledWith('Failed to start a new run. Please try again.')
+        }
+    )
 
     it('warms the resumed run while composing and consumes it before submit', async () => {
         jest.useFakeTimers()
@@ -817,7 +864,7 @@ describe('runInteractionLogic', () => {
         logic.actions.submitComposerForm()
 
         expect(logic.values.startingRun).toBe(true)
-        expect(logic.values.composerForm.draft).toBe('continue from here')
+        expect(logic.values.composerForm.draft).toBe('')
         expect(attachedContextLogic().values.sentContextKeysByTask[TASK_ID]).toBeUndefined()
 
         await expectLogic(logic, () => {
@@ -837,7 +884,7 @@ describe('runInteractionLogic', () => {
         expect((tasksRunCreate as jest.Mock).mock.calls[1].slice(0, 3)).toEqual(
             (tasksRunCreate as jest.Mock).mock.calls[0].slice(0, 3)
         )
-        expect(onRunStarted).toHaveBeenCalledWith('run-2')
+        expect(onRunStarted).toHaveBeenCalledWith('run-2', expect.objectContaining({ streamKey: RUN_ID, draft: '' }))
         expect(logic.values.composerForm.draft).toBe('')
         expect(logic.values.startingRun).toBe(false)
         expect(attachedContextLogic().values.sentContextKeysByTask[TASK_ID]).toEqual(['insight:sig'])
@@ -881,7 +928,7 @@ describe('runInteractionLogic', () => {
                     expect(call[3].headers).toEqual({ 'X-PostHog-Warm-Retry': 'synthetic-retry-token' })
                 }
                 expect(logic.values.startingRun).toBe(true)
-                expect(logic.values.composerForm.draft).toBe('continue from here')
+                expect(logic.values.composerForm.draft).toBe('')
                 expect(attachedContextLogic().values.sentContextKeysByTask[TASK_ID]).toBeUndefined()
                 logic.actions.submitComposerForm()
                 expect(tasksRunCreate).toHaveBeenCalledTimes(4)
@@ -909,7 +956,10 @@ describe('runInteractionLogic', () => {
                 expect(tasksRunCreate).toHaveBeenCalledTimes(4)
                 expect(logic.values.startingRun).toBe(false)
                 if (outcome === 'recovered') {
-                    expect(onRunStarted).toHaveBeenCalledWith('warm-run')
+                    expect(onRunStarted).toHaveBeenCalledWith(
+                        'warm-run',
+                        expect.objectContaining({ streamKey: RUN_ID, draft: '' })
+                    )
                     expect(logic.values.composerForm.draft).toBe('')
                 } else {
                     expect(onRunStarted).not.toHaveBeenCalled()
@@ -1024,7 +1074,7 @@ describe('runInteractionLogic', () => {
 
         const createRequest = (tasksRunCreate as jest.Mock).mock.calls[0][2] as { pending_user_message: string }
         expect(createRequest.pending_user_message).toContain('- insight sig ("Signups")')
-        expect(onRunStarted).toHaveBeenCalledWith('run-2')
+        expect(onRunStarted).toHaveBeenCalledWith('run-2', expect.objectContaining({ streamKey: RUN_ID, draft: '' }))
 
         // The consumer re-points to the new run: a fresh logic instance keyed by the new runId, same task.
         // Sent-context bookkeeping is task-scoped, so the first follow-up must not re-wrap the same ref.
@@ -1131,6 +1181,47 @@ describe('runInteractionLogic', () => {
         // The failed send puts the original back in front of what was typed since, so nothing is lost.
         expect(lemonToast.error).toHaveBeenCalled()
         expect(logic.values.composerForm.draft).toBe('ship it\n\nnext thought')
+    })
+
+    it('flushes a keystroke still buffered in the composer before restoring a failed draft send', async () => {
+        // The composer debounces its writes to kea, so text typed in the last moments of an in-flight send
+        // is still local. Restoring the failed message cancels that pending sync, so it has to be landed
+        // first or it is dropped instead of merged behind the retry.
+        let pendingKeystroke = ''
+        const attached = runInteractionLogic({
+            taskId: TASK_ID,
+            runId: 'flush-run',
+            onRunStarted,
+            flushDraft: () => {
+                if (pendingKeystroke) {
+                    attached.actions.setComposerFormValues({ draft: pendingKeystroke })
+                    pendingKeystroke = ''
+                }
+            },
+        })
+        const unmount = attached.mount()
+        try {
+            let rejectSend: () => void = () => {}
+            ;(tasksRunsCommandCreate as jest.Mock).mockReturnValue(
+                new Promise<void>((_, reject) => {
+                    rejectSend = () => reject(new Error('boom'))
+                })
+            )
+
+            attached.actions.setComposerFormValues({ draft: 'ship it' })
+            attached.actions.submitComposerForm()
+            expect(attached.values.composerForm.draft).toBe('')
+
+            pendingKeystroke = 'next thought'
+
+            await expectLogic(attached, () => {
+                rejectSend()
+            }).toFinishAllListeners()
+
+            expect(attached.values.composerForm.draft).toBe('ship it\n\nnext thought')
+        } finally {
+            unmount()
+        }
     })
 
     it('keeps a follow-up typed during an in-flight queue flush instead of clearing it with the send', async () => {
