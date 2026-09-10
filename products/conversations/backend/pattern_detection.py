@@ -444,11 +444,17 @@ def _refresh_baselines(team: Team, *, now: datetime, sample_window_days: int) ->
         b.topic: (b.dismiss_count, b.confirm_count)
         for b in TicketTopicBaseline.objects.for_team(team.id).only("topic", "dismiss_count", "confirm_count")
     }
+    # A topic carrying human feedback survives the delete below, so it is relearned here even when
+    # the sample no longer holds it. Left out, its rate and day count would keep describing a window
+    # that has passed, and nothing would ever correct them.
+    with_feedback = {topic for topic, (dismissed, confirmed) in feedback.items() if dismissed or confirmed}
     rows: list[TicketTopicBaseline] = []
-    for topic, hours in per_topic_hours.items():
+    for topic in sorted(set(per_topic_hours) | with_feedback):
+        hours = per_topic_hours.get(topic, {})
+        days = per_topic_days.get(topic, set())
         # Only topics seen on more than one day carry a rate worth learning; one-off terms stay unknown
         # so the default bar applies.
-        if len(per_topic_days[topic]) < 2:
+        if len(days) < 2 and topic not in with_feedback:
             continue
         counts = list(hours.values()) + [0] * (total_hours - len(hours))
         dismissed, confirmed = feedback.get(topic, (0, 0))
@@ -458,7 +464,7 @@ def _refresh_baselines(team: Team, *, now: datetime, sample_window_days: int) ->
                 topic=topic,
                 mean_per_hour=statistics.fmean(counts),
                 spread=statistics.pstdev(counts) if len(counts) > 1 else 0.0,
-                distinct_days_seen=len(per_topic_days[topic]),
+                distinct_days_seen=len(days),
                 dismiss_count=dismissed,
                 confirm_count=confirmed,
                 sample_window_days=sample_window_days,

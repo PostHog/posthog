@@ -14,6 +14,7 @@ from parameterized import parameterized
 
 from posthog.models import Team
 from posthog.models.comment import Comment
+from posthog.models.scoping import team_scope
 
 from products.conversations.backend.models import (
     Ticket,
@@ -27,6 +28,7 @@ from products.conversations.backend.pattern_detection import (
     MAX_TOPIC_LENGTH,
     PatternSettings,
     TopicCandidate,
+    refresh_baselines,
     required_requesters,
     run_detection,
 )
@@ -261,6 +263,26 @@ class TestRunDetection(BaseTest):
             call_command("run_ticket_pattern_detection", "--team-id", str(self.team.id), flag, "3")
 
         assert TicketPattern.objects.for_team(self.team.id).count() == 0
+
+    def test_baseline_refresh_relearns_a_topic_that_only_survives_on_feedback(self):
+        # The delete spares a topic with feedback, so nothing else would ever revisit its rate.
+        with team_scope(self.team.id):
+            TicketTopicBaseline.objects.create(
+                team=self.team,
+                topic="login",
+                mean_per_hour=4.0,
+                spread=2.0,
+                distinct_days_seen=9,
+                dismiss_count=1,
+                refreshed_at=self.now - timedelta(days=1),
+            )
+
+        refresh_baselines(self.team, now=self.now, sample_window_days=30)
+
+        baseline = TicketTopicBaseline.objects.for_team(self.team.id).get(topic="login")
+        assert baseline.dismiss_count == 1
+        assert baseline.mean_per_hour == 0.0
+        assert baseline.distinct_days_seen == 0
 
     def test_quiet_pattern_auto_resolves(self):
         self._burst("Cannot login to the dashboard", requesters=5, tickets=5)
