@@ -21,9 +21,13 @@ _SPECIAL_CALLS = frozenset(
         "roundbankers",
         "extracturlparameter",
         "arrayzip",
+        "arrayfold",
+        "arrayreversesort",
         "extractallgroups",
         "replaceregexpone",
         "median",
+        "medianif",
+        "topk",
         "arraymax",
         "arrayenumerate",
         "arrayall",
@@ -226,8 +230,8 @@ class TrinoReadyValidator(TraversingVisitor):
     def visit_cte(self, node: ast.CTE) -> None:
         if node.cte_type != "subquery":
             self._fail("TRINO_SCALAR_CTE_UNSUPPORTED", "scalar CTE", node)
-        if node.materialized is not None or node.using_key is not None:
-            self._fail("TRINO_CTE_MODIFIER_UNSUPPORTED", "CTE modifier", node)
+        if node.using_key is not None:
+            self._fail("TRINO_CTE_MODIFIER_UNSUPPORTED", "CTE USING KEY", node)
         super().visit_cte(node)
 
     def visit_pivot_expr(self, node: ast.PivotExpr) -> None:

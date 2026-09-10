@@ -58,15 +58,17 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
     def _lower_limit_by(self, node: ast.SelectQuery) -> ast.SelectQuery:
         assert node.limit_by is not None
         if node.distinct:
-            raise TrinoLoweringError("TRINO_LIMIT_BY_DISTINCT_UNSUPPORTED", "LIMIT BY with DISTINCT", node)
-        n = self._non_negative_integer(node.limit_by.n, "LIMIT BY count")
-        offset = self._non_negative_integer(node.limit_by.offset_value, "LIMIT BY offset", default=0)
+            node = self._wrap_distinct_limit_by_input(node)
+        limit_by = node.limit_by
+        assert limit_by is not None
+        n = self._non_negative_integer(limit_by.n, "LIMIT BY count")
+        offset = self._non_negative_integer(limit_by.offset_value, "LIMIT BY offset", default=0)
         helper_name = self._helper_name(node, f"__hogql_limit_by_row_{self.wrapper_index}")
         row_number = ast.WindowFunction(
             name="row_number",
             exprs=[],
             over_expr=ast.WindowExpr(
-                partition_by=[self._input_expression(expr, node.select) for expr in node.limit_by.exprs],
+                partition_by=[self._input_expression(expr, node.select) for expr in limit_by.exprs],
                 order_by=(
                     [
                         ast.OrderExpr(expr=self._input_expression(order.expr, node.select), order=order.order)
@@ -104,6 +106,60 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
                 ]
             )
         return self._wrap(node, predicate, helper_name=helper_name)
+
+    def _wrap_distinct_limit_by_input(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        assert node.limit_by is not None
+        output_names = self._output_names(node)
+        selected_expressions = [self._input_expression(expr, node.select) for expr in node.select]
+        projection_keys = [expression_key(expr) for expr in selected_expressions]
+        source_alias = f"__hogql_trino_distinct_{self.wrapper_index}"
+        self.wrapper_index += 1
+
+        partition_by: list[ast.Expr] = []
+        for expr in node.limit_by.exprs:
+            key = expression_key(self._input_expression(expr, node.select))
+            if key not in projection_keys:
+                raise TrinoLoweringError(
+                    "TRINO_LIMIT_BY_DISTINCT_PARTITION_NOT_PROJECTED",
+                    "DISTINCT LIMIT BY expression not present in SELECT",
+                    expr,
+                )
+            partition_by.append(ast.Field(chain=[source_alias, output_names[projection_keys.index(key)]]))
+
+        node.select = [
+            expr
+            if isinstance(expr, ast.Alias) and expr.alias == name and not expr.hidden
+            else ast.Alias(alias=name, expr=expr)
+            for expr, name in zip(node.select, output_names, strict=True)
+        ]
+        outer_order = self._outer_order_by(node, output_names, source_alias)
+        outer_ctes = node.ctes
+        outer_limit = node.limit
+        outer_offset = node.offset
+        outer_limit_with_ties = node.limit_with_ties
+        outer_limit_percent = node.limit_percent
+        limit_by = node.limit_by
+        node.ctes = None
+        node.order_by = None
+        node.limit = None
+        node.offset = None
+        node.limit_by = None
+        node.limit_with_ties = False
+        node.limit_percent = False
+
+        return ast.SelectQuery(
+            type=node.type,
+            ctes=outer_ctes,
+            select=[ast.Field(chain=[source_alias, name]) for name in output_names],
+            select_from=ast.JoinExpr(table=node, alias=source_alias),
+            order_by=outer_order,
+            limit=outer_limit,
+            offset=outer_offset,
+            limit_by=ast.LimitByExpr(n=limit_by.n, exprs=partition_by, offset_value=limit_by.offset_value),
+            limit_with_ties=outer_limit_with_ties,
+            limit_percent=outer_limit_percent,
+            view_name=node.view_name,
+        )
 
     def _wrap(self, node: ast.SelectQuery, predicate: ast.Expr, helper_name: str | None = None) -> ast.SelectQuery:
         source_alias = f"__hogql_trino_source_{self.wrapper_index}"
