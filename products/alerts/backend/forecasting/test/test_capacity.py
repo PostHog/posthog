@@ -6,9 +6,12 @@ from unittest.mock import MagicMock, patch
 from redis.exceptions import RedisError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot
+from posthog.schema_enums import AlertCalculationInterval
+from posthog.temporal.alerts.retry_policy import alert_timeouts
 from posthog.temporal.common.errors import NonReportableError
 
 from products.alerts.backend.forecasting.capacity import (
+    _SLOT_TTL_SECONDS,
     FORECAST_CAPACITY_UNAVAILABLE_MESSAGE,
     FORECAST_SIMULATION_GLOBAL_CONCURRENCY,
     ForecastCapacityUnavailable,
@@ -17,6 +20,15 @@ from products.alerts.backend.forecasting.capacity import (
     forecast_evaluation_slot,
     forecast_simulation_slot,
 )
+
+
+@pytest.mark.parametrize("calculation_interval", [None, AlertCalculationInterval.REAL_TIME])
+def test_a_capacity_lease_outlives_the_scheduled_check_it_stands_for(calculation_interval) -> None:
+    # RateLimit drops an expired member when the pool is full, so a fit that outlives its lease
+    # lets the next caller exceed both ceilings. The activity cap bounds how long that fit runs,
+    # and it lives in a module the lease does not derive from.
+    activity_budget = alert_timeouts(calculation_interval).evaluate_start_to_close.total_seconds()
+    assert _SLOT_TTL_SECONDS > activity_budget
 
 
 def test_forecast_simulation_slot_releases_global_and_team_capacity() -> None:

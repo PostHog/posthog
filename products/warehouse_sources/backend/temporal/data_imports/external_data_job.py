@@ -118,6 +118,15 @@ MAX_INCREMENTAL_SOURCE_RETRIES = 3 if settings.DEBUG else 9
 
 Any_Source_Errors: dict[str, str | None] = {
     "Could not establish session to SSH gateway": None,
+    # Raised by `_check_direct_host` when a direct (untunneled) database connection's host doesn't
+    # resolve, or resolves to a private/internal address. Mirrors the `SSH tunnel host not allowed`
+    # entry: a config problem only the customer can fix, so retrying just re-hits the same
+    # rejection. Match the stable prefix and exclude the volatile host details that follow it.
+    "Database host not allowed": (
+        "PostHog rejected this source's database host because it either couldn't be resolved, or "
+        "resolves to a private/internal address. Check the host is spelled correctly and reachable "
+        "from the public internet, then re-enable the sync."
+    ),
     # Raised by `SSHTunnel.get_tunnel` when `is_auth_valid()` fails — the SSH tunnel private key
     # can't be parsed, or password auth is missing a username/password. Shared by every
     # SSH-capable source (Postgres, Redshift, MySQL, MSSQL, ClickHouse). The auth config is fixed,
@@ -175,6 +184,15 @@ Any_Source_Errors: dict[str, str | None] = {
         "The object storage endpoint URL isn't valid. Its hostname contains characters that S3 "
         "clients reject, such as an underscore. Fix the endpoint URL in your object storage settings, "
         "then re-enable the sync."
+    ),
+    # Raised in shared pipeline code (`table_from_py_list` → `_process_batch`) when a batch carries
+    # rows that aren't objects, such as a REST resource whose selected response field holds arrays or
+    # scalars. Keyless rows carry no column names to build a table from, and the same shape comes back
+    # on every retry. Keep in step with `NON_MAPPING_ROW_ERROR` in arrow_utils.
+    "Rows from this table are not JSON objects": (
+        "This table's rows aren't objects with named fields, so PostHog has no columns to import. "
+        "If the source lets you choose which part of the response to read, point it at a list of "
+        "objects, then re-enable the sync."
     ),
 }
 
@@ -249,6 +267,12 @@ CANCELLED_RUN_MESSAGE = (
     "it or the source is paused. It will run again on its next schedule."
 )
 
+TRANSIENT_SOURCE_ERROR_MESSAGE = (
+    "The source's API kept returning temporary errors, such as rate limits or server errors, so this "
+    "sync run did not finish. This is usually a short problem on the source's side. The sync will run "
+    "again on its next schedule."
+)
+
 
 def _customer_facing_error(cause: BaseException | None) -> str:
     """`latest_error` text a customer reads, without the leaked internal exception class name.
@@ -270,6 +294,13 @@ def _customer_facing_error(cause: BaseException | None) -> str:
     # this one, the source was paused, or a worker was rolled). Give them something readable.
     if isinstance(cause, exceptions.CancelledError):
         return CANCELLED_RUN_MESSAGE
+    # A REST source exhausted every retry on a transient upstream failure (an HTTP 429/5xx, a dropped
+    # connection, or a timeout). Temporal records it as an ApplicationError typed
+    # `RESTClientRetryableError`, whose message is a raw string like "HTTP 503 for <url>". That status
+    # code means nothing to a customer, so replace it with a message that names the cause and says the
+    # sync retries on its next schedule.
+    if getattr(cause, "type", None) == "RESTClientRetryableError":
+        return TRANSIENT_SOURCE_ERROR_MESSAGE
     message = getattr(cause, "message", None)
     return message or str(cause)
 
@@ -460,7 +491,19 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 disable_exclude_workflow_id=activity.info().workflow_id,
             )
         elif not platform_failure:
-            transient_message = _transient_error_message(internal_error_normalized)
+            # A retryable failure that outlasted the whole retry budget lands here with
+            # `latest_error` still set to the raw driver text. The generic transient copy is
+            # consulted first; the source's own exhaustion messages cover the classes it does not
+            # name. Retryability is untouched: the schema is not disabled and the next scheduled
+            # run still tries.
+            transient_message = _transient_error_message(internal_error_normalized) or next(
+                (
+                    message
+                    for error, message in source_cls.get_retry_exhausted_errors().items()
+                    if error_message_matches(internal_error_normalized, [error])
+                ),
+                None,
+            )
             if transient_message is not None:
                 inputs.latest_error = transient_message
 

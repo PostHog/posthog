@@ -69,8 +69,8 @@ function createMockRedis(): MockRedis {
 }
 
 const NAMESPACE = 'test-blob'
-const CURRENT_KEY = `mcp:shared-blob:${NAMESPACE}:v2:current`
-const LOCK_KEY = `mcp:shared-blob:${NAMESPACE}:v2:lock`
+const CURRENT_KEY = `mcp:shared-blob:{${NAMESPACE}}:v3:current`
+const LOCK_KEY = `mcp:shared-blob:{${NAMESPACE}}:v3:lock`
 
 describe('SharedBlobCache', () => {
     let redis: MockRedis

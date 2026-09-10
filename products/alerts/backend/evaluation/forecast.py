@@ -144,6 +144,22 @@ def _forecast_min_samples(horizon: int, interval: IntervalType | None = None) ->
     return bounded_training_points(_required_history_points(horizon, interval), interval)
 
 
+def _forecast_query_intervals(horizon: int, interval: IntervalType | None) -> int:
+    """Intervals of history to ask the query for, which carries a spare one at an hourly interval.
+
+    A relative ``-Nh`` range is wall-clock arithmetic, so an hourly window that holds a
+    spring-forward transition covers one real hour less and the trends runner returns one bucket
+    fewer. The fit window is exactly the size the evaluation requires, so without the spare
+    interval an hourly alert reports not_enough_history for as long as the transition stays inside
+    the window. One spare is enough, because the widest hourly window is about six weeks and no
+    timezone springs forward twice that close together. A coarser interval snaps its range to
+    interval starts, so an hour of drift never changes its bucket count. ``_clean_points`` caps the
+    history it keeps either way, so the spare interval cannot push the fit past its point limit.
+    """
+    samples = _forecast_min_samples(horizon, interval)
+    return samples + 1 if interval == IntervalType.HOUR else samples
+
+
 def _with_resolved_interval(query: TrendsQuery) -> TrendsQuery:
     """The query extraction runs, with a null interval resolved to the daily default.
 
@@ -245,6 +261,19 @@ def _actual_breach(
     )
 
 
+def _breach_moment(result: ExtractionResult, forecast_date: str) -> str:
+    """Name the forecast bucket in the words a notification reader can act on.
+
+    Only an hourly bucket carries a time of day. Coarser buckets are anchored to midnight, so the
+    date is the whole label there. A notification renders the breach message on its own, and the
+    full timestamp reaches only ``triggered_metadata``, so an hourly reader has nowhere else to
+    find the hour. The hour is stated in the timezone the forecast converted its output to.
+    """
+    if result.interval_type != IntervalType.HOUR:
+        return f"on {forecast_date[:10]}"
+    return f"at {datetime.fromisoformat(forecast_date):%Y-%m-%d %H:%M} ({result.forecast_timezone})"
+
+
 def _forecast_breach(
     result: ExtractionResult,
     forecast: ForecastResult,
@@ -266,9 +295,9 @@ def _forecast_breach(
         if comparison is None or threshold is None:
             continue
 
-        breach_date = forecast.dates[index][:10]
         message = (
-            f"The forecast for {label} is {_format_value(result, predicted)} on {breach_date}, "
+            f"The forecast for {label} is {_format_value(result, predicted)} "
+            f"{_breach_moment(result, forecast.dates[index])}, "
             f"{comparison} ({_format_value(result, threshold)})."
         )
         return AlertEvaluationResult(
@@ -416,7 +445,7 @@ class TrendsForecastExtractor:
             insight,
             alert.team,
             trends_query,
-            _forecast_min_samples(horizon, trends_query.interval),
+            _forecast_query_intervals(horizon, trends_query.interval),
             execution_mode,
             series_index=series_index,
             user=alert.created_by,
@@ -439,7 +468,7 @@ class TrendsForecastExtractor:
             insight,
             ctx.team,
             trends_query,
-            _forecast_min_samples(horizon, trends_query.interval),
+            _forecast_query_intervals(horizon, trends_query.interval),
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             series_index=ctx.series_index,
             date_from=_bounded_simulation_date_from(ctx.date_from, team_timezone, today, trends_query.interval),

@@ -8,6 +8,7 @@ from unittest import mock
 
 from django.core.cache import cache
 
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from parameterized import parameterized
 from rest_framework import status
 
@@ -57,6 +58,19 @@ def test_forecast_config_field_canonicalizes_supported_iso_week_dates() -> None:
     )
 
     assert value["target_date"] == target_date.isoformat()
+
+
+def test_forecast_config_field_stores_one_shape_per_meaning() -> None:
+    # update() decides whether the firing condition changed by comparing the stored config, so two
+    # bodies that describe the same alert have to store the same dict. The MCP client always sends
+    # `type` and `engine`; a REST caller can leave both out.
+    minimal = ForecastConfigField().to_internal_value({"condition": "future_breach"})
+    explicit = ForecastConfigField().to_internal_value(
+        {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach", "horizon": None}
+    )
+
+    assert minimal == explicit
+    assert minimal["engine"] == "prophet"
 
 
 def _trends_insight_data(
@@ -119,6 +133,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "snoozed_until": None,
             "skip_weekend": False,
             "schedule_restriction": None,
+            "schedule_start_time": None,
             "last_value": None,
             "investigation_agent_enabled": False,
             "investigation_gates_notifications": False,
@@ -1415,6 +1430,123 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert persisted_alert.next_check_at == (None if clears_next_check else scheduled_check)
         assert persisted_alert.state == (AlertState.NOT_FIRING if clears_next_check else AlertState.FIRING)
 
+    @parameterized.expand(
+        [
+            ("real_time", "real_time", "2026-03-18T09:35:00+00:00"),
+            ("every_15_minutes", "every_15_minutes", "2026-03-18T09:35:00+00:00"),
+            ("hourly", "hourly", "2026-03-18T09:35:00+00:00"),
+            ("daily", "daily", "2026-03-18T09:35:00+00:00"),
+            ("weekly", "weekly", "2026-03-23T09:35:00+00:00"),
+            ("monthly", "monthly", "2026-04-01T09:35:00+00:00"),
+        ]
+    )
+    @freeze_time("2026-03-18T09:30:00Z")
+    def test_create_alert_with_schedule_start_time(
+        self, _name: str, calculation_interval: str, expected_next_check_at: str
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.HIGH_FREQUENCY_ALERTS, "name": "High-frequency alerts"},
+            {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"},
+        ]
+        self.organization.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": self.insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "name": "scheduled alert",
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "calculation_interval": calculation_interval,
+                "schedule_start_time": "09:35",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert response.json()["schedule_start_time"] == "09:35"
+        assert datetime.fromisoformat(
+            response.json()["next_check_at"].replace("Z", "+00:00")
+        ) == datetime.fromisoformat(expected_next_check_at)
+
+    @parameterized.expand(
+        [
+            ("real_time", "real_time"),
+            ("every_15_minutes", "every_15_minutes"),
+            ("hourly", "hourly"),
+            ("daily", "daily"),
+            ("weekly", "weekly"),
+            ("monthly", "monthly"),
+        ]
+    )
+    @freeze_time("2026-03-18T09:00:00Z")
+    def test_patch_schedule_start_time_keeps_the_current_next_check(
+        self, _name: str, calculation_interval: str
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.HIGH_FREQUENCY_ALERTS, "name": "High-frequency alerts"},
+            {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"},
+        ]
+        self.organization.save()
+        alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": self.insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "name": "scheduled alert",
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "calculation_interval": calculation_interval,
+                "schedule_start_time": "09:30",
+            },
+            format="json",
+        ).json()
+        scheduled_check = datetime(2026, 3, 18, 9, 30, tzinfo=UTC)
+        AlertConfiguration.objects.filter(id=alert["id"]).update(next_check_at=scheduled_check)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}",
+            {"schedule_start_time": "08:35"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["schedule_start_time"] == "08:35"
+        assert datetime.fromisoformat(response.json()["next_check_at"].replace("Z", "+00:00")) == scheduled_check
+
+    @freeze_time("2026-03-18T09:00:00Z")
+    def test_patch_schedule_start_time_with_schedule_restriction_keeps_the_current_next_check(self) -> None:
+        alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": self.insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "name": "scheduled alert",
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "calculation_interval": "hourly",
+                "schedule_start_time": "09:30",
+            },
+            format="json",
+        ).json()
+        scheduled_check = datetime(2026, 3, 18, 10, 30, tzinfo=UTC)
+        AlertConfiguration.objects.filter(id=alert["id"]).update(next_check_at=scheduled_check)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}",
+            {
+                "schedule_start_time": "09:35",
+                "schedule_restriction": {"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert datetime.fromisoformat(response.json()["next_check_at"].replace("Z", "+00:00")) == scheduled_check
+
     def test_create_alert_with_schedule_restriction(self) -> None:
         creation_request = {
             "insight": self.insight["id"],
@@ -2074,6 +2206,35 @@ class TestAlertSimulateForecast(APIBaseTest):
             "forecast_condition": "future_breach",
         }
 
+    @parameterized.expand(
+        [
+            ("connect failed", NetworkError("Code: 209.")),
+            ("connect timed out", SocketTimeoutError("timed out")),
+        ]
+    )
+    @mock.patch("products.alerts.backend.presentation.views.alert.capture_exception")
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_forecast_on_insight")
+    def test_simulate_forecast_transient_clickhouse_failure_returns_503(
+        self, _name: str, error: Exception, mock_simulate_forecast, mock_capture
+    ) -> None:
+        mock_simulate_forecast.side_effect = error
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": self.insight["id"],
+                    "forecast_config": {"type": "ForecastConfig", "condition": "future_breach"},
+                    "series_index": 0,
+                },
+            )
+        # The driver classes carry no status_code and do not inherit RuntimeError, so they answered
+        # a generic 500 before. The query runner already reports them, hence no capture here.
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
+        assert response.json()["detail"] == "Forecast simulation is temporarily unavailable. Try again."
+        mock_capture.assert_not_called()
+
     @mock.patch("products.alerts.backend.presentation.views.alert.simulate_forecast_on_insight")
     def test_simulate_forecast_capacity_error_returns_429(self, mock_simulate_forecast) -> None:
         mock_simulate_forecast.side_effect = ForecastSimulationCapacityExceeded
@@ -2495,6 +2656,38 @@ class TestForecastSimulateGuards(APIBaseTest):
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert message in response.content.decode()
+
+    @parameterized.expand(
+        [
+            ("impossible calendar date", "2026-02-30"),
+            ("month out of range", "2026-13-01"),
+            ("not a date at all", "banana"),
+            ("blank", ""),
+        ]
+    )
+    def test_simulate_forecast_rejects_a_target_date_that_is_not_a_date(self, _name: str, target_date: str) -> None:
+        insight = self._insight({"interval": "day"})
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": insight["id"],
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "target_by_date",
+                        "target": 100,
+                        "target_direction": "at_least",
+                        "target_date": target_date,
+                    },
+                },
+            )
+        # ForecastConfig types target_date as a plain string, so an unparseable date reaches the
+        # field's own parse. Left unguarded there it answers 500 with no field named.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "forecast_config"
 
 
 class TestAlertTestDelivery(APIBaseTest):

@@ -1,7 +1,7 @@
 import datetime
 from collections.abc import Callable
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from freezegun import freeze_time
@@ -36,6 +36,7 @@ from products.alerts.backend.evaluation.forecast import (
     TrendsForecastExtractor,
     _forecast_extraction_contract,
     _index_for_target_date,
+    _required_history_points,
     _target_projection,
     evaluate_with_forecast,
     simulate_forecast_on_insight,
@@ -184,6 +185,30 @@ class TestPredictedThresholdBreach:
         }
         assert result.breaches == [
             "The forecast for pageviews is 105.0 users on 2026-02-11, more than the upper threshold (100.0 users)."
+        ]
+
+    def test_an_hourly_breach_names_the_predicted_hour(self) -> None:
+        engine = StubEngine(
+            _forecast(
+                ["2026-02-10T14:00:00-05:00", "2026-02-10T15:00:00-05:00"],
+                [95.0, 105.0],
+            )
+        )
+        extraction = _series(n=49, interval=IntervalType.HOUR)
+        extraction.forecast_timezone = "America/New_York"
+
+        with patch("products.alerts.backend.evaluation.forecast.get_forecast_engine", return_value=engine):
+            result = evaluate_with_forecast(
+                extraction,
+                {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach", "horizon": 2},
+                _threshold(upper=100.0),
+            )
+
+        # A day alone cannot answer which bucket crosses, because the default hourly look-ahead is
+        # a few hours. Notifications render this string on its own.
+        assert result.breaches == [
+            "The forecast for pageviews is 105 at 2026-02-10 15:00 (America/New_York), "
+            "more than the upper threshold (100)."
         ]
 
     @parameterized.expand(
@@ -347,8 +372,8 @@ class TestTargetHorizonContract:
 class TestHistoryRequirements:
     @parameterized.expand(
         [
-            ("daily base minimum", IntervalType.DAY, 3, 13, 14),
-            ("hourly base minimum", IntervalType.HOUR, 3, 47, 48),
+            ("daily base minimum", IntervalType.DAY, 3, 14, 15),
+            ("hourly base minimum", IntervalType.HOUR, 3, 48, 49),
             ("four history points per forecast point", IntervalType.DAY, 8, 31, 32),
         ]
     )
@@ -380,7 +405,7 @@ class TestHistoryRequirements:
         assert result.breaches == []
 
     def test_a_repeated_bucket_label_is_collapsed_before_fitting(self) -> None:
-        extraction = _series(49, interval=IntervalType.HOUR)
+        extraction = _series(50, interval=IntervalType.HOUR)
         points = extraction.series[0].points
         points[25].date = points[24].date
         points[25].value = 123.0
@@ -396,8 +421,8 @@ class TestHistoryRequirements:
         assert result.is_inconclusive is False
         dates = engine.calls[0]["dates"]
         values = engine.calls[0]["values"]
-        assert len(dates) == len(set(dates)) == 48
-        assert len(values) == 48
+        assert len(dates) == len(set(dates)) == 49
+        assert len(values) == 49
         assert values[dates.index(points[24].date)] == 123.0
 
     def test_stale_data_cannot_hide_a_long_effective_target_horizon(self) -> None:
@@ -460,6 +485,50 @@ class TestHistoryRequirements:
         assert extract.call_args.args[3] == 124
         assert evaluation.is_inconclusive is False
         assert engine.calls[0]["horizon"] == 31
+
+    @parameterized.expand(
+        [
+            ("hourly carries a spare bucket", IntervalType.HOUR, 1),
+            ("daily needs no spare", IntervalType.DAY, 0),
+        ]
+    )
+    def test_hourly_extraction_asks_for_more_history_than_the_evaluation_requires(
+        self, _name: str, interval: IntervalType, expected_spare: int
+    ) -> None:
+        # A relative -Nh range is wall-clock arithmetic, so an hourly window holding a
+        # spring-forward transition returns one bucket fewer. The evaluation needs exactly
+        # _required_history_points, so the request has to carry a spare one at that interval.
+        horizon = 7
+        forecast_config = {
+            "type": "ForecastConfig",
+            "engine": "prophet",
+            "condition": "future_breach",
+            "horizon": horizon,
+        }
+        alert = SimpleNamespace(
+            forecast_config=forecast_config,
+            config={"series_index": 0},
+            team=SimpleNamespace(timezone="America/New_York", week_start_day=1, base_currency="USD"),
+            created_by=None,
+        )
+        query = {
+            "kind": "TrendsQuery",
+            "interval": interval.value,
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+        }
+
+        with patch(
+            "products.alerts.backend.evaluation.forecast.extract_trends_series",
+            return_value=_series(interval=interval),
+        ) as extract:
+            TrendsForecastExtractor().extract(
+                cast(AlertConfiguration, alert),
+                cast(Insight, SimpleNamespace()),
+                query,
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            )
+
+        assert extract.call_args.args[3] == _required_history_points(horizon, interval) + expected_spare
 
     @parameterized.expand([("scheduled check", False), ("preview", True)])
     def test_a_null_interval_asks_for_daily_history(self, _name: str, is_preview: bool) -> None:
@@ -579,13 +648,30 @@ def test_scheduled_forecast_capacity_is_deferred_without_extracting() -> None:
     extractor.extract.assert_not_called()
 
 
-def test_forecast_extraction_disables_comparison_in_the_execution_query() -> None:
+@parameterized.expand(
+    [
+        ("comparison insight", {"compareFilter": {"compare": True}}, False, None),
+        ("metric display", {"trendsFilter": {"display": "Metric"}}, None, False),
+        (
+            "metric display on a comparison insight",
+            {"trendsFilter": {"display": "Metric"}, "compareFilter": {"compare": True}},
+            False,
+            False,
+        ),
+    ]
+)
+def test_forecast_extraction_leaves_the_execution_query_no_way_to_compare(
+    _name: str,
+    query_extra: dict[str, Any],
+    expected_compare: bool | None,
+    expected_metric_show_change: bool | None,
+) -> None:
     query = TrendsQuery.model_validate(
         {
             "kind": "TrendsQuery",
             "interval": "day",
             "series": [{"kind": "EventsNode", "event": "$pageview"}],
-            "compareFilter": {"compare": True},
+            **query_extra,
         }
     )
     calculation = SimpleNamespace(result=[])
@@ -602,7 +688,12 @@ def test_forecast_extraction_disables_comparison_in_the_execution_query() -> Non
         )
 
     execution_query = calculate.call_args.kwargs["query_override"]
-    assert execution_query["compareFilter"]["compare"] is False
+    assert execution_query is not None, "the execution query must not run with the insight's own comparison settings"
+    compare_filter = execution_query["compareFilter"]
+    trends_filter = execution_query["trendsFilter"]
+    assert (compare_filter["compare"] if compare_filter else None) is expected_compare
+    # The Metric display forces comparison on from the change pill, so the pill has to be off too.
+    assert (trends_filter["metricShowChange"] if trends_filter else None) is expected_metric_show_change
 
 
 def test_forecast_simulation_rejects_smoothed_trends_before_extraction() -> None:

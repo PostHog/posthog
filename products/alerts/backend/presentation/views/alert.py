@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 
 import posthoganalytics
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view
 from pydantic import (
     Field as PydanticField,
@@ -83,6 +84,7 @@ from products.alerts.backend.facade.api import (
     create_alert_destination_hog_functions,
     simulate_forecast_on_insight,
     soft_delete_alert_destinations,
+    validate_and_normalize_schedule_start_time,
     validate_destination_data,
     validate_forecast_horizon,
 )
@@ -253,10 +255,20 @@ class ForecastConfigField(serializers.JSONField):
             raise serializers.ValidationError(f"Invalid forecast config: {e}")
         target_date = getattr(config, "target_date", None)
         if target_date is not None:
-            # Python accepts every ISO 8601 date form, including week dates. Persist the canonical
-            # calendar form so API clients do not need to implement Python's wider parser.
-            value["target_date"] = date.fromisoformat(target_date).isoformat()
-        return value
+            try:
+                # Python accepts every ISO 8601 date form, including week dates. Persist the
+                # canonical calendar form so API clients do not need to implement Python's wider
+                # parser. ForecastConfig types target_date as a plain string, so an impossible or
+                # malformed date reaches this parse and has to be reported as a field error.
+                config = config.model_copy(update={"target_date": date.fromisoformat(target_date).isoformat()})
+            except ValueError:
+                raise serializers.ValidationError(f"Target date isn't a valid date: {target_date}")
+        # Store one shape per meaning, the way validate_detector_config does. A body that omits
+        # `type` and `engine` describes the same alert as one that sends them, and update() decides
+        # whether the firing condition changed by comparing the stored config. Keeping the caller's
+        # own shape makes that comparison read a shape difference as a condition change, which
+        # resets a firing alert and notifies its subscribers again.
+        return config.model_dump(mode="json")
 
 
 @extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
@@ -511,6 +523,11 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         required=False,
         help_text="How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.",
     )
+    schedule_start_time = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior.",
+    )
     snoozed_until = RelativeDateTimeField(
         allow_null=True,
         required=False,
@@ -573,6 +590,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "enabled",
             "last_notified_at",
             "last_checked_at",
+            "schedule_start_time",
             "next_check_at",
             "checks",
             "checks_total",
@@ -620,6 +638,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         )
         return threshold_instance
 
+    @transaction.atomic
     def create(self, validated_data: dict) -> AlertConfiguration:
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
@@ -639,6 +658,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             validated_data["threshold"] = threshold_instance
 
         instance: AlertConfiguration = super().create(validated_data)
+        if instance.schedule_start_time is not None:
+            instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
+            instance.save(update_fields=["next_check_at"])
 
         for user in subscribed_users:
             AlertSubscription.objects.create(
@@ -653,6 +675,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
     @transaction.atomic
     def update(self, instance, validated_data):
+        instance = AlertConfiguration.objects.select_for_update().get(pk=instance.pk)
         enabled_changed = "enabled" in validated_data and validated_data["enabled"] != instance.enabled
         resulting_enabled = validated_data.get("enabled", instance.enabled)
         if enabled_changed and validated_data["enabled"]:
@@ -733,13 +756,16 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             )
 
         schedule_restriction_changed = False
+        schedule_start_time_changed = False
         if "schedule_restriction" in validated_data:
             new_sr = validated_data["schedule_restriction"]
             if new_sr != instance.schedule_restriction:
                 schedule_restriction_changed = True
+        if "schedule_start_time" in validated_data:
+            schedule_start_time_changed = validated_data["schedule_start_time"] != instance.schedule_start_time
 
         instance = super().update(instance, validated_data)
-        if schedule_restriction_changed:
+        if schedule_restriction_changed and not schedule_start_time_changed:
             instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
             instance.save(update_fields=["next_check_at"])
 
@@ -748,6 +774,12 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
         return instance
+
+    def validate_schedule_start_time(self, value: str | None) -> str | None:
+        try:
+            return validate_and_normalize_schedule_start_time(value)
+        except ValueError:
+            raise serializers.ValidationError("Invalid schedule start time.")
 
     def validate_detector_config(self, value):
         if value is None:
@@ -1730,6 +1762,16 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError(str(e))
         except ForecastSimulationCapacityExceeded:
             raise Throttled(detail="Too many forecasts are already running. Try again shortly.")
+        except (NetworkError, SocketTimeoutError):
+            # The ClickHouse driver raises these while it opens a connection, before any query is
+            # sent, so nothing ran and a retry is safe (see CH_TRANSIENT_ERRORS in posthog/errors.py).
+            # Neither class inherits RuntimeError and neither carries a status_code, so without this
+            # branch a node dropping out of the cluster's load balancer answers 500 instead of the
+            # retryable 503 below. The query runner already captured it, so do not report it twice.
+            return Response(
+                {"detail": "Forecast simulation is temporarily unavailable. Try again."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         except (RuntimeError, ForecastCapacityUnavailable) as error:
             # Covers the engine's ForecastExecutionError (a RuntimeError subclass), the extractor's
             # failure when the query layer returns no result, and a capacity store that cannot be

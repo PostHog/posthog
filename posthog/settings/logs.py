@@ -177,6 +177,8 @@ LOGGING: dict[str, Any] = {
         # at client init, so the source-registry prewarm's INFO lifecycle logs need an
         # explicit level to be visible.
         "posthog.warehouse_source_prewarm": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        # Same clamp: the api query budget logs the team and balance behind every would-be 429 at INFO.
+        "posthog.api_queries_budget": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load": {
             "level": "DEBUG",
             "handlers": ["console"],
@@ -189,5 +191,17 @@ LOGGING: dict[str, Any] = {
         },
         "boto3": {"level": "WARN"},  # boto3 logs are noisy
         "botocore": {"level": "WARN"},  # botocore logs are noisy
+        # Prophet sets its own logger to INFO while prophet.forecaster is imported, which happens
+        # after dictConfig has run, so a level here would be overwritten. Route the logger to the
+        # WARNING-only handler instead: that drops the per-fit seasonality notes, which carry none
+        # of the alert context the forecast engine already logs, and keeps a real warning visible.
+        "prophet": {"handlers": ["console_stderr_warning"], "propagate": False},
+        # prophet.plot logs one ERROR per process for each optional plotting library it cannot
+        # import. plotly is not a dependency of this repo and forecasting never plots, so the
+        # logger has nothing to report and its only records are false errors.
+        "prophet.plot": {"handlers": ["null"], "propagate": False},
+        # cmdstanpy logs the start and the end of every chain it runs. It installs no handler of
+        # its own while the root logger has one, so it inherits this level.
+        "cmdstanpy": {"level": "WARN"},
     },
 }

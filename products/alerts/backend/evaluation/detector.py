@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
-from posthog.schema import TrendsAlertConfig, TrendsQuery
+from posthog.schema import ChartDisplayType, TrendsAlertConfig, TrendsFilter, TrendsQuery
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -77,14 +77,24 @@ def extract_trends_series(
     else:
         filters_override = _date_range_override_for_detector(query, min_samples)
 
+    # The Metric display turns comparison back on for its change pill, so clearing compareFilter
+    # alone does not reach it. TrendsQueryRunner reads metricShowChange to decide, so the pill has
+    # to be off in the same transient copy.
+    forces_compare_for_metric_pill = bool(query.trendsFilter and query.trendsFilter.display == ChartDisplayType.METRIC)
+
     query_override = None
-    if query.compareFilter and query.compareFilter.compare:
+    if (query.compareFilter and query.compareFilter.compare) or forces_compare_for_metric_pill:
         # Comparison responses interleave current and previous-period rows, while alerts select one
         # current series. Disable comparison only for this execution: it prevents selecting the
         # wrong row and avoids calculating data the detector/forecast never consumes.
-        query_override = query.model_copy(
-            update={"compareFilter": query.compareFilter.model_copy(update={"compare": False})}
-        ).model_dump(by_alias=True)
+        overrides: dict[str, Any] = {}
+        if query.compareFilter is not None:
+            overrides["compareFilter"] = query.compareFilter.model_copy(update={"compare": False})
+        if forces_compare_for_metric_pill:
+            overrides["trendsFilter"] = cast(TrendsFilter, query.trendsFilter).model_copy(
+                update={"metricShowChange": False}
+            )
+        query_override = query.model_copy(update=overrides).model_dump(by_alias=True)
 
     calculation_result = calculate_for_query_based_insight(
         insight,

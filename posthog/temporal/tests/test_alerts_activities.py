@@ -28,7 +28,7 @@ from posthog.exceptions import (
     ClickHouseClusterMemoryLimitExceeded,
     ClickHouseQueryMemoryLimitExceeded,
 )
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.slo.types import SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import (
     AlertEvaluationResult,
@@ -41,6 +41,7 @@ from posthog.temporal.alerts.activities import (
     notify_alert,
     prepare_alert,
     record_failed_evaluation,
+    retrieve_due_alerts,
 )
 from posthog.temporal.alerts.retry_policy import alert_timeouts
 from posthog.temporal.alerts.types import (
@@ -49,6 +50,7 @@ from posthog.temporal.alerts.types import (
     PrepareAction,
     PrepareAlertActivityInputs,
     RecordFailedEvaluationActivityInputs,
+    ScheduleDueAlertChecksWorkflowInputs,
     SkipReason,
 )
 
@@ -84,7 +86,7 @@ def _memory_limit_error() -> ClickHouseQueryMemoryLimitExceeded:
 
 
 async def _create_alert(
-    ateam,
+    ateam: Team,
     *,
     query: dict | None = None,
     enabled: bool = True,
@@ -96,6 +98,7 @@ async def _create_alert(
     snoozed_until: datetime | None = None,
     skip_weekend: bool = False,
     schedule_restriction: dict | None = None,
+    schedule_start_time: str | None = None,
     insight_deleted: bool = False,
     state: str = AlertState.NOT_FIRING,
     forecast_config: dict | None = None,
@@ -127,11 +130,37 @@ async def _create_alert(
             skip_weekend=skip_weekend,
             schedule_restriction=schedule_restriction,
             forecast_config=forecast_config,
+            schedule_start_time=schedule_start_time,
             state=state,
         )
         return alert
 
     return await _create()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_retrieve_due_alerts_limits_each_schedule_run_without_starving_other_teams(
+    ateam: Team,
+) -> None:
+    max_alerts_per_run = 2
+    for _ in range(max_alerts_per_run):
+        await _create_alert(ateam, calculation_interval=AlertCalculationInterval.REAL_TIME.value)
+
+    other_team = await sync_to_async(Team.objects.create)(
+        organization_id=ateam.organization_id,
+        project_id=ateam.project_id,
+        name="Other team",
+    )
+    other_alert = await _create_alert(other_team)
+
+    alerts = await ActivityEnvironment().run(
+        retrieve_due_alerts,
+        ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=max_alerts_per_run),
+    )
+
+    assert len(alerts) == max_alerts_per_run
+    assert str(other_alert.id) in {alert.alert_id for alert in alerts}
 
 
 @pytest_asyncio.fixture
@@ -221,7 +250,7 @@ class TestPrepareAlert:
             ),
             pytest.param(
                 "2024-12-21T08:00:00Z",  # Saturday
-                {"skip_weekend": True},
+                {"skip_weekend": True, "schedule_start_time": "08:30"},
                 SkipReason.WEEKEND,
                 True,
                 id="weekend",
@@ -487,6 +516,57 @@ class TestEvaluateAlert:
         check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
         assert check.state == AlertState.FIRING
         assert check.targets_notified == {}
+
+    @pytest.mark.parametrize(
+        ("changed_fields", "expected_enabled", "expected_forecast_config"),
+        [
+            pytest.param(
+                {"enabled": False, "next_check_at": None},
+                False,
+                {"condition": "future_breach", "horizon": 7},
+                id="disabled",
+            ),
+            pytest.param(
+                {"forecast_config": {"condition": "future_breach", "horizon": 14}, "next_check_at": None},
+                True,
+                {"condition": "future_breach", "horizon": 14},
+                id="changed-config",
+            ),
+        ],
+    )
+    async def test_evaluate_discards_a_result_for_an_obsolete_alert(
+        self,
+        alert,
+        changed_fields: dict,
+        expected_enabled: bool,
+        expected_forecast_config: dict,
+    ) -> None:
+        initial_forecast_config = {"condition": "future_breach", "horizon": 7}
+        await sync_to_async(AlertConfiguration.objects.filter(pk=alert.id).update)(
+            forecast_config=initial_forecast_config,
+            next_check_at=None,
+        )
+
+        def change_alert_during_evaluation(_alert: AlertConfiguration) -> AlertEvaluationResult:
+            AlertConfiguration.objects.filter(pk=alert.id).update(**changed_fields)
+            return AlertEvaluationResult(value=100.0, breaches=["value above threshold"])
+
+        with patch(
+            "posthog.temporal.alerts.activities.check_alert_for_insight",
+            side_effect=change_alert_during_evaluation,
+        ):
+            result = await ActivityEnvironment().run(
+                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id))
+            )
+
+        assert result.alert_check_id is None
+        assert result.should_notify is False
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert.id)
+        assert refreshed.enabled is expected_enabled
+        assert refreshed.forecast_config == expected_forecast_config
+        assert refreshed.next_check_at is None
+        count = await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).count)()
+        assert count == 0
 
     async def test_inconclusive_forecast_preserves_firing_state_without_notification(self, alert) -> None:
         alert.state = AlertState.FIRING
