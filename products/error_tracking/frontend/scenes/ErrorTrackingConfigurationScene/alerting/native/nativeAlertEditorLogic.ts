@@ -27,7 +27,11 @@ export type DraftDestination = {
     integrationId: number | null
     /** The SlackChannelPicker's composite `CHANNEL_ID|#name` value. */
     channel: string | null
+    /** Also post each thread reply to the channel. */
+    replyBroadcast: boolean
 }
+
+const EMPTY_DESTINATION: DraftDestination = { integrationId: null, channel: null, replyBroadcast: false }
 
 export type AlertDraft = {
     id: string | null
@@ -67,7 +71,7 @@ function emptyDraft(): AlertDraft {
         otherFilters: {},
         properties: [],
         throttleSeconds: 0,
-        destinations: [{ integrationId: null, channel: null }],
+        destinations: [EMPTY_DESTINATION],
     }
 }
 
@@ -98,6 +102,7 @@ export function draftFromAlert(alert: ErrorTrackingAlertApi): AlertDraft {
             channel: destination.config.channel
                 ? joinChannel(destination.config.channel, destination.config.channel_name)
                 : null,
+            replyBroadcast: destination.config.reply_broadcast ?? false,
         })),
     }
 }
@@ -110,7 +115,11 @@ export function payloadFromDraft(draft: AlertDraft): ErrorTrackingAlertPutReques
             destinations.push({
                 channel_type: 'slack',
                 integration_id: destination.integrationId,
-                config: { channel: parsed.channel, channel_name: parsed.channelName },
+                config: {
+                    channel: parsed.channel,
+                    channel_name: parsed.channelName,
+                    reply_broadcast: destination.replyBroadcast,
+                },
             })
         }
     }
@@ -284,7 +293,7 @@ export const nativeAlertEditorLogic = kea<nativeAlertEditorLogicType>([
                 }),
                 addDestination: (draft) => ({
                     ...draft,
-                    destinations: [...draft.destinations, { integrationId: null, channel: null }],
+                    destinations: [...draft.destinations, EMPTY_DESTINATION],
                 }),
                 updateDestination: (draft, { index, patch }) => ({
                     ...draft,

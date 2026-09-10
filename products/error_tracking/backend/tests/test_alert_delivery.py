@@ -315,9 +315,12 @@ class TestSlackThreadDelivery(AlertTestMixin):
         assert thread.root_headline == "🔴 New issue"
         assert thread.delivered_notification_ids == ["notif-1"]
 
-    def test_reply_posts_into_thread_and_edits_root_on_status_change(self):
+    @parameterized.expand([(False,), (True,)])
+    def test_reply_posts_into_thread_and_edits_root_on_status_change(self, reply_broadcast):
         client = self._mock_slack()
         alert = self._create_alert(triggers=["issue_created"])
+        with team_scope(self.team.id):
+            alert.destinations.update(config={"channel": "C0123", "reply_broadcast": reply_broadcast})
         self._thread(alert)
 
         delivered = deliver_alert_notifications(
@@ -328,6 +331,7 @@ class TestSlackThreadDelivery(AlertTestMixin):
         reply_kwargs = client.chat_postMessage.call_args.kwargs
         assert reply_kwargs["channel"] == "C0123"
         assert reply_kwargs["thread_ts"] == "111.222"
+        assert reply_kwargs["reply_broadcast"] is reply_broadcast
         assert "Resolved by dev@example.com" in reply_kwargs["text"]
         edit_kwargs = client.chat_update.call_args.kwargs
         assert edit_kwargs["ts"] == "111.222"
