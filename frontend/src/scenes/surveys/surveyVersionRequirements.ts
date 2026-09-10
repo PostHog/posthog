@@ -122,12 +122,10 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             'posthog-js': '1.415.0',
             'posthog-react-native': '4.63.0',
             'posthog-ios': '3.70.0',
+            'posthog-android': '3.61.0',
+            posthog_flutter: '5.39.0',
         },
-        unsupportedSdks: [
-            // Renderer is merged, waiting on the posthog-android release that resolves core 6.34.0
-            { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/pull/736' },
-            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/pull/515' },
-        ],
+        unsupportedSdks: [],
         check: (s) => !!s.appearance?.displayIntroScreen,
     },
     {
