@@ -144,8 +144,11 @@ class CanaryRunSnapshot:
 
     label: str  # "a" | "b" (forced precomputed) | "c" (forced direct scan)
     query_id: str  # client_query_id, for system.query_log forensics
-    is_precomputed: bool
+    is_precomputed: bool  # exposures side
     variants: dict[str, CanaryVariantStats]
+    # "precomputed" | "direct_scan" | "not_applicable". Defaulted so snapshots
+    # recorded before this field existed still decode during Temporal replay.
+    metric_events_path: str = "not_applicable"
 
 
 @dataclasses.dataclass(frozen=False)

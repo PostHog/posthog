@@ -285,8 +285,15 @@ def evaluate_canary_runs(
         return CanaryVerdict(outcome=OUTCOME_SKIPPED, detail="empty results (no exposures yet)")
 
     # Checked before the variant-set comparison: a flipped run compares live vs frozen data, so it can
-    # also explain a variant showing up in one run but not another.
-    flipped = [run.label for run in (run_a, run_b) if not run.is_precomputed]
+    # also explain a variant showing up in one run but not another. Both cache sides count: a run whose
+    # metric-events build fell back to scanning events would compare that scan against run c's scan,
+    # which passes trivially without testing the cache.
+    flipped = []
+    for run in (run_a, run_b):
+        if not run.is_precomputed:
+            flipped.append(f"{run.label} (exposures)")
+        elif run.metric_events_path == "direct_scan":
+            flipped.append(f"{run.label} (metric events)")
     if flipped:
         # A forced-precomputed run fell back to the direct scan (e.g. the lazy computation executor timed
         # out). Deviation is expected — not a divergence.
@@ -351,6 +358,7 @@ def _execute_canary_run(
             entry.key: CanaryVariantStats(sum=entry.sum, number_of_samples=entry.number_of_samples)
             for entry in stats_entries
         },
+        metric_events_path=runner.metric_events_path,
     )
 
 
@@ -439,6 +447,8 @@ def run_metric_canary_sync(target: CanaryMetricTarget) -> CanaryMetricResult:
 
 def _format_run_line(run: CanaryRunSnapshot) -> str:
     path = "precomputed" if run.is_precomputed else "direct"
+    if run.metric_events_path != "not_applicable":
+        path += f", metric events {run.metric_events_path}"
     variants = ", ".join(
         f"{key} {stats.sum:g}/{stats.number_of_samples}" for key, stats in sorted(run.variants.items())
     )
