@@ -5624,6 +5624,18 @@ snapshots:
         hash: v1.k794b7964.4ca1129988e8d505656c9b1f1d88398516fdb24c8ffbdabab43251369514b1e6.0jyOb_I1ghN1euG9Pq-PrpA2WhttqN8WfGn2NZvAZ1g
     products-posthog-ai-onboardingtakeover--start-step--light:
         hash: v1.k794b7964.d1fadd3c1c5f4734cf0ae54b7ddc1f64e351cbd0ef1e7b16b78968f98ad51a44.1u2R4G2yaaKLW_puoLCQrIIPiZcZYN6UMWWziknTITk
+    products-posthog-ai-permissioninput--matching-configuration--dark:
+        hash: v1.k794b7964.be1eb7f0d99c67d743ea7fbc6ed8b4e0aefa7b561d30ae83b27546225b1a7703.08vwdgLYXwvFBF_mzK2cuSlZDQkpBLRDhRQY9dENK7I
+    products-posthog-ai-permissioninput--matching-configuration--light:
+        hash: v1.k794b7964.d478b95b0240c651b90a4634978a3f934ce34d7e7a92197d8a4e7aa4db6c0775.BIuSpIBo6bRQIfOtoOmZunCm5FarVrrEyUaCMb7oxlY
+    products-posthog-ai-permissioninput--mismatched-configuration--dark:
+        hash: v1.k794b7964.e331794504d3dcb057098e1a1789f53c59eb6d8aa31f27740ccbb35d8cdca32a.umeyxQPE6YC4nkiAkrcfcmnRKWjj4X5tsyZ88jrulcc
+    products-posthog-ai-permissioninput--mismatched-configuration--light:
+        hash: v1.k794b7964.7e45e80acefb74affb50575a4f3868ecab3150370d9ae9fb5860d3aff67c13ac.tyR_Xmxa03z7l_jFesZcUKXxVr11p-lZPSJw5z1DNbE
+    products-posthog-ai-permissioninput--no-mounted-configuration--dark:
+        hash: v1.k794b7964.10ef12662e0aad971cce5fd6798533d82268e53e801394405ae4d2a7e1926585.CwwPGCbOI5NlRrtyvkynGSsBd6GfSv6TT2nRjx6nlp0
+    products-posthog-ai-permissioninput--no-mounted-configuration--light:
+        hash: v1.k794b7964.3e33b0631e3b4b18ae60d2fa6b20925eaa130788449f03d1405e4540a5b1f177.vhrW1KHPbpGrUc3y5RnupJ-SBZf0jS1Q5oflYn0BpqE
     products-posthog-ai-queuedmessagelist--empty--dark:
         hash: v1.k794b7964.4313fbb59e762d6fc4a87fed828bb6c814697c489997e23111f95df3d84be347.VRvN01m1Gf36IcNO8lzu8q3mqxKWwSRROgPqtbxMiSU
     products-posthog-ai-queuedmessagelist--empty--light:
@@ -5676,6 +5688,22 @@ snapshots:
         hash: v1.k794b7964.dd4706709f78c02664f030c478cbb840a011b1ef2c5667a24b69f2da69d080e1.nyWDTetgXbFNe5gbJh_FRvK-1VQ0IzYQ22doIIokQeA
     products-posthog-ai-threadactivitygroup--unknown-timing--light:
         hash: v1.k794b7964.53f358e67f6b451f54117490d453d1a8ac9df23954e600c5136b8460ba176cdd.oPnmThRLe7TWRQMutMewFyRpHGhuYPXaEhUJN0FrWTs
+    products-posthog-ai-threadview--cold-conversation--dark:
+        hash: v1.k794b7964.f2ea4d6244d77619efdb7bee4249207dcba1e9cb61f2c76046ccdf505b3d094d.3f7mOytsWocBUaj3zrOjwyFwJaXUwfrVoF4jfxhK7_c
+    products-posthog-ai-threadview--cold-conversation--light:
+        hash: v1.k794b7964.291e97735011b04122176c87dd61d03661f36ed98b38c5f5d3f9ef51b3df24bb.iLJJ7McmcFrvRM_y66ydJ3QXTGazhPdjKFhBlYamRxE
+    products-posthog-ai-threadview--cold-task--dark:
+        hash: v1.k794b7964.f2ea4d6244d77619efdb7bee4249207dcba1e9cb61f2c76046ccdf505b3d094d.ejuZIcNm3Sepxnk_c88i8pKEIIL1i3RGBHBlm0uU3WU
+    products-posthog-ai-threadview--cold-task--light:
+        hash: v1.k794b7964.291e97735011b04122176c87dd61d03661f36ed98b38c5f5d3f9ef51b3df24bb.f-IoBwZjdOMxs3nQcUPjJQfMgfXlcIQiMJKdEGD6ejQ
+    products-posthog-ai-threadview--error-tracking--dark:
+        hash: v1.k794b7964.62b3ac295ab91b6a9369da2eda7fe32625e7a09cf294eeea8b325e5a2fd73727.ltGDrgZu-5Hm9-8_mKONY3B6jSpmiHOEq4kTvjMptJE
+    products-posthog-ai-threadview--error-tracking--light:
+        hash: v1.k794b7964.a6d1f1caf6f9db190492f6aaf34e767039050da2fa1054ca20ff4b7f351b664f.dziwktOLa5g7S874DtTlJ4Qgow2OOF24FQ8QwX252SM
+    products-posthog-ai-threadview--saved-insight-query--dark:
+        hash: v1.k794b7964.ff266ce4b007479bd8156db3c4b65a91a8b987d226bfd7622b20085df50d5d1c.2IsZbL1hVZEqsqWd22bNC0XJvJSqSlXHKCc0LGtJzJc
+    products-posthog-ai-threadview--saved-insight-query--light:
+        hash: v1.k794b7964.405cb15303a44d4f837d5569ab4110e07b62ffa71fc418e0aaeb29ddafe8cf8e.mnRWTc0Tao1ttGBbi8vm9n77TQn-RXrRtmeeaDk-yM8
     products-posthog-ai-virtualizedthread--anchored-open--dark:
         hash: v1.k794b7964.eecc3dde9e8475fb8f20f259880edae96e2750529897fc326c44d33ce20e0885.hQlXYcfwZ9CiFajcBHUg9oY6h2QcGrm91CkXVIht-OE
     products-posthog-ai-virtualizedthread--anchored-open--light:
