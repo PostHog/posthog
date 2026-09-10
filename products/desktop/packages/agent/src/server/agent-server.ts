@@ -204,6 +204,14 @@ const UPSTREAM_TURN_RETRY_DELAY_MS = 5_000;
 const PENDING_ARTIFACT_MAX_ATTEMPTS = 4;
 const PENDING_ARTIFACT_RETRY_DELAY_MS = 500;
 
+const POSTHOG_AI_ORIGIN_PRODUCT = "posthog_ai";
+
+export function systemPromptAppendText(
+  prompt: ClaudeCodeConfig["systemPrompt"],
+): string {
+  return (typeof prompt === "string" ? prompt : prompt?.append) ?? "";
+}
+
 export function buildCloudSessionSystemPrompt(
   cloudAppend: string,
   userPrompt: ClaudeCodeConfig["systemPrompt"],
@@ -2019,12 +2027,25 @@ export class AgentServer {
       claudeCodeConfigSchema.shape.systemPrompt.safeParse(
         runState?.systemPrompt,
       );
+    const runStateSystemPromptData = runStateSystemPrompt.success
+      ? runStateSystemPrompt.data
+      : undefined;
+
+    if (
+      preTask?.origin_product === POSTHOG_AI_ORIGIN_PRODUCT &&
+      !systemPromptAppendText(runStateSystemPromptData)
+    ) {
+      this.logger.warn("posthog_ai_run_state_system_prompt_missing", {
+        runId: payload.run_id,
+        parsed: runStateSystemPrompt.success,
+      });
+    }
 
     const sessionSystemPrompt = this.buildSessionSystemPrompt(
       prUrl,
       slackThreadUrl,
       inboxReportUrl,
-      runStateSystemPrompt.success ? runStateSystemPrompt.data : undefined,
+      runStateSystemPromptData,
     );
     const codexInstructions =
       runtimeAdapter === "codex"
@@ -5182,6 +5203,13 @@ ${commonInstructions}
       };
       customHeaders = buildPosthogPropertiesHeaderLines(properties);
       openaiCustomHeaders = buildPosthogPropertiesHeaderRecord(properties);
+      // The Go gateway writes this into the OpenAI body's `service_tier`, which
+      // is the only way a Codex run reaches the flex or priority queue: Codex
+      // itself omits a tier its model catalogue does not advertise. Codex-only,
+      // so it rides the OpenAI record; the Claude path has no tier concept.
+      if (this.config.serviceTier) {
+        openaiCustomHeaders["X-PostHog-Service-Tier"] = this.config.serviceTier;
+      }
     } else {
       customHeaders = buildPosthogScopedPropertyHeaderLines(
         gatewayProperties,
