@@ -430,6 +430,91 @@ class TestLogsMetricRulesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert self.client.get(detail_url).status_code == status.HTTP_200_OK
 
+    def test_create_span_rule_requires_tracing_editor_access(self):
+        # A spans rule's emitted series carry span attribute values readable by anyone
+        # with metrics access — a user denied tracing access must not publish span data
+        # past the tracing permission boundary through this side door.
+        def deny_tracing_only(resource, required_level=None, *args, **kwargs):
+            return resource != "tracing"
+
+        with patch(
+            "products.logs.backend.presentation.views.metric_rules_api.UserAccessControl.check_access_level_for_resource",
+            side_effect=deny_tracing_only,
+        ) as mock_check:
+            response = self.client.post(self.base_url, self._payload(source="spans"), format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        mock_check.assert_any_call("tracing", "editor")
+
+    def test_create_logs_rule_does_not_require_tracing_access(self):
+        def deny_tracing_only(resource, required_level=None, *args, **kwargs):
+            return resource != "tracing"
+
+        with patch(
+            "products.logs.backend.presentation.views.metric_rules_api.UserAccessControl.check_access_level_for_resource",
+            side_effect=deny_tracing_only,
+        ):
+            response = self.client.post(self.base_url, self._payload(source="logs"), format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_update_span_rule_requires_tracing_editor_access(self):
+        created = self.client.post(self.base_url, self._payload(source="spans"), format="json").json()
+        detail_url = f"{self.base_url}{created['id']}/"
+
+        def deny_tracing_only(resource, required_level=None, *args, **kwargs):
+            return resource != "tracing"
+
+        with patch(
+            "products.logs.backend.presentation.views.metric_rules_api.UserAccessControl.check_access_level_for_resource",
+            side_effect=deny_tracing_only,
+        ):
+            response = self.client.patch(detail_url, {"name": "renamed"}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_delete_span_rule_requires_tracing_editor_access(self):
+        created = self.client.post(self.base_url, self._payload(source="spans"), format="json").json()
+        detail_url = f"{self.base_url}{created['id']}/"
+
+        def deny_tracing_only(resource, required_level=None, *args, **kwargs):
+            return resource != "tracing"
+
+        with patch(
+            "products.logs.backend.presentation.views.metric_rules_api.UserAccessControl.check_access_level_for_resource",
+            side_effect=deny_tracing_only,
+        ):
+            response = self.client.delete(detail_url)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert self.client.get(detail_url).status_code == status.HTTP_200_OK
+
+    def test_span_rule_write_scopes_include_tracing_read(self):
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="no-tracing-scope",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["logs:write", "metrics:write"],
+            scoped_teams=[self.team.pk],
+        )
+
+        response = self.client.post(
+            self.base_url,
+            self._payload(source="spans"),
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+        response = self.client.post(
+            self.base_url,
+            self._payload(source="logs"),
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
     @parameterized.expand(
         [
             (["logs:write"], status.HTTP_403_FORBIDDEN),

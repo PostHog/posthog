@@ -304,10 +304,24 @@ class LogsMetricRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
         # Metric rules publish log attribute values into the Metrics product, so API-key
-        # writes need authority over both resources.
+        # writes need authority over both resources. Span rules additionally publish span
+        # attribute values, so they need tracing authority too — the effective source is
+        # the submitted value on create and the loaded row's on update/destroy (source is
+        # immutable, so they cannot disagree).
         if self.action in ("create", "update", "partial_update", "destroy"):
-            return ["logs:write", "metrics:write"]
+            scopes = ["logs:write", "metrics:write"]
+            if self._write_targets_spans(request):
+                scopes.append("tracing:read")
+            return scopes
         return None
+
+    def _write_targets_spans(self, request: Request) -> bool:
+        if self.action == "create":
+            return request.data.get("source") == LogsMetricRule.RecordSource.SPANS
+        if self.action in ("update", "partial_update", "destroy"):
+            instance = self.get_object()
+            return instance.source == LogsMetricRule.RecordSource.SPANS
+        return False
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team_id=self.canonical_team_id)
@@ -320,6 +334,17 @@ class LogsMetricRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         user_access_control = UserAccessControl(user=user, team=canonical_team)
         if not user_access_control.check_access_level_for_resource("metrics", "editor"):
             raise PermissionDenied("Managing metric rules requires editor access to metrics.")
+
+    def _assert_tracing_access_for_span_rules(self, user: User, source: str) -> None:
+        # A spans rule's emitted series carry span attribute values, readable by anyone
+        # with metrics access — so a user denied tracing access must not be able to publish
+        # span data past the tracing permission boundary.
+        if source != LogsMetricRule.RecordSource.SPANS:
+            return
+        canonical_team = self.team.parent_team or self.team
+        user_access_control = UserAccessControl(user=user, team=canonical_team)
+        if not user_access_control.check_access_level_for_resource("tracing", "editor"):
+            raise PermissionDenied("Managing span metric rules requires editor access to tracing.")
 
     def _validate_team_limits(self, serializer: LogsMetricRuleSerializer, exclude_pk: Any = None) -> None:
         team_rules = LogsMetricRule.objects.filter(team_id=self.canonical_team_id)
@@ -356,6 +381,9 @@ class LogsMetricRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         s = cast(LogsMetricRuleSerializer, serializer)
         user = cast(User, self.request.user)
         self._assert_metrics_editor_access(user)
+        self._assert_tracing_access_for_span_rules(
+            user, s.validated_data.get("source", LogsMetricRule.RecordSource.LOGS)
+        )
         with transaction.atomic():
             self._lock_team_rules()
             self._validate_team_limits(s)
@@ -377,6 +405,7 @@ class LogsMetricRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         user = cast(User, self.request.user)
         assert s.instance is not None
         self._assert_metrics_editor_access(user)
+        self._assert_tracing_access_for_span_rules(user, s.instance.source)
         with transaction.atomic():
             self._lock_team_rules()
             self._validate_team_limits(s, exclude_pk=s.instance.pk)
@@ -398,6 +427,7 @@ class LogsMetricRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Same gate as create/update: deleting a rule tears down a metric that metrics
         # users depend on, and AccessControlPermission only evaluates the `logs` scope.
         self._assert_metrics_editor_access(user)
+        self._assert_tracing_access_for_span_rules(user, instance.source)
         report_user_action(
             user,
             "logs metric rule deleted",
