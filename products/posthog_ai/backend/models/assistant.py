@@ -6,9 +6,13 @@ from typing import TYPE_CHECKING, Optional
 from django.db import IntegrityError, models
 from django.utils import timezone
 
+import structlog
+
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel, UUIDTModel
+
+logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -286,6 +290,18 @@ class CoreMemory(UUIDTModel):
         await self.asave()
 
     async def aset_core_memory(self, text: str) -> None:
+        # Unlike append/replace, this path is fed raw model output (onboarding compression), so it can't
+        # reject — it clamps to the cap instead, keeping the stored row within the limit the serializer,
+        # the textarea, and the /remember command all enforce. Without this a verbose model response
+        # writes an over-cap row that the user can then neither save nor edit.
+        if len(text) > CORE_MEMORY_MAX_CHARACTERS:
+            logger.warning(
+                "core_memory_set_truncated",
+                team_id=self.team_id,
+                length=len(text),
+                limit=CORE_MEMORY_MAX_CHARACTERS,
+            )
+            text = text[:CORE_MEMORY_MAX_CHARACTERS]
         self.text = text
         self.scraping_status = CoreMemory.ScrapingStatus.COMPLETED
         await self.asave()
