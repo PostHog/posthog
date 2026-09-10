@@ -459,7 +459,28 @@ def test_check_passes_on_missing_file(runner: CliRunner, tmp_path: Path) -> None
     assert result.exit_code == 0
 
 
-def test_due_lists_entries_that_fail_check_in_the_requested_days(runner: CliRunner, tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "extra_args, expected_lines",
+    [
+        (
+            (),
+            [
+                "• `posthog/test_tomorrow.py` (@team-devex): expired 2026-06-03, `check` fails on 2026-06-11",
+                "• `posthog/test_week_out.py` (@team-devex): expired 2026-06-09, `check` fails on 2026-06-17",
+            ],
+        ),
+        (
+            ("--limit", "1"),
+            [
+                "• `posthog/test_tomorrow.py` (@team-devex): expired 2026-06-03, `check` fails on 2026-06-11",
+                "• 1 more not shown",
+            ],
+        ),
+    ],
+)
+def test_due_lists_entries_that_fail_check_in_the_requested_days(
+    runner: CliRunner, tmp_path: Path, extra_args: tuple[str, ...], expected_lines: list[str]
+) -> None:
     entries = [
         raw_entry(
             id=f"posthog/test_{name}.py",
@@ -469,12 +490,9 @@ def test_due_lists_entries_that_fail_check_in_the_requested_days(runner: CliRunn
         for name, expired_days_ago in (("week_out", 1), ("not_due", 3), ("tomorrow", 7))
     ]
     path = write_file(tmp_path / "q.json", entries)
-    result = cli(runner, path, "due", "--in-days", "7", "--in-days", "1")
+    result = cli(runner, path, "due", "--in-days", "7", "--in-days", "1", *extra_args)
     assert result.exit_code == 0, result.output
-    assert result.output.splitlines() == [
-        "• `posthog/test_tomorrow.py` (@team-devex): fails check on 2026-06-11 (1d)",
-        "• `posthog/test_week_out.py` (@team-devex): fails check on 2026-06-17 (7d)",
-    ]
+    assert result.output.splitlines() == expected_lines
 
 
 def test_repo_quarantine_file_is_valid(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:

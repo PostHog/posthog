@@ -7,7 +7,7 @@ Schema contract and selector grammar: ``hogli_commands.quarantine.core``.
     hogli test:quarantine list [--json]
     hogli test:quarantine remove <id>
     hogli test:quarantine check [--grace-days 7]
-    hogli test:quarantine due --in-days 7 [--in-days 1]
+    hogli test:quarantine due --in-days 7 [--in-days 1] [--limit 10]
 """
 
 from __future__ import annotations
@@ -153,14 +153,27 @@ def check(path: Path, grace_days: int) -> None:
     required=True,
     help="Days until `check` fails. Repeat to match several distances.",
 )
+@click.option(
+    "--limit",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Print at most this many entries, then a count of the rest.",
+)
 @click.pass_obj
-def due(path: Path, in_days: tuple[int, ...]) -> None:
+def due(path: Path, in_days: tuple[int, ...], limit: int | None) -> None:
     today = core.today_utc()
+    lines: list[str] = []
     for entry in sorted(core.load(path).entries, key=lambda e: e.id):
         fails_on = core.check_failure_date(entry)
-        days_left = (fails_on - today).days
-        if days_left in in_days:
-            click.echo(f"• `{entry.id}` ({entry.owner}): fails check on {fails_on.isoformat()} ({days_left}d)")
+        if (fails_on - today).days in in_days:
+            lines.append(
+                f"• `{entry.id}` ({entry.owner}): expired {entry.expires.isoformat()}, `check` fails on {fails_on.isoformat()}"
+            )
+    shown = lines[:limit]
+    for line in shown:
+        click.echo(line)
+    if len(lines) > len(shown):
+        click.echo(f"• {len(lines) - len(shown)} more not shown")
 
 
 # Direct invocation needs only click + stdlib (used by test-quarantine.yml to
