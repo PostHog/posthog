@@ -68,8 +68,7 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
             distinctId: 'test-distinct-id',
         })
 
-        // The model should see the formatted table, not a JSON dump, and no
-        // render note (no UI-app host renders this result).
+        // The model should see the formatted table — not a JSON dump.
         expect(payload.content).toEqual([{ type: 'text', text: FORMATTED_TABLE }])
         // No structuredContent: Claude Code would otherwise prefer it over text,
         // defeating the purpose of the formatted_results override.
@@ -188,8 +187,7 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
 })
 
 // Inline-exec UI-app hosts (PostHog Desktop, Claude Code, Cowork) go through the exec
-// wrapper, which sets `forceUiDataToMeta` + `includeUiResponseMeta` +
-// `includeRenderNote`. The app payload
+// wrapper, which sets `forceUiDataToMeta` + `includeUiResponseMeta`. The app payload
 // should only move onto `_meta` when a compact formatted table takes structuredContent's
 // place for the model — otherwise it stays in the standard structuredContent field so it
 // isn't duplicated under a non-standard `_meta` key.
@@ -206,7 +204,7 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
             distinctId: 'd',
         })
 
-        // Model reads the compact table plus the render note, not the verbose JSON.
+        // Model reads the compact table, not the verbose JSON.
         expect(payload.content[0]!.text).toBe(`${FORMATTED_TABLE}\n\n${UI_APP_RENDER_NOTE}`)
         expect(payload).not.toHaveProperty('structuredContent')
         // The UI app hydrates from _meta since structuredContent was dropped.
@@ -292,8 +290,6 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
             distinctId: 'd',
         })
 
-        // The pointer text stays out of the estimate; the structured payload
-        // and the render-note footer must both stay in it.
         expect(estimateResponseTokens(payload)).toBe(
             estimateTokens(payload.structuredContent) + estimateTokens(UI_APP_RENDER_NOTE)
         )
