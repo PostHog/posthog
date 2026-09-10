@@ -56,6 +56,8 @@ from posthog.models.filters.mixins.utils import cached_property
 # _ROW_LIMIT lives in logic.py so the presentation layer can reach it through the
 # facade-allowed `logic` module; imported here (and re-exported) for the sibling runners.
 from .logic import _ROW_LIMIT, TIME_BUCKET_DATE_RANGE_WHERE, translate_span_filter, with_span_attribute_type_suffix
+from .models import resolved_tracing_distinct_id_attribute_keys, resolved_tracing_session_id_attribute_keys
+from .span_identity import identity_value_expr
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -254,8 +256,33 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
         current_rows, previous_rows = self._run_with_compare()
         return TraceSpansAggregationQueryResponse(results=current_rows, compare=previous_rows)
 
+    @cached_property
+    def _impact_columns(self) -> str:
+        # Appended to the SELECT list rather than always present: reading the attribute maps
+        # is the expensive part of this query, and only the Operations table's Sessions and
+        # Users columns need it. uniq() is HyperLogLog-based and about 1-2% off vs an exact
+        # count(DISTINCT), the tradeoff the impact strip and error tracking already accept.
+        # count(x)/uniq(x) skip NULLs, so spans carrying no identity need no predicate.
+        if not self.query.includeImpact:
+            return ""
+        return """,
+                uniq({session_value}) AS sessions,
+                uniq({person_value}) AS users,
+                count({session_value}) AS spans_with_session_id,
+                count({person_value}) AS spans_with_distinct_id"""
+
     def _build_query(self, query_date_range: QueryDateRange) -> ast.SelectQuery:
         # Single table scan plus hash aggregate. Cheap enough to run unscoped.
+        placeholders: dict[str, ast.Expr] = {
+            "where": self._where_without_date_range(),
+            "limit": ast.Constant(value=self._limit),
+            "offset": ast.Constant(value=self._offset),
+            **query_date_range.to_placeholders(),
+        }
+        if self.query.includeImpact:
+            placeholders["session_value"] = identity_value_expr(resolved_tracing_session_id_attribute_keys(self.team))
+            placeholders["person_value"] = identity_value_expr(resolved_tracing_distinct_id_attribute_keys(self.team))
+
         query = parse_select(
             """
             SELECT
@@ -265,7 +292,9 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
                 sum(duration_nano) AS total_duration_nano,
                 avg(duration_nano) AS avg_duration_nano,
                 quantiles(0.5, 0.95, 0.99, 0.999)(duration_nano) AS duration_quantiles,
-                countIf(status_code = 2) AS error_count
+                countIf(status_code = 2) AS error_count"""
+            + self._impact_columns
+            + """
             FROM posthog.trace_spans
             WHERE {where}
               AND """
@@ -278,18 +307,23 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
             LIMIT {limit}
             OFFSET {offset}
             """,
-            placeholders={
-                "where": self._where_without_date_range(),
-                "limit": ast.Constant(value=self._limit),
-                "offset": ast.Constant(value=self._offset),
-                **query_date_range.to_placeholders(),
-            },
+            placeholders=placeholders,
         )
         assert isinstance(query, ast.SelectQuery)
         return query
 
     def _row_from_clickhouse(self, row: list) -> AggregatedSpanRow:
         p50, p95, p99, p999 = row[5] or (0.0, 0.0, 0.0, 0.0)
+        impact = (
+            {
+                "sessions": row[7],
+                "users": row[8],
+                "spans_with_session_id": row[9],
+                "spans_with_distinct_id": row[10],
+            }
+            if self.query.includeImpact
+            else {}
+        )
         return AggregatedSpanRow(
             service_name=row[0] or "",
             name=row[1] or "",
@@ -301,6 +335,7 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
             p99_duration_nano=float(p99 or 0),
             p999_duration_nano=float(p999 or 0),
             error_count=row[6] or 0,
+            **impact,
         )
 
     def run(self, *args, **kwargs) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:

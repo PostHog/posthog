@@ -3398,7 +3398,29 @@ class AggregatedSpanRow(BaseModel):
     p999_duration_nano: float
     p99_duration_nano: float
     service_name: str
+    sessions: int | None = Field(
+        default=None,
+        description=(
+            "Estimated unique session IDs across this operation's spans. Only set when `includeImpact` is true."
+        ),
+    )
+    spans_with_distinct_id: int | None = Field(
+        default=None,
+        description=(
+            "How many of this operation's spans carry a person distinct ID. Only set when `includeImpact` is true."
+        ),
+    )
+    spans_with_session_id: int | None = Field(
+        default=None,
+        description=("How many of this operation's spans carry a session ID. Only set when `includeImpact` is true."),
+    )
     total_duration_nano: float
+    users: int | None = Field(
+        default=None,
+        description=(
+            "Estimated unique person distinct IDs across this operation's spans. Only set when `includeImpact` is true."
+        ),
+    )
 
 
 class AlertCondition(BaseModel):
@@ -28664,6 +28686,14 @@ class TraceSpansAggregationQuery(BaseModel):
     )
     dateRange: DateRange
     filterGroup: PropertyGroupFilter | None = None
+    includeImpact: bool | None = Field(
+        default=None,
+        description=(
+            "Also aggregate the sessions and people behind each operation. Off by"
+            " default: it reads the span and resource attribute maps, which the rest of"
+            " the aggregation never touches."
+        ),
+    )
     kind: Literal["TraceSpansAggregationQuery"] = "TraceSpansAggregationQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: TraceSpansAggregationQueryResponse | None = None

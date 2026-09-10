@@ -52,6 +52,7 @@ from ..facade.api import (
     run_attribute_breakdown_query,
     run_count_query,
     run_duration_histogram_query,
+    run_impact_query,
     run_latency_heatmap_query,
     run_symbol_stats_query,
 )
@@ -438,6 +439,14 @@ class _TracingAggregationQueryBodySerializer(serializers.Serializer):
             "through results beyond the first page."
         ),
     )
+    includeImpact = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Also return the sessions and people behind each operation. Off by default because it reads the span "
+            "and resource attribute maps, which the rest of the aggregation never touches."
+        ),
+    )
 
 
 class _TracingAggregationRequestSerializer(serializers.Serializer):
@@ -455,6 +464,34 @@ class _AggregatedSpanRowSerializer(serializers.Serializer):
     p99_duration_nano = serializers.FloatField(help_text="99th percentile span duration in nanoseconds.")
     p999_duration_nano = serializers.FloatField(help_text="99.9th percentile span duration in nanoseconds.")
     error_count = serializers.IntegerField(help_text="Spans with OTel status code Error (status_code = 2).")
+    sessions = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Estimated unique session IDs across this group's spans (HyperLogLog, about 1-2% error). "
+            "Null unless the query set `includeImpact`."
+        ),
+    )
+    users = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Estimated unique person distinct IDs across this group's spans (HyperLogLog, about 1-2% error). "
+            "Null unless the query set `includeImpact`."
+        ),
+    )
+    spans_with_session_id = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "How many of this group's spans carry a session ID under the team's configured or conventional "
+            "attribute keys. Null unless the query set `includeImpact`."
+        ),
+    )
+    spans_with_distinct_id = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "How many of this group's spans carry a person distinct ID under the team's configured or conventional "
+            "attribute keys. Null unless the query set `includeImpact`."
+        ),
+    )
 
 
 class _TracingAggregationResponseSerializer(serializers.Serializer):
@@ -626,6 +663,49 @@ class _TracingCountResponseSerializer(serializers.Serializer):
     count = serializers.IntegerField(help_text="Number of spans matching the filters.")
     traceCount = serializers.IntegerField(
         help_text="Number of distinct traces whose root span matches the filters — the trace count shown in the Traces view."
+    )
+
+
+class _TracingImpactRequestSerializer(serializers.Serializer):
+    query = _TracingCountBodySerializer(
+        help_text="The impact query to execute. Takes the same filters as the count query."
+    )
+
+
+class _TracingImpactTopValueSerializer(serializers.Serializer):
+    value = serializers.CharField(help_text="The session ID or person distinct ID.")
+    count = serializers.IntegerField(
+        help_text="Approximate number of matching spans that carry this value (topK estimate)."
+    )
+
+
+class _TracingImpactResponseSerializer(serializers.Serializer):
+    total = serializers.IntegerField(help_text="Number of spans matching the filters.")
+    spansWithSessionId = serializers.IntegerField(
+        help_text=(
+            "How many of the matching spans carry a session ID under the team's configured or conventional "
+            "attribute keys."
+        )
+    )
+    sessions = serializers.IntegerField(
+        help_text="Estimated number of unique session IDs across the matching spans (HyperLogLog, about 1-2% error)."
+    )
+    spansWithDistinctId = serializers.IntegerField(
+        help_text=(
+            "How many of the matching spans carry a person distinct ID under the team's configured or conventional "
+            "attribute keys."
+        )
+    )
+    users = serializers.IntegerField(
+        help_text="Estimated number of unique distinct IDs across the matching spans (HyperLogLog, about 1-2% error)."
+    )
+    topSessions = _TracingImpactTopValueSerializer(
+        many=True,
+        help_text="Top session IDs on the matching spans, ordered by span count descending (topK, at most 5).",
+    )
+    topUsers = _TracingImpactTopValueSerializer(
+        many=True,
+        help_text="Top person distinct IDs on the matching spans, ordered by span count descending (topK, at most 5).",
     )
 
 
@@ -981,6 +1061,52 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         return Response(response.results, status=status.HTTP_200_OK)
 
+    @extend_schema(request=_TracingImpactRequestSerializer, responses={200: _TracingImpactResponseSerializer})
+    @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
+    def impact(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        query_data = request.data.get("query", {}) or {}
+
+        date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
+        filter_group = (
+            self.get_model(self._normalize_filter_group(query_data.get("filterGroup")), PropertyGroupFilter)
+            if query_data.get("filterGroup")
+            else None
+        )
+
+        try:
+            response = run_impact_query(
+                team=self.team,
+                date_range=date_range,
+                service_names=query_data.get("serviceNames", None),
+                status_codes=query_data.get("statusCodes", None),
+                filter_group=filter_group,
+            )
+        except CHQueryErrorTooManyBytes:
+            # The strip is passive decoration beside the results, so an over-wide window gets an
+            # actionable 400 rather than an opaque 500 — same contract as the count pre-flight.
+            return Response(
+                {
+                    "detail": (
+                        "This impact query scans too much data. Narrow the date range or add "
+                        "serviceNames, statusCodes, or filterGroup filters, then retry."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        self._report_usage(
+            request,
+            "tracing impact queried",
+            {
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "service_names_count": len(query_data.get("serviceNames") or []),
+                "status_codes_count": len(query_data.get("statusCodes") or []),
+            },
+        )
+
+        return Response(response.results, status=status.HTTP_200_OK)
+
     @extend_schema(request=_SymbolStatsRequestSerializer, responses={200: _SymbolStatsResponseSerializer})
     @action(detail=False, methods=["POST"], url_path="symbol-stats", required_scopes=["tracing:read"])
     def symbol_stats(self, request: Request, *args, **kwargs) -> Response:
@@ -1187,6 +1313,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             service_names=query_data.get("serviceNames", None),
             limit=min(limit + 1, _ROW_LIMIT),
             offset=offset,
+            include_impact=bool(query_data.get("includeImpact")),
         )
 
         results = list(response.results)
@@ -1207,6 +1334,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 "has_compare": bool(query_data.get("compareFilter")),
                 "has_filter_group": bool(query_data.get("filterGroup")),
                 "service_names_count": len(query_data.get("serviceNames") or []),
+                "include_impact": bool(query_data.get("includeImpact")),
             },
         )
 

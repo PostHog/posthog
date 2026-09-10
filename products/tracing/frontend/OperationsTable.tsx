@@ -1,9 +1,12 @@
 import { useMemo } from 'react'
 
+import { Tooltip } from '@posthog/lemon-ui'
+
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 
+import { formatIdentityCoverage } from './identityCoverage'
 import { formatDuration } from './TraceWaterfallView'
 import { VirtualizedTable, VirtualizedTableColumn } from './VirtualizedTable'
 
@@ -37,7 +40,54 @@ const durationCell =
     (pick: (row: AggregatedSpanRow) => number) =>
     (row: AggregatedSpanRow): JSX.Element => <span className="font-mono">{formatDuration(pick(row))}</span>
 
-function buildColumns(windowMs: number): VirtualizedTableColumn<AggregatedSpanRow>[] {
+const impactCell =
+    (pick: (row: AggregatedSpanRow) => number | undefined, covered: (row: AggregatedSpanRow) => number | undefined) =>
+    (row: AggregatedSpanRow): JSX.Element => {
+        const value = pick(row)
+        if (!value) {
+            return <span className="text-muted">—</span>
+        }
+        // An operation whose spans mostly carry no ID has a count covering a fraction of its
+        // traffic, so the cell says which fraction rather than presenting the estimate as the
+        // whole picture.
+        const coverage = formatIdentityCoverage(covered(row), row.count)
+        return (
+            <Tooltip title={`Estimated from ${coverage} of this operation's spans, the ones carrying the ID.`}>
+                <span>{humanFriendlyNumber(value)}</span>
+            </Tooltip>
+        )
+    }
+
+function buildColumns(windowMs: number, showImpact: boolean): VirtualizedTableColumn<AggregatedSpanRow>[] {
+    const impactColumns: VirtualizedTableColumn<AggregatedSpanRow>[] = showImpact
+        ? [
+              {
+                  key: 'sessions',
+                  title: 'Sessions',
+                  width: 90,
+                  align: 'right',
+                  tooltip: 'Estimated unique sessions behind this operation, over the spans carrying a session ID.',
+                  sorter: (a, b) => (a.sessions ?? 0) - (b.sessions ?? 0),
+                  render: impactCell(
+                      (row) => row.sessions,
+                      (row) => row.spans_with_session_id
+                  ),
+              },
+              {
+                  key: 'users',
+                  title: 'Users',
+                  width: 90,
+                  align: 'right',
+                  tooltip: 'Estimated unique people behind this operation, over the spans carrying a distinct ID.',
+                  sorter: (a, b) => (a.users ?? 0) - (b.users ?? 0),
+                  render: impactCell(
+                      (row) => row.users,
+                      (row) => row.spans_with_distinct_id
+                  ),
+              },
+          ]
+        : []
+
     return [
         {
             key: 'service_name',
@@ -90,6 +140,7 @@ function buildColumns(windowMs: number): VirtualizedTableColumn<AggregatedSpanRo
                 </span>
             ),
         },
+        ...impactColumns,
         {
             key: 'p50',
             title: 'p50',
@@ -148,7 +199,10 @@ export interface OperationsTableProps {
 }
 
 export function OperationsTable({ rows, loading, windowMs, onRowClick }: OperationsTableProps): JSX.Element {
-    const columns = useMemo(() => buildColumns(windowMs), [windowMs])
+    // Driven by the payload rather than the flag: the backend only aggregates the identities when
+    // the query asks for them, so the columns appear exactly when there is something to put in them.
+    const showImpact = useMemo(() => rows.some((row) => row.sessions != null), [rows])
+    const columns = useMemo(() => buildColumns(windowMs, showImpact), [windowMs, showImpact])
     return (
         <VirtualizedTable<AggregatedSpanRow>
             // pinned: identifies stored column widths — renaming resets everyone's widths

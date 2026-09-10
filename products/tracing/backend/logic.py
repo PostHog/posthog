@@ -1082,6 +1082,7 @@ def run_aggregation_query(
     service_names: list[str] | None = None,
     limit: int | None = None,
     offset: int = 0,
+    include_impact: bool = False,
 ) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
     """Facade-friendly entry point for running a flat span aggregation query."""
     # The runners import `translate_span_filter` from this module, so a module-level import here is circular.
@@ -1092,6 +1093,7 @@ def run_aggregation_query(
         compareFilter=compare_filter,
         filterGroup=filter_group,
         serviceNames=service_names,
+        includeImpact=include_impact,
     )
     runner = TraceSpansAggregationQueryRunner(query, team, limit=limit, offset=offset)
     response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)

@@ -2967,6 +2967,7 @@ const api = {
                 compareFilter?: { compare?: boolean; compare_to?: string | null }
                 limit?: number
                 offset?: number
+                includeImpact?: boolean
             },
             signal?: AbortSignal
         ): Promise<{

@@ -4797,6 +4797,14 @@ export interface AggregatedSpanRow {
     p99_duration_nano: number
     p999_duration_nano: number
     error_count: integer
+    /** Estimated unique session IDs across this operation's spans. Only set when `includeImpact` is true. */
+    sessions?: integer
+    /** Estimated unique person distinct IDs across this operation's spans. Only set when `includeImpact` is true. */
+    users?: integer
+    /** How many of this operation's spans carry a session ID. Only set when `includeImpact` is true. */
+    spans_with_session_id?: integer
+    /** How many of this operation's spans carry a person distinct ID. Only set when `includeImpact` is true. */
+    spans_with_distinct_id?: integer
 }
 
 export interface TraceSpansAggregationQuery extends DataNode<TraceSpansAggregationQueryResponse> {
@@ -4806,6 +4814,11 @@ export interface TraceSpansAggregationQuery extends DataNode<TraceSpansAggregati
     compareFilter?: CompareFilter
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
+    /**
+     * Also aggregate the sessions and people behind each operation. Off by default: it reads the
+     * span and resource attribute maps, which the rest of the aggregation never touches.
+     */
+    includeImpact?: boolean
 }
 
 export interface TraceSpansAggregationQueryResponse extends AnalyticsQueryResponseBase {

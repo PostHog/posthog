@@ -3,12 +3,15 @@ import { useActions, useValues } from 'kea'
 import { IconChevronLeft, IconChevronRight, IconList, IconListTree, IconStack } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, type LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { CompareMenuButton } from './components/Comparison/CompareMenuButton'
+import { TracingImpactStrip } from './components/TracingImpactStrip'
 import { tracingConfigLogic } from './tracingConfigLogic'
+import { TRACING_SCENE_VIEWER_ID } from './tracingFiltersLogic'
 import { tracingSceneLogic, type TracingDisplayMode } from './tracingSceneLogic'
 
 /**
@@ -87,6 +90,13 @@ export function TracingDisplayBar(): JSX.Element {
                         {humanFriendlyNumber(totalMatchingFilters)} {displayMode === 'spans' ? 'spans' : 'traces'}{' '}
                         matching filters
                     </span>
+                )}
+                {/* Gated here so the strip's logic (and its query) only mount when the flag is on.
+                    Hidden while comparing, because the impact query covers one window only. */}
+                {inTracesView && !compareActive && (
+                    <FlaggedFeature flag={FEATURE_FLAGS.TRACING_IMPACT_STRIP}>
+                        <TracingImpactStrip id={TRACING_SCENE_VIEWER_ID} />
+                    </FlaggedFeature>
                 )}
             </div>
             {inTracesView && (

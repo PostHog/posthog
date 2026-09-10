@@ -1082,6 +1082,9 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             // The Operations table sorts/filters the full result set client-side, so
                             // request the endpoint's hard cap rather than its small default page.
                             limit: OPERATIONS_AGGREGATION_LIMIT,
+                            // Only the Operations table renders the Sessions and Users columns, and
+                            // the aggregates read attribute maps the rest of the query never touches.
+                            includeImpact: fullRange && !!values.featureFlags[FEATURE_FLAGS.TRACING_IMPACT_STRIP],
                         },
                         controller.signal
                     )

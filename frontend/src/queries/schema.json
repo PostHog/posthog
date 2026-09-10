@@ -1401,8 +1401,24 @@
                 "service_name": {
                     "type": "string"
                 },
+                "sessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Estimated unique session IDs across this operation's spans. Only set when `includeImpact` is true."
+                },
+                "spans_with_distinct_id": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How many of this operation's spans carry a person distinct ID. Only set when `includeImpact` is true."
+                },
+                "spans_with_session_id": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How many of this operation's spans carry a session ID. Only set when `includeImpact` is true."
+                },
                 "total_duration_nano": {
                     "type": "number"
+                },
+                "users": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Estimated unique person distinct IDs across this operation's spans. Only set when `includeImpact` is true."
                 }
             },
             "required": [
@@ -54054,6 +54070,10 @@
                 },
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "includeImpact": {
+                    "description": "Also aggregate the sessions and people behind each operation. Off by default: it reads the span and resource attribute maps, which the rest of the aggregation never touches.",
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "TraceSpansAggregationQuery",

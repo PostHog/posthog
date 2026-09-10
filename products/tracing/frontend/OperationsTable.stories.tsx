@@ -65,6 +65,34 @@ export const Default: Story = {
     args: { rows: ROWS, loading: false, windowMs: 3_600_000 },
 }
 
+/**
+ * The Sessions and Users columns appear when the aggregation was asked for them. The third
+ * operation is a background worker whose spans carry no identity, so its cells stay empty.
+ */
+export const WithImpactColumns: Story = {
+    args: {
+        rows: [
+            {
+                ...ROWS[0],
+                sessions: 214_882,
+                users: 96_204,
+                spans_with_session_id: 1_280_100,
+                spans_with_distinct_id: 1_190_400,
+            },
+            {
+                ...ROWS[1],
+                sessions: 4102,
+                users: 3980,
+                spans_with_session_id: 24_500,
+                spans_with_distinct_id: 24_500,
+            },
+            ROWS[2],
+        ] as AggregatedSpanRow[],
+        loading: false,
+        windowMs: 3_600_000,
+    },
+}
+
 export const Empty: Story = {
     args: { rows: [], loading: false, windowMs: 3_600_000 },
 }

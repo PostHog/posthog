@@ -1,6 +1,7 @@
 """Django models for tracing."""
 
 import logging
+from typing import TYPE_CHECKING
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -10,6 +11,9 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +44,62 @@ DEFAULT_TRACING_SESSION_ID_ATTRIBUTE_KEYS = ["sessionId"]
 
 def default_tracing_session_id_attribute_keys() -> list[str]:
     return list(DEFAULT_TRACING_SESSION_ID_ATTRIBUTE_KEYS)
+
+
+# Built-in distinct-id attribute key conventions. Same list as DISTINCT_ID_KEYS in
+# products/logs/frontend/utils.tsx, which the span attribute table and the trace drawer
+# header already resolve against (via traceIdentity.ts) on top of a team's configured keys.
+# Kept here rather than imported from Logs so tracing stays free of a cross-product
+# dependency; keep the three copies in sync, or the impact counts stop covering the spans
+# the UI renders as person links. Literal keys only: the frontend also matches dot-suffixed
+# variants (e.g. `span.distinct_id`), which an exact map read cannot express.
+DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS = [
+    "distinct.id",
+    "distinct_id",
+    "distinctId",
+    "distinctID",
+    "posthogDistinctId",
+    "posthogDistinctID",
+    "posthog_distinct_id",
+    "posthog.distinct.id",
+    "posthog.distinct_id",
+]
+
+# The session-ID counterpart, mirroring SESSION_ID_KEYS in products/logs/frontend/utils.tsx.
+# `posthogSessionId` is emitted by some pipelines even though no SDK sends it; removing it
+# breaks them.
+SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS = [
+    "session.id",
+    "session_id",
+    "sessionId",
+    "sessionID",
+    "$session_id",
+    "posthogSessionId",
+    "posthogSessionID",
+    "posthog_session_id",
+    "posthog.session.id",
+    "posthog.session_id",
+]
+
+
+def resolved_tracing_distinct_id_attribute_keys(team: "Team") -> list[str]:
+    """The attribute keys that link a span to a person: the team's configured keys (or the
+    default when unconfigured), then the built-in conventions the UI links regardless of
+    config. Deduped, configured keys first."""
+    config = TeamTracingConfig.objects.filter(team=team).first()
+    configured = (
+        config.tracing_distinct_id_attribute_keys if config else None
+    ) or DEFAULT_TRACING_DISTINCT_ID_ATTRIBUTE_KEYS
+    return list(dict.fromkeys([*configured, *DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS]))
+
+
+def resolved_tracing_session_id_attribute_keys(team: "Team") -> list[str]:
+    """The session-ID equivalent of resolved_tracing_distinct_id_attribute_keys."""
+    config = TeamTracingConfig.objects.filter(team=team).first()
+    configured = (
+        config.tracing_session_id_attribute_keys if config else None
+    ) or DEFAULT_TRACING_SESSION_ID_ATTRIBUTE_KEYS
+    return list(dict.fromkeys([*configured, *SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS]))
 
 
 class TeamTracingConfig(models.Model):
