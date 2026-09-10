@@ -46,7 +46,9 @@ _DATAFRAME_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _CODE_PREVIEW_CHARS = 8_000
 
 
-@dataclass
+# Mutable on purpose: `build_dependency_edges` fills the two edge lists in place, and
+# `build_notebook_cell_state` sets the derived status and last run afterwards.
+@dataclass(frozen=False)
 class NotebookCellState:
     node_id: str
     cell_type: str
