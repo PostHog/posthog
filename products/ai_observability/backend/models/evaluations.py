@@ -83,7 +83,7 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
     objects = EvaluationQuerySet.as_manager()
 
     # Core fields
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_index=False)
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
     directory = models.ForeignKey(
