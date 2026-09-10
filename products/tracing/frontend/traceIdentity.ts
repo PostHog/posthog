@@ -50,6 +50,12 @@ export function resolveTraceIdentity(
     }
     return {
         distinctId: singleValueAcrossSpans(spans, getDistinctIdWithKey, configuredDistinctIdKeys),
-        sessionId: singleValueAcrossSpans(spans, getSessionIdWithKey, configuredSessionIdKeys),
+        sessionId: resolveTraceSessionId(spans, configuredSessionIdKeys),
     }
+}
+
+// The session half on its own, for callers that need no person. It keeps the same
+// disagreement rule as `resolveTraceIdentity`, so both surfaces resolve one session or none.
+export function resolveTraceSessionId(spans: Span[], configuredSessionIdKeys: string[] | undefined): string | null {
+    return singleValueAcrossSpans(spans, getSessionIdWithKey, configuredSessionIdKeys)
 }
