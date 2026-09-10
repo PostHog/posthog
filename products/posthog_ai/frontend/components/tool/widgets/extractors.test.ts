@@ -162,6 +162,35 @@ describe('mcp tool adapter extractors', () => {
     })
 
     describe('extractQueryResult', () => {
+        it.each([{}, { connectionId: 'example-connection', sendRawQuery: true }])(
+            'renders SQL from the input when the result is text: %j',
+            (options) => {
+                const input = { query: 'SELECT 1', ...options }
+                const result = extractQueryResult(
+                    toolMessage({ content: [{ type: 'text', text: '1' }] }, input, 'execute-sql')
+                )
+                expect(result?.content.query).toEqual({ kind: 'HogQLQuery', ...input })
+                expect(result?.url).toBeNull()
+            }
+        )
+
+        it.each<Partial<ToolCallMessage>>([
+            { status: 'pending' },
+            { status: 'in_progress' },
+            { status: 'failed' },
+            { rawOutput: { isError: true } },
+            { innerInput: { query: '   ' } },
+            { innerInput: { query: 1 } },
+            { innerInput: undefined },
+        ])('does not render an unsuccessful or malformed SQL call: %j', (overrides) => {
+            expect(
+                extractQueryResult({
+                    ...toolMessage(undefined, { query: 'SELECT 1' }, 'execute-sql'),
+                    ...overrides,
+                })
+            ).toBeNull()
+        })
+
         it.each([
             { kind: 'TrendsQuery', series: [] },
             { kind: 'HogQLQuery', query: 'SELECT 1' },
