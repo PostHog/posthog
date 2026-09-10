@@ -1239,7 +1239,12 @@ class TestAzureBlobIntegration:
         ],
     )
     @override_settings(FORCE_URL_VALIDATION=True)
-    def test_create_azure_blob_integration(self, connection_string, client: HttpClient):
+    @patch("posthog.models.integration.azure_blob.is_url_allowed")
+    def test_create_azure_blob_integration(
+        self, mock_is_url_allowed: MagicMock, connection_string: str, client: HttpClient
+    ) -> None:
+        # Required mock otherwise we need a valid hostname for tests
+        mock_is_url_allowed.return_value = (True, None)
         client.force_login(self.user)
 
         response = client.post(
