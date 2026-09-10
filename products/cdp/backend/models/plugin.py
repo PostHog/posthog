@@ -154,7 +154,8 @@ class Plugin(models.Model):
     organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
-        related_name="+",
+        related_name="plugins",
+        related_query_name="plugin",
         null=True,
     )
     plugin_type = models.CharField(max_length=200, null=True, blank=True, choices=PluginType, default=None)
@@ -195,7 +196,7 @@ class Plugin(models.Model):
     # Some plugins are private, only certain organizations should be able to access them
     # Sometimes we want to deprecate plugins, where the first step is limiting access to organizations using them
     # Sometimes we want to test out new plugins by only enabling them for certain organizations at first
-    has_private_access = models.ManyToManyField(Organization, related_name="+")
+    has_private_access = models.ManyToManyField(Organization)
 
     objects: PluginManager = PluginManager()
 
