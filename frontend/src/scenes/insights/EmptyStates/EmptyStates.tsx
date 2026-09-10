@@ -709,6 +709,7 @@ export function isRawServerErrorTitle(title: string, status?: number | null): bo
 }
 
 type InsightErrorKind =
+    | 'cancelled'
     | 'rate_limit'
     | 'memory_limit'
     | 'invalid_query'
@@ -718,6 +719,7 @@ type InsightErrorKind =
     | 'unknown'
 
 const ERROR_HOGGIES: Record<InsightErrorKind, React.ComponentType<{ className?: string }>> = {
+    cancelled: HedgehogConstruction2,
     rate_limit: HedgehogTrafficController,
     memory_limit: HedgehogMagnifyingGlass,
     invalid_query: HedgehogMagnifyingGlass,
@@ -732,7 +734,10 @@ function InsightErrorHoggie({ kind }: { kind: InsightErrorKind }): JSX.Element {
     return <Hoggie className="w-24 h-24 mb-2" />
 }
 
-function getInsightErrorKind(status?: number | null): InsightErrorKind {
+function getInsightErrorKind(status?: number | null, cancelled?: boolean): InsightErrorKind {
+    if (cancelled) {
+        return 'cancelled'
+    }
     if (status === 429) {
         return 'rate_limit'
     }
@@ -762,6 +767,9 @@ function getInsightErrorTitle(
     fallback: string | JSX.Element | null | undefined,
     titleStatus?: number | null
 ): string | JSX.Element {
+    if (kind === 'cancelled') {
+        return 'You stopped this query'
+    }
     if (kind === 'memory_limit') {
         return "This query couldn't finish"
     }
@@ -789,6 +797,8 @@ function getInsightErrorRemediation(
     backendDetail?: string | null
 ): string | null {
     switch (kind) {
+        case 'cancelled':
+            return 'Try again to run it.'
         case 'rate_limit':
             return `Try again ${retryAfter ?? 'later'}.`
         case 'memory_limit':
@@ -813,6 +823,8 @@ export interface InsightErrorStateProps {
     title?: string | JSX.Element | null
     /** HTTP status of the failed response a string `title` came from, used to tell raw errors from user-facing copy */
     titleStatus?: number | null
+    /** The person stopped the query themselves, so this is not a failure and must not read as one */
+    cancelled?: boolean
     query?: Record<string, any> | Node | null
     queryId?: string | null
     retryAfter?: string | null
@@ -828,6 +840,7 @@ export interface InsightErrorStateProps {
 export function InsightErrorState({
     title,
     titleStatus,
+    cancelled,
     query,
     queryId,
     retryAfter,
@@ -839,7 +852,7 @@ export function InsightErrorState({
     fixWithAIComponent,
     onRetry,
 }: InsightErrorStateProps): JSX.Element {
-    const errorKind = getInsightErrorKind(titleStatus)
+    const errorKind = getInsightErrorKind(titleStatus, cancelled)
     const canRetry = errorKind !== 'invalid_query' && errorKind !== 'permission'
     const safeTitle = typeof title === 'string' && isRawServerErrorTitle(title, titleStatus) ? null : title
     const displayTitle = getInsightErrorTitle(errorKind, safeTitle, titleStatus)
@@ -855,11 +868,16 @@ export function InsightErrorState({
     // query_id lets staff look the actual error up server-side
     useOnMountEffect(() => {
         posthog.capture('insight error message shown', {
-            error_type: 'server',
+            error_type: errorKind,
+            error_status: titleStatus ?? null,
             query_kind: queryKindForReporting(query),
             query_id: queryId ?? null,
         })
     })
+
+    if (cancelled) {
+        excludeDetail = true // The person's own action needs no apology or bug-report guidance
+    }
 
     if (!preflight?.cloud) {
         excludeDetail = true // We don't provide support for self-hosted instances
@@ -892,7 +910,10 @@ export function InsightErrorState({
                 <InsightErrorHoggie kind={errorKind} />
             )}
 
-            <h2 className="text-xl text-danger leading-tight mb-6" data-attr="insight-loading-too-long">
+            <h2
+                className={clsx('text-xl leading-tight mb-6', errorKind !== 'cancelled' && 'text-danger')}
+                data-attr="insight-loading-too-long"
+            >
                 {/* Note that this default phrasing signals the issue is intermittent, */}
                 {/* and that perhaps the query will complete on retry */}
                 {displayTitle}

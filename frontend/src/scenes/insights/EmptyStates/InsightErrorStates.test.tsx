@@ -52,16 +52,44 @@ describe('insight error states', () => {
         })
     })
 
-    it('reports "insight error message shown" when a server error renders', () => {
-        render(<InsightErrorState title="A server error occurred." queryId="test-query-id" />)
+    it.each([
+        { name: 'a status-less failure', titleStatus: undefined, error_type: 'unknown', error_status: null },
+        { name: 'a server error', titleStatus: 500, error_type: 'server', error_status: 500 },
+        { name: 'a gateway timeout', titleStatus: 504, error_type: 'transient', error_status: 504 },
+    ])(
+        'reports the real error type and status on "insight error message shown" for $name',
+        ({ titleStatus, error_type, error_status }) => {
+            render(
+                <InsightErrorState title="A server error occurred." titleStatus={titleStatus} queryId="test-query-id" />
+            )
+
+            const shownCalls = captureSpy.mock.calls.filter((call) => call[0] === 'insight error message shown')
+            expect(shownCalls).toHaveLength(1)
+            expect(shownCalls[0][1]).toEqual({
+                error_type,
+                error_status,
+                query_kind: null,
+                query_id: 'test-query-id',
+            })
+        }
+    )
+
+    it('reports a cancelled query as cancelled, and does not read as a failure', () => {
+        const { container } = render(<InsightErrorState cancelled queryId="test-query-id" />)
 
         const shownCalls = captureSpy.mock.calls.filter((call) => call[0] === 'insight error message shown')
-        expect(shownCalls).toHaveLength(1)
         expect(shownCalls[0][1]).toEqual({
-            error_type: 'server',
+            error_type: 'cancelled',
+            error_status: null,
             query_kind: null,
             query_id: 'test-query-id',
         })
+        expect(screen.getByText('You stopped this query')).toBeTruthy()
+        expect(screen.getByText('Try again to run it.')).toBeTruthy()
+        expect(screen.queryByText('If this persists, submit a bug report.')).toBeNull()
+        expect(
+            container.querySelector('[data-attr="insight-loading-too-long"]')?.classList.contains('text-danger')
+        ).toBe(false)
     })
 
     it('replaces generic invalid-query detail with a next step', () => {
