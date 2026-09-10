@@ -1962,29 +1962,35 @@ class TestProcessTaskWorkflowUnit:
         relay_agent_design_signals_mock.assert_called_once()
 
     @pytest.mark.parametrize(
-        "origin_product, pr_progress_emitted, ci_repetitions, agent_active, mode, expected_status, expected_agent_lost",
+        "origin_product, pr_progress_emitted, ci_repetitions, agent_active, agent_heartbeat_active,"
+        " confirm_agent_lost, mode, expected_status, expected_agent_lost",
         [
-            (None, False, 1, None, "background", "completed", False),
-            ("user_created", False, 1, None, "background", "completed", False),
+            (None, False, 1, None, False, True, "background", "completed", False),
+            ("user_created", False, 1, None, False, True, "background", "completed", False),
             # Onboarding runs are one-shot, so a vanished sandbox is a failed setup rather than a
             # resumable snapshot.
-            ("onboarding", False, 1, None, "background", "failed", False),
+            ("onboarding", False, 1, None, False, True, "background", "failed", False),
             # Unless the PR is already open: the wizard reads the terminal status, so a downgrade
             # would report a failed install over a PR the user can merge.
-            ("onboarding", True, 1, None, "background", "completed", False),
+            ("onboarding", True, 1, None, False, True, "background", "completed", False),
             # No follow-up round ever ran, so the empty PR latch is unobserved rather than evidence
             # of no PR. Downgrading here would fail a run whose PR the loop never got to look at.
-            ("onboarding", False, 0, None, "background", "completed", False),
+            ("onboarding", False, 0, None, False, True, "background", "completed", False),
             # A background sandbox that vanished mid-turn left nothing behind; recording it as
             # completed hides the loss from the user and from every retry surface.
-            (None, False, 1, True, "background", "failed", True),
+            (None, False, 1, True, False, True, "background", "failed", True),
+            # Same loss observed through the ingest transport's heartbeats instead of the relay.
+            (None, False, 1, None, True, True, "background", "failed", True),
             # The turn ended before the sandbox went; the run delivered and must keep completing.
-            (None, False, 1, False, "background", "completed", False),
+            (None, False, 1, False, False, True, "background", "completed", False),
+            # The turn-complete callback was lost, but the ingest plane's Redis flag proves the
+            # turn ended before the sandbox went: the run delivered and must keep completing.
+            (None, False, 1, None, True, False, "background", "completed", False),
             # A PR is already open, so the run delivered despite the mid-turn loss.
-            (None, True, 1, True, "background", "completed", False),
+            (None, True, 1, True, False, True, "background", "completed", False),
             # Interactive sessions resume from the vanished sandbox's snapshot, so they keep the
             # completed status their resume flow reads.
-            (None, False, 1, True, "interactive", "completed", False),
+            (None, False, 1, True, False, True, "interactive", "completed", False),
         ],
     )
     async def test_run_completes_when_credential_refresh_detects_sandbox_gone(
@@ -1994,6 +2000,8 @@ class TestProcessTaskWorkflowUnit:
         pr_progress_emitted,
         ci_repetitions,
         agent_active,
+        agent_heartbeat_active,
+        confirm_agent_lost,
         mode,
         expected_status,
         expected_agent_lost,
@@ -2002,9 +2010,12 @@ class TestProcessTaskWorkflowUnit:
         workflow._pr_progress_emitted = pr_progress_emitted
         workflow._ci_repetitions = ci_repetitions
         workflow._agent_active = agent_active
+        workflow._agent_heartbeat_active = agent_heartbeat_active
         context = _build_context(github_integration_id=123, origin_product=origin_product, state={"mode": mode})
         update_task_run_status_mock = AsyncMock()
         cleanup_sandbox_mock = AsyncMock()
+
+        monkeypatch.setattr(workflow, "_confirm_agent_lost", AsyncMock(return_value=confirm_agent_lost))
 
         monkeypatch.setattr(workflow, "_get_task_processing_context", AsyncMock(return_value=context))
         monkeypatch.setattr(workflow, "_update_task_run_status", update_task_run_status_mock)
@@ -2067,7 +2078,8 @@ class TestProcessTaskWorkflowUnit:
         cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123", complete_stream=True)
 
     @pytest.mark.parametrize(
-        "event, origin_product, pr_progress_emitted, ci_repetitions, agent_active, expected_status, expected_kwargs",
+        "event, origin_product, pr_progress_emitted, ci_repetitions, agent_active, agent_heartbeat_active,"
+        " confirm_agent_lost, expected_status, expected_kwargs",
         [
             (
                 process_task_workflow_module.TaskEvent.TIMEOUT_REACHED,
@@ -2075,6 +2087,8 @@ class TestProcessTaskWorkflowUnit:
                 False,
                 1,
                 None,
+                False,
+                True,
                 "completed",
                 {"timed_out_inactivity": True},
             ),
@@ -2084,6 +2098,8 @@ class TestProcessTaskWorkflowUnit:
                 False,
                 1,
                 None,
+                False,
+                True,
                 "failed",
                 {"timed_out_inactivity": True},
             ),
@@ -2095,6 +2111,8 @@ class TestProcessTaskWorkflowUnit:
                 True,
                 1,
                 None,
+                False,
+                True,
                 "completed",
                 {"timed_out_inactivity": True},
             ),
@@ -2106,6 +2124,8 @@ class TestProcessTaskWorkflowUnit:
                 False,
                 0,
                 None,
+                False,
+                True,
                 "completed",
                 {"timed_out_inactivity": True},
             ),
@@ -2118,6 +2138,8 @@ class TestProcessTaskWorkflowUnit:
                 False,
                 1,
                 True,
+                False,
+                True,
                 "failed",
                 {"timed_out_inactivity": True, "agent_lost": True},
             ),
@@ -2129,6 +2151,8 @@ class TestProcessTaskWorkflowUnit:
                 False,
                 1,
                 False,
+                False,
+                True,
                 "completed",
                 {"timed_out_inactivity": True},
             ),
@@ -2140,6 +2164,35 @@ class TestProcessTaskWorkflowUnit:
                 True,
                 1,
                 True,
+                False,
+                True,
+                "completed",
+                {"timed_out_inactivity": True},
+            ),
+            # The ingest transport's incident shape: active heartbeats flowed, no turn-complete
+            # signal ever arrived, and the ingest plane's Redis flag still reads mid-turn. The
+            # sandbox died working; recording "completed" would hide the loss entirely.
+            (
+                process_task_workflow_module.TaskEvent.TIMEOUT_REACHED,
+                None,
+                False,
+                1,
+                None,
+                True,
+                True,
+                "failed",
+                {"timed_out_inactivity": True, "agent_lost": True},
+            ),
+            # The turn-complete callback was lost but the ingest plane recorded the turn's end
+            # in Redis: the run finished and must never be downgraded on stale evidence.
+            (
+                process_task_workflow_module.TaskEvent.TIMEOUT_REACHED,
+                None,
+                False,
+                1,
+                None,
+                True,
+                False,
                 "completed",
                 {"timed_out_inactivity": True},
             ),
@@ -2149,6 +2202,8 @@ class TestProcessTaskWorkflowUnit:
                 False,
                 1,
                 None,
+                False,
+                True,
                 "failed",
                 {"timeout_marker": TIMED_OUT_WALL_CLOCK_STATE_KEY},
             ),
@@ -2158,6 +2213,8 @@ class TestProcessTaskWorkflowUnit:
                 False,
                 1,
                 None,
+                False,
+                True,
                 "failed",
                 {"timeout_marker": TIMED_OUT_WALL_CLOCK_STATE_KEY},
             ),
@@ -2171,6 +2228,8 @@ class TestProcessTaskWorkflowUnit:
         pr_progress_emitted,
         ci_repetitions,
         agent_active,
+        agent_heartbeat_active,
+        confirm_agent_lost,
         expected_status,
         expected_kwargs,
     ):
@@ -2181,8 +2240,11 @@ class TestProcessTaskWorkflowUnit:
         workflow._pr_progress_emitted = pr_progress_emitted
         workflow._ci_repetitions = ci_repetitions
         workflow._agent_active = agent_active
+        workflow._agent_heartbeat_active = agent_heartbeat_active
         context = _build_context(github_integration_id=123, origin_product=origin_product)
         update_task_run_status_mock = AsyncMock()
+
+        monkeypatch.setattr(workflow, "_confirm_agent_lost", AsyncMock(return_value=confirm_agent_lost))
 
         monkeypatch.setattr(workflow, "_get_task_processing_context", AsyncMock(return_value=context))
         monkeypatch.setattr(workflow, "_update_task_run_status", update_task_run_status_mock)
@@ -2252,6 +2314,48 @@ class TestProcessTaskWorkflowUnit:
         monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
 
         assert workflow._onboarding_exit_is_failure() is expected
+
+    async def test_heartbeats_and_turn_completion_drive_the_mid_turn_evidence(self, monkeypatch):
+        # The ingest transport never sends agent_state_changed(True), so an active heartbeat is
+        # the only mid-turn evidence there; losing either half of this wiring makes the
+        # agent-lost detection silently inert (heartbeat) or permanently stuck (turn complete).
+        workflow = ProcessTaskWorkflow()
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow, "now", Mock(return_value=datetime(2026, 9, 1, tzinfo=UTC))
+        )
+
+        await workflow.heartbeat(agent_active=True)
+        assert workflow._agent_heartbeat_active is True
+
+        await workflow.agent_state_changed(False)
+        assert workflow._agent_heartbeat_active is False
+        assert workflow._end_of_turn_received is True
+
+    @pytest.mark.parametrize(
+        "activity_result, expected",
+        [
+            # Redis still reads mid-turn: the loss is confirmed.
+            (True, True),
+            # The ingest plane recorded the turn's end; the workflow's evidence was stale.
+            (False, False),
+            # No flag at all — the run never went through an ingest plane (SSE relay), so the
+            # workflow's own signals stay authoritative and the verdict stands.
+            (None, True),
+            # A Redis blip must not hide a dead run behind real workflow evidence.
+            (RuntimeError("redis unavailable"), True),
+        ],
+    )
+    async def test_confirm_agent_lost_maps_the_redis_flag(self, monkeypatch, activity_result, expected):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        if isinstance(activity_result, Exception):
+            execute_activity_mock = AsyncMock(side_effect=activity_result)
+        else:
+            execute_activity_mock = AsyncMock(return_value=activity_result)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity_mock)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        assert await workflow._confirm_agent_lost() is expected
 
     async def test_run_keeps_completing_inactivity_timeouts_before_the_lifecycle_patch(self, monkeypatch):
         # Replaying a pre-patch history: neither the onboarding FAILED terminalization nor the
@@ -3191,6 +3295,7 @@ class TestContinueAsNew:
         wf._last_active_time = datetime(2026, 7, 16, 10, 30, tzinfo=UTC)
         wf._agent_active = False
         wf._end_of_turn_received = True
+        wf._agent_heartbeat_active = True
         wf._last_agent_heartbeat_at = datetime(2026, 7, 16, 10, 29, tzinfo=UTC)
         wf._sandbox_ttl_expires_at = datetime(2026, 7, 16, 15, 0, tzinfo=UTC)
         wf._first_command_dispatched_recorded = True
@@ -3225,6 +3330,7 @@ class TestContinueAsNew:
         assert restored._last_active_time == datetime(2026, 7, 16, 10, 30, tzinfo=UTC)
         assert restored._agent_active is False
         assert restored._end_of_turn_received is True
+        assert restored._agent_heartbeat_active is True
         assert restored._last_agent_heartbeat_at == datetime(2026, 7, 16, 10, 29, tzinfo=UTC)
         assert restored._sandbox_ttl_expires_at == datetime(2026, 7, 16, 15, 0, tzinfo=UTC)
         assert restored._first_command_dispatched_recorded is True

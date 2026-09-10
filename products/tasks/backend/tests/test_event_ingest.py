@@ -399,9 +399,12 @@ class TestTaskRunEventIngest(TestCase):
         self.task_run.save(update_fields=["state"])
         token = self._create_token()
 
-        with patch(
-            "products.tasks.backend.logic.stream.event_ingest.notify_task_run_turn_completed"
-        ) as notify_turn_completed:
+        with (
+            patch(
+                "products.tasks.backend.logic.stream.event_ingest.notify_task_run_turn_completed"
+            ) as notify_turn_completed,
+            patch.object(TaskRun, "signal_agent_turn_completed", return_value=True) as signal_turn_completed,
+        ):
             status, body = self._call_ingest(
                 token,
                 [
@@ -419,6 +422,38 @@ class TestTaskRunEventIngest(TestCase):
         self.assertEqual(body["accepted"], 1)
         notify_turn_completed.assert_called_once()
         self.assertEqual(notify_turn_completed.call_args.args[0].id, self.task_run.id)
+        signal_turn_completed.assert_called_once()
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_turn_complete_ingest_signals_workflow_for_background_run(self) -> None:
+        # No push for background runs, but the workflow still needs the end-of-turn
+        # observation: it separates a finished run from one whose sandbox died mid-turn
+        # when the inactivity timeout later fires.
+        token = self._create_token()
+
+        with (
+            patch(
+                "products.tasks.backend.logic.stream.event_ingest.notify_task_run_turn_completed"
+            ) as notify_turn_completed,
+            patch.object(TaskRun, "signal_agent_turn_completed", return_value=True) as signal_turn_completed,
+        ):
+            status, body = self._call_ingest(
+                token,
+                [
+                    {
+                        "seq": 1,
+                        "event": {
+                            "type": "notification",
+                            "notification": {"method": "_posthog/turn_complete"},
+                        },
+                    }
+                ],
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["accepted"], 1)
+        notify_turn_completed.assert_not_called()
+        signal_turn_completed.assert_called_once()
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_workflow_heartbeat_does_not_block_event_loop(self) -> None:

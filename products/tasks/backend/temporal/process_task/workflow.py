@@ -39,6 +39,7 @@ from products.tasks.backend.temporal.process_task.activities.get_pr_context impo
     is_pr_actionable,
 )
 
+from .activities.check_agent_active_flag import CheckAgentActiveFlagInput, check_agent_active_flag
 from .activities.cleanup_sandbox import (
     CleanupSandboxInput,
     CompleteRunStreamInput,
@@ -216,6 +217,7 @@ class ResumedSandboxState:
     image_source: str | None = None
     agent_ready_at: str | None = None
     agent_boot_interaction_telemetry_enabled: bool | None = None
+    agent_heartbeat_active: bool = False
 
 
 @frozen
@@ -493,6 +495,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._client_activity_received: bool = False
         self._agent_active: Optional[bool] = None
         self._end_of_turn_received: Optional[bool] = None
+        # Heartbeat-derived mid-turn evidence for the ingest transport, which sends no
+        # agent_state_changed(True). Kept separate from _agent_active so replays of
+        # pre-rollout histories keep their sandbox-rotation decisions; consumed only
+        # inside the patched agent-lost gate.
+        self._agent_heartbeat_active: bool = False
         self._last_agent_heartbeat_at: Optional[datetime] = None
         self._prewarmed: bool = False
         self._first_user_message_received: bool = False
@@ -1496,6 +1503,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 permission_response_task = None
 
             if self._task_completed:
+                if self._completion_agent_lost and not await self._confirm_agent_lost():
+                    # The ingest plane saw the turn end; the workflow evidence was stale
+                    # (a lost turn-complete callback), so the run completed after all.
+                    self._completion_agent_lost = False
+                    self._completion_status = "completed"
                 await self._update_task_run_status(
                     self._completion_status,
                     error_message=self._completion_error,
@@ -1511,7 +1523,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             elif timeout_event is not None:
                 if self._onboarding_exit_is_failure():
                     await self._update_task_run_status("failed", timed_out_inactivity=True)
-                elif self._agent_lost_mid_turn():
+                elif self._agent_lost_mid_turn() and await self._confirm_agent_lost():
                     # The timer expired because the agent died mid-turn, not because the work
                     # finished; "completed" here would record a dead run as a success.
                     await self._update_task_run_status("failed", timed_out_inactivity=True, agent_lost=True)
@@ -1871,6 +1883,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 chain_started_at=self._chain_start_time().isoformat(),
                 agent_active=self._agent_active,
                 end_of_turn_received=self._end_of_turn_received,
+                agent_heartbeat_active=self._agent_heartbeat_active,
                 last_agent_heartbeat_at=(
                     self._last_agent_heartbeat_at.isoformat() if self._last_agent_heartbeat_at else None
                 ),
@@ -1912,6 +1925,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._last_active_time = datetime.fromisoformat(resumed.last_active_time) if resumed.last_active_time else None
         self._agent_active = resumed.agent_active
         self._end_of_turn_received = resumed.end_of_turn_received
+        self._agent_heartbeat_active = resumed.agent_heartbeat_active
         self._last_agent_heartbeat_at = (
             datetime.fromisoformat(resumed.last_agent_heartbeat_at) if resumed.last_agent_heartbeat_at else None
         )
@@ -2777,20 +2791,49 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return not self.context.create_pr or self._ci_repetitions > 0
 
     def _agent_lost_mid_turn(self) -> bool:
-        """Whether the agent died mid-turn, making a quiet exit a loss rather than a completion.
+        """Whether the agent looks dead mid-turn, making a quiet exit a loss rather than a completion.
 
-        `_agent_active` only ever flips True when the event relay observed the agent working,
-        and back to False on the end-of-turn event, so a truthy value here means a turn started
-        and never ended: the sandbox or agent-server died mid-turn. Only that positive evidence
-        downgrades. `None` keeps the old completion, because it also covers runs whose transport
-        sends no agent-state signal at all (sequenced ingest bypasses the SSE relay) and runs
-        that never started a turn (unclaimed prewarms) — for those, silence proves nothing.
+        Two transports supply the evidence. The SSE relay sends `agent_state_changed`: True when
+        it observed the agent working, False on the end-of-turn event, so `_agent_active is True`
+        means a turn started and never ended. The ingest transport runs no relay; there,
+        `_agent_heartbeat_active` flips True on active-agent heartbeats and back to False when a
+        turn-complete event reaches the workflow through `signal_agent_turn_completed`. Only that
+        positive evidence downgrades — runs that never started a turn (unclaimed prewarms, local
+        runs) keep the old completion, because silence proves nothing.
+
         A run that already delivered its PR keeps completing for the same reason onboarding
-        exempts it: a failed terminal status would report a loss over a delivered PR.
+        exempts it: a failed terminal status would report a loss over a delivered PR. Callers
+        confirm a True verdict with `_confirm_agent_lost` before acting on it, because the
+        turn-complete callback is fire-and-forget and a lost one leaves stale evidence here.
         """
         if not _agent_lost_failed_enabled():
             return False
-        return self._agent_active is True and not self._pr_progress_emitted
+        return (self._agent_active is True or self._agent_heartbeat_active) and not self._pr_progress_emitted
+
+    async def _confirm_agent_lost(self) -> bool:
+        """Check the ingest plane's Redis agent-active flag before failing an agent-lost run.
+
+        Both ingest planes write the flag synchronously while accepting events, before any
+        fire-and-forget callback, so it survives a lost turn-complete signal. '0' proves the
+        turn did end — the run completed and must not be failed. A missing flag means the run
+        never went through an ingest plane (SSE relay), where the workflow's own signals are
+        authoritative, so the verdict stands; so does an activity failure, because the workflow
+        evidence is real and a Redis blip must not hide a dead run.
+        """
+        try:
+            flag = await workflow.execute_activity(
+                check_agent_active_flag,
+                CheckAgentActiveFlagInput(run_id=self.context.run_id, team_id=self.context.team_id),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        except Exception as e:
+            workflow.logger.warning(
+                "agent_lost_confirmation_failed",
+                extra={"run_id": self.context.run_id, "error": str(e)},
+            )
+            return True
+        return flag is not False
 
     def _mark_sandbox_gone(self) -> None:
         # A sandbox that vanished mid-setup is a failed setup for onboarding; see
@@ -3296,6 +3339,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._heartbeat_received = True
         self._last_active_time = now
         self._last_agent_heartbeat_at = now
+        self._agent_heartbeat_active = True
 
     @temporalio.workflow.signal
     async def client_activity(self) -> None:
@@ -3306,6 +3350,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def agent_state_changed(self, agent_active: bool) -> None:
         self._agent_active = agent_active
         self._end_of_turn_received = not agent_active
+        self._agent_heartbeat_active = agent_active
 
     @temporalio.workflow.signal
     async def agent_command_dispatched(self) -> None:
