@@ -43,7 +43,7 @@ export function alertModeOptions({
         options.push({
             value: 'forecast',
             label: 'Forecast',
-            description: 'Alert on where this metric is heading, using its trend and weekly pattern.',
+            description: 'Alert on where this metric is heading, based on the trend in its recent history.',
             'data-attr': 'alertForm-mode-forecast',
             disabledReason: forecastDisabledReason,
         })

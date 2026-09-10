@@ -23,13 +23,17 @@ describe('alertModeOptions', () => {
 
         expect(describe_(true)).not.toEqual(describe_(false))
     })
-    it('describes forecast without naming only one of its conditions', () => {
+    it('describes forecast without naming one condition or a cycle some intervals never fit', () => {
         const forecast = alertModeOptions({
             supportsAnomalyDetection: false,
             supportsForecast: true,
             showAnomalyGuidance: false,
         }).find((option) => option.value === 'forecast')
         expect(forecast?.description).not.toContain('threshold')
+        // Prophet fits a weekly or monthly insight trend only, so naming a weekly pattern here
+        // would describe the daily case as if it were every case. See `min_forecast_points` in
+        // products/alerts/backend/forecasting/engine.py.
+        expect(forecast?.description).not.toMatch(/weekly|seasonal/i)
     })
 
     it('keeps an unavailable existing forecast visible but prevents selecting it again', () => {
