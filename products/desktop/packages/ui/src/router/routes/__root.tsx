@@ -64,7 +64,7 @@ import { UpdateAvailableModal } from "@posthog/ui/features/updates/UpdateAvailab
 import { WhatsNewModal } from "@posthog/ui/features/updates/WhatsNewModal";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { AnimatedLogo } from "@posthog/ui/primitives/AnimatedLogo";
-import { isSettingsRouteId } from "@posthog/ui/router/navigationBridge";
+import { useSettingsOverlay } from "@posthog/ui/router/reportNavigation";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { openTask, openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
@@ -282,10 +282,9 @@ function RootLayout() {
   useEffect(() => onFeatureFlagsLoaded(() => setFlagsLoaded(true)), []);
 
   // Settings is a full-page route — drop the app chrome (header/sidebar/
-  // space-switcher) so the panel occupies the full window.
-  const isSettingsRoute = useRouterState({
-    select: (s) => s.matches.some((m) => isSettingsRouteId(m.routeId)),
-  });
+  // space-switcher) so the panel occupies the full window. A report opened
+  // from settings hosts the same portal, so it counts as settings here too.
+  const isSettingsRoute = useSettingsOverlay();
 
   // ShellLayout draws the in-pane header under `_shell`, so the shared
   // ContentHeader is mounted only where that layout isn't.
@@ -486,9 +485,7 @@ function RootLayout() {
           tasks={visualTaskOrder}
           activeTaskId={activeTaskId}
           allTasks={tasks ?? []}
-          isOnNewTask={
-            view.type === "task-input" || view.type === "task-pending"
-          }
+          isOnNewTask={view.type === "task-input"}
           onNavigateToTask={openTask}
           onNewTask={openTaskInput}
         />

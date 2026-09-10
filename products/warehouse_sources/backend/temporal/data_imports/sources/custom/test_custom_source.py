@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from urllib.parse import quote
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -585,7 +585,7 @@ class TestCustomSourceOAuth2IntegrationWiring(BaseTest):
         fresh = CustomOAuth2Integration.objects.for_team(self.team.pk).get(pk=integration.pk)
         assert fresh.sensitive_config["refresh_token"] == "rotated-RT"
 
-    @freeze_time("2025-01-01T00:00:00Z")
+    @time_machine.travel("2025-01-01T00:00:00Z", tick=False)
     @patch(f"{AUTH_MODULE}.make_tracked_session")
     def test_reuses_cached_token_without_minting(self, mock_session):
         # A still-valid cached token means no mint at all — the manifest is seeded straight from the row.
@@ -602,7 +602,7 @@ class TestCustomSourceOAuth2IntegrationWiring(BaseTest):
         # No refresh material is seeded — the engine treats it as a static bearer and never mints.
         assert "refresh_token" not in auth
 
-    @freeze_time("2025-01-01T00:00:00Z")
+    @time_machine.travel("2025-01-01T00:00:00Z", tick=False)
     @patch(f"{AUTH_MODULE}.make_tracked_session")
     def test_post_injection_manifest_builds_static_bearer_that_never_mints(self, mock_session):
         # End-to-end seam: feed the injected client.auth through the engine's own auth construction
@@ -878,7 +878,7 @@ class TestCustomSourceOAuth2SecretAdoption(BaseTest):
         # expiry, or the row would just reuse the still-valid cached access token without minting.
         self._mock_mint(mock_token_session, mock_probe_session, rotated="rotated-RT-1")
         first_config = self._static_config()
-        with freeze_time("2025-01-01T00:00:00Z"):
+        with time_machine.travel("2025-01-01T00:00:00Z", tick=False):
             ok, err = CustomSource().validate_credentials(
                 first_config, team_id=self.team.pk, owner_user_id=self.user.pk
             )
@@ -886,7 +886,7 @@ class TestCustomSourceOAuth2SecretAdoption(BaseTest):
 
         self._mock_mint(mock_token_session, mock_probe_session, rotated="rotated-RT-2")
         second_config = self._static_config()
-        with freeze_time("2025-01-01T02:00:00Z"):
+        with time_machine.travel("2025-01-01T02:00:00Z", tick=False):
             ok, err = CustomSource().validate_credentials(
                 second_config, team_id=self.team.pk, owner_user_id=self.user.pk
             )
@@ -1092,24 +1092,29 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         assert ok, err
         assert err is None
 
-    @patch.object(
-        OAuth2Auth,
-        "_obtain_token",
-        side_effect=OAuth2AuthRequestError(
-            "HTTP 401 from the OAuth2 token endpoint: invalid_client: bad creds",
-            error_code="invalid_client",
-            is_permanent=True,
-        ),
+    @parameterized.expand(
+        [
+            ("invalid_client", "client ID or secret"),
+            ("invalid_scope", "scopes"),
+            ("some_provider_code", "client ID, secret, token URL"),
+            (None, "client ID, secret, token URL"),
+        ]
     )
-    def test_oauth2_probe_permanent_token_error_blocks_with_clear_message(self, _mock_mint):
-        # A bad client_secret / token_url must fail at create time with a pointed token-endpoint
-        # message — not the generic "resource unreachable" of the data probe.
+    def test_oauth2_probe_permanent_token_error_blocks_with_clear_message(self, error_code, expected_fragment):
+        # A bad client_secret / token_url must fail at create time with copy that names the field
+        # to change — not the provider's raw status-and-code text, and not the generic "resource
+        # unreachable" of the data probe. An unmapped or absent code falls back to the whole
+        # credential set.
+        mint_error = OAuth2AuthRequestError("raw provider text", error_code=error_code, is_permanent=True)
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(_oauth2_manifest()), auth_oauth2_client_secret="cs")
-        ok, err = source.validate_credentials(config, team_id=999)
+
+        with patch.object(OAuth2Auth, "_obtain_token", side_effect=mint_error):
+            ok, err = source.validate_credentials(config, team_id=999)
+
         assert not ok
-        assert "OAuth2 token endpoint rejected" in (err or "")
-        assert "invalid_client" in (err or "")
+        assert expected_fragment in (err or "")
+        assert "raw provider text" not in (err or "")
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
     @patch.object(
@@ -1128,7 +1133,7 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         assert ok, err
         mock_session.assert_not_called()
 
-    @freeze_time("2025-01-01T00:00:00Z")
+    @time_machine.travel("2025-01-01T00:00:00Z", tick=False)
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
     def test_oauth2_minted_token_joins_probe_redaction(self, mock_session):
         # The pre-mint runs before the probe session is built, so the freshly-minted access token

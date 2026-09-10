@@ -1,7 +1,7 @@
 {
     "id": "019b6fc6-ad68-0000-2c21-f701205f3f5c",
     "name": "Trial started → upgrade nudge",
-    "description": "Use this workflow to convert trial users based on intent, not deadlines.\n\nInstead of blasting everyone with “your trial ends soon” emails, this workflow waits for signs that a user is actually using the product, then nudges them to upgrade, with a few well-timed reminders and a clear stop.",
+    "description": "Nudge trial users to upgrade when they show real usage, instead of when the clock runs down.",
     "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Elon_53dbe00271.jpg",
     "scope": "global",
     "created_at": "2025-12-30T15:00:50.152615Z",

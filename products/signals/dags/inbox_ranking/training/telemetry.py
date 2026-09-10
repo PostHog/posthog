@@ -2,9 +2,10 @@
 
 `metadata.json` is the durable record of a candidate, but one JSON object per day in S3 cannot be
 charted. Every training run also captures its metrics as events into the dogfood project, the
-same project the label events land in, keyed by `model_version` and stamped with the partition
-day. Per-head stability is then a trends insight with a `head` breakdown, and a drop in
-readability is an insight alert. Delivery is best-effort and never fails an asset.
+same project the label events land in, keyed by `model_name` and `model_version` and stamped with
+the partition day. Per-head stability is then a trends insight with a `head` breakdown, one line
+per model family, and a drop in readability is an insight alert. Delivery is best-effort and never
+fails an asset.
 """
 
 import datetime
@@ -36,6 +37,7 @@ UNSEEN_REPORT_GRADED_EVENT = "inbox_ranking_unseen_report_graded"
 
 # Candidate metadata copied onto every per-head event so a chart can filter or break down on it.
 _CANDIDATE_CONTEXT_KEYS = (
+    "model_name",
     "model_version",
     "run_id",
     "dataset_version",
@@ -115,6 +117,7 @@ def promotion_event(
     *,
     partition_key: str,
     run_id: str,
+    model_name: str,
     decision: PromotionDecision,
     promoted: bool,
     champion_version: str,
@@ -122,10 +125,12 @@ def promotion_event(
     champion_aucs: Mapping[str, float],
 ) -> TrainingEvent:
     """`champion_aucs` were scored by the incumbent on this candidate's holdout; after a promotion
-    `champion_version` is the candidate, so the incumbent is carried separately."""
+    `champion_version` is the candidate, so the incumbent is carried separately. Every version here
+    belongs to `model_name`: promotion compares a candidate to the champion of its own family."""
     return TrainingEvent(
         event=PROMOTION_DECIDED_EVENT,
         properties={
+            "model_name": model_name,
             "model_version": partition_key,
             "run_id": run_id,
             "would_promote": decision.promote,
@@ -139,7 +144,7 @@ def promotion_event(
 
 
 def unseen_score_events(*, run_id: str, rows: Sequence[Mapping[str, Any]]) -> list[TrainingEvent]:
-    """One event per (report, model) for the day's unseen sample. Every property is flat and
+    """One event per (report, model) for the day's unseen pool. Every property is flat and
     numeric where it is a number, so a trends insight can aggregate a head's scores directly."""
     return [TrainingEvent(event=UNSEEN_REPORT_SCORED_EVENT, properties={**row, "run_id": run_id}) for row in rows]
 
@@ -189,8 +194,10 @@ def capture_training_events(
     base = {"$process_person_profile": False, "partition": partition_key, "environment": environment}
     # A fresh client per call, flushed on shutdown, for the same reason `ph_scoped_capture` builds
     # one: the step process exits right after the asset, before a shared client's background
-    # thread would deliver.
-    client = get_client("US")
+    # thread would deliver. Its queue holds the whole batch, because the SDK drops an event that
+    # meets a full queue and reports it only on its own logger: the grading asset enqueues one row
+    # per report, model and horizon, which is more than the default 10,000 slots.
+    client = get_client("US", max_queue_size=max(len(events), 1))
     if client is None:
         return
     try:

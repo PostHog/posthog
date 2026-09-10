@@ -124,13 +124,17 @@ def get_rows(
         reraise=True,
     )
     def fetch_page(page_number: int) -> dict[str, Any]:
-        body: dict[str, Any] = {"page": page_number, "per_page": PAGE_SIZE}
-        if config.sort_by_field is not None:
-            # Newest-first lets incremental runs stop at the watermark instead
-            # of paging through history (and keeps full scans deterministic).
-            body["sort_by_field"] = config.sort_by_field
-            body["sort_ascending"] = False
-        response = session.post(url, json=body, timeout=REQUEST_TIMEOUT_SECONDS)
+        page_params: dict[str, Any] = {"page": page_number, "per_page": PAGE_SIZE} if config.paginated else {}
+        if config.method == "GET":
+            response = session.get(url, params=page_params, timeout=REQUEST_TIMEOUT_SECONDS)
+        else:
+            body: dict[str, Any] = dict(page_params)
+            if config.sort_by_field is not None:
+                # Newest-first lets incremental runs stop at the watermark instead
+                # of paging through history (and keeps full scans deterministic).
+                body["sort_by_field"] = config.sort_by_field
+                body["sort_ascending"] = False
+            response = session.post(url, json=body, timeout=REQUEST_TIMEOUT_SECONDS)
 
         if response.status_code == 429 or response.status_code >= 500:
             retry_after = (
@@ -173,6 +177,9 @@ def get_rows(
             yield items
 
         if crossed_watermark or not items:
+            break
+
+        if not config.paginated:
             break
 
         if page >= MAX_PAGES:

@@ -25,7 +25,7 @@ import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
-import { CustomBotDefinitions } from 'scenes/settings/environment/CustomBotDefinitions'
+import { CustomBotRules } from 'scenes/settings/environment/CustomBotRules'
 import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
 import { MaxChangelogSettings } from 'scenes/settings/environment/MaxChangelogSettings'
@@ -210,9 +210,18 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'variables',
                 title: 'Project token & ID',
-                description: 'Your project token and ID used to connect SDKs and APIs to this environment.',
+                description:
+                    'Your project token and ID used to connect SDKs and APIs to this environment. Integrations often call the token your project API key.',
                 component: <TeamVariables />,
-                keywords: ['api key', 'token', 'project id'],
+                keywords: [
+                    'api key',
+                    'project api key',
+                    'client api key',
+                    'public api key',
+                    'write key',
+                    'token',
+                    'project id',
+                ],
             },
             {
                 id: 'snippet',
@@ -319,7 +328,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Add your own crawlers and scripts to the bots PostHog already detects, so you can tell them apart from real visitors.',
                 docsUrl: 'https://posthog.com/docs/web-analytics/bot-detection',
-                component: <CustomBotDefinitions />,
+                component: <CustomBotRules />,
                 keywords: ['bot', 'crawler', 'spider', 'scraper', 'user agent', 'ai'],
             },
             {
@@ -1876,7 +1885,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'organization-ai-training-opt-out',
                 title: 'Internal AI training',
                 component: <OrganizationAITrainingOptOut />,
-                flag: 'AI_TRAINING',
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
                 keywords: ['ai', 'training', 'opt-out', 'opt-in', 'model', 'max'],
                 searchDescription:

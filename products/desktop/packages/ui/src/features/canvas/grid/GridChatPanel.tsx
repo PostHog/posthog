@@ -2,7 +2,6 @@ import { CaretLeftIcon, SidebarSimpleIcon } from "@phosphor-icons/react";
 import {
   Button,
   Input,
-  Spinner,
   Tabs,
   TabsList,
   TabsTrigger,
@@ -15,6 +14,7 @@ import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThre
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
@@ -157,11 +157,7 @@ export function GridChatPanel({
 function TaskChat({ taskId }: { taskId: string }) {
   const { data: task } = useQuery(taskDetailQuery(taskId));
   if (!task) {
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <Spinner />
-      </div>
-    );
+    return <LoadingState className="flex-1" />;
   }
   // Constrain the chat body like the comments branch beside it: a shrinkable
   // flex child below the fixed header needs min-h-0 so it fills the remaining
@@ -190,11 +186,7 @@ function CanvasComments({
 }) {
   const { data: task } = useQuery(taskDetailQuery(taskId));
   if (!task) {
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <Spinner />
-      </div>
-    );
+    return <LoadingState className="flex-1" />;
   }
   return (
     <div className="min-h-0 flex-1">

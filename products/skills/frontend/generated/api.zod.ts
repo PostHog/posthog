@@ -334,3 +334,14 @@ export const LlmSkillsNamePublishCommunityCreateBody = /* @__PURE__ */ zod.objec
             "The publisher's GitHub username, used for public attribution on the listing and PR. Optional, and self-reported: it is not verified against the publisher's PostHog account."
         ),
 })
+
+export const llmSkillsNameRenameCreateBodyNewNameMax = 64
+
+export const LlmSkillsNameRenameCreateBody = /* @__PURE__ */ zod.object({
+    new_name: zod
+        .string()
+        .max(llmSkillsNameRenameCreateBodyNewNameMax)
+        .describe(
+            "New name for the skill. Must be unique in the project, and must not start with 'signals-scout-' or 'review-hog-'."
+        ),
+})

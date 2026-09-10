@@ -1,5 +1,6 @@
-//! App-side intake backpressure: a per-partition ceiling on events and seed tiles resident in a
-//! worker's channel. Over the cap, new messages are refused (→ held → paused), never buffered.
+//! App-side intake backpressure: a per-partition ceiling on events resident in a worker's live
+//! lane. Over the cap, new messages are refused (→ held → paused), never buffered. Seeds are not
+//! metered here — their lane holds one seed per slot, so its capacity is their cap.
 //!
 //! The counter cannot drift: [`PartitionIntake::try_admit`] reserves, [`MeteredReceiver`] releases
 //! on the next `recv` and on `Drop`, and the router releases eagerly on a failed send. Both sides
@@ -14,7 +15,7 @@ use tokio::sync::mpsc;
 use super::shuffle_message::ShuffleMessage;
 use crate::observability::metrics::PARTITION_INTAKE_EVENTS;
 
-/// Intake-counted messages in a batch; maintenance ticks count 0.
+/// Intake-counted events in a batch; maintenance ticks count 0.
 pub fn count_intake(batch: &[ShuffleMessage]) -> usize {
     batch
         .iter()
@@ -30,7 +31,7 @@ pub enum Admission {
     Rejected,
 }
 
-/// Per-partition ceiling on un-drained events.
+/// Per-partition ceiling on un-drained events in the live lane.
 ///
 /// Releases (from the worker's [`MeteredReceiver`] and, on a failed send, the router) only ever lower
 /// the count, so [`try_admit`](Self::try_admit)'s plain load-then-add never overshoots `cap`: a
@@ -129,6 +130,10 @@ impl MeteredReceiver {
     }
 
     /// Release the previous batch, then await the next.
+    ///
+    /// Cancel-safe, so the worker can poll it as a `select!` branch: the release runs on the first
+    /// poll, strictly after the previous batch was processed, and is idempotent when the future is
+    /// dropped and re-created on the next round.
     pub async fn recv(&mut self) -> Option<Vec<ShuffleMessage>> {
         self.release_outstanding();
         let batch = self.receiver.recv().await?;
@@ -191,7 +196,7 @@ mod tests {
     }
 
     #[test]
-    fn count_intake_counts_events_and_seeds_but_ignores_maintenance() {
+    fn count_intake_counts_events_but_ignores_maintenance() {
         let batch = vec![
             event(),
             ShuffleMessage::Sweep { due_before_ms: 1 },

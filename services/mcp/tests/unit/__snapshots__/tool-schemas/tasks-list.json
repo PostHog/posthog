@@ -11,6 +11,11 @@
             "enum": ["true", "false", "all"],
             "type": "string"
         },
+        "basic": {
+            "default": false,
+            "description": "With true, return basic list rows for summary surfaces: each row omits the full description and includes description_preview, its first 1000 characters. Defaults to false, which returns full task rows with description. The search parameter still matches description text server-side.",
+            "type": "boolean"
+        },
         "channel": {
             "description": "Filter tasks to a channel's feed.",
             "type": "string"

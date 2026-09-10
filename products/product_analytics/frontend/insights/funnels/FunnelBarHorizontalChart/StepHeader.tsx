@@ -2,11 +2,12 @@ import clsx from 'clsx'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { humanFriendlyDuration } from 'lib/utils/durations'
-import { DuplicateStepIndicator } from 'scenes/funnels/FunnelBarHorizontal/DuplicateStepIndicator'
-import { FunnelStepMore } from 'scenes/funnels/FunnelStepMore'
-import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 
 import { type FunnelStepWithConversionMetrics } from '~/types'
+
+import { FunnelStepMore } from '../shared/FunnelStepMore'
+import { getActionFilterFromFunnelStep } from '../shared/funnelStepTableUtils'
+import { DuplicateStepIndicator } from './DuplicateStepIndicator'
 
 interface StepHeaderProps {
     step: FunnelStepWithConversionMetrics

@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -204,7 +204,7 @@ class TestVisionAlertEngine(BaseTest):
 
     def test_first_cycle_retry_is_uuid_stable_without_next_check_at(self) -> None:
         start = datetime.now(UTC)
-        with freeze_time(start):
+        with time_machine.travel(start, tick=False):
             alert = self._make_alert(next_check_at=None)
             # The window bound is completed_at < now, so frozen-now observations need backdating.
             self._make_observation(completed_at=start - timedelta(minutes=5))
@@ -218,7 +218,7 @@ class TestVisionAlertEngine(BaseTest):
             state=VisionAlertState.NOT_FIRING, next_check_at=None, last_checked_at=None, last_notified_at=None
         )
         alert.refresh_from_db()
-        with freeze_time(start + timedelta(seconds=61)):
+        with time_machine.travel(start + timedelta(seconds=61), tick=False):
             _, produce = self._run_batch(alert)
         assert produce.call_args.kwargs["uuid"] == first_uuid
 

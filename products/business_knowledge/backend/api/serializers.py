@@ -112,6 +112,7 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
             "team_id",
             "name",
             "source_type",
+            "is_generated",
             "status",
             "error_message",
             "document_count",
@@ -489,7 +490,7 @@ class KnowledgeSearchResultSerializer(serializers.Serializer):
     )
     source_type = serializers.CharField(
         read_only=True,
-        help_text="Source type (text, url, or file).",
+        help_text="Source type: text, URL, or file.",
     )
     document_title = serializers.CharField(
         read_only=True,
