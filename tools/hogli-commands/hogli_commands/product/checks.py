@@ -17,10 +17,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .ast_helpers import module_import_targets
-from .crossings import driven_wiring_locations
+from .crossings import driven_wiring_locations, facade_shape_use, recorded_facade_shape_rows
 from .isolation import (
+    GARAGE_PREFIXES,
+    FacadeShapeFinding,
     IsolationStatus,
     compute_isolation_status,
+    facade_shape_findings,
     has_legacy_interface_leaks,
     has_routes_module,
     has_tach_interface,
@@ -895,8 +898,8 @@ class IsolationChainCheck(ProductCheck):
             driven = [g for g in status.unwatched_garages if g in status.driven_wiring_locations]
             evidence = (
                 f" Tests outside the product still execute what lives in {', '.join(driven)}: see the "
-                f"`{ctx.name}:` drives lines in products/model_crossing_uses_baseline.txt, and move those "
-                "tests into the product to drop the input."
+                f"`{ctx.name}:` lines with a `drives(...)` kind in products/model_crossing_uses_baseline.txt, "
+                "and move those tests into the product to drop the input."
                 if driven
                 else ""
             )
@@ -958,6 +961,74 @@ class IsolationChainCheck(ProductCheck):
         else:
             result.lines = ["✓ ok"]
 
+        return result
+
+
+_CROSSING_LEDGER = "products/model_crossing_uses_baseline.txt"
+
+# The remedy the lint prints per finding kind. Each one is the move that removes the row, not advice
+# to think about the row. products/architecture.md § The shape check is the doctrine copy.
+_FACADE_SHAPE_REMEDIES: dict[str, str] = {
+    "returns": "return a frozen contract from facade/contracts.py instead of the ORM object",
+    "accepts": "take ids and contracts, so the caller never holds a Django or a DRF object "
+    "(an `Any` row on team, request or user hides one behind the annotation)",
+    "logic": f"move each body to the wiring location that owns it ({', '.join(GARAGE_PREFIXES)}) "
+    "and leave the re-export in the facade",
+}
+
+
+def _facade_shape_issue(finding: FacadeShapeFinding) -> str:
+    """The lint line for one finding: where it is, what it is, and the move that removes it."""
+    if finding.kind == "logic":
+        what = f"holds {finding.count} definition(s) with a body: {', '.join(finding.bodies)}"
+    else:
+        symbol = f"{finding.symbol}({finding.parameter})" if finding.parameter else finding.symbol
+        what = f"{finding.kind} {finding.source}.{finding.type_name} at {symbol}"
+    return (
+        f"facade/{finding.facade_module} {what} — {_FACADE_SHAPE_REMEDIES[finding.kind]}. "
+        "The ledger only shrinks, so this is not a row to add"
+    )
+
+
+class FacadeShapeCheck(ProductCheck):
+    """Read what the facade accepts and returns, not only what it imports.
+
+    tach and import-linter work on the import graph, so a facade that imports its model module to
+    build contracts and one that returns the model from a public function look identical to them.
+    A model or a QuerySet on the boundary gives the caller managers, save()/delete(), and FK
+    descriptors that query on attribute access, so the caller reaches the whole database through a
+    function the doctrine says returns data. A DRF or a Django HTTP type means the facade knows the
+    transport, which belongs in presentation/.
+
+    Runs in both lint modes. A lenient product with a facade folder is exactly where the drawer
+    forms: the folder is public by location while nothing holds its shape.
+
+    The findings are ratcheted as the `facade-*` kinds of the model-crossing ledger, next to the
+    other couplings the import graph cannot see. Only the unrecorded direction blocks here: a row
+    whose finding is gone is caught by the repo-invariant test, which compares the whole file
+    against a fresh scan.
+    """
+
+    label = "facade shape"
+
+    def should_run(self, ctx: CheckContext) -> bool:
+        return super().should_run(ctx) and (ctx.backend_dir / "facade").is_dir()
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        findings = facade_shape_findings(ctx.backend_dir, ctx.name)
+        recorded = recorded_facade_shape_rows(ctx.name)
+        unrecorded = [f for f in findings if facade_shape_use(f).as_baseline_line() not in recorded]
+
+        result = CheckResult(file=f"products/{ctx.name}/backend/facade")
+        result.issues.extend(_facade_shape_issue(f) for f in unrecorded)
+
+        if result.issues:
+            result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
+        elif recorded:
+            result.warnings.append(f"facade shape debt: {len(recorded)} row(s) in {_CROSSING_LEDGER}")
+            result.lines = [f"⚠ facade shape debt: {len(recorded)} rows"]
+        else:
+            result.lines = ["✓ ok"]
         return result
 
 
@@ -1182,5 +1253,6 @@ CHECKS: list[ProductCheck] = [
     FileFolderConflictsCheck(),
     TachCheck(),
     IsolationChainCheck(),
+    FacadeShapeCheck(),
     OrphanedTestFilesCheck(),
 ]

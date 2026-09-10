@@ -23,6 +23,12 @@ A product may watch one subtree of that location instead of the whole of it, onc
 subtree has no line left. The second test below holds that scope: it fails when a line names
 something outside the watched subtree, because the watch would then miss the code the line drives.
 
+`facade-*` lines read the facade signatures, which is the one channel that records what the boundary
+promises rather than what a caller does. `facade-returns` and `facade-accepts(<parameter>)` mean a
+public facade callable puts a Django, a DRF or an ORM type on its signature; `facade-logic` means a
+capability submodule holds bodies instead of re-exports. An import linter sees the same edge either
+way, so the shape is frozen here. See `products/architecture.md` § The shape check.
+
 The check is strict equality, not "no worse than": a line that disappears must be deleted from the
 file in the same change, so the file can never go stale behind the code.
 

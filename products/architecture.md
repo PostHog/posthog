@@ -173,6 +173,7 @@ Production code may not add one.
 `drives(...)` lines record the tests outside a product that execute its query runners.
 They are keyed by the product's `backend/hogql_queries/` location instead of a class, and read from test modules only.
 A new line is a new outside test that drives product code, and that test belongs in the product.
+`facade-*` lines record what a facade signature promises, read from the facade itself rather than from a caller — see [The shape check](#the-shape-check).
 A repo-invariant test compares that file against a fresh scan, in both directions.
 A count can go down.
 A count must not go up.
@@ -344,6 +345,42 @@ Capability submodules (`queries.py`, `temporal.py`, `max_tools.py`, `tasks.py`, 
 - Implement business logic (use `logic.py`)
 - Import DRF, HTTP, or serializers
 - Expose Django models or return ORM instances
+
+### The shape check
+
+`hogli product:lint` reads the facade signatures, not only its imports.
+An import linter sees the same edge whether a facade imports a model module to build contracts or to return the model, so the shape is checked on its own.
+The check runs on every product that has a `backend/facade/` folder, in both lint modes.
+It reports three kinds:
+
+- `returns`: a public facade function or method returns a Django model, a `QuerySet`, a `Prefetch`, or another ORM type, or it returns a bare `Any`, which promises nothing at all. Return a frozen contract from `facade/contracts.py`.
+- `accepts`: such a type, a DRF object, or an `Any` on a `team`, `request` or `user` parameter enters the facade. Take ids and contracts, so the caller never holds the object.
+- `logic`: a capability submodule holds definitions with bodies. Move each body to the wiring location and leave the re-export in the facade.
+
+A capability submodule is one whose job is to hand out wiring or model classes, read from what it hands out and not from its name.
+The names the doctrine spells out (`queries.py`, `temporal.py`, `max_tools.py`, `tasks.py`, `dags.py`, `hogql.py`, `models.py`) always count; any other module counts once one name it hands out resolves into a wiring location or the model surface.
+`api*.py` never counts, because it holds the data capabilities, and neither do `contracts.py`, `enums.py` and `testing.py`.
+
+A model reaches another facade through the owner's `facade/models` shim as often as through its models module, so both spellings count.
+A module-level type alias (`Handler = Callable[[Thing], None]`, or the explicit `TypeAlias` spelling) is read as the expression it stands for, so giving a type a name does not take it off the boundary.
+The signature rules read the functions a facade hands out that another module defines, under the facade name a consumer imports, because a re-export is part of the same call surface.
+Both spellings count: a plain import the facade re-exports, and a PEP 562 lazy map.
+The chain is followed through the product's own modules, because a facade reaches its logic through a package (`from ..logic import fn`) whose `__init__` commonly re-exports the function rather than defining it.
+The public surface of a class includes its `__init__`, because a constructor takes what the caller hands the class.
+A dataclass decorator (`@dataclass`, `@dataclass(frozen=True)`, the house `@frozen`) generates that constructor out of the annotated fields, so each field is read as a parameter of `<Class>.__init__`.
+`facade/contracts.py` is read like every other facade module for this, because a frozen contract is exactly what must never carry a model.
+Only registered Django models count.
+A class is a model when one of its bases reaches a Django model base (`models.Model`, or an abstract base that `posthog/models/utils.py` or `posthog/models/scoping/` exports), or another class of the product's model modules that already counts.
+That leaves out what a models module holds besides its tables: choices, enums, managers, the pydantic models a JSON field is validated against, and the errors it raises, all of which a contract may carry.
+A nested class attribute (`Thing.Status`) is a value rather than an instance, so it is not reported.
+The arguments of a `Literal` are data, so they are not reported either, and an `Annotated` is one type followed by metadata, of which only the type counts.
+Classes on the carve-out and watched-models lists above are sanctioned for the product that owns them, so an identically named class from another product is still reported.
+Core models are not reported either, because product to core is the sanctioned direction.
+`products/model_crossing_uses_baseline.txt` records what the facades do today, as the `facade-*` kinds next to the other couplings the import graph cannot see.
+The first column says what crosses: `<product>.<Class>` for a product model, the source library for everything else (`django`, `rest_framework`, `typing`), and the facade module for a `facade-logic` line.
+`typing_extensions` reports as `typing`, because it exports the same names and the import a module picks must not decide whether its `Any` counts.
+The second column is the facade symbol that carries it, or the module itself for a `facade-logic` line, whose count is the number of bodies left in it.
+The file only shrinks: a finding that is not on it fails the lint, and a row whose finding is gone fails the repo-invariant test, so regenerate with `bin/hogli product:crossings --all --write-baseline` in the same change.
 
 ### Example
 

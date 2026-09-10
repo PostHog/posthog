@@ -14,6 +14,7 @@ from hogli_commands.product import (
 from hogli_commands.product.checks import (
     BackendPackageMarkerCheck,
     CheckContext,
+    FacadeShapeCheck,
     FileFolderConflictsCheck,
     ImportSurfaceCheck,
     IsolationChainCheck,
@@ -30,11 +31,13 @@ from hogli_commands.product.checks import (
     validate_interface_blocks,
     validate_tach_references,
 )
+from hogli_commands.product.crossings import facade_shape_use
 from hogli_commands.product.isolation import (
     MODEL_SURFACE_PREFIXES,
     facade_carveout_modules,
     facade_class_imports,
     facade_model_crossings,
+    facade_shape_findings,
     has_narrowed_turbo_inputs,
     permanent_interface_modules,
     routes_in_turbo_inputs,
@@ -2047,3 +2050,457 @@ class TestBackendPackageMarker:
         ctx = self._product(tmp_path, markers=[".", "facade"], trees=[])
         (ctx.backend_dir / "facade" / "empty").mkdir()
         assert self.check._missing_markers(ctx) == []
+
+
+_MODELS_PY = (
+    "from django.db import models\n\n\n"
+    "class Thing(models.Model):\n    pass\n\n\n"
+    "class ThingKind(models.TextChoices):\n    RED = 'red'\n\n\n"
+    "class ExternalDataSource(models.Model):\n    pass\n"
+)
+
+
+def _write_shape_product(
+    tmp_path: Path,
+    facade_files: dict[str, str],
+    *,
+    name: str = "my_product",
+    sources: dict[str, str] | None = None,
+) -> Path:
+    """A product whose models module defines Thing, the ThingKind choices, and ExternalDataSource."""
+    _, backend = _write_facade_product(
+        tmp_path, name=name, facade_files=facade_files, sources={"models.py": _MODELS_PY, **(sources or {})}
+    )
+    return backend
+
+
+class TestFacadeShape:
+    @pytest.mark.parametrize(
+        "facade_files, expected",
+        [
+            # a public function returning the product's own model hands the caller managers,
+            # save()/delete(), and FK descriptors that query on attribute access
+            (
+                {"api.py": "from ..models import Thing\n\n\ndef get_thing() -> Thing:\n    return Thing()\n"},
+                {("get_thing", "", "returns", "Thing")},
+            ),
+            # the facade's own models shim re-exports the same class, so it cannot be the spelling
+            # that gets the model past the check
+            (
+                {"api.py": "from .models import Thing\n\n\ndef get_thing() -> Thing:\n    return Thing()\n"},
+                {("get_thing", "", "returns", "Thing")},
+            ),
+            # a models module also holds choices and enums, which are values a contract may carry
+            (
+                {"api.py": "from ..models import ThingKind\n\n\ndef kind() -> ThingKind:\n    ...\n"},
+                set(),
+            ),
+            # a QuerySet return lets the caller keep building the query outside the product
+            (
+                {
+                    "api.py": "from django.db.models import QuerySet\n\n\ndef list_things() -> QuerySet[int]:\n    return []\n"
+                },
+                {("list_things", "", "returns", "QuerySet")},
+            ),
+            # a Prefetch is an ORM plan object, so the caller decides what the product loads
+            (
+                {"api.py": "from django.db.models import Prefetch\n\n\ndef tiles() -> Prefetch:\n    ...\n"},
+                {("tiles", "", "returns", "Prefetch")},
+            ),
+            # the `models.QuerySet` spelling must resolve like the direct import
+            (
+                {"api.py": "from django.db import models\n\n\ndef things() -> models.QuerySet:\n    ...\n"},
+                {("things", "", "returns", "QuerySet")},
+            ),
+            # a bare relative import binds the submodule too, so `models.Thing` after it names the
+            # model, which is the spelling several facades already use for their own models shim
+            (
+                {"api.py": "from . import models\n\n\ndef get_thing() -> models.Thing:\n    ...\n"},
+                {("get_thing", "", "returns", "Thing")},
+            ),
+            (
+                {"api.py": "from .. import models\n\n\ndef get_thing() -> models.Thing:\n    ...\n"},
+                {("get_thing", "", "returns", "Thing")},
+            ),
+            # ...but only the model surface binds that way: contracts are what the facade is for
+            (
+                {"api.py": "from . import contracts\n\n\ndef get_thing() -> contracts.Thing:\n    ...\n"},
+                set(),
+            ),
+            # a nested class attribute carries no instance of the outer class, so `Thing.Status` is
+            # a value a contract may hold
+            (
+                {"api.py": "from ..models import Thing\n\n\ndef status() -> Thing.Status:\n    ...\n"},
+                set(),
+            ),
+            # an alias must report the type at the source, or the row cannot be matched to a class
+            (
+                {"api.py": "from django.db.models import QuerySet as QS\n\n\ndef things() -> QS:\n    ...\n"},
+                {("things", "", "returns", "QuerySet")},
+            ),
+            # a module-level alias is a name for the same type, so the spelling a facade picks
+            # cannot decide whether the model on it counts
+            (
+                {
+                    "api.py": "from collections.abc import Callable\n\nfrom ..models import Thing\n\nHandler = Callable[[Thing], None]\n\n\ndef register(handler: Handler) -> None:\n    return None\n"
+                },
+                {("register", "handler", "accepts", "Thing")},
+            ),
+            # ...and the explicit TypeAlias spelling of the same alias
+            (
+                {
+                    "api.py": "from typing import TypeAlias\n\nfrom ..models import Thing\n\nRows: TypeAlias = list[Thing]\n\n\ndef load() -> Rows:\n    ...\n"
+                },
+                {("load", "", "returns", "Thing")},
+            ),
+            # a dataclass field is a keyword of the constructor the decorator generates, so a model
+            # on one is a model the caller hands the class
+            (
+                {
+                    "api.py": "from dataclasses import dataclass\n\nfrom ..models import Thing\n\n\n@dataclass\nclass Row:\n    thing: Thing\n"
+                },
+                {("Row.__init__", "thing", "accepts", "Thing")},
+            ),
+            (
+                {
+                    "api.py": "from dataclasses import dataclass\n\nfrom ..models import Thing\n\n\n@dataclass(frozen=True)\nclass Row:\n    thing: Thing\n"
+                },
+                {("Row.__init__", "thing", "accepts", "Thing")},
+            ),
+            # a frozen contract is precisely what must never carry a model, so contracts.py is read
+            # like every other facade module
+            (
+                {
+                    "contracts.py": "from posthog.dataclasses import frozen\n\nfrom ..models import Thing\n\n\n@frozen\nclass ThingData:\n    thing: Thing\n"
+                },
+                {("ThingData.__init__", "thing", "accepts", "Thing")},
+            ),
+            # a bare `-> Any` promises nothing, which is the evasion the check exists to close
+            (
+                {"api.py": "from typing import Any\n\n\ndef serialize() -> Any:\n    ...\n"},
+                {("serialize", "", "returns", "Any")},
+            ),
+            # ...and typing_extensions exports the same name, so it cannot be the import that gets
+            # an `Any` past the check
+            (
+                {"api.py": "from typing_extensions import Any\n\n\ndef serialize() -> Any:\n    ...\n"},
+                {("serialize", "", "returns", "Any")},
+            ),
+            # ...but data inside a container is still data
+            (
+                {"api.py": "from typing import Any\n\n\ndef serialize() -> dict[str, Any]:\n    ...\n"},
+                set(),
+            ),
+            # `Any` on the tenant parameter is how a Team model crosses without naming itself
+            (
+                {"api.py": "from typing import Any\n\n\ndef digest(team: Any) -> None:\n    return None\n"},
+                {("digest", "team", "accepts", "Any")},
+            ),
+            # ...but `Any` on an ordinary payload says nothing about a Django object
+            (
+                {"api.py": "from typing import Any\n\n\ndef digest(payload: Any) -> None:\n    return None\n"},
+                set(),
+            ),
+            # product -> core is the sanctioned direction, so a core model is not a finding
+            (
+                {"api.py": "from posthog.models import Team\n\n\ndef digest(team: Team) -> None:\n    return None\n"},
+                set(),
+            ),
+            # a DRF request in the facade means the facade knows the transport
+            (
+                {
+                    "api.py": "from rest_framework.request import Request\n\n\ndef provenance(request: Request) -> None:\n    return None\n"
+                },
+                {("provenance", "request", "accepts", "Request")},
+            ),
+            # ...and importing the submodule instead binds a namespace, so `request.Request` names
+            # the same class and cannot be the spelling that gets it past the check
+            (
+                {
+                    "api.py": "from rest_framework import request\n\n\ndef provenance(req: request.Request) -> None:\n    return None\n"
+                },
+                {("provenance", "req", "accepts", "Request")},
+            ),
+            # a constructor takes what the caller hands the class, so it is part of the surface
+            (
+                {
+                    "api.py": "from django.db.models import QuerySet\n\n\nclass Rows:\n    def __init__(self, queryset: QuerySet) -> None:\n        self._queryset = queryset\n"
+                },
+                {("Rows.__init__", "queryset", "accepts", "QuerySet")},
+            ),
+            # the arguments of a Literal are values, so a model name among them is data
+            (
+                {
+                    "api.py": "from typing import Literal\n\nfrom ..models import Thing\n\n\ndef pick(kind: Literal['Thing', 'ExternalDataSource']) -> None:\n    return None\n"
+                },
+                set(),
+            ),
+            # Annotated is one type plus metadata: the type counts and the metadata does not
+            (
+                {
+                    "api.py": "from typing import Annotated\n\nfrom ..models import Thing\n\n\ndef pick(row: Annotated[Thing, 'ExternalDataSource']) -> None:\n    return None\n"
+                },
+                {("pick", "row", "accepts", "Thing")},
+            ),
+            # a TYPE_CHECKING import plus a quoted annotation is the same promise, spelled to dodge
+            # the import graph
+            (
+                {
+                    "api.py": "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    from ..models import Thing\n\n\ndef get_thing() -> 'Thing':\n    ...\n"
+                },
+                {("get_thing", "", "returns", "Thing")},
+            ),
+            # converting a model to a contract is what a private facade helper is for
+            (
+                {"api.py": "from ..models import Thing\n\n\ndef _to_contract(row: Thing) -> None:\n    return None\n"},
+                set(),
+            ),
+            (
+                {
+                    "api.py": "from ..models import Thing\n\n\nclass Mapper:\n    def to_contract(self, row: Thing) -> None:\n        return None\n"
+                },
+                {("Mapper.to_contract", "row", "accepts", "Thing")},
+            ),
+        ],
+    )
+    def test_detection(
+        self, tmp_path: Path, facade_files: dict[str, str], expected: set[tuple[str, str, str, str]]
+    ) -> None:
+        backend = _write_shape_product(tmp_path, facade_files)
+        findings = facade_shape_findings(backend, "my_product")
+        assert {(f.symbol, f.parameter, f.kind, f.type_name) for f in findings} == expected
+
+    def test_a_model_routed_through_another_facade_is_still_a_model(self, tmp_path: Path) -> None:
+        # The owner's facade.models shim is the sanctioned way to reach its models, so a foreign
+        # model arrives spelled through it rather than through the models module directly.
+        _write_shape_product(
+            tmp_path, {"models.py": "from ..models import Thing\n\n__all__ = ['Thing']\n"}, name="owner"
+        )
+        backend = _write_shape_product(
+            tmp_path,
+            {
+                "api.py": "from products.owner.backend.facade.models import Thing\n\n\n"
+                "def get_thing() -> Thing:\n    ...\n"
+            },
+        )
+        findings = facade_shape_findings(backend, "my_product")
+        assert [(f.source, f.type_name, f.kind) for f in findings] == [("owner", "Thing", "returns")]
+
+    def test_a_sanctioned_model_crossing_is_not_a_shape_finding(self, tmp_path: Path) -> None:
+        # warehouse_sources holds the ExternalDataSource entry in MODEL_CROSSINGS, so its facade may
+        # hand the class out. Without the exemption the sanctioned crossing would fail the lint the
+        # day the check lands, and the allowance is keyed per product, so nobody else inherits it.
+        facade = {
+            "api.py": "from ..models import ExternalDataSource\n\n\ndef source() -> ExternalDataSource:\n    ...\n"
+        }
+        allowed = _write_shape_product(tmp_path / "a", facade, name="warehouse_sources")
+        other = _write_shape_product(tmp_path / "b", facade, name="unrelated_product")
+        assert facade_shape_findings(allowed, "warehouse_sources") == []
+        assert [f.type_name for f in facade_shape_findings(other, "unrelated_product")] == ["ExternalDataSource"]
+
+    def test_the_allowance_does_not_cover_a_same_named_class_from_another_product(self, tmp_path: Path) -> None:
+        # warehouse_sources may hand out its own ExternalDataSource, and the identically named class
+        # from another product is a crossing nobody sanctioned. Both sit in one annotation, so a
+        # per-name key would collapse them and let the sanctioned one hide the other.
+        _write_shape_product(tmp_path, {}, name="lookalike")
+        backend = _write_shape_product(
+            tmp_path,
+            {
+                "api.py": "from ..models import ExternalDataSource\n"
+                "from products.lookalike.backend.models import ExternalDataSource as Other\n\n\n"
+                "def sources() -> tuple[ExternalDataSource, Other]:\n    ...\n"
+            },
+            name="warehouse_sources",
+        )
+        findings = facade_shape_findings(backend, "warehouse_sources")
+        assert [(f.source, f.type_name) for f in findings] == [("lookalike", "ExternalDataSource")]
+
+    @pytest.mark.parametrize(
+        "facade_api, extra_sources, symbol",
+        [
+            # a PEP 562 map: the consumer imports the name from the facade and the map decides
+            # which module answers
+            (
+                '_B = "products.my_product.backend."\n'
+                '_LAZY = {"get_thing": "logic.crud"}\n\n\n'
+                "def __getattr__(name):\n    ...\n",
+                {},
+                "get_thing",
+            ),
+            # a module with no definitions of its own hands out everything it imports
+            ("from ..logic.crud import get_thing\n", {}, "get_thing"),
+            # the self-alias idiom, which also suppresses ruff's F401
+            (
+                "from ..logic.crud import get_thing as get_thing\n\n\ndef other() -> None:\n    return None\n",
+                {},
+                "get_thing",
+            ),
+            # a renamed re-export is read under the name the facade hands out
+            ("from ..logic.crud import get_thing as fetch\n\n__all__ = ['fetch']\n", {}, "fetch"),
+            # a facade reaches its logic through the package, whose __init__ commonly surfaces the
+            # function from a submodule rather than defining it
+            (
+                "from ..logic import get_thing\n",
+                {"logic/__init__.py": "from .crud import get_thing\n"},
+                "get_thing",
+            ),
+        ],
+    )
+    def test_a_re_exported_function_is_read_under_the_facade_name(
+        self, tmp_path: Path, facade_api: str, extra_sources: dict[str, str], symbol: str
+    ) -> None:
+        # A re-export is part of the facade's own call surface: the consumer imports the name from
+        # the facade, so neither spelling can be what gets the model past the check.
+        backend = _write_shape_product(
+            tmp_path,
+            {"api.py": facade_api},
+            sources={
+                "logic/crud.py": "from ..models import Thing\n\n\ndef get_thing() -> Thing:\n    ...\n",
+                **extra_sources,
+            },
+        )
+        findings = facade_shape_findings(backend, "my_product")
+        assert [(f.dotted_module, f.symbol, f.kind, f.type_name) for f in findings] == [
+            ("products.my_product.backend.facade.api", symbol, "returns", "Thing")
+        ]
+
+    @pytest.mark.parametrize(
+        "facade_files, expected",
+        [
+            # a task body in facade/tasks.py is the implementation core registers, sitting in the one
+            # package core imports instead of in backend/tasks/ where the inputs watch it
+            (
+                {"tasks.py": "from celery import shared_task\n\n\n@shared_task\ndef run_it() -> None:\n    print(1)\n"},
+                ("run_it",),
+            ),
+            # the same module doing only what it is for stays clean
+            (
+                {"tasks.py": "from ..tasks import run_it\n\n__all__ = ['run_it']\n"},
+                None,
+            ),
+            (
+                {"temporal.py": "from temporalio import workflow\n\n\n@workflow.defn\nclass Flow:\n    x = 1\n"},
+                ("Flow",),
+            ),
+            # one row per module, so the count says how many bodies are left to move
+            (
+                {"queries.py": "def one():\n    return 1\n\n\nclass Two:\n    x = 1\n"},
+                ("one", "Two"),
+            ),
+            # api.py holds the data capabilities, so a body there is the designed shape
+            (
+                {"api.py": "def run_query():\n    return 1\n"},
+                None,
+            ),
+            # the PEP 562 hook is the re-export mechanism, not logic of the module's own
+            (
+                {
+                    "models.py": "_LAZY = {'Thing': 'models'}\n\n\ndef __getattr__(name):\n    import importlib\n\n    return getattr(importlib.import_module('x'), name)\n"
+                },
+                None,
+            ),
+        ],
+    )
+    def test_capability_submodule_logic(
+        self, tmp_path: Path, facade_files: dict[str, str], expected: tuple[str, ...] | None
+    ) -> None:
+        backend = _write_shape_product(tmp_path, facade_files)
+        logic = [f for f in facade_shape_findings(backend, "my_product") if f.kind == "logic"]
+        assert [f.bodies for f in logic] == ([expected] if expected else [])
+        assert [f.count for f in logic] == ([len(expected)] if expected else [])
+
+    @pytest.mark.parametrize(
+        "reexport_from, expected",
+        [
+            # a module that hands out a Temporal definition is wiring whatever it is called, and
+            # products already name such a module workflow_tasks.py or tools.py
+            ("..temporal.flows", ("helper",)),
+            # a module that hands out logic is an ordinary facade module, where a body is allowed
+            ("..logic.crud", None),
+        ],
+    )
+    def test_a_capability_module_is_recognized_by_what_it_hands_out(
+        self, tmp_path: Path, reexport_from: str, expected: tuple[str, ...] | None
+    ) -> None:
+        backend = _write_shape_product(
+            tmp_path,
+            {
+                "wiring.py": f"from {reexport_from} import run_it\n\n__all__ = ['run_it']\n\n\ndef helper():\n    return 1\n"
+            },
+            sources={"temporal/flows.py": "def run_it():\n    ...\n", "logic/crud.py": "def run_it():\n    ...\n"},
+        )
+        logic = [f for f in facade_shape_findings(backend, "my_product") if f.kind == "logic"]
+        assert [f.bodies for f in logic] == ([expected] if expected else [])
+
+
+class TestFacadeShapeLedgerRows:
+    @pytest.mark.parametrize(
+        "facade_files, expected",
+        [
+            # a product model keeps `<product>.<Class>` in the first column, like every other
+            # crossing row, so one grep over the ledger finds every way the class leaves
+            (
+                {"api.py": "from ..models import Thing\n\n\ndef get_thing() -> Thing:\n    return Thing()\n"},
+                "my_product.Thing products.my_product.backend.facade.api.get_thing facade-returns 1",
+            ),
+            # everything else names the library it comes from, so `QuerySet` cannot read as a class
+            (
+                {"api.py": "from django.db.models import QuerySet\n\n\ndef things() -> QuerySet:\n    ...\n"},
+                "django.QuerySet products.my_product.backend.facade.api.things facade-returns 1",
+            ),
+            # the parameter rides in the kind, the way drives(...) and reverse-accessor(...) carry
+            # their detail, so the row stays four fields wide
+            (
+                {"api.py": "from typing import Any\n\n\ndef digest(team: Any) -> None:\n    return None\n"},
+                "typing.Any products.my_product.backend.facade.api.digest facade-accepts(team) 1",
+            ),
+            # a method keeps its class in the path, and the parameter never enters it
+            (
+                {
+                    "api.py": "from ..models import Thing\n\n\nclass Mapper:\n    def to_contract(self, row: Thing) -> None:\n        return None\n"
+                },
+                "my_product.Thing products.my_product.backend.facade.api.Mapper.to_contract facade-accepts(row) 1",
+            ),
+            # a logic row has no type to name, so it is keyed by the module that holds the bodies —
+            # the same location shape the drives(...) rows use — and counted in the count column
+            (
+                {
+                    "tasks.py": "from celery import shared_task\n\n\n@shared_task\ndef run_it() -> None:\n    print(1)\n\n\ndef helper() -> None:\n    print(2)\n"
+                },
+                "my_product:backend/facade/tasks.py products.my_product.backend.facade.tasks facade-logic 2",
+            ),
+        ],
+    )
+    def test_a_finding_renders_one_ledger_row(
+        self, tmp_path: Path, facade_files: dict[str, str], expected: str
+    ) -> None:
+        backend = _write_shape_product(tmp_path, facade_files)
+        findings = facade_shape_findings(backend, "my_product")
+        assert [facade_shape_use(f).as_baseline_line() for f in findings] == [expected]
+
+
+class TestFacadeShapeBaseline:
+    _ROW = "my_product.Thing products.my_product.backend.facade.api.get_thing facade-returns 1"
+
+    def _leaking_product(self, tmp_path: Path) -> CheckContext:
+        ctx = _make_product(tmp_path, isolated=True)
+        (ctx.backend_dir / "models.py").write_text(_MODELS_PY)
+        (ctx.backend_dir / "facade" / "api.py").write_text(
+            "from ..models import Thing\n\n\ndef get_thing() -> Thing:\n    return Thing()\n"
+        )
+        return ctx
+
+    def test_an_unrecorded_finding_fails_and_a_recorded_one_only_warns(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Both directions of the same fixture: without the ratchet the debt would either block every
+        # product on day one or never block anything.
+        ctx = self._leaking_product(tmp_path)
+        monkeypatch.setattr(checks_module, "recorded_facade_shape_rows", lambda name: frozenset())
+        unrecorded = FacadeShapeCheck().run(ctx)
+        assert any("returns my_product.Thing" in i and "frozen contract" in i for i in unrecorded.issues)
+
+        monkeypatch.setattr(checks_module, "recorded_facade_shape_rows", lambda name: frozenset({self._ROW}))
+        recorded = FacadeShapeCheck().run(ctx)
+        assert recorded.issues == []
+        assert recorded.lines == ["⚠ facade shape debt: 1 rows"]

@@ -38,6 +38,13 @@ The fourth channel does not read source at all. A relation field that crosses a 
 without `related_name="+"` adds a reverse accessor to the target class — no import, no name-level
 use, only the model registry can see it. reverse_accessors.py walks the graph; each edge is counted
 as the disallowed kind `reverse-accessor(<name>)`.
+
+The fifth channel reads the other end of the boundary: what a facade signature promises. An import
+linter sees the same edge whether a facade imports a model module to build contracts or to return
+the model, so publicness has to come from the shape of the API and not from the location of the
+file. isolation.py reads the signatures; each finding lands as one of the disallowed kinds
+`facade-returns`, `facade-accepts(<parameter>)` and `facade-logic`. See
+products/architecture.md § The shape check.
 """
 
 from __future__ import annotations
@@ -53,9 +60,15 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .ast_helpers import ast_parse_safe, get_model_names, lazy_reexport_map
-from .isolation import COMPUTED_WIRING_LOCATIONS, MODEL_CROSSINGS, facade_model_crossings
-from .paths import PRODUCTS_DIR, REPO_ROOT
+from .ast_helpers import ast_parse_safe, get_model_names, lazy_reexport_map, lazy_reexport_prefixes
+from .isolation import (
+    COMPUTED_WIRING_LOCATIONS,
+    MODEL_CROSSINGS,
+    FacadeShapeFinding,
+    facade_model_crossings,
+    facade_shape_findings,
+)
+from .paths import PRODUCTS_DIR, REPO_ROOT, backend_product_dirs
 from .reverse_accessors import reverse_accessor_edge_lines
 
 # Where Python that can consume a product model lives. Everything else at the repo root is
@@ -142,7 +155,9 @@ class CrossingUse:
     """One kind of use of one crossing class in one consumer module, with how often it appears.
 
     `reverse-accessor(...)` rows overload `consumer_module` with the relation declaration
-    (`app.Model.field`) — a path into the model graph, not an importable module."""
+    (`app.Model.field`) — a path into the model graph, not an importable module. A `facade-returns`
+    or `facade-accepts` row overloads it with the facade symbol that carries the type
+    (`...facade.api.read`)."""
 
     crossing: str  # CrossingClass.label
     consumer_module: str  # dotted, e.g. "products.product_analytics.backend.presentation.insight"
@@ -858,14 +873,7 @@ def _lazy_reexports(tree: ast.Module, product: str, exists: Callable[[str], bool
     Lazy maps store their values relative to some package: absolute, relative to the product's
     backend package, or relative to a module-level prefix constant (`_B = "products....hogql_queries."`).
     The first candidate that names a real module wins."""
-    prefixes = [
-        node.value.value
-        for node in tree.body
-        if isinstance(node, ast.Assign)
-        and isinstance(node.value, ast.Constant)
-        and isinstance(node.value.value, str)
-        and node.value.value.endswith(".")
-    ]
+    prefixes = lazy_reexport_prefixes(tree)
     resolved: dict[str, str] = {}
     for name, value in lazy_reexport_map(tree).items():
         candidates = [value, *(prefix + value for prefix in prefixes), f"products.{product}.backend.{value}"]
@@ -1408,13 +1416,32 @@ def driven_wiring_locations(product: str, path: Path | None = None) -> frozenset
     """The computed wiring locations of `product` that a test outside the product drives.
 
     Read from the crossings baseline. The baseline is the evidence the lint reads: the repo-invariant
-    test keeps it equal to a fresh scan, so a location with no line here has no outside driver."""
+    test keeps it equal to a fresh scan, so a location with no line here has no outside driver. The
+    kind has to be read too, because a `facade-logic` line is keyed by a location as well."""
     prefix = f"{product}:"
-    return frozenset(
-        line.split(" ", 1)[0].removeprefix(prefix)
-        for line in _baseline_lines(path or BASELINE_PATH)
-        if line.startswith(prefix)
-    )
+    locations: set[str] = set()
+    for line in _baseline_lines(path or BASELINE_PATH):
+        if not line.startswith(prefix):
+            continue
+        crossing, _, kind, _ = line.split(" ")
+        if kind.startswith("drives("):
+            locations.add(crossing.removeprefix(prefix))
+    return frozenset(locations)
+
+
+def recorded_facade_shape_rows(product: str, path: Path | None = None) -> frozenset[str]:
+    """The `facade-*` baseline lines standing for one product's facade.
+
+    Read from the baseline for the same reason as the wiring locations above: the repo-invariant
+    test keeps the file equal to a fresh scan."""
+    prefix = f"products.{product}.backend.facade."
+    rows: set[str] = set()
+    for line in _baseline_lines(path or BASELINE_PATH):
+        if " facade-" not in line:
+            continue
+        if line.split(" ")[1].startswith(prefix):
+            rows.add(line)
+    return frozenset(rows)
 
 
 @functools.lru_cache(maxsize=4)
@@ -1619,9 +1646,48 @@ def reverse_accessor_uses(products: Iterable[str] | None = None) -> list[Crossin
     return uses
 
 
+# ---------------------------------------------------------------------------
+# Facade shapes — the fifth channel, read from the facade signatures
+# ---------------------------------------------------------------------------
+
+
+def facade_shape_use(finding: FacadeShapeFinding) -> CrossingUse:
+    """One facade shape finding as a baseline row.
+
+    The crossing slot names what crosses: the qualified type for a signature row, and the facade
+    module for a `logic` row, which is keyed by a location the way `drives(...)` is. The consumer
+    slot holds the facade symbol that carries the type, or the module itself for a `logic` row whose
+    count is the number of bodies left in it. The parameter of an `accepts` row rides in the kind,
+    the way the other detail-carrying kinds do.
+    """
+    if finding.kind == "logic":
+        crossing = wiring_location_label(finding.product, f"backend/facade/{finding.facade_module}")
+        consumer = finding.dotted_module
+    else:
+        crossing = f"{finding.source}.{finding.type_name}"
+        consumer = f"{finding.dotted_module}.{finding.symbol}"
+    kind = f"facade-{finding.kind}({finding.parameter})" if finding.parameter else f"facade-{finding.kind}"
+    return CrossingUse(crossing, consumer, kind, finding.count)
+
+
+def facade_shape_uses(products: Iterable[str] | None = None) -> list[CrossingUse]:
+    """What every product facade puts on its boundary, as CrossingUse rows.
+
+    A finding belongs to the facade that carries it, so a product filter selects the facades to
+    read — the same one-sided scoping the reverse accessors use.
+    """
+    wanted = set(products) if products is not None else None
+    return [
+        facade_shape_use(finding)
+        for product_dir in backend_product_dirs()
+        if wanted is None or product_dir.name in wanted
+        for finding in facade_shape_findings(product_dir / "backend", product_dir.name)
+    ]
+
+
 def all_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUse]:
-    """Every channel: the three AST scans plus the model-graph reverse accessors."""
-    return scan_crossing_uses(products) + reverse_accessor_uses(products)
+    """Every channel: the three AST scans, the model-graph reverse accessors, and the facade shapes."""
+    return scan_crossing_uses(products) + reverse_accessor_uses(products) + facade_shape_uses(products)
 
 
 # ---------------------------------------------------------------------------
@@ -1695,9 +1761,11 @@ NEW_LINE_INSTRUCTION = (
     'related_name="+" (a query:<name> row means an explicit related_query_name keeps filter() '
     "traversal alive); seal it, remove the explicit query name, and give callers a facade read "
     "function. A 'drives(...)' line is a test outside the product that executes one of its query "
-    "runners; move that test into the product. A coupling that must stand is a doctrine amendment: "
-    "hand-edit the line in, and record why in products/architecture.md § Wiring couplings. "
-    "Regenerating the baseline cannot add a line."
+    "runners; move that test into the product. A 'facade-...' line is a facade that puts a Django, a "
+    "DRF or an ORM type on its own boundary, or a capability submodule that holds bodies; see "
+    "products/architecture.md § The shape check for the move that clears each kind. A coupling that "
+    "must stand is a doctrine amendment: hand-edit the line in, and record why in "
+    "products/architecture.md § Wiring couplings. Regenerating the baseline cannot add a line."
 )
 
 BASELINE_HEADER = f"""\
@@ -1705,7 +1773,7 @@ BASELINE_HEADER = f"""\
 # One line per (product.Class, consumer module, kind, count); see products/architecture.md
 # § Wiring couplings for which shapes are allowed.
 #
-# Four channels land here. Name-level uses of a watched-models crossing class, in any kind the
+# Five channels land here. Name-level uses of a watched-models crossing class, in any kind the
 # doctrine does not call instance-free. The kind `get_model`: an `apps.get_model` reference
 # from outside the owning product, which covers every product model, not only the allowance ones.
 # Test modules and migrations are out of scope on both: a migration reaches a model through the
@@ -1721,6 +1789,13 @@ BASELINE_HEADER = f"""\
 # related_name="+", remove any explicit related_query_name (a query:<name> row means one keeps
 # filter() traversal alive), and delete the line in the same change; a caller that needs reverse
 # access gets a facade read function. See products/architecture.md § Cross-product foreign keys.
+# And the `facade-*` kinds, read from the facade signatures rather than from a caller: what the
+# boundary itself promises. `facade-returns` and `facade-accepts(<parameter>)` mean a public facade
+# callable puts a Django, a DRF or an ORM type on its signature; `facade-logic` means a capability
+# submodule holds bodies rather than re-exports, and its count is how many are left. The first
+# column says what crosses — `<product>.<Class>`, `<library>.<Type>`, or the facade module for a
+# `facade-logic` line — and the consumer column holds the symbol or the module that carries it.
+# See products/architecture.md § The shape check for the move that clears each kind.
 #
 # Counts may only go down, and a line that disappears must be deleted here too.
 #
