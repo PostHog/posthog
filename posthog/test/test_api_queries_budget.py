@@ -21,7 +21,7 @@ from posthog.api_queries_budget import (
     seconds_until_positive,
 )
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import Product, reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, reset_query_tags, tag_queries
 
 SPEC = BudgetSpec(bytes_per_hour=3600.0, capacity_bytes=7200.0)
 
@@ -124,13 +124,22 @@ class TestChargeableQueryMetering(ClickhouseTestMixin, BaseTest):
         sync_execute(self.BOUNDED_QUERY)
         assert get_request_query_cost() is None
 
-    def test_endpoint_query_is_chargeable_but_not_metered(self):
-        tag_queries(chargeable=1, team_id=self.team.pk, product=Product.ENDPOINTS)
+    def test_endpoint_run_is_chargeable_but_not_metered(self):
+        tag_queries(chargeable=1, team_id=self.team.pk, feature=Feature.ENDPOINT_EXECUTION)
         try:
             sync_execute(self.BOUNDED_QUERY)
         finally:
             reset_query_tags()
         assert get_request_query_cost() is None
+
+    def test_caller_supplied_endpoints_product_tag_is_still_metered(self):
+        tag_queries(chargeable=1, team_id=self.team.pk, product=Product.ENDPOINTS)
+        try:
+            sync_execute(self.BOUNDED_QUERY)
+        finally:
+            reset_query_tags()
+        cost = get_request_query_cost()
+        assert cost is not None and cost.bytes_read > 0
 
 
 class QueryDied(Exception):
