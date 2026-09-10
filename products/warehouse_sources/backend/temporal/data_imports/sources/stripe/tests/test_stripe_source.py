@@ -1641,6 +1641,25 @@ class TestRepinWebhookApiVersion:
         assert repin.status == expected
         client.webhook_endpoints.create.assert_not_called()
 
+    def test_a_replacement_without_a_secret_is_a_failure_that_names_the_endpoint(self):
+        # Stripe returns the signing secret once, at create. A replacement whose secret never
+        # arrived can never verify a delivery, and reporting it as replaced would delete the
+        # working endpoint and leave only the unusable one.
+        with patch.object(stripe_module, "StripeClient") as mock_client_cls:
+            client = self._client(mock_client_cls, self._endpoint(None))
+            client.webhook_endpoints.create.return_value = SimpleNamespace(id="we_new", secret=None)
+
+            repin = stripe_module.create_pinned_webhook_replacement(
+                api_key="sk_test_123",
+                stripe_account_id=None,
+                webhook_url=self._URL,
+                api_version=STRIPE_API_VERSION_ACACIA,
+            )
+
+        assert repin.status == "failed"
+        assert repin.created_endpoint_id == "we_new"
+        client.webhook_endpoints.delete.assert_not_called()
+
 
 class TestStripeAppManifestCoversSourcePermissions:
     # Regression test: PERMISSIONS drives the pre-filled restricted-key form, while the Stripe app

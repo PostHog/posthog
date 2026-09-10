@@ -1112,8 +1112,8 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
         existing = best_by_id.get(obj_id)
         # Later rows win ties. `created` is a whole second and one Stripe operation emits several
         # events for an object inside it, so the only finer order the batch holds is the row order,
-        # which is the arrival order. Keeping the first row let a pre-payment snapshot outrank the
-        # payment event that followed it in the same second.
+        # a best-effort proxy for arrival order. Keeping the first row let a pre-payment snapshot
+        # outrank the payment event that followed it in the same second.
         if existing is None or ts >= existing[0]:
             best_by_id[obj_id] = (ts, obj)
 
@@ -1743,6 +1743,10 @@ class WebhookRepin:
     previous_api_version: str | None = None
     signing_secret: str | None = dataclasses.field(default=None, repr=False)
     replaced_endpoint_id: str | None = None
+    # Set as soon as Stripe creates the replacement, including on the failure that follows it.
+    # Stripe returns the signing secret once, at create, so a caller that loses this id can no
+    # longer identify the endpoint it must delete, and the endpoint keeps failing signature checks.
+    created_endpoint_id: str | None = None
     error: str | None = None
 
 
@@ -1795,14 +1799,31 @@ def create_pinned_webhook_replacement(
             }
         )
 
+        if not replacement.secret:
+            return WebhookRepin(
+                status="failed",
+                created_endpoint_id=replacement.id,
+                error=(
+                    f"Stripe created endpoint {replacement.id} without returning a signing secret. "
+                    "Delete it in Stripe, because nothing can verify its deliveries."
+                ),
+            )
+
         return WebhookRepin(
             status="replaced",
             previous_api_version=endpoint.api_version,
             signing_secret=replacement.secret,
             replaced_endpoint_id=endpoint.id,
+            created_endpoint_id=replacement.id,
         )
     except Exception as e:
-        return WebhookRepin(status="failed", error=_clean_stripe_error_message(str(e)))
+        error_str = _clean_stripe_error_message(str(e))
+        if "permission" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
+            error_str = (
+                f"{error_str} (the API key needs the 'Write' permission for 'Webhook endpoints'; "
+                "an app-connected source can never have it)"
+            )
+        return WebhookRepin(status="failed", error=error_str)
 
 
 def delete_webhook_endpoint(api_key: str, stripe_account_id: str | None, endpoint_id: str) -> WebhookDeletionResult:

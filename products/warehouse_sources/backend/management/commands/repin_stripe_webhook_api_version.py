@@ -1,17 +1,18 @@
 from typing import Any, cast
 
-from django.core.management.base import BaseCommand, CommandParser
+from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 import structlog
 
 from posthog.dataclasses import frozen
 
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.data_warehouse.backend.facade.api import get_webhook_url
+from products.cdp.backend.facade.models import HogFunction
+from products.data_warehouse.backend.facade.api import get_webhook_url, store_webhook_extra_inputs
 from products.warehouse_sources.backend.facade.source_management import SourceRegistry
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import StripeSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import WebhookRepin
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
@@ -56,12 +57,26 @@ class Command(BaseCommand):
             default=None,
             help="Target these source ids explicitly. Repeatable.",
         )
+        parser.add_argument(
+            "--limit",
+            type=int,
+            default=None,
+            help=(
+                "Only scan the first N Stripe sources. Each one costs a Stripe API call even in a "
+                "dry run, so use this for a first batch."
+            ),
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         live_run = options["live_run"]
         source = cast(StripeSource, SourceRegistry.get_source(ExternalDataSourceType.STRIPE))
 
-        candidates = self._find_candidates(source, team_id=options["team_id"], source_ids=options["source_id"])
+        if options["limit"] is not None and options["limit"] < 1:
+            raise CommandError("--limit must be at least 1.")
+
+        candidates = self._find_candidates(
+            source, team_id=options["team_id"], source_ids=options["source_id"], limit=options["limit"]
+        )
 
         if not candidates:
             self.stdout.write(self.style.WARNING("No Stripe webhook endpoint needs repinning."))
@@ -86,7 +101,7 @@ class Command(BaseCommand):
         self._replace(source, candidates)
 
     def _find_candidates(
-        self, source: StripeSource, *, team_id: int | None, source_ids: list[str] | None
+        self, source: StripeSource, *, team_id: int | None, source_ids: list[str] | None, limit: int | None
     ) -> list[_RepinCandidate]:
         sources = ExternalDataSource.objects.filter(
             source_type=ExternalDataSourceType.STRIPE,
@@ -97,6 +112,8 @@ class Command(BaseCommand):
             sources = sources.filter(team_id=team_id)
         if source_ids:
             sources = sources.filter(id__in=source_ids)
+        if limit is not None:
+            sources = sources[:limit]
 
         candidates: list[_RepinCandidate] = []
 
@@ -123,6 +140,19 @@ class Command(BaseCommand):
                 continue
 
             if not info.exists or info.api_version == target_api_version:
+                continue
+
+            # The Stripe app is structurally denied `webhook_write`, so the replacement create can
+            # only 403 for an app-connected source. Report it as needing a manual fix in Stripe
+            # rather than queueing a candidate that fails on every run.
+            if config.auth_method.selection == "oauth":
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"Manual fix needed for source={source_model.id} team={source_model.team_id}: "
+                        f"an app-connected source cannot create a webhook endpoint. Recreate it in Stripe "
+                        f"on {info.api_version or 'no version'} → {target_api_version}."
+                    )
+                )
                 continue
 
             candidates.append(
@@ -152,23 +182,29 @@ class Command(BaseCommand):
                 api_version=source_model.api_version,
             )
 
-            if repin.status != "replaced":
+            if repin.status != "replaced" or not repin.signing_secret or not repin.replaced_endpoint_id:
                 failed += 1
                 reason = repin.error or f"the endpoint is now {repin.status}"
                 self.stdout.write(self.style.ERROR(f"Failed source={source_model.id}: {reason}"))
+                self._report_stray_endpoint(source_model, repin)
                 continue
 
-            assert repin.signing_secret is not None
-            assert repin.replaced_endpoint_id is not None
-
-            # Store the secret before the delete. Until this write lands only the old endpoint's
-            # deliveries verify, and after it lands only the new endpoint's do, so every event has
-            # one copy that verifies as long as both endpoints exist.
-            candidate.hog_function.inputs = {
-                **(candidate.hog_function.inputs or {}),
-                "signing_secret": {"value": repin.signing_secret},
-            }
-            candidate.hog_function.save(update_fields=["inputs", "encrypted_inputs"])
+            try:
+                # Store the secret before the delete. Until this write lands only the old endpoint's
+                # deliveries verify, and after it lands only the new endpoint's do, so every event
+                # has one copy that verifies as long as both endpoints exist.
+                store_webhook_extra_inputs(
+                    str(candidate.hog_function.id),
+                    source_model.team_id,
+                    {"signing_secret": repin.signing_secret},
+                )
+            except Exception as e:
+                # The replacement is live in Stripe and its secret is stored nowhere, so name it
+                # here rather than letting the traceback end the run with the id only in Stripe.
+                failed += 1
+                self.stdout.write(self.style.ERROR(f"Failed source={source_model.id}: {e}"))
+                self._report_stray_endpoint(source_model, repin)
+                continue
 
             deletion = source.delete_webhook_endpoint(
                 candidate.config, repin.replaced_endpoint_id, source_model.team_id
@@ -194,4 +230,14 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(f"\nDone. Replaced: {replaced}, Failed: {failed}, Old endpoint left behind: {orphaned}")
+        )
+
+    def _report_stray_endpoint(self, source_model: ExternalDataSource, repin: WebhookRepin) -> None:
+        if not repin.created_endpoint_id:
+            return
+        self.stdout.write(
+            self.style.WARNING(
+                f"  Stripe endpoint {repin.created_endpoint_id} exists for source={source_model.id} "
+                f"and nothing holds its signing secret. Delete it in Stripe."
+            )
         )

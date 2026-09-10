@@ -1,4 +1,5 @@
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from unittest.mock import patch
@@ -29,13 +30,15 @@ def team():
     return create_team(organization=create_organization("test org"))
 
 
-def _create_source_with_webhook(team, secret_key: str) -> tuple[ExternalDataSource, HogFunction]:
+def _create_source_with_webhook(
+    team, secret_key: str, auth_method: str = "api_key"
+) -> tuple[ExternalDataSource, HogFunction]:
     source = ExternalDataSource.objects.create(
         team=team,
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": secret_key},
+        job_inputs={"stripe_secret_key": secret_key, "auth_method": auth_method},
     )
     hog_function = HogFunction.objects.create(
         team=team,
@@ -62,8 +65,15 @@ def _stored_secret(hog_function_id) -> str | None:
     return ((stored.encrypted_inputs or {}).get("signing_secret") or {}).get("value")
 
 
+def _parse_config(job_inputs) -> SimpleNamespace:
+    return SimpleNamespace(
+        stripe_secret_key=job_inputs["stripe_secret_key"],
+        auth_method=SimpleNamespace(selection=job_inputs.get("auth_method", "api_key")),
+    )
+
+
 def _webhook_info(config, webhook_url, team_id, api_version=None) -> ExternalWebhookInfo:
-    drifted = config["stripe_secret_key"] == DRIFTED_KEY
+    drifted = config.stripe_secret_key == DRIFTED_KEY
     return ExternalWebhookInfo(
         exists=True,
         url=webhook_url,
@@ -76,7 +86,7 @@ class TestRepinStripeWebhookApiVersion:
         _, hog_function = _create_source_with_webhook(team, DRIFTED_KEY)
 
         with (
-            patch.object(StripeSource, "parse_config", side_effect=lambda job_inputs: job_inputs),
+            patch.object(StripeSource, "parse_config", side_effect=_parse_config),
             patch.object(StripeSource, "get_external_webhook_info", side_effect=_webhook_info),
             patch.object(StripeSource, "create_pinned_webhook_replacement") as create,
         ):
@@ -96,7 +106,7 @@ class TestRepinStripeWebhookApiVersion:
             return WebhookDeletionResult(success=True)
 
         with (
-            patch.object(StripeSource, "parse_config", side_effect=lambda job_inputs: job_inputs),
+            patch.object(StripeSource, "parse_config", side_effect=_parse_config),
             patch.object(StripeSource, "get_external_webhook_info", side_effect=_webhook_info),
             patch.object(
                 StripeSource,
@@ -118,3 +128,40 @@ class TestRepinStripeWebhookApiVersion:
         assert _stored_secret(drifted_hog_function.id) == "whsec_new"
         assert create.call_count == 1
         assert _stored_secret(pinned_hog_function.id) == "whsec_old"
+
+    def test_app_connected_source_is_never_queued_for_replacement(self, team, capsys):
+        _create_source_with_webhook(team, DRIFTED_KEY, auth_method="oauth")
+
+        with (
+            patch.object(StripeSource, "parse_config", side_effect=_parse_config),
+            patch.object(StripeSource, "get_external_webhook_info", side_effect=_webhook_info),
+            patch.object(StripeSource, "create_pinned_webhook_replacement") as create,
+        ):
+            call_command(COMMAND, live_run=True)
+
+        create.assert_not_called()
+        assert "Manual fix needed" in capsys.readouterr().out
+
+    def test_a_replacement_without_a_secret_names_the_endpoint_it_left_behind(self, team, capsys):
+        _, hog_function = _create_source_with_webhook(team, DRIFTED_KEY)
+
+        with (
+            patch.object(StripeSource, "parse_config", side_effect=_parse_config),
+            patch.object(StripeSource, "get_external_webhook_info", side_effect=_webhook_info),
+            patch.object(
+                StripeSource,
+                "create_pinned_webhook_replacement",
+                return_value=WebhookRepin(
+                    status="failed",
+                    created_endpoint_id="we_new",
+                    error="Stripe returned no signing secret",
+                ),
+            ),
+            patch.object(StripeSource, "delete_webhook_endpoint") as delete,
+        ):
+            call_command(COMMAND, live_run=True)
+
+        # The endpoint is live in Stripe and its secret is unrecoverable, so the run has to name it.
+        assert "we_new" in capsys.readouterr().out
+        delete.assert_not_called()
+        assert _stored_secret(hog_function.id) == "whsec_old"
