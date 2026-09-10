@@ -37,9 +37,10 @@ _CANVAS_URL_HELP_TEXT = (
 )
 
 _PROGRESSIVE_FRAGMENTS_HELP_TEXT = (
-    "Whether builds of this canvas emit progressive fragments. True: author the layout with <CanvasFragment> markers "
-    "and every panel as a src/fragments/ file, publish the layout first, then the fragments. False: build with a "
-    "single publish and no fragments. This value is the switch; do not decide from the request."
+    "Whether builds of this canvas emit progressive fragments. The files are the same either way: a layout with "
+    "<CanvasFragment> markers and one component file per panel under src/fragments/. True: publish the layout "
+    "first, then the fragments in batches. False: publish everything once; the builder bundles each fragment into "
+    "the layout. This value is the switch; do not decide from the request."
 )
 
 

@@ -24,10 +24,20 @@ const canvasSdkModule = readFileSync(new URL('./canvas-sdk.mjs', import.meta.url
 // and publishes it on globalThis; each fragment chunk reads those instances
 // through a shim instead of bundling its own copy. The marker component is a
 // builder-provided module compiled in the author namespace so `react` resolves
-// against the declared dependency. Without a registry (a build without
-// progressive fragments, or the preview document) every marker renders its
-// fallback.
+// against the declared dependency. A build without progressive fragments
+// bundles every fragment file into the layout and each marker renders its
+// component directly, so one source works with either build mode. Only the
+// preview document, which has no builder, renders every marker's fallback.
 const fragmentSdkSpecifier = '@posthog/canvas-sdk/fragment'
+const inlineFragmentsSpecifier = 'canvas-fragments-inline'
+const inlineFragmentSdkModule = `import React from 'react'
+import components from '${inlineFragmentsSpecifier}'
+export function CanvasFragment({ path, fallback = null, props }) {
+    const Component = components[path]
+    if (!Component) return fallback
+    return <Component {...(props ?? {})} />
+}
+`
 const fragmentSdkModule = `import React, { useEffect, useState } from 'react'
 const registry = globalThis.__posthogCanvasFragments ?? { base: '', fragments: {}, subscribe: () => () => {}, report() {}, error() {} }
 export function CanvasFragment({ path, fallback = null, props }) {
@@ -450,6 +460,7 @@ function validate(project) {
 function virtualFsPlugin(project, shared) {
     const files = project.files
     const reactDeclared = Object.hasOwn(project.dependencies, 'react')
+    const inlineFragments = project.progressiveFragments !== true
     return {
         name: 'canvas-virtual-fs',
         setup(pluginBuild) {
@@ -473,6 +484,9 @@ function virtualFsPlugin(project, shared) {
                     return reactDeclared
                         ? { path: fragmentSdkSpecifier, namespace: 'canvas' }
                         : { errors: [{ text: `import_not_declared: "${args.path}"` }] }
+                }
+                if (args.path === inlineFragmentsSpecifier && args.importer === fragmentSdkSpecifier) {
+                    return { path: inlineFragmentsSpecifier, namespace: 'canvas' }
                 }
                 if (args.path.startsWith('.') || args.path.startsWith('/')) {
                     const workerImport = args.path.endsWith('?worker')
@@ -522,11 +536,16 @@ function virtualFsPlugin(project, shared) {
                 contents: `const m=globalThis.__posthogCanvasModules?.[${JSON.stringify(args.path)}];if(!m)throw new Error(${JSON.stringify(`Canvas shared module ${args.path} is not loaded`)});module.exports=m`,
                 loader: 'js',
             }))
-            pluginBuild.onLoad({ filter: /.*/, namespace: 'canvas' }, (args) =>
-                args.path === fragmentSdkSpecifier
-                    ? { contents: fragmentSdkModule, loader: 'tsx', resolveDir: '/' }
-                    : { contents: files[args.path], loader: loader(args.path), resolveDir: '/' }
-            )
+            pluginBuild.onLoad({ filter: /.*/, namespace: 'canvas' }, (args) => {
+                if (args.path === fragmentSdkSpecifier) {
+                    const contents = inlineFragments ? inlineFragmentSdkModule : fragmentSdkModule
+                    return { contents, loader: 'tsx', resolveDir: '/' }
+                }
+                if (args.path === inlineFragmentsSpecifier) {
+                    return { contents: inlineFragmentsModule(project), loader: 'js', resolveDir: '/' }
+                }
+                return { contents: files[args.path], loader: loader(args.path), resolveDir: '/' }
+            })
             pluginBuild.onLoad({ filter: /.*/, namespace: 'canvas-asset' }, (args) => {
                 const asset = project.assets?.[args.path]
                 return asset
@@ -670,15 +689,29 @@ function failed(...diagnostics) {
     return { contractVersion: 1, status: 'failed', diagnostics }
 }
 
+function fragmentFilesOf(project) {
+    return Object.keys(project.files)
+        .filter((file) => file.startsWith(fragmentsDirectory) && isCodeFile(file))
+        .sort()
+}
+
+// The module a non-progressive build hands to the marker component: every
+// fragment file imported statically, keyed by marker path. The importer has no
+// directory, so the relative specifiers resolve from the project root.
+function inlineFragmentsModule(project) {
+    const files = fragmentFilesOf(project)
+    const imports = files.map((file, index) => `import f${index} from ${JSON.stringify(`./${file}`)}`)
+    const entries = files.map((file, index) => `${JSON.stringify(fragmentKey(file))}: f${index}`)
+    return `${imports.join('\n')}\nexport default { ${entries.join(', ')} }\n`
+}
+
 // Splits the project into layout, shared, and fragment inputs, and injects the
 // layout wrapper. Returns diagnostics when the fragment set is unusable.
 function prepareFragments(project, html) {
     const sharedFiles = Object.keys(project.files)
         .filter((file) => file.startsWith(sharedDirectory) && isCodeFile(file))
         .sort()
-    const fragmentFiles = Object.keys(project.files)
-        .filter((file) => file.startsWith(fragmentsDirectory) && isCodeFile(file))
-        .sort()
+    const fragmentFiles = fragmentFilesOf(project)
     if (fragmentFiles.length > contract.limits.maxFragments) {
         return {
             diagnostics: [

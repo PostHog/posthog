@@ -151,8 +151,11 @@ The switch is the `progressive_fragments_enabled` field on the canvas.
 `canvas-create` returns it on the new canvas, and `canvas-source-retrieve` returns it under `canvas` for an existing one.
 Read it before you write the first file.
 
-- `true`: always build with fragments. Put every panel in its own fragment file, even a small one, and follow the build order below.
-- `false`: never use fragments. Do not import `@posthog/canvas-sdk/fragment` and do not create `src/fragments/`. Without the feature, a marker renders its fallback forever.
+The files are the same in both cases: a layout with `<CanvasFragment>` markers, shared modules under `src/shared/`, and one component file per panel under `src/fragments/`.
+The field decides only how the canvas is built and published.
+
+- `true`: publish progressively. Publish the layout first, then the fragments in batches, and follow the build order below.
+- `false`: publish once, with every file in the same publish. The builder bundles each fragment into the layout, and each marker renders its component directly. Do not split the work into several publishes.
 
 Do not decide this from the size or the shape of the request.
 A task line such as `Progressive fragments: expected.` is a hint from the host; the API field wins when they disagree.
@@ -173,7 +176,7 @@ Rules:
 ### Build order
 
 1. Publish the layout first: the entry, the `src/shared/**` modules, and every marker with its fallback. Do not include any fragment file yet.
-2. Wait for that build to reach `ready`. Read the build's `manifest` from `canvas-builds-retrieve`. `manifest.fragments` is present (an empty object counts) when the feature is active. If it is absent, the flag changed since you read the canvas; stop and finish the canvas with a single publish that includes every panel as ordinary components (see "Feature flag" below).
+2. Wait for that build to reach `ready`. Read the build's `manifest` from `canvas-builds-retrieve`. `manifest.fragments` is present (an empty object counts) when the feature is active. If it is absent, the flag changed since you read the canvas; stop and finish the canvas with one publish that includes every fragment file (see "Feature flag" below).
 3. Add fragments in small batches (two or three files) and publish after each batch with `canvas-edit-create`. Wait for each build to reach `ready` before the next publish; the queue drops older queued builds when a newer publish arrives, so back-to-back publishes waste work.
 4. After each build, read `manifest.pendingFragments`. It lists the markers that still have no fragment. Continue until it is empty.
 5. Finish when `manifest.pendingFragments` is empty and the last build is `ready`.
@@ -181,13 +184,19 @@ Rules:
 A fragment publish that keeps the layout files unchanged swaps into the open canvas without a reload.
 A publish that changes the layout, a shared module, or `dependencies` reloads the whole canvas; that is expected, so keep layout edits to the first publish where you can.
 
+### Change one panel
+
+To change one panel of an existing canvas, edit only its fragment file with `canvas-edit-create` and publish.
+The build emits every fragment again, but the open canvas re-imports only the chunk whose content changed; the other panels keep their mounted components and their local state.
+A fragment is a plain React component, so to reuse a panel in another canvas, read the source of the first canvas with `canvas-source-retrieve` and write the fragment file, plus the `src/shared/` files it imports, into the second canvas.
+
 ### Feature flag
 
-Fragments take effect only when the team has the `canvas-progressive-fragments` flag.
+Fragments load progressively only when the team has the `canvas-progressive-fragments` flag.
 The backend evaluates the flag and reports the result as `progressive_fragments_enabled` on the canvas, so the API field is your source of truth.
-Without the flag, the files under `src/fragments/**` build as normal files, `manifest.fragments` is absent, and every marker renders its fallback forever.
+Without the flag, the builder bundles every file under `src/fragments/**` into the layout, each marker renders its component directly, and `manifest.fragments` is absent.
 As a safety check, read `manifest.fragments` after the first build.
-If it is absent, replace each marker with the panel component itself, drop the `@posthog/canvas-sdk/fragment` import, and finish with one publish.
+If it is absent, finish with one publish that includes every fragment file.
 
 ## Runtime memory and actions
 

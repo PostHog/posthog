@@ -12,8 +12,8 @@ description: >
 
 The whole application is one React/TSX file (`src/canvas.tsx` in the source project). It must
 `export default` a single React component that takes no props — the host mounts it. Do not import
-react-dom or call createRoot. The one exception is a progressive-fragments canvas, where each
-panel is its own file under `src/fragments/`; see "Progressive fragments" below.
+react-dom or call createRoot. A canvas with fragments is the one exception: each panel is its
+own component file under `src/fragments/`; see "Progressive fragments" below.
 
 Start from the working scaffold in [references/starter-scaffold.md](references/starter-scaffold.md)
 on a first build: it already wires the date picker, theme tokens, per-query loading state (every
@@ -31,9 +31,9 @@ module, so it needs no `dependencies` entry. The same object exists as the `wind
 (how existing canvases reach it); prefer the import in new code.
 
 `import { CanvasFragment } from "@posthog/canvas-sdk/fragment"` is the other platform-provided
-module. It marks where a progressive fragment renders. Use it only when the canvas response has
-`progressive_fragments_enabled: true`; see "Progressive fragments" below and the `building-canvases`
-skill for the publish order.
+module. It marks where a fragment renders. The canvas response's `progressive_fragments_enabled`
+decides the publish order, not the files; see "Progressive fragments" below and the
+`building-canvases` skill.
 
 Other bare imports, dynamic `import()`, `require()`, `<script>` tags, and remote code fail
 validation. Direct network requests and external images, fonts, media, or frames require an exact
@@ -158,7 +158,9 @@ load/save failure states — are what break when improvised. Keep them; replace 
 
 ## Progressive fragments
 
-When the canvas has `progressive_fragments_enabled: true`, the layout stays in `src/canvas.tsx` and each panel becomes its own file under `src/fragments/`.
+The layout stays in `src/canvas.tsx` and each panel is its own component file under `src/fragments/`.
+With `progressive_fragments_enabled: true` each fragment is its own chunk and loads into the open canvas as soon as it is built.
+With `false` the builder bundles the same files into the layout and each marker renders its component at once.
 A layout with two markers:
 
 ```tsx
@@ -233,7 +235,8 @@ export default function RevenueChart({ range }: { range: DateRange }) {
 The fragment imports `../shared/date-range` and gets the same module instance the layout uses.
 It must not import another file under `src/fragments/`.
 
-A hot-swapped fragment loses its local component state: when a newer build replaces the fragment, React mounts the new component fresh, so `useState` values, scroll positions, and in-flight requests inside it are gone.
+A fragment is a normal component: it receives the marker's `props`, and a change to `props` re-renders it in place.
+A fragment whose content changed in a newer build loses its local component state: React mounts the new component fresh, so `useState` values, scroll positions, and in-flight requests inside it are gone. Unchanged fragments keep their state.
 Keep durable state in `src/shared` stores or in `ph.state`; keep only view-local state in the fragment.
 
 ## Date window

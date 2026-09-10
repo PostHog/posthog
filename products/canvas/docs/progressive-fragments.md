@@ -10,6 +10,7 @@ The feature is gated by the `canvas-progressive-fragments` flag, evaluated per t
 - Shared modules: every file under `src/shared/**`. The layout build owns one instance of each; fragments import them and get that instance.
 - Fragments: every file `src/fragments/<name>.tsx|.jsx|.ts|.js` (nested directories allowed). Each is one independent chunk with a default-exported React component. A fragment may import bare dependencies, `../shared/*`, and private files outside `src/shared/` and `src/fragments/` (private imports are bundled into the fragment chunk). A fragment must not import another fragment (`fragment_imports_fragment` error).
 - Marker: `import { CanvasFragment } from "@posthog/canvas-sdk/fragment"` and `<CanvasFragment path="fragments/revenue-chart" fallback={<Skeleton />} props={{ range }} />`. `path` is relative to `src/`, no extension. A marker with no fragment file renders `fallback` and counts as pending (`fragment_marker_without_file` warning).
+- The same files build in both modes. With the flag on, each fragment is its own chunk and the layout loads it through the registry. With the flag off, the builder imports every fragment file statically into the layout bundle and `CanvasFragment` renders the component from that map at once, so a marker never renders its fallback forever. Only the preview document, which has no builder, renders the fallback.
 
 The agent-facing workflow lives in `products/canvas/skills/building-canvases/SKILL.md`.
 
@@ -36,7 +37,8 @@ The builder makes fragments reuse the layout's instances:
 
 - The layout build wraps the entry in a generated module that imports every shared module and every declared dependency, then assigns `globalThis.__posthogCanvasModules = { "<key>": namespace, ... }`. Keys are bare specifiers (`react`, `react/jsx-runtime`, `@posthog/quill`, ...) limited to `project.dependencies` plus their `runtimeImports`, `@posthog/canvas-sdk`, `@posthog/canvas-sdk/fragment`, and `./src/shared/<path>` for shared files.
 - The fragments build is a second esbuild call with every fragment as an entry point (`format: 'esm'`, `bundle: true`, `splitting: false`). A plugin resolves any import whose key is in the shared set to a shim module: `const m = globalThis.__posthogCanvasModules["<key>"]; export default m.default; export const { a, b } = m;`. Export names come from a metafile probe over the shared modules.
-- `@posthog/canvas-sdk/fragment` is a builder-provided virtual module. `CanvasFragment` reads the fragment registry, dynamic-imports the chunk for its `path`, renders `fallback` until the import resolves, then renders the loaded component with `props`.
+- `@posthog/canvas-sdk/fragment` is a builder-provided virtual module. With the flag on, `CanvasFragment` reads the fragment registry, dynamic-imports the chunk for its `path`, renders `fallback` until the import resolves, then renders the loaded component with `props`. The effect is keyed on the chunk's `contentHash`, so a newer build remounts only the fragments whose content changed. With the flag off, the module imports a generated `canvas-fragments-inline` map of every fragment file and renders synchronously.
+- Incremental builds: the builder rebuilds every fragment on each publish. esbuild bundles a canvas in well under a second, so skipping unchanged chunks in the builder saves nothing a person can notice. The saving is on the client: the host compares `contentHash` per fragment and re-imports only the changed chunks.
 
 ## Runtime messages
 

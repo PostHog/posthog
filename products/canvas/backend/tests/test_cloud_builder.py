@@ -831,7 +831,7 @@ bridge.port1.close();
         self.assertNotIn("shared", chart.split("__posthogCanvasModules")[0])
         self.assertIn("days", chart)
 
-    def test_progressive_fragments_absent_leaves_fragment_files_ordinary(self) -> None:
+    def test_progressive_fragments_absent_bundles_fragments_into_the_layout(self) -> None:
         payload = self._fragments_project()
         del payload["progressiveFragments"]
 
@@ -846,6 +846,11 @@ bridge.port1.close();
             "__posthogCanvasFragments",
             next(f["content"] for f in result["files"] if f["path"] == "assets/canvas-runtime.js"),
         )
+        layout = next(f["content"] for f in result["files"] if f["path"].startswith("assets/canvas-"))
+        self.assertIn('"fragments/revenue-chart"', layout)
+        self.assertIn('"fragments/nested/table"', layout)
+        self.assertIn(" days", layout)
+        self.assertNotIn("__posthogCanvasModules", layout)
 
     def test_progressive_fragment_importing_another_fragment_fails(self) -> None:
         payload = self._fragments_project()
