@@ -15,13 +15,13 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { cn } from 'lib/utils/css-classes'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
+import { getPersonEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { urls } from 'scenes/urls'
 
 import { adminLoginAs } from '~/layout/navigation/ImpersonationNotice/adminLoginAs'
 import { ImpersonationReasonModal } from '~/layout/navigation/ImpersonationNotice/ImpersonationReasonModal'
-import { ActivityTab, PropertyFilterType, PropertyOperator, UserBasicType } from '~/types'
+import { ActivityTab, UserBasicType } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { supportLogic } from '../Support/supportLogic'
@@ -118,16 +118,7 @@ export function NotFound({ object, caption, meta, className, style }: NotFoundPr
                             combineUrl(
                                 urls.activity(ActivityTab.ExploreEvents),
                                 {},
-                                {
-                                    q: getDefaultEventsSceneQuery([
-                                        {
-                                            type: PropertyFilterType.EventMetadata,
-                                            key: 'distinct_id',
-                                            value: meta.urlId,
-                                            operator: PropertyOperator.Exact,
-                                        },
-                                    ]),
-                                }
+                                { q: getPersonEventsSceneQuery(meta.urlId) }
                             ).url
                         }
                     >

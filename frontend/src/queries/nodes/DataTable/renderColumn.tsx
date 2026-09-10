@@ -336,6 +336,9 @@ export function renderColumn(
         if (isEventsQuery(query.source)) {
             displayProps.person = value.distinct_id ? (value as EventsQueryPersonColumn) : value
             displayProps.noPopover = false // If we are in an events list, the popover experience is better
+            const resultRow = record as any[]
+            const eventRecord = query.source.select.includes('*') ? resultRow[query.source.select.indexOf('*')] : null
+            displayProps.eventTimestamp = eventRecord?.timestamp
         }
 
         if (isPersonsNode(query.source) && personRecord.distinct_ids) {

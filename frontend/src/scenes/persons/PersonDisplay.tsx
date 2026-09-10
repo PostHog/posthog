@@ -41,6 +41,8 @@ export interface PersonDisplayProps {
     className?: string
     /** Use muted/secondary text color instead of default */
     muted?: boolean
+    /** Timestamp of the event this person is shown for, so the popover can link to events around that moment. */
+    eventTimestamp?: string | null
 }
 
 export function PersonIcon({
@@ -94,6 +96,7 @@ export function PersonDisplay({
     inline,
     className,
     muted,
+    eventTimestamp,
 }: PersonDisplayProps): JSX.Element {
     const display = displayName || asDisplay(person, maxLength)
     const [visible, setVisible] = useState(false)
@@ -202,6 +205,7 @@ export function PersonDisplay({
                     <PersonPreview
                         distinctId={person?.distinct_id || person?.distinct_ids?.[0]}
                         personId={person?.id}
+                        eventTimestamp={eventTimestamp}
                         onClose={() => setVisible(false)}
                     />
                 ) : null

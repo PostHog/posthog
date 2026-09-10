@@ -10,12 +10,12 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
+import { getPersonEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { urls } from 'scenes/urls'
 
-import { ActivityTab, PropertyDefinitionType, PropertyFilterType, PropertyOperator } from '~/types'
+import { ActivityTab, PropertyDefinitionType } from '~/types'
 
 import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket'
 
@@ -25,6 +25,8 @@ import { personLogic } from './personLogic'
 export type PersonPreviewProps = {
     distinctId?: string
     personId?: string
+    /** Timestamp of the event this preview was opened from, used to anchor the "View events" link. */
+    eventTimestamp?: string | null
     onClose?: () => void
 }
 
@@ -46,14 +48,7 @@ function PersonPreviewInner(props: PersonPreviewProps): JSX.Element | null {
 
     // NOTE: This can happen if the Person was deleted or the events associated with the distinct_id had person processing disabled
     if (!person) {
-        const eventsQuery = getDefaultEventsSceneQuery([
-            {
-                type: PropertyFilterType.EventMetadata,
-                key: 'distinct_id',
-                value: props.distinctId,
-                operator: PropertyOperator.Exact,
-            },
-        ])
+        const eventsQuery = getPersonEventsSceneQuery(props.distinctId, props.eventTimestamp)
         const eventsUrl = combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: eventsQuery }).url
         return (
             <div className="p-2 max-w-160">
