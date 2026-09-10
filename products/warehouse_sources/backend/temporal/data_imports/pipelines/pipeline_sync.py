@@ -248,9 +248,14 @@ async def validate_schema_and_update_table(
 
             if table_created is None:
                 # The ServerException handler below can leave a created table unlinked, so look for
-                # that orphan before the skip decides no table exists.
+                # that orphan before the skip decides no table exists. Two schema names can resolve
+                # to one table name, so require that no schema owns the row.
                 table_created = DataWarehouseTable.objects.filter(
-                    team_id=team_id, name=table_name, external_data_source_id=job.pipeline.id, deleted=False
+                    team_id=team_id,
+                    name=table_name,
+                    external_data_source_id=job.pipeline.id,
+                    deleted=False,
+                    externaldataschema__isnull=True,
                 ).first()
                 if table_created is not None:
                     logger.debug(f"Found existing table {table_created.id} - reusing it for schema {_schema_id}")
@@ -287,15 +292,17 @@ async def validate_schema_and_update_table(
 
             else:
                 logger.debug(f"Creating table for schema: {str(schema_id)}")
-                table_created = DataWarehouseTable.objects.create(
+                table = DataWarehouseTable.objects.create(
                     external_data_source_id=job.pipeline.id,
                     created_via=DataWarehouseTableCreatedVia.SOURCE,
                     **table_params,
                 )
                 if row_count == 0:
-                    # table_params holds 0 for a table an earlier attempt already filled.
-                    _refresh_cumulative_row_count(table_created, logger, f"{_schema_name} ({_schema_id})")
-                    table_created.save(update_fields=["row_count"])
+                    # table_params holds 0 for a table an earlier attempt already filled. get_count()
+                    # can block long enough for the pooled connection to go stale, as above.
+                    _refresh_cumulative_row_count(table, logger, f"{_schema_name} ({_schema_id})")
+                    retry_on_db_connection_drop(lambda: table.save(update_fields=["row_count"]))
+                table_created = table
 
             assert isinstance(table_created, DataWarehouseTable) and table_created is not None
 
