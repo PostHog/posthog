@@ -1018,6 +1018,7 @@ All events use `distinct_id = team.uuid` and `groups(organization, team)`. Per-s
 - `signal_report_reresearch_skipped` — signal hit an already-researched report past the re-research cap, so no new run spawned (+ `report_id`, `signal_count`, `status`, `threshold`). Fires per suppressed signal
 - `signal_report_quota_paused` — a quota gate observed the team's org over its self-driving credits limit (+ `stage`: `promotion` | `summary_entry` | `pre_repo_selection` | `pre_research` | `autostart` | `manual_create` | `task_create` | `implementation_run`, `enforced`, `report_id`). See Billing limit enforcement
 - `signal_report_daily_limit_paused` — a gate paused work because the team hit its `max_reports_per_day` (+ `stage`: `ingestion` | `scout_run` | `promotion` | `summary_entry` | `pre_repo_selection` | `pre_research`, `limit`, `reports_today`, `report_id` nullable). See Per-team daily report limit
+- `signal_report_free_trial_paused` — a gate held back a pull request because the team's org is on a Self-driving free trial (+ `stage`: `autostart` | `manual_create` | `task_create` | `task_run`, `report_id` nullable). See Self-driving free trial
 - `signal_report_started` — report run began (+ `report_id`, `signal_count`, `run_count`, `source_products`)
 - `signals_repo_research_started` / `signals_repo_research_completed` — repo selection stage (+ `report_id`, `result`: `reused` | `selected` | `no_repo` | `failed`, optional `failure_reason`: `no_github_integration` | `agentic_activity_error`)
 - `signal_report_completed` — terminal per run (+ `result`: `ready` | `failed` | `pending_input` | `not_actionable`, optional `failure_reason`)
@@ -1163,6 +1164,7 @@ Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, 
 - Report has a `priority_judgment`
 - Report has suggested reviewers
 - No legacy `SignalReportTask` implementation row exists for the report (checked inside a `select_for_update` on the report row, so concurrent evaluations can't double-start)
+- The team's org is not on a Self-driving free trial, and not over its self-driving credits quota with enforcement on (see Billing limit enforcement)
 
 **User selection** via `_resolve_autostart_assignee()` in `backend/auto_start.py`:
 
@@ -1352,6 +1354,27 @@ Every check fails open (metric `signals_daily_limit_check_failed_open_total`).
 No `enforced` property: every event is a real block.
 Unlike the billing gates, the ingestion and scout stages do emit (with `report_id=null`) — the limit is user-set and the volume is bounded by the team's own signal flow, and the events answer "why did nothing arrive today".
 Promotion-stage events keep the billing discipline of firing only when the signal would have promoted; both events fire independently when both limits bind.
+
+### Self-driving free trial
+
+A third pause with the same shape, on the implementation side only: while the `self-driving-free-trial` flag is on for an org (org-keyed, toggled by sales per trial), Self-driving still researches and writes reports but opens no pull requests.
+Billing happens only when a PR opens, so nothing is billed, and the exemption and refund machinery in `billing.py` is not involved.
+Implemented in `backend/free_trial.py`, a sibling of `quota.py` with the same fail-open posture: a flag-read error counts as "not on trial", because a flag outage must not stop every org's PRs.
+
+| Stage                           | Where                                               | Behavior on a trial                                                                                                                                                    |
+| ------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `autostart`                     | `maybe_autostart_implementation_task` (all callers) | No implementation task is created; the report stays ready                                                                                                              |
+| `manual_create` / `task_create` | tasks facade `create_task` / `create_and_run_task`  | An implementation task from a report is refused with 402, code `self_driving_free_trial` (`FreeTrialPullRequestRefused`); a `discussion` task from a report is allowed |
+| `task_run`                      | tasks facade `run_task`                             | Starting or retrying an implementation task that already existed is refused the same way; a `discussion` task keeps running                                            |
+
+The research-side gates are not involved: a trial org is meant to get every report.
+The block is blanket, so billing-exempt reports (health checks) are held back too.
+Discuss stays open: a Discuss run can still open a PR, and billing never counts it, because billing only counts implementation records. That is an accepted risk of a sales trial.
+The inbox reads the same flag and keeps Create PR visible but disabled (detail pane, triage view, card context menu) with the sentence the refusal carries (`FREE_TRIAL_PR_MESSAGE`); the desktop app gets the server refusal only.
+A run that is already in flight when the flag goes on is not stopped, because there is no mid-run check like the quota gate's; it can still open its PR.
+Resume is organic, like the other pauses: nothing restarts when the flag goes off; a held-back report gets its PR on the next auto-start re-evaluation, or by hand.
+
+**Telemetry:** each gate emits `signal_report_free_trial_paused` with `stage` (`autostart` | `manual_create` | `task_create` | `task_run`), `report_id`, `team_id`, and `organization_id`. Every event is a real block.
 
 ---
 

@@ -76,6 +76,9 @@ export interface Task {
   title: string;
   title_manually_set?: boolean;
   description: string;
+  // First characters of the description, present instead of the full body when the
+  // list was fetched with basic=true. Absent on the full and single-task responses.
+  description_preview?: string;
   created_at: string;
   updated_at: string;
   /**

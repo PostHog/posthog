@@ -35,14 +35,14 @@ const SLOT_CLAIM_DISABLED_REASON: Record<ImplementationSlotClaim, string> = {
  * reason.
  */
 export function CreatePrButton({ report }: { report: SignalReport }): JSX.Element {
-    const { isCreatingPr, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { isCreatingPr, createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
     // Already mounted by `ReportDetail`, so this reads the loaded value rather than starting a fetch.
     const { implementationSlotClaim } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
     const [feedback, setFeedback] = useState('')
 
     const disabledReason =
-        aiConsentDisabledReason ??
+        createPrDisabledReason ??
         (implementationSlotClaim ? SLOT_CLAIM_DISABLED_REASON[implementationSlotClaim] : undefined)
 
     const submit = (note: string): void => {
@@ -51,8 +51,8 @@ export function CreatePrButton({ report }: { report: SignalReport }): JSX.Elemen
         if (isCreatingPr || implementationSlotClaim) {
             return
         }
-        if (aiConsentDisabledReason) {
-            lemonToast.error(aiConsentDisabledReason)
+        if (createPrDisabledReason) {
+            lemonToast.error(createPrDisabledReason)
             return
         }
         const trimmed = note.trim()
