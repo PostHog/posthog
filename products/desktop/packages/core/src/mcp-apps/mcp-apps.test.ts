@@ -657,11 +657,13 @@ describe("McpAppsService server config change", () => {
 
     // The old-config result must not have repopulated the cache: the next
     // fetch reads through the new connection instead of serving stale HTML.
-    client.readResource.mockImplementation(async ({ uri }: { uri: string }) => ({
-      contents: [
-        { uri, mimeType: UI_MIME_TYPE, text: "<html>new config</html>" },
-      ],
-    }));
+    client.readResource.mockImplementation(
+      async ({ uri }: { uri: string }) => ({
+        contents: [
+          { uri, mimeType: UI_MIME_TYPE, text: "<html>new config</html>" },
+        ],
+      }),
+    );
     const refetched = await service.getUiResourceByUri("posthog", REVIEW_URI);
     expect(refetched?.html).toBe("<html>new config</html>");
   });

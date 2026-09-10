@@ -17,8 +17,8 @@ import {
   EXEC_TOOL_NAME,
   LEGACY_RESOURCE_URI_META_KEY,
   type McpAppsDiscoveryCompleteEvent,
-  McpAppsServiceEvent,
   type McpAppsServerConfigChangedEvent,
+  McpAppsServiceEvent,
   type McpAppsServiceEvents,
   type McpAppsToolCancelledEvent,
   type McpAppsToolInputEvent,
@@ -134,7 +134,9 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
    */
   setServerConfigs(configs: McpServerConnectionConfig[]): void {
     const previous = this.serverConfigs;
-    this.serverConfigs = new Map(configs.map((config) => [config.name, config]));
+    this.serverConfigs = new Map(
+      configs.map((config) => [config.name, config]),
+    );
     this.unavailableServers.clear();
     for (const config of configs) {
       const previousConfig = previous.get(config.name);
