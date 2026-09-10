@@ -56,7 +56,25 @@ Terminal states require `terminal_at`; non-terminal states require it to be null
 Queue transitions that use `QuerySet.update()` must set `updated_at` and the appropriate terminal timestamp explicitly.
 
 Partial indexes cover pending due work, expired processing leases, payload cleanup, and terminal-row deletion.
-The table ships empty; later PRs persist on the Slack endpoints and run the sweeper.
+
+Slack Events API and interactivity endpoints persist a receipt, then acknowledge Slack.
+`X-Slack-Retry-Num` is stored as metadata. It is never used to drop a callback.
+A Slack retry of a row that is waiting on backoff does not skip `due_at`.
+Owning-region proxy failure returns 502 so Slack retries.
+Celery `on_commit` dispatch is a wake-up hint with `apply_async(..., retry=False)`, so a hung broker cannot stall the Slack ack.
+`sweep_inbound_events` (every minute) re-drives due and expired-lease rows, then drains payload cleanup and tombstone deletion in batches of 100 until a short batch or 20 rounds.
+
+Workers claim a row with a fencing token and a 20-minute lease.
+The lease covers a crashed worker. It is not a live handler wall-clock.
+Receipt tasks have no Celery `time_limit`, because Slack ticket create plus thread backfill can run longer than a couple of minutes.
+Completes, fails, and retries require `status=processing` and the claim's fencing token, so a retry that released the row cannot be settled by a stale worker.
+Retry uses jittered backoff capped at 15 minutes, until 20 attempts or 24 hours.
+Redis is not the dedupe record on the receipt path: losing Redis must not drop or suppress a callback.
+
+Receipt workers use task names separate from the legacy payload tasks (`process_supporthog_event_receipt`, `process_supporthog_interactivity_receipt`).
+Keep the legacy task names registered until payload tasks from the old endpoint have drained.
+Live queue gauges (backlog, oldest ready age, last-sweep timestamp) are pushed through `pushed_metrics_registry`.
+Do not emit a ClickHouse event for each sweep.
 
 ## Outbound email (already in Postgres)
 
