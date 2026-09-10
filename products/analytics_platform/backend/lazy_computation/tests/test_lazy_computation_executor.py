@@ -2899,6 +2899,29 @@ class TestPubsubAndStaleDetection(BaseTest):
             assert mock_publish.call_args[0][1] == "failed"
 
 
+class _FakeMonotonicClock:
+    """Stand-in for the executor's `time` module. The clock moves only when the
+    executor sleeps, so a wait deadline arrives after a fixed number of loop
+    passes and costs no wall-clock time. Each reading also adds a small tick, so
+    a loop that stops pacing still reaches the deadline instead of spinning
+    forever."""
+
+    TICK_SECONDS = 0.001
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        reading = self.now
+        self.now += self.TICK_SECONDS
+        return reading
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
 class TestJobLifecycleCounters(BaseTest):
     """Counters that answer "how many jobs were we creating vs finishing" — the
     framework runs jobs synchronously, so PENDING is just "INSERT in flight" and
@@ -3071,15 +3094,16 @@ class TestJobLifecycleCounters(BaseTest):
         # Range has no existing coverage, so the executor enters the create path
         # on every loop iteration. Patching `create_lazy_computation_job` to
         # always return None simulates losing the partial-unique-index race on
-        # every attempt; the executor times out shortly after.
+        # every attempt; the executor times out shortly after. The fake clock
+        # advances on the executor's own sleeps, so the timeout arrives after a
+        # fixed number of passes rather than after 0.2s of contended CPU.
+        clock = _FakeMonotonicClock()
         with (
             patch(
                 "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.create_lazy_computation_job",
                 return_value=None,
             ),
-            patch(
-                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.time.sleep"
-            ) as mock_sleep,
+            patch("products.analytics_platform.backend.lazy_computation.lazy_computation_executor.time", clock),
         ):
             executor = LazyComputationExecutor(wait_timeout_seconds=0.2, poll_interval_seconds=0.05)
             result = executor.execute(
@@ -3091,8 +3115,10 @@ class TestJobLifecycleCounters(BaseTest):
             )
             assert result.ready is False  # Timed out: every create attempt lost the race.
         # Repeated conflicts on a still-missing window must pace instead of
-        # hot-spinning no-op inserts for the whole wait budget.
-        assert mock_sleep.call_count >= 1
+        # hot-spinning no-op inserts, and the pacing must stay inside the wait
+        # budget instead of extending it.
+        assert len(clock.sleeps) >= 1
+        assert sum(clock.sleeps) <= 0.2
 
         assert (
             self._delta(
