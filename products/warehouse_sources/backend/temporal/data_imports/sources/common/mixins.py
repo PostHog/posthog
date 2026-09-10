@@ -13,6 +13,7 @@ import structlog
 from posthog.cloud_utils import is_cloud
 from posthog.models.integration import Integration
 from posthog.psycopg_helpers import prefer_routable_addresses
+from posthog.temporal.common.errors import NonReportableError
 from posthog.utils import get_instance_region
 
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
@@ -256,10 +257,15 @@ def _pinned_ssh_host(ssh_config, team_id: int | None) -> str:
     path goes from the stored config straight to the tunnel, so a host that resolved to a
     public address at setup is never re-checked on any later scheduled run. The SSH hop is a
     raw socket that no egress proxy sees, which makes this check the only thing in its path.
+
+    A rejection is the customer's own DNS or network configuration, never a PostHog defect, so it
+    is raised as a `NonReportableError`: the activity still fails and the message still carries the
+    prefix `Any_Source_Errors` pauses the schema on, but the activity interceptor no longer opens
+    an error tracking issue nobody on our side can act on.
     """
     resolution = resolve_safe_host(ssh_config.host, team_id)
     if resolution.connect_host is None:
-        raise Exception(f"SSH tunnel host not allowed: {resolution.error}")
+        raise NonReportableError(f"SSH tunnel host not allowed: {resolution.error}")
     return resolution.connect_host
 
 
@@ -290,10 +296,12 @@ def _check_direct_host(config, team_id: int | None) -> None:
     bounded `_resolve_hostaddr_with_timeout`. A stalled resolver therefore hangs the activity until
     Temporal's `start_to_close_timeout` rather than failing fast and retryably — the failure that
     bounded lookup exists to prevent. Bounding this one is the follow-up.
+
+    Raised as a `NonReportableError` for the same reason as `_pinned_ssh_host`.
     """
     resolution = resolve_safe_host(config.host, team_id)
     if resolution.connect_host is None:
-        raise Exception(f"Database host not allowed: {resolution.error}")
+        raise NonReportableError(f"Database host not allowed: {resolution.error}")
 
 
 @contextmanager
