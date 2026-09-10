@@ -6,7 +6,6 @@ import { useEffect, useLayoutEffect } from 'react'
 
 import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
@@ -54,7 +53,7 @@ export function Notebook({
         cachedInlineQueryResultsByNodeId,
     }
     const logic = notebookLogic(logicProps)
-    const { notebook, notebookLoading, isEditable, isTemplate, notebookMissing } = useValues(logic)
+    const { notebook, notebookLoading, isEditable, isTemplate, notebookMissing, notebookLoadFailed } = useValues(logic)
     const { duplicateNotebook, loadNotebook, setEditable, setLocalContent, setContainerSize } = useActions(logic)
     const { isMarkdownExpanded } = useValues(notebookSettingsLogic)
 
@@ -64,12 +63,6 @@ export function Notebook({
         }
         // oxlint-disable-next-line exhaustive-deps
     }, [notebook])
-
-    useOnMountEffect(() => {
-        if (!notebook && !notebookLoading) {
-            loadNotebook()
-        }
-    })
 
     useEffect(() => {
         setEditable(editable)
@@ -101,6 +94,18 @@ export function Notebook({
         <BindLogic logic={notebookLogic} props={logicProps}>
             {!notebook && notebookLoading ? (
                 <NotebookLoadingState />
+            ) : notebookLoadFailed ? (
+                <div className="px-8 py-4">
+                    <LemonBanner
+                        type="error"
+                        action={{
+                            children: 'Try again',
+                            onClick: loadNotebook,
+                        }}
+                    >
+                        We couldn't load this notebook. Check your connection, then try again.
+                    </LemonBanner>
+                </div>
             ) : notebookMissing ? (
                 <NotFound object="notebook" />
             ) : (

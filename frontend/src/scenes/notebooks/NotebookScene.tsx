@@ -49,7 +49,7 @@ export const scene: SceneExport<NotebookSceneLogicProps> = {
 export function NotebookScene(): JSX.Element {
     const { notebookId, loading } = useValues(notebookSceneLogic)
     const { createNotebook } = useActions(notebookSceneLogic)
-    const { notebook, accessDeniedToNotebook } = useValues(
+    const { notebook, accessDeniedToNotebook, notebookMissing } = useValues(
         notebookLogic({ shortId: notebookId, target: NotebookTarget.Scene })
     )
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
@@ -96,7 +96,9 @@ export function NotebookScene(): JSX.Element {
         return <AccessDenied object="notebook" />
     }
 
-    if (!notebook && !loading) {
+    // Only a notebook that is really absent gets the not-found screen. A failed load keeps the
+    // notebook view, which offers a retry instead of a dead end.
+    if (notebookMissing && !loading) {
         return <NotFound object="notebook" />
     }
 
