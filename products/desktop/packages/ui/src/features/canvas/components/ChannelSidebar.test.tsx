@@ -108,6 +108,7 @@ function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
     rawStatus: null,
     environment: null,
     source: null,
+    canvasType: "canvas",
     needsInput: false,
     unread: false,
     authorUser: null,
@@ -117,6 +118,7 @@ function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
     templateId: null,
     repository: null,
     branch: null,
+    authorEmail: null,
     task: null,
     ...overrides,
   };

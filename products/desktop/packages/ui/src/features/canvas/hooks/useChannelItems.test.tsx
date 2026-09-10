@@ -128,8 +128,10 @@ function taskItem(id: string): ChannelItemModel {
     authorUser: null,
     authorName: null,
     authorUuid: null,
+    authorEmail: null,
     templateId: null,
     repository: null,
+    canvasType: "canvas",
     branch: null,
     task: null,
   };
@@ -138,6 +140,7 @@ function taskItem(id: string): ChannelItemModel {
 function canvas(id: string, createdBy?: string, createdByUuid?: string) {
   return {
     id,
+    authorEmail: null,
     channelId: "c1",
     name: id,
     templateId: "freeform",

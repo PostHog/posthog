@@ -33,6 +33,9 @@ export const dashboardRecordSchema = z.object({
   // For components: the head version's placement contract (size, configSchema).
   componentMeta: componentMetaSchema.nullish(),
   templateId: z.string().default("freeform"),
+  canvasType: z.enum(["canvas", "sketchpad"]).default("canvas"),
+  // The live author-written context (markdown) passed to the agent.
+  context: z.string().default(""),
   // Id of the task currently generating this canvas (freeform gen runs as a
   // dedicated task, like CONTEXT.md). null/absent = no generation in flight.
   generationTaskId: z.string().nullish(),
@@ -40,6 +43,14 @@ export const dashboardRecordSchema = z.object({
   createdBy: z.string().optional(),
   createdByUuid: z.string().optional(),
   createdByUser: canvasCreatorSchema.optional(),
+  createdByEmail: z.string().optional(),
+  lastActor: z
+    .object({
+      name: z.string().optional(),
+      uuid: z.string().optional(),
+      email: z.string().optional(),
+    })
+    .optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
   // Epoch ms the canvas was pinned to its channel; absent = not pinned.

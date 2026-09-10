@@ -71,18 +71,26 @@ export class ProjectApiClient {
     return this.authService.authenticatedFetch(fetch, url, init);
   }
 
-  async json<T>(
+  async request(
     path: string,
     errorLabel: string,
     init?: RequestInit,
-  ): Promise<T> {
+  ): Promise<Response> {
     const res = await this.fetch(path, init);
     if (!res.ok)
       throw new ProjectApiError(
         `Failed to ${errorLabel} (${res.status})${await errorBodyDetail(res)}`,
         res.status,
       );
-    return (await res.json()) as T;
+    return res;
+  }
+
+  async json<T>(
+    path: string,
+    errorLabel: string,
+    init?: RequestInit,
+  ): Promise<T> {
+    return (await (await this.request(path, errorLabel, init)).json()) as T;
   }
 
   /**

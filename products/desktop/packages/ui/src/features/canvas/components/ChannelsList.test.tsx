@@ -117,6 +117,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useRecentSpaceTasks", () => ({
                 : null,
             authorName: null,
             authorUuid: null,
+            authorEmail: null,
             task: task.authorId != null ? { id: task.id } : null,
           }));
         // `total` is what the space holds, not what the tree shows — the tests
