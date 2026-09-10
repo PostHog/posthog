@@ -1338,6 +1338,17 @@ def _backfill_thread_replies(
     )
 
     own_bot_user_id = get_bot_user_id(client)
+    # A live thread-reply delivery of the same message can commit before or after this
+    # backfill. Both paths key on slack_message_ts, so skip what is already stored.
+    already_stored = {
+        stored_ts
+        for stored_ts in Comment.objects.filter(
+            team=team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+        ).values_list("item_context__slack_message_ts", flat=True)
+        if stored_ts
+    }
     user_cache: dict[str, dict] = {}
     posthog_user_cache: dict[str, User | None] = {}
     comments_to_create: list[Comment] = []
@@ -1345,6 +1356,10 @@ def _backfill_thread_replies(
     team_message_count = 0
 
     for reply in thread_replies:
+        reply_ts = reply.get("ts") or ""
+        if reply_ts in already_stored:
+            continue
+
         reply_is_bot = bool(reply.get("bot_id") or reply.get("subtype") == "bot_message")
         if not _is_ticketable_message(reply, is_bot=reply_is_bot):
             continue
@@ -1408,6 +1423,7 @@ def _backfill_thread_replies(
                     "author_type": "support" if is_team_member else "customer",
                     "is_private": False,
                     "from_slack": True,
+                    "slack_message_ts": reply_ts,
                     "slack_user_id": reply_user,
                     "slack_author_name": user_info["name"],
                     "slack_author_email": user_info.get("email"),

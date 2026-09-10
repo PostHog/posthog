@@ -71,6 +71,72 @@ class TestBackfillThreadReplies(BaseTest):
         self.ticket.refresh_from_db()
         assert self.ticket.unread_team_count == 3  # 1 original + 2 backfilled
 
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
+    @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Alice", "email": "a@x.com", "avatar": None})
+    @patch(f"{MODULE}.extract_slack_files", return_value=[])
+    def test_backfilled_reply_is_not_delivered_again_live(self, _mock_files, _mock_user, _mock_bot, mock_client):
+        mock_client.return_value = MagicMock()
+        replies = [
+            _make_slack_reply(PARENT_TS, text="parent"),
+            _make_slack_reply("1700000000.000200", user="U1", text="first reply"),
+        ]
+
+        _backfill_thread_replies(
+            self._mock_client(replies), self.team, self.ticket, CHANNEL, PARENT_TS, slack_team_id="T123"
+        )
+
+        comments = Comment.objects.filter(item_id=str(self.ticket.id))
+        assert comments.get().item_context["slack_message_ts"] == "1700000000.000200"
+
+        create_or_update_slack_ticket(
+            team=self.team,
+            slack_channel_id=CHANNEL,
+            thread_ts=PARENT_TS,
+            slack_user_id="U1",
+            text="first reply",
+            is_thread_reply=True,
+            slack_team_id=SLACK_TEAM,
+            slack_message_ts="1700000000.000200",
+        )
+
+        assert comments.count() == 1
+        self.ticket.refresh_from_db()
+        assert self.ticket.unread_team_count == 2  # 1 original + 1 backfilled
+
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
+    @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Alice", "email": "a@x.com", "avatar": None})
+    @patch(f"{MODULE}.extract_slack_files", return_value=[])
+    def test_backfill_skips_reply_already_delivered_live(self, _mock_files, _mock_user, _mock_bot, mock_client):
+        mock_client.return_value = MagicMock()
+        create_or_update_slack_ticket(
+            team=self.team,
+            slack_channel_id=CHANNEL,
+            thread_ts=PARENT_TS,
+            slack_user_id="U1",
+            text="first reply",
+            is_thread_reply=True,
+            slack_team_id=SLACK_TEAM,
+            slack_message_ts="1700000000.000200",
+        )
+        replies = [
+            _make_slack_reply(PARENT_TS, text="parent"),
+            _make_slack_reply("1700000000.000200", user="U1", text="first reply"),
+            _make_slack_reply("1700000000.000300", user="U2", text="second reply"),
+        ]
+
+        _backfill_thread_replies(
+            self._mock_client(replies), self.team, self.ticket, CHANNEL, PARENT_TS, slack_team_id="T123"
+        )
+
+        contents = list(
+            Comment.objects.filter(item_id=str(self.ticket.id)).order_by("created_at").values_list("content", flat=True)
+        )
+        assert contents == ["first reply", "second reply"]
+        self.ticket.refresh_from_db()
+        assert self.ticket.unread_team_count == 3  # 1 original + 1 live + 1 backfilled
+
     @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
     @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Alice", "email": "a@x.com", "avatar": None})
     @patch(f"{MODULE}.extract_slack_files", return_value=[])
@@ -270,6 +336,7 @@ class TestBackfillThreadReplies(BaseTest):
             "author_type": "customer",
             "is_private": False,
             "from_slack": True,
+            "slack_message_ts": "1700000000.000200",
             "slack_user_id": "U_BOB",
             "slack_author_name": "Bob",
             "slack_author_email": "b@x.com",
