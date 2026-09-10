@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
 
 from posthog.dataclasses import frozen
@@ -31,7 +31,7 @@ class TwoLevelFanOut:
     child_params: dict[str, str]
 
 
-@dataclass
+@frozen
 class AivenEndpointConfig:
     name: str
     fan_out: FanOut
