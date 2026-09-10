@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Callable
 from copy import deepcopy
 from typing import Any, NoReturn, Optional
 
@@ -115,6 +116,87 @@ def _insert(items: list, item: Any, index: Optional[int]) -> None:
         items.insert(max(index, 0), item)
 
 
+def _require_content(design: dict, kind: str, content_id: str) -> tuple[dict, dict]:
+    found = _find_content(design, content_id)
+    if found is None:
+        _fail(f"{kind}: content '{content_id}' not found")
+    return found
+
+
+def _require_row(design: dict, kind: str, row_id: str) -> dict:
+    row = _find_row(design, row_id)
+    if row is None:
+        _fail(f"{kind}: row '{row_id}' not found")
+    return row
+
+
+def _require_column(design: dict, kind: str, column_id: str) -> dict:
+    column = _find_column(design, column_id)
+    if column is None:
+        _fail(f"{kind}: column '{column_id}' not found")
+    return column
+
+
+# One handler per operation kind, all with the same (design, op, counters) signature so `_OPERATIONS`
+# can dispatch on `op["op"]` alone. Each handler edits `design` in place; the caller owns the copy.
+def _update_content(design: dict, op: dict, counters: dict) -> None:
+    content, _ = _require_content(design, "update_content", op["id"])
+    _deep_merge(content, op["patch"])
+
+
+def _update_column(design: dict, op: dict, counters: dict) -> None:
+    _deep_merge(_require_column(design, "update_column", op["id"]), op["patch"])
+
+
+def _update_row(design: dict, op: dict, counters: dict) -> None:
+    _deep_merge(_require_row(design, "update_row", op["id"]), op["patch"])
+
+
+def _update_body(design: dict, op: dict, counters: dict) -> None:
+    _deep_merge(design.setdefault("body", {}), op["patch"])
+
+
+def _add_content(design: dict, op: dict, counters: dict) -> None:
+    column = _require_column(design, "add_content", op["column_id"])
+    _insert(column.setdefault("contents", []), _prepare_content(op["content"], counters), op.get("index"))
+
+
+def _remove_content(design: dict, op: dict, counters: dict) -> None:
+    _, column = _require_content(design, "remove_content", op["id"])
+    column["contents"] = [c for c in column["contents"] if c.get("id") != op["id"]]
+
+
+def _move_content(design: dict, op: dict, counters: dict) -> None:
+    content, source_column = _require_content(design, "move_content", op["id"])
+    target_column = _require_column(design, "move_content", op["column_id"])
+    source_column["contents"] = [c for c in source_column["contents"] if c.get("id") != op["id"]]
+    _insert(target_column.setdefault("contents", []), content, op.get("index"))
+
+
+def _add_row(design: dict, op: dict, counters: dict) -> None:
+    _insert(design.setdefault("body", {}).setdefault("rows", []), _prepare_row(op["row"], counters), op.get("index"))
+
+
+def _remove_row(design: dict, op: dict, counters: dict) -> None:
+    # The row exists, so body and body.rows do too.
+    _require_row(design, "remove_row", op["id"])
+    body = design["body"]
+    body["rows"] = [r for r in body["rows"] if r.get("id") != op["id"]]
+
+
+_OPERATIONS: dict[str, Callable[[dict, dict, dict], None]] = {
+    "update_content": _update_content,
+    "update_column": _update_column,
+    "update_row": _update_row,
+    "update_body": _update_body,
+    "add_content": _add_content,
+    "remove_content": _remove_content,
+    "move_content": _move_content,
+    "add_row": _add_row,
+    "remove_row": _remove_row,
+}
+
+
 def apply_design_operations(design: dict, operations: list[dict]) -> dict:
     """Apply the ordered operations to a copy of `design` and return the new design. Does not mutate the
     input. Raises ValidationError on operations that can't be applied (unknown id, missing target).
@@ -124,63 +206,10 @@ def apply_design_operations(design: dict, operations: list[dict]) -> dict:
     counters = design["counters"]
 
     for op in operations:
-        kind = op["op"]
-
-        if kind == "update_content":
-            found = _find_content(design, op["id"])
-            if found is None:
-                _fail(f"update_content: content '{op['id']}' not found")
-            _deep_merge(found[0], op["patch"])
-
-        elif kind == "update_column":
-            column = _find_column(design, op["id"])
-            if column is None:
-                _fail(f"update_column: column '{op['id']}' not found")
-            _deep_merge(column, op["patch"])
-
-        elif kind == "update_row":
-            row = _find_row(design, op["id"])
-            if row is None:
-                _fail(f"update_row: row '{op['id']}' not found")
-            _deep_merge(row, op["patch"])
-
-        elif kind == "update_body":
-            _deep_merge(design.setdefault("body", {}), op["patch"])
-
-        elif kind == "add_content":
-            column = _find_column(design, op["column_id"])
-            if column is None:
-                _fail(f"add_content: column '{op['column_id']}' not found")
-            new_content = _prepare_content(op["content"], counters)
-            _insert(column.setdefault("contents", []), new_content, op.get("index"))
-
-        elif kind == "remove_content":
-            found = _find_content(design, op["id"])
-            if found is None:
-                _fail(f"remove_content: content '{op['id']}' not found")
-            content, column = found
-            column["contents"] = [c for c in column["contents"] if c.get("id") != op["id"]]
-
-        elif kind == "move_content":
-            found = _find_content(design, op["id"])
-            if found is None:
-                _fail(f"move_content: content '{op['id']}' not found")
-            target_column = _find_column(design, op["column_id"])
-            if target_column is None:
-                _fail(f"move_content: column '{op['column_id']}' not found")
-            content, source_column = found
-            source_column["contents"] = [c for c in source_column["contents"] if c.get("id") != op["id"]]
-            _insert(target_column.setdefault("contents", []), content, op.get("index"))
-
-        elif kind == "add_row":
-            new_row = _prepare_row(op["row"], counters)
-            _insert(design.setdefault("body", {}).setdefault("rows", []), new_row, op.get("index"))
-
-        elif kind == "remove_row":
-            body = design.get("body") or {}
-            rows = body.get("rows") or []
-            if not any(r.get("id") == op["id"] for r in rows):
-                _fail(f"remove_row: row '{op['id']}' not found")
-            body["rows"] = [r for r in rows if r.get("id") != op["id"]]
+        # Both callers validate `op` against a ChoiceField first, so an unknown kind here is a no-op
+        # rather than an error.
+        handler = _OPERATIONS.get(op["op"])
+        if handler is not None:
+            handler(design, op, counters)
 
     return design
