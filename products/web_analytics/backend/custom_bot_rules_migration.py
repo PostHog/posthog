@@ -16,12 +16,17 @@ class FlatRuleTeam:
 # Entries already in the new shape and non-object entries pass through untouched, which makes the
 # statement idempotent. The condition id gets a "-condition" suffix because the settings editor
 # keys rules and conditions in one id-keyed drag-and-drop context.
+# The CASE guard is load-bearing: AND does not guarantee evaluation order in PostgreSQL, so
+# without it jsonb_array_elements can run against a non-array value (a hand-edited or corrupt
+# modifiers entry) and abort the whole statement for every team.
 _FLAT_ENTRY_PREDICATE = """
-EXISTS (
-    SELECT 1
-    FROM jsonb_array_elements(modifiers->'customBotDefinitions') AS entry
-    WHERE jsonb_typeof(entry) = 'object' AND NOT (entry ? 'items') AND entry ? 'key'
-)
+CASE WHEN jsonb_typeof(modifiers->'customBotDefinitions') = 'array' THEN
+    EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(modifiers->'customBotDefinitions') AS entry
+        WHERE jsonb_typeof(entry) = 'object' AND NOT (entry ? 'items') AND entry ? 'key'
+    )
+ELSE false END
 """
 
 _FIND_TEAMS_SQL = f"""
@@ -32,8 +37,7 @@ SELECT id,
            WHERE jsonb_typeof(entry) = 'object' AND NOT (entry ? 'items') AND entry ? 'key'
        ) AS flat_rules
 FROM posthog_team
-WHERE modifiers ? 'customBotDefinitions'
-  AND {_FLAT_ENTRY_PREDICATE}
+WHERE {_FLAT_ENTRY_PREDICATE}
 ORDER BY id
 """
 
@@ -68,7 +72,6 @@ SET modifiers = jsonb_set(
     )
 )
 WHERE id = %s
-  AND modifiers ? 'customBotDefinitions'
   AND {_FLAT_ENTRY_PREDICATE}
 """
 

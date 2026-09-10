@@ -1,5 +1,7 @@
 from posthog.test.base import BaseTest
 
+from posthog.models.team import Team
+
 from products.web_analytics.backend.custom_bot_rules_migration import (
     FlatRuleTeam,
     find_teams_with_flat_rules,
@@ -70,4 +72,16 @@ class TestMigrateCustomBotRules(BaseTest):
         self._set_rules([NEW_SHAPE_RULE])
 
         assert find_teams_with_flat_rules() == []
+        assert not migrate_team(self.team.pk)
+
+    def test_non_array_value_does_not_abort_the_scan(self):
+        # jsonb_array_elements raises on a non-array, and without the CASE guard one such row
+        # would abort the fleet-wide scan and block every other team's migration.
+        self.team.modifiers = {"customBotDefinitions": {"not": "an array"}}
+        self.team.save(update_fields=["modifiers"])
+        other = Team.objects.create(
+            organization=self.organization, name="flat", modifiers={"customBotDefinitions": [FLAT_RULE]}
+        )
+
+        assert find_teams_with_flat_rules() == [FlatRuleTeam(team_id=other.pk, flat_rules=1)]
         assert not migrate_team(self.team.pk)
