@@ -1,6 +1,10 @@
 from posthog.test.base import BaseTest
 
-from products.web_analytics.backend.custom_bot_rules_migration import find_teams_with_flat_rules, migrate_team
+from products.web_analytics.backend.custom_bot_rules_migration import (
+    FlatRuleTeam,
+    find_teams_with_flat_rules,
+    migrate_team,
+)
 from products.web_analytics.backend.hogql_queries.custom_bot_definitions import parse_rules
 
 FLAT_RULE = {"id": "r1", "name": "Acme", "key": "$raw_user_agent", "matcher": "contains", "pattern": "AcmeBot"}
@@ -31,7 +35,7 @@ class TestMigrateCustomBotRules(BaseTest):
         # a clobbered sibling modifier or a mangled entry would silently change query behavior.
         self._set_rules([FLAT_RULE, FLAT_RULE_WITH_CATEGORY, NEW_SHAPE_RULE, "garbage"])
 
-        assert find_teams_with_flat_rules() == [(self.team.pk, 2)]
+        assert find_teams_with_flat_rules() == [FlatRuleTeam(team_id=self.team.pk, flat_rules=2)]
         assert migrate_team(self.team.pk)
 
         self.team.refresh_from_db()

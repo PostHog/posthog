@@ -1,5 +1,14 @@
 from django.db import connection
 
+from posthog.dataclasses import frozen
+
+
+@frozen
+class FlatRuleTeam:
+    team_id: int
+    flat_rules: int
+
+
 # Rewrites pre-combiner flat bot rules ({key, matcher, pattern} on the rule itself) into the
 # multi-condition shape ({combiner, items}) the current code reads. Everything happens inside one
 # UPDATE per team: only the customBotDefinitions key of team.modifiers changes, so concurrent
@@ -64,10 +73,10 @@ WHERE id = %s
 """
 
 
-def find_teams_with_flat_rules() -> list[tuple[int, int]]:
+def find_teams_with_flat_rules() -> list[FlatRuleTeam]:
     with connection.cursor() as cursor:
         cursor.execute(_FIND_TEAMS_SQL)
-        return [(row[0], row[1]) for row in cursor.fetchall()]
+        return [FlatRuleTeam(team_id=row[0], flat_rules=row[1]) for row in cursor.fetchall()]
 
 
 def migrate_team(team_id: int) -> bool:

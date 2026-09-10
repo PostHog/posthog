@@ -20,14 +20,14 @@ class Command(BaseCommand):
             self.stdout.write("No teams with flat custom bot rules found.")
             return
 
-        total_rules = sum(count for _, count in teams)
+        total_rules = sum(team.flat_rules for team in teams)
         self.stdout.write(f"{len(teams)} team(s) with {total_rules} flat rule(s):")
-        for team_id, count in teams:
-            self.stdout.write(f"  team {team_id}: {count} flat rule(s)")
+        for team in teams:
+            self.stdout.write(f"  team {team.team_id}: {team.flat_rules} flat rule(s)")
 
         if not options["execute"]:
             self.stdout.write("Dry run - nothing changed. Re-run with --execute to apply.")
             return
 
-        migrated = sum(1 for team_id, _ in teams if migrate_team(team_id))
+        migrated = sum(1 for team in teams if migrate_team(team.team_id))
         self.stdout.write(f"Migrated {migrated}/{len(teams)} team(s).")

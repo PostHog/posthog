@@ -28,16 +28,16 @@ def migrate_custom_bot_rules_op(context: dagster.OpExecutionContext, config: Mig
         context.log.info("No teams with flat custom bot rules found")
         return
 
-    total_rules = sum(count for _, count in teams)
+    total_rules = sum(team.flat_rules for team in teams)
     context.log.info(f"{len(teams)} team(s) with {total_rules} flat rule(s)")
-    for team_id, count in teams:
-        context.log.info(f"team {team_id}: {count} flat rule(s)")
+    for team in teams:
+        context.log.info(f"team {team.team_id}: {team.flat_rules} flat rule(s)")
 
     if not config.execute:
         context.log.info("Dry run: no `execute: true` in run config, nothing changed")
         return
 
-    migrated = sum(1 for team_id, _ in teams if migrate_team(team_id))
+    migrated = sum(1 for team in teams if migrate_team(team.team_id))
     context.log.info(f"Migrated {migrated}/{len(teams)} team(s)")
 
 
