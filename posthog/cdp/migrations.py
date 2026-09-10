@@ -1,4 +1,5 @@
 import json
+from collections.abc import Mapping
 from functools import partial
 from typing import Any
 
@@ -17,7 +18,7 @@ from products.cdp.backend.models.plugin import PluginAttachment, PluginConfig, P
 # python manage.py migrate_plugins_to_hog_functions --dry-run --test-mode --kind=transformation
 
 # Site apps declare no capability methods, so they are matched by repo slug
-LEGACY_SITE_APP_TEMPLATES = {
+LEGACY_SITE_APP_TEMPLATES: dict[str, str] = {
     "early-access-features-app": "template-early-access-features",
     "notification-bar-app": "template-notification-bar",
     "bug-report-app": "template-hogdesk",
@@ -28,7 +29,7 @@ _TRUTHY_STRINGS = {"yes", "true", "1"}
 _FALSY_STRINGS = {"no", "false", "0", ""}
 
 
-def coerce_input_value(value: Any, schema: dict) -> Any:
+def coerce_input_value(value: object, schema: Mapping[str, Any]) -> object:
     """Plugin configs store every value as a string, while hog function inputs are typed."""
 
     item_type = schema.get("type")
@@ -48,6 +49,9 @@ def coerce_input_value(value: Any, schema: dict) -> Any:
 
 def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool):
     hog_functions = []
+    # Only a config that produced a replacement may be disabled. A skipped one still runs on the
+    # customer's site, and disabling it would take it away with nothing in its place.
+    migrated_plugin_config_ids: list[int] = []
     teams_cache: dict[int, Team] = {}
 
     with transaction.atomic():
@@ -167,6 +171,7 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
             )
             serializer.is_valid(raise_exception=True)
             hog_functions.append(HogFunction(**serializer.validated_data))
+            migrated_plugin_config_ids.append(plugin_config["id"])
 
         print(hog_functions)  # noqa: T201
 
@@ -185,9 +190,7 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
             print("Disabling old plugins")  # noqa: T201
             # Disable the old plugins
             # nosemgrep: idor-lookup-without-team (internal migration; IDs from prior team-scoped query)
-            PluginConfig.objects.filter(id__in=[plugin_config["id"] for plugin_config in legacy_plugins]).update(
-                enabled=False
-            )
+            PluginConfig.objects.filter(id__in=migrated_plugin_config_ids).update(enabled=False)
 
         if kind == "site_app":
             # bulk_create and queryset.update() skip the post_save receivers that rebuild the

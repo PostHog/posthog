@@ -33,7 +33,7 @@ class TestCoerceInputValue(BaseTest):
 
 
 class TestMigrateSiteApps(BaseTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         sync_template_to_db(dataclasses.asdict(pineapple_mode))
         sync_template_to_db(dataclasses.asdict(notification_bar))
@@ -45,7 +45,9 @@ class TestMigrateSiteApps(BaseTest):
             unset={"buttonText": "Rain!"},
         )
 
-    def _create_site_app(self, name: str, url: str, config: dict, unset: dict | None = None) -> PluginConfig:
+    def _create_site_app(
+        self, name: str, url: str, config: dict[str, str], unset: dict[str, str] | None = None
+    ) -> PluginConfig:
         config_schema = [{"key": key, "type": "string", "site": True} for key in config]
         config_schema += [
             {"key": key, "type": "string", "site": True, "default": v} for key, v in (unset or {}).items()
@@ -113,6 +115,24 @@ class TestMigrateSiteApps(BaseTest):
 
         notification_bar_config.refresh_from_db()
         assert not notification_bar_config.enabled
+
+    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    def test_leaves_a_site_app_with_no_template_enabled(self, mock_transpile_fn):
+        # Disabling one of these would take it off the customer's site with nothing to replace it
+        unsupported = self._create_site_app(
+            "Custom Thing",
+            "https://github.com/PostHog/custom-thing-app",
+            {"greeting": "Hi"},
+        )
+
+        migrate_legacy_plugins(dry_run=False, test_mode=False, kind="site_app")
+
+        unsupported.refresh_from_db()
+        assert unsupported.enabled
+        assert not HogFunction.objects.filter(team=self.team, name="Custom Thing").exists()
+        # The supported one in the same batch still migrates
+        self.plugin_config.refresh_from_db()
+        assert not self.plugin_config.enabled
 
     @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
     def test_migration_is_idempotent(self, mock_transpile_fn):
