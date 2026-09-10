@@ -1,4 +1,5 @@
 import io
+import json
 import math
 import datetime
 from typing import Any
@@ -15,15 +16,22 @@ from botocore.exceptions import ClientError
 
 from posthog import settings
 
-from products.signals.backend.ranking.features import FEATURE_NAMES, feature_frame, feature_vector
+from products.signals.backend.ranking.features import (
+    FEATURE_NAMES,
+    FEATURE_SCHEMA_VERSION,
+    feature_frame,
+    feature_vector,
+)
 from products.signals.dags.inbox_ranking.common import partition_object_key
 from products.signals.dags.inbox_ranking.dataset.dag import LABELS_TABLE, STATE_TABLE
 from products.signals.dags.inbox_ranking.training.dag import (
+    METADATA_FILE,
     _delete_other_objects,
     champion_object_key,
     grade_metadata,
     inbox_ranking_training_examples,
     load_snapshots,
+    load_unseen_models,
     model_object_key,
     snapshot_dates,
 )
@@ -55,6 +63,8 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     CANDIDATE_ROLE,
     LEGACY_POOL_NAME,
     POOL_NAME,
+    TABULAR_MODEL_NAME,
+    chance_band,
     graded_rows,
     head_grades,
     leaked_report_ids,
@@ -62,7 +72,11 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     score_event_rows,
     scored_pool,
     unseen_pool,
+    with_model_names,
 )
+
+# The family PR 3 adds; used here only to prove two families stay apart on the same rows.
+EMBEDDINGS_MODEL_NAME = "report_embeddings"
 
 D0 = datetime.date(2026, 8, 10)
 NOW = datetime.datetime(2026, 8, 20, tzinfo=datetime.UTC)
@@ -475,6 +489,7 @@ def _scores(report_ids: list[str], **overrides) -> pd.DataFrame:
         "report_created_at": [pd.Timestamp("2026-08-09T12:00:00Z")] * n,
         "snapshot_date": [D0] * n,
         "pool": [POOL_NAME] * n,
+        "model_name": [TABULAR_MODEL_NAME] * n,
         "model_version": ["2026-08-10"] * n,
         "model_role": [CANDIDATE_ROLE] * n,
         "feature_schema_version": [1] * n,
@@ -542,13 +557,14 @@ def test_grading_keeps_the_scoring_moment_rows_and_reads_the_outcome_later():
     assert graded.loc[["b", "c", "d"], "outcome"].isna().all()
 
 
-def test_head_grades_report_counts_and_a_null_auc_on_a_single_class():
+def test_head_grades_report_counts_and_an_undefined_auc_on_a_single_class():
     head = HEADS_BY_NAME["open"]
     labels = _labels(["a", "e"], open_count=[1, 0])
     two_classes = graded_rows(_scores(["a", "e"], score=[0.9, 0.1]), labels, head)
     (grade,) = head_grades(two_classes, head, pool=POOL_NAME, scoring_partition="2026-08-10")
     assert (grade.rows, grade.positives, grade.auc, grade.base_rate) == (2, 1, 1.0, 0.5)
     assert grade.recency_auc == 0.5  # both reports are the same age, so newest-first cannot rank them
+    assert grade.null_auc is not None
     # A head with rows but one outcome class still reports, so the daily series has no gap.
     (single_class,) = head_grades(
         graded_rows(_scores(["e"]), _labels(["e"], open_count=[0]), head),
@@ -557,11 +573,14 @@ def test_head_grades_report_counts_and_a_null_auc_on_a_single_class():
         scoring_partition="2026-08-10",
     )
     assert (single_class.rows, single_class.positives, single_class.auc) == (1, 0, None)
-    # Counts are ints and the null AUC is dropped: the graded asset writes these as Dagster metadata.
+    # The chance line has to share the AUC's gaps, so a band never sits beside a missing number.
+    assert (single_class.null_auc, single_class.null_auc_std) == (None, None)
+    # Counts are ints and the undefined AUC is dropped: the graded asset writes these as Dagster
+    # metadata. The family is in the key, so a second family cannot overwrite the first's entries.
     metadata = grade_metadata([grade])
-    assert metadata["open_candidate_rows"] == dagster.MetadataValue.int(2)
-    assert metadata["open_candidate_auc"] == dagster.MetadataValue.float(1.0)
-    assert "open_candidate_auc" not in grade_metadata([single_class])
+    assert metadata["open_tabular_xgb_candidate_rows"] == dagster.MetadataValue.int(2)
+    assert metadata["open_tabular_xgb_candidate_auc"] == dagster.MetadataValue.float(1.0)
+    assert "open_tabular_xgb_candidate_auc" not in grade_metadata([single_class])
 
 
 @pytest.mark.parametrize(
@@ -575,6 +594,93 @@ def test_head_grades_report_counts_and_a_null_auc_on_a_single_class():
 )
 def test_scored_pool_names_the_definition_a_scores_object_was_written_under(scores, expected):
     assert scored_pool(scores) == expected
+
+
+@pytest.mark.parametrize(
+    "scores,expected",
+    [
+        (_scores(["a"]), TABULAR_MODEL_NAME),
+        (_scores(["a"], model_name=[EMBEDDINGS_MODEL_NAME]), EMBEDDINGS_MODEL_NAME),
+        # The grader reads scores up to 14 days old, so it still meets objects written before the
+        # column existed. Every one of those holds tabular XGBoost rows, and grading them under a
+        # null name would split the AUC series on the day the column arrived.
+        (_scores(["a"]).drop(columns=["model_name"]), TABULAR_MODEL_NAME),
+        (_scores(["a"], model_name=[None]), TABULAR_MODEL_NAME),
+    ],
+)
+def test_scores_written_before_the_family_dimension_read_as_the_tabular_family(scores, expected):
+    assert with_model_names(scores)["model_name"].tolist() == [expected]
+
+
+def test_head_grades_keep_two_families_apart_on_the_same_rows():
+    # Every family is graded on one set of reports, which is the whole point of the read. A grade
+    # keyed on version and role alone would pool two families' scores into one meaningless AUC.
+    head = HEADS_BY_NAME["open"]
+    labels = _labels(["a", "e"], open_count=[1, 0])
+    tabular = _scores(["a", "e"], score=[0.9, 0.1])
+    embeddings = _scores(["a", "e"], score=[0.1, 0.9], model_name=[EMBEDDINGS_MODEL_NAME] * 2)
+    graded = pd.concat([graded_rows(tabular, labels, head), graded_rows(embeddings, labels, head)], ignore_index=True)
+    grades = head_grades(graded, head, pool=POOL_NAME, scoring_partition="2026-08-10")
+    assert [(grade.model_name, grade.model_version, grade.auc) for grade in grades] == [
+        (EMBEDDINGS_MODEL_NAME, "2026-08-10", 0.0),
+        (TABULAR_MODEL_NAME, "2026-08-10", 1.0),
+    ]
+
+
+def test_chance_band_is_seeded_and_sizes_the_noise_of_the_rows_it_grades():
+    # The band is what a gap between two families has to clear, so it must not move on a re-grade
+    # of the same rows, and it must widen when there are fewer rows to rank.
+    rng = np.random.default_rng(7)
+    outcomes = np.array([True, False] * 40)
+    scores = rng.random(80)
+    band = chance_band(outcomes, scores)
+    assert band == chance_band(outcomes, scores)
+    assert band.auc is not None and abs(band.auc - 0.5) < 0.1
+    spread = band.auc_std
+    assert spread is not None and spread > 0
+    thin_band = chance_band(outcomes[:8], scores[:8])
+    assert thin_band.auc_std is not None and thin_band.auc_std > spread
+    # No band where the AUC itself is undefined, so the chance line has the same gaps as `auc`.
+    assert chance_band(np.array([True, True]), scores[:2]) == chance_band(np.array([]), np.array([]))
+
+
+class _ModelStoreS3:
+    def __init__(self, objects: dict[str, bytes]):
+        self.objects = objects
+
+    def get_object(self, *, Bucket, Key):
+        if Key not in self.objects:
+            raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
+        return {"Body": io.BytesIO(self.objects[Key])}
+
+
+def test_load_unseen_models_skips_a_family_with_nothing_to_score_that_day(monkeypatch):
+    # A family is registered before its trainer's first run, and any family's candidate can fail.
+    # Either must cost that family's line for the day, not every family's.
+    partition_key = "2026-08-19"
+    metadata = {
+        "model_name": TABULAR_MODEL_NAME,
+        "model_version": partition_key,
+        "feature_schema_version": FEATURE_SCHEMA_VERSION,
+        "feature_names": list(FEATURE_NAMES),
+        "heads": [{"head": "open", "readable": True, "file": "open.ubj"}],
+    }
+    client = _ModelStoreS3(
+        {
+            model_object_key("inbox_ranking", TABULAR_MODEL_NAME, partition_key, METADATA_FILE): json.dumps(
+                metadata
+            ).encode(),
+            model_object_key("inbox_ranking", TABULAR_MODEL_NAME, partition_key, "open.ubj"): b"booster",
+        }
+    )
+    monkeypatch.setattr(
+        "products.signals.dags.inbox_ranking.training.dag.MODEL_FAMILIES",
+        (EMBEDDINGS_MODEL_NAME, TABULAR_MODEL_NAME),
+    )
+    models = load_unseen_models(dagster.build_asset_context(), client, "bucket", "inbox_ranking", partition_key)
+    assert [(model.model_name, model.model_role, sorted(model.boosters)) for model in models] == [
+        (TABULAR_MODEL_NAME, CANDIDATE_ROLE, ["open"])
+    ]
 
 
 @pytest.mark.parametrize(
@@ -617,6 +723,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
     # The per-head events are what the project-2 insights break down on; dropping the head
     # property, the partition-day timestamp, or the person-profile opt-out breaks every chart.
     metadata = {
+        "model_name": TABULAR_MODEL_NAME,
         "model_version": "2026-08-25",
         "run_id": "run-1",
         "dataset_version": "v1",
@@ -644,6 +751,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         promotion_event(
             partition_key="2026-08-25",
             run_id="run-1",
+            model_name=TABULAR_MODEL_NAME,
             decision=PromotionDecision(promote=True, reason="no champion yet"),
             promoted=False,
             champion_version="none",
@@ -667,6 +775,16 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         assert call["timestamp"] == datetime.datetime(2026, 8, 25, 12, tzinfo=datetime.UTC)
         assert call["properties"]["$process_person_profile"] is False
         assert call["properties"]["model_version"] == "2026-08-25"
+    # Every model event breaks down on the family. The examples event is per feature set rather
+    # than per model, so it is the one event that does not carry it.
+    for event_name in (
+        "inbox_ranking_candidate_trained",
+        "inbox_ranking_promotion_decided",
+        "inbox_ranking_unseen_report_scored",
+        "inbox_ranking_unseen_head_graded",
+        "inbox_ranking_unseen_report_graded",
+    ):
+        assert all(call["properties"]["model_name"] == TABULAR_MODEL_NAME for call in by_event[event_name])
     candidates = by_event["inbox_ranking_candidate_trained"]
     assert [c["properties"]["head"] for c in candidates] == ["open", "action", "dismiss_wrong"]
     assert candidates[0]["properties"]["holdout_auc"] == 0.67
@@ -814,11 +932,12 @@ class _FakeS3:
 
 
 def test_rerun_removes_stale_head_files_but_keeps_what_it_just_wrote():
-    folder = model_object_key("inbox_ranking", "2026-08-19", "")
+    folder = model_object_key("inbox_ranking", TABULAR_MODEL_NAME, "2026-08-19", "")
+    champion = champion_object_key("inbox_ranking", TABULAR_MODEL_NAME)
     written = {folder + "open.ubj", folder + "open.holdout.ubj", folder + "metadata.json"}
-    client = _FakeS3([*written, folder + "action.ubj", "inbox_ranking/inbox_ranking_models/v1/champion.json"])
+    client = _FakeS3([*written, folder + "action.ubj", champion])
     assert _delete_other_objects(client, "bucket", folder, written) == [folder + "action.ubj"]
-    assert client.keys == written | {"inbox_ranking/inbox_ranking_models/v1/champion.json"}
+    assert client.keys == written | {champion}
 
 
 class _EmptyS3:
@@ -843,12 +962,16 @@ def test_examples_depend_on_the_whole_lookback_window():
 
 
 def test_model_key_layout_is_stable():
-    # The scoring sweep resolves the champion pointer and booster files by these keys.
+    # The scoring sweep resolves the champion pointer and booster files by these keys. Each family
+    # owns a prefix and its own pointer, so two families trained on one day cannot collide.
     assert (
-        model_object_key("inbox_ranking", "2026-08-19", "open.ubj")
-        == "inbox_ranking/inbox_ranking_models/v1/dt=2026-08-19/open.ubj"
+        model_object_key("inbox_ranking", TABULAR_MODEL_NAME, "2026-08-19", "open.ubj")
+        == "inbox_ranking/inbox_ranking_models/v1/tabular_xgb/dt=2026-08-19/open.ubj"
     )
-    assert champion_object_key("inbox_ranking") == "inbox_ranking/inbox_ranking_models/v1/champion.json"
+    assert (
+        champion_object_key("inbox_ranking", TABULAR_MODEL_NAME)
+        == "inbox_ranking/inbox_ranking_models/v1/tabular_xgb/champion.json"
+    )
     assert snapshot_dates("2026-08-19", 2) == [
         datetime.date(2026, 8, 17),
         datetime.date(2026, 8, 18),
