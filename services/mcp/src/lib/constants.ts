@@ -28,6 +28,11 @@ export const MCP_ANALYTICS_SOURCE = 'posthog_mcp_analytics'
 // fit, and the tool-domain index absorbs whatever budget the fixed sections leave.
 export const MCP_INSTRUCTIONS_CHAR_BUDGET = 2048
 
+// Output budget a client applies to a single tool call (~25K tokens at the ~4-chars-per-token
+// heuristic). A response over it is cut by the client, mid-value and unflagged, so a tool that
+// can return an unbounded payload has to bound it below this.
+export const MCP_TOOL_OUTPUT_CHAR_BUDGET = 100_000
+
 // Gates reaching third-party MCP servers connected through the MCP gateway. Same flag as
 // the gateway's own UI in the main app, so a team gets the tools when it gets the gateway.
 export const MCP_GATEWAY_FLAG = 'mcp-gateway'
