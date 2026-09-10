@@ -39,7 +39,12 @@ from products.experiments.backend.temporal.models import (
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
-def _snapshot(label: str, variants: dict[str, tuple[float, int]], is_precomputed: bool = True) -> CanaryRunSnapshot:
+def _snapshot(
+    label: str,
+    variants: dict[str, tuple[float, int]],
+    is_precomputed: bool = True,
+    metric_events_path: str = "not_applicable",
+) -> CanaryRunSnapshot:
     return CanaryRunSnapshot(
         label=label,
         query_id=f"experiment-canary-test-{label}",
@@ -47,6 +52,7 @@ def _snapshot(label: str, variants: dict[str, tuple[float, int]], is_precomputed
         variants={
             key: CanaryVariantStats(sum=sum_, number_of_samples=samples) for key, (sum_, samples) in variants.items()
         },
+        metric_events_path=metric_events_path,
     )
 
 
@@ -180,9 +186,22 @@ class TestEvaluateCanaryRuns:
         assert verdict.outcome == OUTCOME_PATH_FLIP
         assert "a" in (verdict.detail or "")
 
+    def test_metric_events_fallback_is_path_flip(self):
+        verdict = evaluate_canary_runs(
+            "mean",
+            _snapshot("a", _BASE, metric_events_path="direct_scan"),
+            _snapshot("b", _BASE, metric_events_path="precomputed"),
+            _snapshot("c", _BASE, metric_events_path="direct_scan"),
+        )
+        assert verdict.outcome == OUTCOME_PATH_FLIP
+        assert "a (metric events)" in (verdict.detail or "")
+
     def test_direct_run_not_precomputed_is_expected(self):
         verdict = evaluate_canary_runs(
-            "funnel", _snapshot("a", _BASE), _snapshot("b", _BASE), _snapshot("c", _BASE, is_precomputed=False)
+            "funnel",
+            _snapshot("a", _BASE, metric_events_path="precomputed"),
+            _snapshot("b", _BASE, metric_events_path="precomputed"),
+            _snapshot("c", _BASE, is_precomputed=False, metric_events_path="direct_scan"),
         )
         assert verdict.outcome == OUTCOME_PASS
 

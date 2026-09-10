@@ -23,7 +23,10 @@ import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { tasksRunsCommandCreate, tasksRunsStreamTokenRetrieve } from 'products/tasks/frontend/generated/api'
-import type { TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import type {
+    TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
+    TaskRunDetailDTOApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { UserType } from '../../../../frontend/src/types'
@@ -796,6 +799,13 @@ export interface RunLog {
     toolUpdateIndex: Record<string, number>
 }
 
+interface OptimisticResume {
+    entries: StoredEntry[]
+    message: string
+    historyComplete: boolean
+    turnComplete: boolean
+}
+
 export function emptyRunLog(): RunLog {
     return { entries: [], toolUpdateIndex: {} }
 }
@@ -1432,13 +1442,15 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
 }
 
 /**
- * Whether a folded item renders any content. Empty priming thoughts and step-less progress rows fold
- * into the thread but render nothing; drop them here so a virtualized consumer never reserves an empty,
- * gap-padded row. Tool items are always paired with an invocation (see `upsertInvocationItem`), and
- * `debug` rows are gated separately by `showDebugLogs`, so neither needs a content check here.
+ * Empty assistant messages, priming thoughts, and step-less progress rows stay in the log for folding.
+ * Hide them from the rendered thread so message wrappers and virtualized consumers cannot reserve
+ * empty bubbles or gap-padded rows. Tool items are always paired with an invocation (see
+ * `upsertInvocationItem`), and `debug` rows are gated separately by `showDebugLogs`, so neither needs
+ * a content check here.
  */
 function rendersThreadItemContent(item: ThreadItem): boolean {
     switch (item.type) {
+        case 'assistant_message':
         case 'assistant_thought':
             return !!item.text?.trim()
         case 'progress':
@@ -1471,6 +1483,7 @@ export interface runStreamLogicValues {
     currentStage: string | null
     foldedThread: FoldedThread
     hasGitArtifacts: boolean
+    hasThreadItems: boolean
     isBootstrapResumeRun: boolean
     isThinking: boolean
     latestTurnTraceId: string | null
@@ -1518,6 +1531,16 @@ export interface runStreamLogicActions {
     appendEntries: (entries: StoredEntry[]) => {
         entries: StoredEntry[]
     }
+    appendResumeBoundary: () => {
+        value: true
+    }
+    attachOptimisticResume: (
+        taskId: string,
+        run: TaskRunDetailDTOApi
+    ) => {
+        run: TaskRunDetailDTOApi
+        taskId: string
+    }
     autoApprovePermissionRequest: (
         record: PermissionRequestRecord,
         optionId: string
@@ -1531,8 +1554,15 @@ export interface runStreamLogicActions {
     bootstrapReplayComplete: () => {
         value: true
     }
-    bootstrapRun: (payload: { justCreatedRun?: boolean; runId: string; taskId: string; traceId?: string }) => {
+    bootstrapRun: (payload: {
+        justCreatedRun?: boolean
+        retainedMessage?: string
+        runId: string
+        taskId: string
+        traceId?: string
+    }) => {
         justCreatedRun?: boolean | undefined
+        retainedMessage?: string | undefined
         runId: string
         taskId: string
         traceId?: string | undefined
@@ -1624,6 +1654,9 @@ export interface runStreamLogicActions {
     permissionRunChanged: () => {
         value: true
     }
+    prepareResumeRun: () => {
+        value: true
+    }
     pushConversationCleared: () => {
         value: true
     }
@@ -1636,6 +1669,9 @@ export interface runStreamLogicActions {
     }
     pushHumanMessage: (content: string) => {
         content: string
+    }
+    replaceLog: (log: RunLog) => {
+        log: RunLog
     }
     reset: () => {
         value: true
@@ -1650,6 +1686,9 @@ export interface runStreamLogicActions {
         customInput?: string | undefined
         optionId: string
         requestId: string
+    }
+    rollbackOptimisticResume: () => {
+        value: true
     }
     routePermissionRequest: (
         record: PermissionRequestRecord,
@@ -1691,6 +1730,9 @@ export interface runStreamLogicActions {
     sseReconnecting: (attempt: number) => {
         attempt: number
     }
+    startOptimisticResume: (message: string) => {
+        message: string
+    }
     startOptimisticRun: (message?: string) => {
         message: string | undefined
     }
@@ -1710,6 +1752,7 @@ export interface runStreamLogicMeta {
         foldedThread: (log: RunLog, isBootstrapResumeRun: boolean) => FoldedThread
         latestTurnTraceId: (threadItems: ThreadItem[]) => string | null
         threadItems: (foldedThread: FoldedThread, showDebugLogs: boolean) => ThreadItem[]
+        hasThreadItems: (threadItems: ThreadItem[]) => boolean
         toolInvocations: (foldedThread: FoldedThread) => Map<string, ToolInvocation>
         isThinking: (
             runStarted: boolean,
@@ -1803,10 +1846,19 @@ export const runStreamLogic = kea<runStreamLogicType>([
          * (`dedupeBufferedAgainstHistory`) so the seam neither duplicates nor gaps. `justCreatedRun`
          * skips the `logs/` round-trip (fresh-run fast path — nothing historical to assemble).
          */
-        bootstrapRun: (payload: { taskId: string; runId: string; justCreatedRun?: boolean; traceId?: string }) =>
-            payload,
+        bootstrapRun: (payload: {
+            taskId: string
+            runId: string
+            justCreatedRun?: boolean
+            traceId?: string
+            retainedMessage?: string
+        }) => payload,
         openSseForRun: (payload: { taskId: string; runId: string; startLatest?: boolean; traceId?: string }) => payload,
-        /** Internal: the read-only replay snapshot finished loading — clears the bootstrap spinner. */
+        /**
+         * Internal: a replay snapshot finished loading and no stream will follow — clears the bootstrap
+         * spinner. Covers the read-only viewer and a live instance that bootstrapped an already-terminal
+         * run, which never opens SSE and so never gets `sseOpened` to clear the spinner for it.
+         */
         bootstrapReplayComplete: true,
         /** Internal: the live run history snapshot finished loading or was intentionally skipped. */
         bootstrapLogReady: true,
@@ -1839,6 +1891,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
         ingestAcpFrame: (entry: StoredLogEntry, source: FrameSource = 'live') => ({ entry, source }),
         /** Append frames to the ordered log (the single source of truth). */
         appendEntries: (entries: StoredEntry[]) => ({ entries }),
+        replaceLog: (log: RunLog) => ({ log }),
         /** Records whether the bootstrapped run is a resume run, so the projection can drop its synthetic resume prompt. */
         markBootstrapResumeRun: (value: boolean) => ({ value }),
         /**
@@ -1935,6 +1988,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
          * `pushHumanMessage`.
          */
         startOptimisticRun: (message?: string) => ({ message }),
+        startOptimisticResume: (message: string) => ({ message }),
+        appendResumeBoundary: true,
+        rollbackOptimisticResume: true,
+        attachOptimisticResume: (taskId: string, run: TaskRunDetailDTOApi) => ({ taskId, run }),
+        prepareResumeRun: true,
         /** Injects a client-side error (terminal failure / stream disconnect) into the log as a `client`-sourced entry. */
         pushErrorItem: (errorMessage: string, variant: 'error' | 'crash' = 'error') => ({ errorMessage, variant }),
         /** Echoes a `/clear` boundary the backend just recorded against a finished run, which has no stream to send it back. */
@@ -1955,10 +2013,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
             false,
             {
                 setRunOpening: (_, { opening }) => opening,
+                rollbackOptimisticResume: () => false,
                 openSseForRun: () => false,
                 sseOpened: () => false,
                 handleStreamError: () => false,
-                handleTerminalStatus: () => false,
+                handleTerminalStatus: (state, { replayedFromHistory }) => (replayedFromHistory ? state : false),
                 pushErrorItem: () => false,
                 reset: () => false,
             },
@@ -2005,6 +2064,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // flickering back to queued; only a fresh open (no/terminal status) resets.
                 openSseForRun: (state) => (state && !isTerminalRunStatus(state) ? state : 'queued'),
                 handleTerminalStatus: (_, { status }) => status,
+                // The boundary drops the status of the run being left behind, which is always a terminal
+                // one. The successor's own seed can already be here — `openSseForRun` runs before the
+                // history this reconciles — and wiping it hides the composer for the rest of the run.
+                prepareResumeRun: (state) => (state && !isTerminalRunStatus(state) ? state : null),
                 reset: () => null,
             },
         ],
@@ -2031,6 +2094,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             emptyRunLog(),
             {
                 appendEntries: (state, { entries }) => appendToRunLog(state, entries),
+                replaceLog: (_, { log }) => log,
                 reset: () => emptyRunLog(),
             },
         ],
@@ -2074,6 +2138,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
             false,
             {
                 startOptimisticRun: () => true,
+                startOptimisticResume: () => true,
+                rollbackOptimisticResume: () => false,
                 bootstrapRun: () => false,
                 reset: () => false,
             },
@@ -2177,6 +2243,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             null as string | null,
             {
                 setCurrentMode: (_, { mode }) => mode,
+                prepareResumeRun: () => null,
                 reset: () => null,
             },
         ],
@@ -2185,6 +2252,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             {
                 setCurrentProgress: (_, { progress }) => progress,
                 markTurnComplete: () => null,
+                prepareResumeRun: () => null,
                 reset: () => null,
             },
         ],
@@ -2195,6 +2263,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             null as string | null,
             {
                 setCurrentStage: (_, { stage }) => stage,
+                prepareResumeRun: () => null,
                 reset: () => null,
             },
         ],
@@ -2202,6 +2271,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             false,
             {
                 markRunStarted: () => true,
+                prepareResumeRun: () => false,
                 reset: () => false,
             },
         ],
@@ -2228,6 +2298,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 markRunStarted: () => false,
                 pushHumanMessage: () => false,
                 markTurnStarted: () => false,
+                prepareResumeRun: () => false,
                 reset: () => false,
             },
         ],
@@ -2256,6 +2327,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             null as SdkSession | null,
             {
                 setSdkSession: (_, { session }) => session,
+                prepareResumeRun: () => null,
                 reset: () => null,
             },
         ],
@@ -2296,6 +2368,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     (item: ThreadItem) => (item.type !== 'debug' || showDebugLogs) && rendersThreadItemContent(item)
                 ),
         ],
+        hasThreadItems: [(s) => [s.threadItems], (threadItems: ThreadItem[]): boolean => threadItems.length > 0],
         toolInvocations: [
             (s) => [s.foldedThread],
             (foldedThread: FoldedThread): Map<string, ToolInvocation> => foldedThread.toolInvocations,
@@ -2335,9 +2408,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
          * Stream lifecycle phase gating the bottom-of-thread thinking indicator. `provisioning` = the
          * cold-boot window — the conversations/open POST is in flight (`runOpening`), or the stream is
          * opening/open but the agent hasn't started yet (the workflow is still setting up the sandbox).
-         * `ThreadView` shows a fixed "spinning up" indicator here until a real `_posthog/progress`
-         * boot step lands (which then takes over) or `run_started` flips the phase to `thinking`. The
-         * playful gerund loader is held off until `thinking` so it never shows before a turn begins.
+         * `ThreadView` uses setup progress as the startup indicator, with a fixed fallback before steps arrive.
+         * The playful gerund loader waits for `run_started` to flip the phase to `thinking`.
          * `thinking` = the agent is working a turn (mirrors `isThinking`), and is
          * what `ThreadView` gates the gerund loader on; `idle` otherwise (terminal, errored, or
          * not yet connecting). A read-only viewer is always `idle` — it never streams.
@@ -2355,6 +2427,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // A read-only snapshot never provisions or thinks — there is no live stream behind it.
                 if (replayOnly) {
                     return 'idle'
+                }
+                if (runOpening && isTerminalRunStatus(currentRunStatus)) {
+                    return 'provisioning'
                 }
                 const connecting = sseStatus === 'connecting' || sseStatus === 'open' || sseStatus === 'reconnecting'
                 // `runOpening` covers the conversations/open POST window, before any SSE state exists.
@@ -2469,7 +2544,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
         ],
     }),
     listeners(({ values, actions, cache, props }) => ({
-        bootstrapRun: async ({ taskId, runId, justCreatedRun }, breakpoint) => {
+        bootstrapRun: async ({ taskId, runId, justCreatedRun, retainedMessage }, breakpoint) => {
             if (cache.activeRun && (cache.activeRun.runId !== runId || cache.activeRun.taskId !== taskId)) {
                 actions.cancelPermissionDelivery()
                 actions.permissionRunChanged()
@@ -2588,13 +2663,52 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // The full resume-chain S3 snapshot — replayed as `replay`, so the projection renders
             // persisted human turns and side-effect telemetry stays suppressed for history.
             const history = normalizeHistory(entries, runId, isResumeRun(run))
-            history.forEach((entry) => actions.ingestAcpFrame(entry, 'replay'))
+            if (retainedMessage) {
+                // Replace the partial snapshot synchronously; ancestor lifecycle frames must not make
+                // a successor that is still provisioning appear started or finished.
+                actions.replaceLog(emptyRunLog())
+                let reachedSuccessor = false
+                history.forEach((entry) => {
+                    if (!reachedSuccessor && entry.source_run_id === runId) {
+                        actions.appendResumeBoundary()
+                        actions.prepareResumeRun()
+                        actions.permissionRunChanged()
+                        reachedSuccessor = true
+                    }
+                    actions.ingestAcpFrame(entry, 'replay')
+                })
+                if (!reachedSuccessor) {
+                    actions.appendResumeBoundary()
+                    actions.prepareResumeRun()
+                    actions.permissionRunChanged()
+                }
+                const successorItems = foldLogToThread(
+                    history
+                        .filter((entry) => entry.source_run_id === runId)
+                        .map((entry) => ({ entry, source: 'replay' })),
+                    { isResumeRun: true }
+                ).threadItems
+                if (!successorItems.some((item) => item.type === 'human_message' && item.text === retainedMessage)) {
+                    actions.pushHumanMessage(retainedMessage)
+                }
+            } else {
+                history.forEach((entry) => actions.ingestAcpFrame(entry, 'replay'))
+            }
 
             if (terminal) {
+                if (retainedMessage) {
+                    // This bootstrap is the resume attach itself, and a terminal run opens no stream, so
+                    // the provisioning window is over. A replayed terminal status alone must not clear the
+                    // flag — an ancestor's bootstrap can resolve terminal while the successor still opens.
+                    actions.setRunOpening(false)
+                }
                 // Read-only history — surface the terminal status, do not open SSE. Flag the replay
                 // so the listener records the status without re-emitting termination telemetry.
                 actions.handleTerminalStatus({ status: run.status as RunStatus, replayedFromHistory: true })
-                actions.bootstrapLogReady()
+                // `bootstrapReplayComplete`, not `bootstrapLogReady`: with no SSE to open, `sseOpened`
+                // never clears the bootstrap spinner, so a terminal run whose history folds to no
+                // renderable rows would sit on the skeleton for the instance's lifetime.
+                actions.bootstrapReplayComplete()
                 return
             }
 
@@ -3250,6 +3364,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
         },
         reset: () => {
             actions.cancelPermissionDelivery()
+            cache.optimisticResume = undefined
             // `log` clears via its own reducer on `reset`, so the projection empties with it. The
             // per-frame invocation tracker mirrors the log, so it must clear alongside it.
             cache.trackedToolInvocations = undefined
@@ -3274,6 +3389,67 @@ export const runStreamLogic = kea<runStreamLogicType>([
             if (message) {
                 actions.pushHumanMessage(message)
             }
+        },
+        appendResumeBoundary: () => {
+            // A killed run can end without a turn_complete frame. Close that turn before inserting
+            // the successor's message, or the projection moves it ahead of the previous answer.
+            if (!values.turnComplete && values.log.entries.length > 0) {
+                actions.appendEntries([
+                    {
+                        entry: { type: 'notification', notification: { method: '_posthog/turn_complete', params: {} } },
+                        source: 'client',
+                    },
+                ])
+            }
+        },
+        startOptimisticResume: ({ message }) => {
+            const historyComplete = !values.logBootstrapLoading && !values.bootstrapError
+            const turnComplete = values.turnComplete
+            const previousEntryCount = values.log.entries.length
+            actions.appendResumeBoundary()
+            actions.setRunOpening(true)
+            actions.pushHumanMessage(message)
+            cache.optimisticResume = {
+                entries: values.log.entries.slice(previousEntryCount),
+                message,
+                historyComplete,
+                turnComplete,
+            } satisfies OptimisticResume
+        },
+        rollbackOptimisticResume: () => {
+            const resume = cache.optimisticResume as OptimisticResume | undefined
+            if (!resume) {
+                return
+            }
+            cache.optimisticResume = undefined
+            actions.replaceLog(
+                appendToRunLog(
+                    emptyRunLog(),
+                    values.log.entries.filter((entry) => !resume.entries.includes(entry))
+                )
+            )
+            if (resume.turnComplete) {
+                actions.markTurnComplete()
+            }
+        },
+        attachOptimisticResume: ({ taskId, run }) => {
+            const resume = cache.optimisticResume as OptimisticResume | undefined
+            if (!resume) {
+                return
+            }
+            cache.optimisticResume = undefined
+            actions.closeSse()
+            actions.prepareResumeRun()
+            actions.permissionRunChanged()
+            cache.trackedToolInvocations = undefined
+            actions.markBootstrapResumeRun(true)
+            actions.mergeRunArtifacts(extractRunArtifacts(run))
+            actions.bootstrapRun({
+                taskId,
+                runId: run.id,
+                justCreatedRun: resume.historyComplete,
+                ...(!resume.historyComplete ? { retainedMessage: resume.message } : {}),
+            })
         },
         pushHumanMessage: ({ content }) => {
             // The echo is always a live turn (replayed human turns render straight from the log), so

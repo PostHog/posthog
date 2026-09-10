@@ -521,6 +521,17 @@ class ExperimentQueryRunner(QueryRunner):
             return self._retention_metric_events_precomputation_enabled()
         return False
 
+    @property
+    def metric_events_path(self) -> str:
+        """
+        Which source fed the metric-events side of the built query: "precomputed",
+        "direct_scan", or "not_applicable". Meaningful after _get_experiment_query()
+        has run. The exposures side is reported separately (response.is_precomputed).
+        """
+        if not self._metric_events_precompute_applicable():
+            return "not_applicable"
+        return "precomputed" if self._metric_events_precomputed else "direct_scan"
+
     def _get_experiment_query(self) -> ast.SelectQuery:
         """
         Returns the main experiment query.
@@ -644,10 +655,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         # Tag after _get_experiment_query() which sets the precompute flags
         exposures_path = "precomputed" if self._is_precomputed else "direct_scan"
-        if not self._metric_events_precompute_applicable():
-            metric_events_path = "not_applicable"
-        else:
-            metric_events_path = "precomputed" if self._metric_events_precomputed else "direct_scan"
+        metric_events_path = self.metric_events_path
         tag_queries(
             experiment_exposures_path=exposures_path,
             experiment_metric_events_path=metric_events_path,
