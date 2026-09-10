@@ -15,7 +15,7 @@ import {
   type LocalToolCtx,
   type LocalToolGateMeta,
 } from "../local-tools";
-import { resolveTaskId } from "../session-meta";
+import { resolveSketchpadId, resolveTaskId } from "../session-meta";
 
 /**
  * Gate inputs the local-tools server needs beyond `LocalToolGateMeta`: the task id
@@ -82,7 +82,10 @@ export function buildLocalToolsServer(
     taskRunId: meta?.taskRunId,
     baseBranch: meta?.baseBranch,
   };
-  const tools = enabledLocalTools(toolCtx, meta);
+  const tools = enabledLocalTools(toolCtx, {
+    ...meta,
+    sketchpadId: resolveSketchpadId(meta),
+  });
   if (tools.length === 0) {
     return null;
   }

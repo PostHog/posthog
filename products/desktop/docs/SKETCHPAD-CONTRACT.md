@@ -59,3 +59,14 @@ The vendored-module lock also records exact download URLs for version-range
 imports. Restoring the lock fetches those pinned versions and verifies the
 existing hashes. Updating the lock resolves range imports once, checks that the
 exact URL serves identical bytes, and records that URL for subsequent installs.
+
+Agent tools and the sync client use the same tool names, input shapes, fragment
+code rules, and ID normalization from shared `sketchpad/tools.ts`. Empty updates,
+invalid geometry, and oversized shared-state values are rejected before a tool
+reports success. Responses identify the normalized fragment ID and acknowledge a
+queued edit; they do not claim that collaborators have received it.
+
+The session prompt lists the imports accepted by the code guard. Tool
+descriptions focus on each action. Both adapters enable Sketchpad tools only for
+a nonempty Sketchpad ID. Cache expansion lives beside compaction in shared
+schemas and validates each source lookup.
