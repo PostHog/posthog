@@ -10,18 +10,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../hooks/useInboxReports", () => ({
   useDismissReport: () => ({
-    mutate: (
-      input: unknown,
-      options?: {
-        onSuccess?: (value: unknown) => void;
-        onError?: (err: unknown) => void;
-      },
-    ) => {
-      mocks.updateState(input).then(
-        (value: unknown) => options?.onSuccess?.(value),
-        (err: unknown) => options?.onError?.(err),
-      );
-    },
+    mutateAsync: (input: unknown) => mocks.updateState(input),
   }),
 }));
 

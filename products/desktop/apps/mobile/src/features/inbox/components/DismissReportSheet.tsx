@@ -84,27 +84,29 @@ export function DismissReportSheet({
     setDraft(reportId, { reason, note: trimmedNote, reopen: false });
     onClose();
     onDismissed({ reason, note: noteOrNull });
-    dismiss.mutate(
-      { reason, note: trimmedNote || undefined },
-      {
-        onSuccess: () => {
-          setDraft(reportId, undefined);
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        },
-        onError: (err) => {
-          const message =
-            err instanceof Error
-              ? err.message
-              : "Could not dismiss this report. Please try again.";
-          setDraft(reportId, {
-            reason,
-            note: trimmedNote,
-            reopen: true,
-            errorMessage: message,
-          });
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-          Alert.alert("Couldn't dismiss report", message);
-        },
+    // Use an independently managed promise rather than mutate()'s per-call
+    // callbacks: onDismissed above can trigger navigation that unmounts this
+    // sheet before the write settles, and per-call mutate callbacks are only
+    // fired while the initiating component is still mounted. A plain promise
+    // chain has no such dependency, so the draft is always reconciled.
+    dismiss.mutateAsync({ reason, note: trimmedNote || undefined }).then(
+      () => {
+        setDraft(reportId, undefined);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      },
+      (err) => {
+        const message =
+          err instanceof Error
+            ? err.message
+            : "Could not dismiss this report. Please try again.";
+        setDraft(reportId, {
+          reason,
+          note: trimmedNote,
+          reopen: true,
+          errorMessage: message,
+        });
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        Alert.alert("Couldn't dismiss report", message);
       },
     );
   };
@@ -159,6 +161,8 @@ export function DismissReportSheet({
                     key={option.value}
                     onPress={() => setReason(option.value)}
                     accessibilityLabel={`Dismissal reason: ${option.label}`}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: selected }}
                     hitSlop={4}
                     className={`flex-row items-center justify-between px-3 py-3.5 active:bg-gray-3 ${
                       idx > 0 ? "border-gray-5 border-t" : ""
