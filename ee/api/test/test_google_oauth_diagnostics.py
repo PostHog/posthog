@@ -2,12 +2,13 @@ import json
 import time
 import base64
 import hashlib
+import secrets
 from collections.abc import Callable
 from typing import Any
 
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 import jwt
 import requests
@@ -44,7 +45,7 @@ def _token_response() -> dict[str, Any]:
             "iat": now,
             "exp": now + 3600,
         },
-        "fake-signing-key",
+        secrets.token_hex(16),
         algorithm="HS256",
         headers={"kid": "fake-kid"},
     )
@@ -76,6 +77,15 @@ def _tokeninfo_unreachable() -> requests.Response:
     raise requests.ConnectionError(f"Max retries exceeded with url: /tokeninfo?access_token={ACCESS_TOKEN}")
 
 
+class _InlineThread:
+    def __init__(self, target: Callable[[], None], **_kwargs: Any) -> None:
+        self._target = target
+
+    def start(self) -> None:
+        self._target()
+
+
+@override_settings(GOOGLE_OAUTH_DIAGNOSTICS_FINGERPRINT_KEYS=["fake-fingerprint-key"])
 class TestGoogleOAuthDiagnostics(TestCase):
     @parameterized.expand(
         [
@@ -96,6 +106,7 @@ class TestGoogleOAuthDiagnostics(TestCase):
             patch.object(GoogleOAuth2, "user_data", side_effect=error),
             patch("posthog.egress.transport.transport.requests.request", side_effect=fake_request),
             patch("ee.api.google_oauth_diagnostics.RETRY_DELAY_SECONDS", 0),
+            patch("ee.api.google_oauth_diagnostics.Thread", _InlineThread),
             patch("ee.api.google_oauth_diagnostics.posthoganalytics.capture") as capture,
             self.assertRaises(requests.HTTPError) as raised,
         ):
@@ -109,12 +120,30 @@ class TestGoogleOAuthDiagnostics(TestCase):
         assert properties["userinfo_body"] == USERINFO_ERROR_BODY
         assert properties["retry_status"] == 401
         assert properties["id_token_at_hash_matches"] is True
+        assert properties["id_token_email_fp"] is not None
         assert properties["$process_person_profile"] is False
         assert properties.get("diagnostics_errors") == expected_errors
 
         serialized = json.dumps(event, default=str)
         for secret in (ACCESS_TOKEN, REFRESH_TOKEN, token_response["id_token"], EMAIL, SUB):
             assert secret not in serialized
+
+    def test_unreachable_userinfo_reraises_and_reports_without_probing_google(self) -> None:
+        error = requests.ConnectionError("Connection refused")
+
+        with (
+            patch.object(GoogleOAuth2, "user_data", side_effect=error),
+            patch("posthog.egress.transport.transport.requests.request") as outbound_request,
+            patch("ee.api.google_oauth_diagnostics.posthoganalytics.capture") as capture,
+            self.assertRaises(requests.ConnectionError) as raised,
+        ):
+            CustomGoogleOAuth2().user_data(ACCESS_TOKEN, response=_token_response())
+
+        assert raised.exception is error
+        outbound_request.assert_not_called()
+        event = capture.call_args.kwargs
+        assert event["event"] == FAILED_EVENT
+        assert event["properties"]["userinfo_error"] == "ConnectionError"
 
     def test_successful_userinfo_passes_the_profile_through_and_stores_none_of_it(self) -> None:
         profile = {"sub": SUB, "email": EMAIL, "name": "Test Person", "picture": "https://example.com/avatar.png"}

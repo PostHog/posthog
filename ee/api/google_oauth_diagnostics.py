@@ -3,7 +3,8 @@
 This module records one PostHog event for each Google login, so that `userinfo` failures can be
 diagnosed. It never changes the outcome of a login: the original result or error always passes through.
 
-To remove it, delete this module and the `user_data` override in `CustomGoogleOAuth2`.
+To remove it, delete this module, the `user_data` override in `CustomGoogleOAuth2`, and the
+`GOOGLE_OAUTH_DIAGNOSTICS_FINGERPRINT_KEYS` setting.
 """
 
 import hmac
@@ -15,6 +16,7 @@ import hashlib
 from collections.abc import Callable
 from email.utils import parsedate_to_datetime
 from importlib.metadata import PackageNotFoundError, version
+from threading import BoundedSemaphore, Thread
 from typing import Any
 from urllib.parse import urlparse
 
@@ -33,7 +35,8 @@ from posthog.exceptions_capture import capture_exception
 USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
 RETRY_DELAY_SECONDS = 1.0
-HTTP_TIMEOUT_SECONDS = 5.0
+HTTP_CONNECT_READ_TIMEOUT_SECONDS = (2.0, 3.0)
+MAX_CONCURRENT_PROBES = 2
 EGRESS_SOURCE = "google_oauth_diagnostics"
 FAILED_EVENT = "google oauth userinfo failed"
 SUCCEEDED_EVENT = "google oauth userinfo succeeded"
@@ -42,6 +45,7 @@ Properties = dict[str, Any]
 
 # Calls without a scope are recorded for volume but never gated, so a diagnostic call is never shed.
 _EGRESS = GoogleWorkspaceClient()
+_PROBE_SLOTS = BoundedSemaphore(MAX_CONCURRENT_PROBES)
 
 
 def fetch_userinfo_with_diagnostics(
@@ -53,7 +57,7 @@ def fetch_userinfo_with_diagnostics(
     started = time.monotonic()
     try:
         user_data = fetch()
-    except requests.HTTPError as error:
+    except Exception as error:
         _report(backend, access_token, token_response, _elapsed_ms(started), error)
         raise
     _report(backend, access_token, token_response, _elapsed_ms(started), None)
@@ -65,7 +69,7 @@ def _report(
     access_token: str,
     token_response: dict[str, Any],
     latency_ms: int,
-    error: requests.HTTPError | None,
+    error: Exception | None,
 ) -> None:
     try:
         client_id = _client_id(backend)
@@ -81,24 +85,72 @@ def _report(
         properties.update(id_token_properties)
         properties["userinfo_latency_ms"] = latency_ms
 
-        if error is not None:
-            properties.update(
-                _collect(
-                    {
-                        "userinfo": lambda: _userinfo_error_properties(error, access_token),
-                        "retry": lambda: _retry_properties(access_token),
-                        "tokeninfo": lambda: _tokeninfo_properties(access_token, client_id),
-                    }
-                )
-            )
+        if error is None:
+            _capture(SUCCEEDED_EVENT, properties)
+            return
 
-        posthoganalytics.capture(
-            distinct_id=properties.get("id_token_email_fp") or properties.get("token_fp") or "google-oauth-diagnostics",
-            event=SUCCEEDED_EVENT if error is None else FAILED_EVENT,
-            properties={**properties, "$process_person_profile": False},
-        )
+        properties.update(_collect({"userinfo": lambda: _userinfo_error_properties(error, access_token)}))
+        # Only an answer from Google is worth probing. After a timeout or a connection error,
+        # more calls to Google add load and tell us nothing new.
+        if isinstance(error, requests.HTTPError):
+            if _start_probes(lambda: _probe_and_capture(access_token, client_id, properties)):
+                return
+            properties["probes_skipped"] = "busy"
+        _capture(FAILED_EVENT, properties)
     except Exception as diagnostics_error:
-        capture_exception(diagnostics_error)
+        _capture_diagnostics_error(diagnostics_error)
+
+
+def _start_probes(job: Callable[[], None]) -> bool:
+    # The probes wait and then call Google, so they run off the request thread and a failed login
+    # does not hold a web worker. The slots cap how many run at once, so a burst of failed logins
+    # cannot pile up threads or calls to Google.
+    if not _PROBE_SLOTS.acquire(blocking=False):
+        return False
+
+    def run() -> None:
+        try:
+            job()
+        finally:
+            _PROBE_SLOTS.release()
+
+    try:
+        Thread(target=run, name="google-oauth-diagnostics", daemon=True).start()
+    except RuntimeError:
+        _PROBE_SLOTS.release()
+        return False
+    return True
+
+
+def _probe_and_capture(access_token: str, client_id: str | None, properties: Properties) -> None:
+    try:
+        properties.update(
+            _collect(
+                {
+                    "retry": lambda: _retry_properties(access_token),
+                    "tokeninfo": lambda: _tokeninfo_properties(access_token, client_id),
+                }
+            )
+        )
+        _capture(FAILED_EVENT, properties)
+    except Exception as diagnostics_error:
+        _capture_diagnostics_error(diagnostics_error)
+
+
+def _capture(event: str, properties: Properties) -> None:
+    posthoganalytics.capture(
+        distinct_id=properties.get("id_token_email_fp") or properties.get("token_fp") or "google-oauth-diagnostics",
+        event=event,
+        properties={**properties, "$process_person_profile": False},
+    )
+
+
+def _capture_diagnostics_error(error: Exception) -> None:
+    # The frames that raise here hold the access token and the ID token claims, so the capture
+    # must not attach their local variables.
+    with posthoganalytics.new_context():
+        posthoganalytics.set_capture_exception_code_variables_context(False)
+        capture_exception(error)
 
 
 def _collect(sections: dict[str, Callable[[], Properties]]) -> Properties:
@@ -131,7 +183,7 @@ def _token_properties(access_token: str, token_response: dict[str, Any]) -> Prop
         "token_length": len(access_token),
         # The first characters are Google's token format marker, such as "ya29.a0", and are not secret.
         "token_prefix": access_token[:7],
-        "token_fp": _fingerprint(access_token),
+        "token_fp": _hash_random_value(access_token),
         "token_response_keys": sorted(token_response.keys()),
         "token_scope": token_response.get("scope"),
         "token_expires_in": token_response.get("expires_in"),
@@ -145,8 +197,8 @@ def _callback_properties(backend: GoogleOAuth2) -> Properties:
     request = getattr(strategy, "request", None)
     user = getattr(request, "user", None)
     return {
-        "state_fp": _fingerprint(data.get("state")),
-        "code_fp": _fingerprint(data.get("code")),
+        "state_fp": _hash_random_value(data.get("state")),
+        "code_fp": _hash_random_value(data.get("code")),
         "flow_origin": _first_path_segment(strategy.session_get("next") if strategy else None),
         "session_reauth": strategy.session_get("reauth") if strategy else None,
         "was_authenticated": bool(getattr(user, "is_authenticated", False)),
@@ -166,7 +218,7 @@ def _id_token_properties(
         claims: dict[str, Any] = jwt.decode(
             id_token,
             options={
-                "verify_signature": False,
+                "verify_signature": False,  # nosemgrep: python.jwt.security.unverified-jwt-decode.unverified-jwt-decode
                 "verify_exp": False,
                 "verify_iat": False,
                 "verify_nbf": False,
@@ -197,8 +249,8 @@ def _id_token_properties(
         "id_token_email_verified": claims.get("email_verified"),
         "id_token_hd": claims.get("hd"),
         "id_token_email_domain": email.rsplit("@", 1)[-1].lower() if isinstance(email, str) else None,
-        "id_token_email_fp": _fingerprint(email.lower() if isinstance(email, str) else None),
-        "id_token_sub_fp": _fingerprint(claims.get("sub")),
+        "id_token_email_fp": _fingerprint_identity(email.lower() if isinstance(email, str) else None),
+        "id_token_sub_fp": _fingerprint_identity(claims.get("sub")),
         # at_hash is Google's hash of the access token that it issued with this ID token. A mismatch
         # means that the token sent to userinfo is not the token that Google issued.
         "id_token_at_hash_matches": _at_hash(access_token) == at_hash if isinstance(at_hash, str) else None,
@@ -217,9 +269,8 @@ def _account_properties(email: Any, sub: Any) -> Properties:
     }
 
 
-def _userinfo_error_properties(error: requests.HTTPError, access_token: str) -> Properties:
-    # The stubs type this as always set, but an HTTPError built without a response carries None.
-    response: requests.Response | None = error.response
+def _userinfo_error_properties(error: Exception, access_token: str) -> Properties:
+    response: requests.Response | None = error.response if isinstance(error, requests.HTTPError) else None
     if response is None:
         return {"userinfo_error": type(error).__name__}
     return {
@@ -240,7 +291,7 @@ def _retry_properties(access_token: str) -> Properties:
         source=EGRESS_SOURCE,
         endpoint="userinfo",
         headers={"Authorization": f"Bearer {access_token}"},
-        timeout=HTTP_TIMEOUT_SECONDS,
+        timeout=HTTP_CONNECT_READ_TIMEOUT_SECONDS,
     )
     properties: Properties = {
         "retry_status": response.status_code,
@@ -262,7 +313,7 @@ def _tokeninfo_properties(access_token: str, client_id: str | None) -> Propertie
         source=EGRESS_SOURCE,
         endpoint="tokeninfo",
         params={"access_token": access_token},
-        timeout=HTTP_TIMEOUT_SECONDS,
+        timeout=HTTP_CONNECT_READ_TIMEOUT_SECONDS,
     )
     body, parsed = _redact_tokeninfo_body(_scrub(response.text, access_token))
     return {
@@ -284,9 +335,9 @@ def _redact_tokeninfo_body(body: str) -> tuple[str, dict[str, Any]]:
     redacted = dict(parsed)
     if isinstance(redacted.get("email"), str):
         redacted["email_domain"] = redacted["email"].rsplit("@", 1)[-1].lower()
-        redacted["email"] = _fingerprint(redacted["email"].lower())
+        redacted["email"] = _fingerprint_identity(redacted["email"].lower())
     if "sub" in redacted:
-        redacted["sub"] = _fingerprint(str(redacted["sub"]))
+        redacted["sub"] = _fingerprint_identity(str(redacted["sub"]))
     return json.dumps(redacted), parsed
 
 
@@ -298,12 +349,21 @@ def _scrub_headers(headers: Any, access_token: str) -> dict[str, str]:
     return {name: _scrub(str(value), access_token) for name, value in headers.items()}
 
 
-def _fingerprint(value: str | None) -> str | None:
-    # A keyed HMAC, because a plain SHA-256 of an email address can be reversed with a dictionary.
+def _hash_random_value(value: str | None) -> str | None:
+    # Tokens, codes and states are long random strings, so an unkeyed hash of one cannot be reversed.
     if not value:
         return None
+    return hashlib.sha256(value.encode()).hexdigest()[:16]
+
+
+def _fingerprint_identity(value: str | None) -> str | None:
+    # An email address can be guessed, so it needs a keyed HMAC. The key has its own setting, and
+    # the fingerprint is left out when that setting is empty.
+    keys = settings.GOOGLE_OAUTH_DIAGNOSTICS_FINGERPRINT_KEYS
+    if not value or not keys:
+        return None
     message = f"google-oauth-diagnostics:{value}".encode()
-    return hmac.new(settings.SECRET_KEY.encode(), message, hashlib.sha256).hexdigest()[:16]
+    return hmac.new(keys[0].encode(), message, hashlib.sha256).hexdigest()[:16]
 
 
 def _at_hash(access_token: str) -> str:
