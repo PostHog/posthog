@@ -749,6 +749,9 @@ importers:
       '@posthog/products-mcp-analytics':
         specifier: workspace:*
         version: link:../products/mcp_analytics
+      '@posthog/products-mcp-registry':
+        specifier: workspace:*
+        version: link:../products/mcp_registry
       '@posthog/products-mcp-store':
         specifier: workspace:*
         version: link:../products/mcp_store
