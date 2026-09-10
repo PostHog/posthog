@@ -905,9 +905,16 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         if self.parent is not None:
             return value
         # Support raises a project past the ceiling in Django admin; clients that echo the whole
-        # config must be able to send that value back unchanged.
-        if value is not None and value > ceiling and (self.instance is None or getattr(self.instance, field) != value):
-            raise serializers.ValidationError(f"Contact support to go above {ceiling} tasks a day.")
+        # config must be able to send that value back unchanged. Read the row fresh: the
+        # `Team.workflows_config` accessor is cached per process and can be stale.
+        if value is not None and value > ceiling:
+            stored = (
+                TeamWorkflowsConfig.objects.filter(pk=self.instance.pk).values_list(field, flat=True).first()
+                if self.instance is not None
+                else None
+            )
+            if stored != value:
+                raise serializers.ValidationError(f"Contact support to go above {ceiling} tasks a day.")
         return value
 
     def validate_workflow_task_rate_limit_per_day(self, value: int | None) -> int | None:
