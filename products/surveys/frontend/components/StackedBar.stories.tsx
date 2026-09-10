@@ -7,7 +7,7 @@ const meta: Meta<typeof StackedBar> = {
     component: StackedBar,
     decorators: [
         (Story) => (
-            <div className="w-full max-w-lg">
+            <div className="w-128">
                 <Story />
             </div>
         ),
