@@ -148,6 +148,8 @@ def _process_event_from_receipt(inbound_event_id: str) -> None:
     try:
         _handle_supporthog_event(event, team, claim.event.provider_account_id)
         complete_inbound_event(claim)
+    except TransientInboundError:
+        _retry_inbound_claim(claim, error_code="transient", error="slack event work needs another attempt")
     except Exception as exc:
         logger.exception(
             "supporthog_event_handler_failed",

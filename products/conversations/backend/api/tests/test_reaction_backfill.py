@@ -4,12 +4,14 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
 
 from parameterized import parameterized
+from slack_sdk.errors import SlackApiError
 
 from posthog.models.comment import Comment
 
 from products.conversations.backend.cache import slack_ticket_create_lock
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel, ChannelDetail
+from products.conversations.backend.services.inbound_events import TransientInboundError
 from products.conversations.backend.slack import (
     _backfill_thread_replies,
     create_or_update_slack_ticket,
@@ -536,6 +538,25 @@ class TestHandleSupportReactionBackfill(BaseTest):
         mock_client.assert_not_called()
         mock_create.assert_not_called()
         mock_backfill.assert_not_called()
+
+    @parameterized.expand([("thread_fetch",), ("history_fallback",)])
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    @patch(f"{MODULE}.get_slack_client")
+    def test_seed_fetch_failure_asks_for_another_attempt(self, failing_call, mock_client, mock_create):
+        rate_limited = SlackApiError(message="ratelimited", response={"error": "ratelimited"})
+        client = MagicMock()
+        if failing_call == "thread_fetch":
+            client.conversations_replies.side_effect = rate_limited
+        else:
+            # An empty thread falls back to conversations.history for the reacted message.
+            client.conversations_replies.return_value = {"messages": []}
+            client.conversations_history.side_effect = rate_limited
+        mock_client.return_value = client
+
+        with self.assertRaises(TransientInboundError):
+            handle_support_reaction(self._reaction_event(), self.team, SLACK_TEAM)
+
+        mock_create.assert_not_called()
 
 
 class TestSlackTicketCreateLockDedup(BaseTest):

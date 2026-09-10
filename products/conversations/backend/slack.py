@@ -56,6 +56,7 @@ from .services.attachments import (
     sanitize_attachment_filename,
     save_file_to_uploaded_media,
 )
+from .services.inbound_events import TransientInboundError
 from .support_slack import (
     SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES,
     SUPPORT_SLACK_FILE_READ_SCOPE,
@@ -1502,7 +1503,8 @@ def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None
         thread_messages: list[dict] = result.get("messages", [])
     except Exception:
         logger.warning("slack_support_reaction_fetch_failed", channel=channel, message_ts=message_ts)
-        return
+        # No ticket exists yet, so a later attempt can seed it from scratch.
+        raise TransientInboundError
 
     # A standalone message with no thread can come back empty from conversations.replies —
     # fetch just that message, bounded to its exact ts so we never grab a neighbour.
@@ -1518,7 +1520,7 @@ def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None
             thread_messages = history.get("messages", [])
         except Exception:
             logger.warning("slack_support_reaction_fetch_failed", channel=channel, message_ts=message_ts)
-            return
+            raise TransientInboundError
 
     if not thread_messages:
         return
