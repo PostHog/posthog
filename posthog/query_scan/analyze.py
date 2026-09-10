@@ -54,9 +54,14 @@ def analyze(
     query_kind: str,
     open_filters_placeholder: bool,
     measurements: ScanMeasurements,
+    table_row_averages: dict[str, float] | None = None,
 ) -> QueryScanResult:
     """`open_filters_placeholder` is true when the query left its date range to a `{filters}`
-    placeholder that expanded to no bound, so the fix is on the insight, not in the SQL."""
+    placeholder that expanded to no bound, so the fix is on the insight, not in the SQL.
+
+    `table_row_averages` is empty when the `system.parts` read failed; the persons gate then falls
+    back to a raw granule comparison, so the analysis still runs without the metadata query."""
+    averages = table_row_averages or {}
     if plans.outer is None:
         return QueryScanResult(findings=[], explain_ok=False)
 
@@ -75,6 +80,7 @@ def analyze(
         open_filters_placeholder=open_filters_placeholder,
         range_share=range_share,
         subquery_index=None,
+        table_row_averages=averages,
     )
     for index, subquery in enumerate(plans.subqueries):
         findings += _findings_for_plan(
@@ -85,6 +91,7 @@ def analyze(
             open_filters_placeholder=open_filters_placeholder,
             range_share=None,
             subquery_index=index,
+            table_row_averages=averages,
         )
 
     return QueryScanResult(
@@ -105,6 +112,7 @@ def _findings_for_plan(
     open_filters_placeholder: bool,
     range_share: float | None,
     subquery_index: int | None,
+    table_row_averages: dict[str, float],
 ) -> list[QueryScanWarning]:
     events_read = plan.events_read()
     # A plan that does not read the events table has no denominator and nothing to advise on.
@@ -135,7 +143,7 @@ def _findings_for_plan(
             )
         )
 
-    person_read = _persons_join_read(plan, events_read, thresholds)
+    person_read = _persons_join_read(plan, events_read, thresholds, table_row_averages)
     if person_read is not None:
         findings.append(
             build_warning(
@@ -175,16 +183,34 @@ def _any_skip_pruned_half(read: PlanTableRead) -> bool:
     return False
 
 
-def _persons_join_read(plan: QueryPlan, events_read: PlanTableRead, thresholds: ScanThresholds) -> PlanTableRead | None:
+def _persons_join_read(
+    plan: QueryPlan,
+    events_read: PlanTableRead,
+    thresholds: ScanThresholds,
+    table_row_averages: dict[str, float],
+) -> PlanTableRead | None:
     events_granules = events_read.selected_granules()
     if events_granules is None:
         return None
-    threshold = thresholds.persons_ratio * events_granules
+    events_rows = _estimated_rows(events_read, events_granules, table_row_averages)
     for read in plan.person_reads():
-        selected = read.selected_granules()
-        if selected is not None and selected >= threshold:
+        person_granules = read.selected_granules()
+        if person_granules is None:
+            continue
+        person_rows = _estimated_rows(read, person_granules, table_row_averages)
+        # A granule holds several times more rows in the persons tables than in events, so a raw
+        # granule ratio under-fires the gate; scale each side to rows when both averages are known.
+        if events_rows is not None and person_rows is not None:
+            if person_rows >= thresholds.persons_ratio * events_rows:
+                return read
+        elif person_granules >= thresholds.persons_ratio * events_granules:
             return read
     return None
+
+
+def _estimated_rows(read: PlanTableRead, granules: int, table_row_averages: dict[str, float]) -> float | None:
+    average = read.average_rows_per_granule(table_row_averages)
+    return granules * average if average is not None else None
 
 
 def _min_max_evidence(read: PlanTableRead, subquery_index: int | None) -> str:

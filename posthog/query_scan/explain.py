@@ -67,6 +67,14 @@ class PlanTableRead:
     def _matches(self, names: tuple[str, ...]) -> bool:
         return any(self.table == name or self.table.endswith(f".{name}") for name in names)
 
+    def average_rows_per_granule(self, averages: dict[str, float]) -> float | None:
+        # The map is keyed by bare table name, so match by suffix the way `reads_persons` matches,
+        # because the plan's Description keeps the database qualifier (`posthog.person`).
+        for name, average in averages.items():
+            if self.table == name or self.table.endswith(f".{name}"):
+                return average
+        return None
+
     def primary_key(self) -> PlanIndex | None:
         return self._first(_PRIMARY_KEY_TYPE)
 

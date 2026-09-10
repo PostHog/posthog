@@ -23,6 +23,7 @@ def analyze_fixture(
     persons_ratio: float = 0.5,
     query_kind: str = "HogQLQuery",
     open_filters_placeholder: bool = False,
+    table_row_averages: dict[str, float] | None = None,
 ) -> QueryScanResult:
     return analyze(
         PlanSet(
@@ -35,6 +36,7 @@ def analyze_fixture(
         query_kind=query_kind,
         open_filters_placeholder=open_filters_placeholder,
         measurements=MEASUREMENTS,
+        table_row_averages=table_row_averages,
     )
 
 
@@ -57,6 +59,20 @@ class TestAnalyze(SimpleTestCase):
             ("persons join over the ratio", "plan_persons_join", {}, ["persons_join"]),
             # persons gate the other way: raise the ratio past what the plan shows
             ("persons join under the ratio", "plan_persons_join", {"persons_ratio": 10.0}, []),
+            # At ratio 20 the raw granule counts miss (9.6x), but scaling both sides to rows (51x) fires.
+            (
+                "persons join fires once granules are scaled to rows",
+                "plan_persons_join",
+                {"persons_ratio": 20.0, "table_row_averages": {"sharded_events": 740.0, "person": 3955.0}},
+                ["persons_join"],
+            ),
+            # Same granules and ratio, but averages that make the events side heavier keep it quiet.
+            (
+                "persons join stays quiet when rows do not clear the ratio",
+                "plan_persons_join",
+                {"persons_ratio": 20.0, "table_row_averages": {"sharded_events": 4000.0, "person": 740.0}},
+                [],
+            ),
             ("object storage read yields nothing", "plan_object_storage_read", {}, []),
             ("a replay list query reads no events", "plan_replay_list_in_subqueries", {}, []),
             # a subquery whose events read pruned nothing is flagged through the skip-step fallback

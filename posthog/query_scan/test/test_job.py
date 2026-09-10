@@ -16,6 +16,14 @@ FLAG = QueryScanFlag(mode="show", floor_ms=1000, event_ratio=0.1, persons_ratio=
 
 _OTHER_ERROR = InternalCHQueryError("Estimated execution time too long", code=160)
 
+# The `system.parts` metadata query returns average rows per granule per table.
+_ROW_AVERAGES = [
+    ["sharded_events", 740.0],
+    ["person", 3955.0],
+    ["person_distinct_id2", 512.0],
+    ["person_distinct_id_overrides", 512.0],
+]
+
 
 def _plan(name: str) -> str:
     return (FIXTURES / f"{name}.json").read_text()
@@ -48,9 +56,14 @@ class TestQueryScanJob(BaseTest):
         subqueries: tuple[str, ...] = (),
         team_denom: str = "plan_no_date_bound",
         range_denom: str = "plan_no_event_filter",
+        averages_error: BaseException | None = None,
     ) -> None:
         def execute(query: str, arguments: Any = None, *args: Any, **kwargs: Any) -> Any:
             self.calls.append((query, arguments or {}))
+            if "system.parts" in query:
+                if averages_error is not None:
+                    raise averages_error
+                return _ROW_AVERAGES
             if "timestamp >=" in query or "timestamp <" in query:
                 return [[_plan(range_denom)]]
             if "%(scan_team_id)s" in query:
@@ -145,3 +158,19 @@ class TestQueryScanJob(BaseTest):
         range_call = next((args for query, args in self.calls if "timestamp >=" in query), None)
         assert range_call is not None
         assert range_call["scan_lower"] == 1788461215
+
+    def test_reads_the_row_averages_once_and_survives_their_failure(self) -> None:
+        # The average is a table-wide property, so the query runs once, not per execution or EXPLAIN.
+        self._run({"STUBBED_MARKER": "plan_persons_join"})
+        assert len([query for query in self._explained() if "system.parts" in query]) == 1
+        stored = slot.get(self.team.pk, "cache_key_1")
+        assert stored is not None and stored.status == "done"
+        assert [str(finding.kind) for finding in stored.findings] == ["persons_join"]
+
+        # A failed metadata query must not fail the analysis: the gate falls back to raw granules.
+        self.calls.clear()
+        self.stored.clear()
+        self._run({"STUBBED_MARKER": "plan_persons_join"}, averages_error=_OTHER_ERROR)
+        stored = slot.get(self.team.pk, "cache_key_1")
+        assert stored is not None and stored.status == "done"
+        assert [str(finding.kind) for finding in stored.findings] == ["persons_join"]

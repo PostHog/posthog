@@ -32,6 +32,10 @@ from posthog.query_scan.slot import QueryScanSlot, set_done
 logger = structlog.get_logger(__name__)
 
 EXPLAIN_MAX_SECONDS = 10
+TABLE_AVERAGES_MAX_SECONDS = 5
+
+# The events table and the three persons tables the persons gate compares in rows.
+_ROW_AVERAGE_TABLES = ("sharded_events", "person", "person_distinct_id2", "person_distinct_id_overrides")
 
 
 @frozen
@@ -107,6 +111,9 @@ def _run(job: QueryScanJob, started: float) -> None:
     thresholds = ScanThresholds(event_ratio=flag.event_ratio, persons_ratio=flag.persons_ratio)
     measurements = ScanMeasurements(rows_read=job.rows_read, duration_ms=job.duration_ms)
 
+    # Read once per run: the average is a table-wide property, the same for every execution.
+    table_row_averages = _table_row_averages(job.team.pk)
+
     # The team's whole data on the initiator shard, run once for every execution's share.
     team_granules = _denominator_granules(
         _explain("SELECT uuid FROM events WHERE team_id = %(scan_team_id)s", {"scan_team_id": job.team.pk}, job.team.pk)
@@ -129,6 +136,7 @@ def _run(job: QueryScanJob, started: float) -> None:
                 query_kind=job.query_kind or "",
                 open_filters_placeholder=job.open_filters_placeholder,
                 measurements=measurements,
+                table_row_averages=table_row_averages,
             )
         )
 
@@ -211,6 +219,28 @@ def _denominator_granules(explained: tuple[list[Any] | None, bool]) -> int | Non
         return None
     events_read = parse_query_plan(rows[0][0]).events_read()
     return events_read.selected_granules() if events_read is not None else None
+
+
+def _table_row_averages(team_id: int) -> dict[str, float]:
+    """Average rows per granule per table, from `system.parts`. This is a metadata read, not a scan.
+    A failure yields an empty map and is never raised, because a missing average must fall the
+    persons gate back to raw granules, not fail the analysis."""
+    try:
+        with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.QUERY_SCAN):
+            rows = sync_execute(
+                "SELECT table, sum(rows) / sum(marks) FROM system.parts WHERE active AND table IN %(tables)s GROUP BY table",
+                {"tables": list(_ROW_AVERAGE_TABLES)},
+                settings={"max_execution_time": TABLE_AVERAGES_MAX_SECONDS},
+                workload=Workload.OFFLINE,
+                team_id=team_id,
+                readonly=True,
+            )
+    except SoftTimeLimitExceeded:
+        raise
+    except Exception:
+        logger.warning("query_scan_table_averages_failed", team_id=team_id, exc_info=True)
+        return {}
+    return {table: float(average) for table, average in rows if average is not None and float(average) > 0}
 
 
 def _explain(sql: str, values: dict[str, Any], team_id: int) -> tuple[list[Any] | None, bool]:
