@@ -1,5 +1,6 @@
-import dataclasses
 from typing import Literal
+
+from posthog.dataclasses import frozen
 
 # Alpha Vantage exposes every dataset through a single /query endpoint selected by a `function`
 # parameter. Each function returns a bespoke JSON shape, so endpoints are grouped by a `kind` that
@@ -11,7 +12,7 @@ from typing import Literal
 ParseKind = Literal["time_series", "quote", "overview", "reports", "earnings", "corporate_action", "listing"]
 
 
-@dataclasses.dataclass
+@frozen
 class AlphaVantageEndpointConfig:
     name: str
     # The Alpha Vantage `function` query-param value (e.g. TIME_SERIES_DAILY).
