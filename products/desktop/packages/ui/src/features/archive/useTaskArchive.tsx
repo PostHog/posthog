@@ -46,12 +46,19 @@ export function useTaskArchive(
   },
 ): TaskArchive {
   const taskId = task?.id;
-  const { taskRunId, isPromptPending, cloudStatus, agentIdleForRunId } =
+  const {
+    taskRunId,
+    isPromptPending,
+    currentPromptId,
+    cloudStatus,
+    agentIdleForRunId,
+  } =
     useSessionSelector(
       taskId,
       (session) => ({
         taskRunId: session?.taskRunId,
         isPromptPending: session?.isPromptPending ?? false,
+        currentPromptId: session?.currentPromptId,
         cloudStatus: session?.cloudStatus ?? null,
         agentIdleForRunId: session?.agentIdleForRunId,
       }),
@@ -71,6 +78,7 @@ export function useTaskArchive(
           ? {
               taskRunId,
               isPromptPending,
+              currentPromptId,
               cloudStatus: cloudStatus ?? undefined,
               agentIdleForRunId,
             }
