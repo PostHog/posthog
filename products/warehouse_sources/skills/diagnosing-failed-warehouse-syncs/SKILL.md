@@ -86,7 +86,12 @@ almost certainly stuck, even though the status isn't `Failed`.
 
 ### Step 3 — Interpret `latest_error`
 
-Map the `latest_error` string to a root cause. Common patterns:
+Map the `latest_error` string to a root cause. Match on meaning, not on the status code. When the sync recognizes
+a failure it stores the source's own wording in place of the raw HTTP error, so most 403s reach you as a phrase
+like "refused access", "plan does not include", or "missing a scope", with no status code left in the text. The
+rows below list the raw text, and the source's reworded equivalent maps to the same root cause.
+
+Common patterns:
 
 | Error substring                                             | Root cause                                                                    | Fix                                                                                             |
 | ----------------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
@@ -124,15 +129,16 @@ The recovery action depends on root cause, not just status. Match the user's sit
 
 **B2. One table gets a 403 while its siblings sync**
 
-- Only some schemas under the source fail with a `403` / `Forbidden`, and a sibling completed **after** the
-  failing attempt. Confirm that with `last_synced_at`. Sync schedules are per schema and run from every minute to
-  every 30 days, so a sibling can hold a `Completed` it earned before the key died. Only a sibling success that
-  postdates the 403 proves the key still works. The source is then refusing this one endpoint, usually because
-  the account plan does not include it, or the key's scope excludes it.
+- Only some schemas under the source fail with a `403` / `Forbidden`, or with the source's reworded refusal, and a
+  sibling completed **after** the failing attempt. Confirm that with `last_synced_at`. Sync schedules are per schema
+  and run from every minute to every 30 days, so a sibling can hold a `Completed` it earned before the key died. Only
+  a sibling success that postdates the 403 proves the key still works. The source is then refusing this one endpoint,
+  usually because the account plan does not include it, or the key's scope excludes it.
 - If no sibling succeeded after the failing attempt, the cause stays open. Read the source's own message, because
   several sources answer a revoked or expired credential with a 403 rather than a 401. Treat it as case B when
   that message names the credential.
-- Read the source's own message to tell the two apart, because the recovery differs:
+- Read the source's own message to tell the two apart, because the recovery differs. Some sources blame the key
+  in every 403 message, even for a table their plan gates, so a fresh sibling success outranks that wording:
   - **Plan gate.** The user asks the source to enable the endpoint, then re-enables the sync. Do not send them to
     rotate credentials. A new key on the same plan fails the same way.
   - **Scope gate.** The user grants the missing scope on the key. Some sources cannot edit an existing key's
