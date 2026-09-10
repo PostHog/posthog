@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken'
 
+import { getAsyncFunctionHandler } from '~/cdp/async-function-registry'
 import { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
 import { parseJSON } from '~/common/utils/json-parse'
 
@@ -45,6 +46,18 @@ describe('posthog notify owner template', () => {
         }) as jwt.JwtPayload
         expect(claims.team_id).toBe(1)
         expect(claims.hog_flow_id).toBe(workflowOptions.hogFlow.id)
+    })
+
+    it('mocks as a success in a test run without sending anything', () => {
+        const logs: any[] = []
+        const result = getAsyncFunctionHandler('postHogNotifyOwner')!.mock([{ title: 'Nightly triage finished' }], logs)
+
+        // The hog code fails the step on status >= 400, so the mock must read as delivered.
+        expect(result).toEqual({ status: 202, body: {} })
+        expect(logs.map((log) => log.message)).toEqual([
+            "Async function 'postHogNotifyOwner' was mocked. No notification was sent. Arguments:",
+            expect.stringContaining('"title": "Nightly triage finished"'),
+        ])
     })
 
     it('fails the step when the title is empty', async () => {
