@@ -25,3 +25,14 @@ user can reload and reconcile them.
 `SKETCHPADS_FLAG` is registered in `feature-flag-keys.json`, the desktop flag sync
 source. Presence and operation schemas share the user shape; frame carets reuse
 the same caret schema as presence.
+
+The core sync client loads full history from its oldest missing sequence, even
+when a recent snapshot or stream entry is already present. History formatting
+lives in `sketchpadHistory.ts`; pending operation batching lives in `pendingOps.ts`.
+
+Sketchpad streams use the shared SSE parser with a 512 KiB frame limit. The limit
+counts UTF-8 bytes across chunks and resets between frames. Compilation polling
+backs off from 250 ms to 5 seconds while output is unavailable.
+
+Background Sketchpad sessions stay out of the ordinary space feed and source
+menu. An explicit Sketchpad source filter can still retrieve them.

@@ -1,7 +1,6 @@
 import {
   type SketchpadPresenceInput,
   type SketchpadStreamEvent,
-  sketchpadLogEntrySchema,
   sketchpadPresenceSchema,
   sleepWithBackoff,
 } from "@posthog/shared";
@@ -17,15 +16,14 @@ const RECONNECT_INITIAL_MS = 500;
 const RECONNECT_MAX_MS = 10_000;
 const MAX_FRAME_BYTES = 512 * 1024;
 
-interface SseFrame {
-  id?: string;
-  event: string;
-  data: string;
-}
+import { type SseEvent, SseEventParser } from "../cloud-task/sse-parser";
 
 function toLogEntry(data: unknown): SketchpadStreamEvent | null {
-  const parsed = sketchpadLogEntrySchema.safeParse(logEntryInput(data));
-  return parsed.success ? { type: "op", entry: parsed.data } : null;
+  try {
+    return { type: "op", entry: logEntryInput(data) };
+  } catch {
+    return null;
+  }
 }
 
 function toPresence(data: unknown): SketchpadStreamEvent | null {
@@ -45,13 +43,8 @@ function toPresence(data: unknown): SketchpadStreamEvent | null {
   return parsed.success ? { type: "presence", presence: parsed.data } : null;
 }
 
-function toStreamEvent(frame: SseFrame): SketchpadStreamEvent | null {
-  let data: unknown;
-  try {
-    data = frame.data.length > 0 ? JSON.parse(frame.data) : null;
-  } catch {
-    return null;
-  }
+function toStreamEvent(frame: SseEvent): SketchpadStreamEvent | null {
+  const data = frame.data;
   switch (frame.event) {
     case "op":
       return toLogEntry(data);
@@ -74,45 +67,17 @@ function toStreamEvent(frame: SseFrame): SketchpadStreamEvent | null {
   }
 }
 
-function parseFrame(raw: string): SseFrame | null {
-  let id: string | undefined;
-  let event = "message";
-  const dataLines: string[] = [];
-  for (const line of raw.split("\n")) {
-    if (line.length === 0 || line.startsWith(":")) continue;
-    const colon = line.indexOf(":");
-    const field = colon === -1 ? line : line.slice(0, colon);
-    const value = colon === -1 ? "" : line.slice(colon + 1).replace(/^ /, "");
-    if (field === "id") id = value;
-    else if (field === "event") event = value;
-    else if (field === "data") dataLines.push(value);
-  }
-  if (dataLines.length === 0 && id === undefined) return null;
-  return { id, event, data: dataLines.join("\n") };
-}
-
 async function* readFrames(
   body: ReadableStream<Uint8Array>,
-): AsyncGenerator<SseFrame> {
+): AsyncGenerator<SseEvent> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
-  let buffer = "";
+  const parser = new SseEventParser(undefined, MAX_FRAME_BYTES);
   try {
     while (true) {
       const chunk = await reader.read();
       if (chunk.done) break;
-      buffer += decoder.decode(chunk.value, { stream: true });
-      buffer = buffer.replace(/\r\n/g, "\n");
-      let split = buffer.indexOf("\n\n");
-      while (split !== -1) {
-        const frame = parseFrame(buffer.slice(0, split));
-        buffer = buffer.slice(split + 2);
-        if (frame) yield frame;
-        split = buffer.indexOf("\n\n");
-      }
-      if (buffer.length > MAX_FRAME_BYTES) {
-        throw new Error("Sketchpad stream frame is too large");
-      }
+      yield* parser.parse(decoder.decode(chunk.value, { stream: true }));
     }
   } finally {
     reader.cancel().catch(() => {});

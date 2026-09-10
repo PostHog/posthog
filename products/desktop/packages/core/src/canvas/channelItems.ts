@@ -308,9 +308,14 @@ export function channelItemSources(
 ): string[] {
   const sources = new Set<string>();
   for (const item of items) {
-    if (item.source) sources.add(item.source);
+    if (item.source && !isBackgroundSketchpadSession(item))
+      sources.add(item.source);
   }
   return [...sources].sort();
+}
+
+function isBackgroundSketchpadSession(item: ChannelItemModel): boolean {
+  return item.kind === "task" && item.source === SKETCHPAD_TASK_ORIGIN;
 }
 
 export function filterChannelItems(
@@ -327,6 +332,11 @@ export function filterChannelItems(
 ): ChannelItemModel[] {
   const normalizedQuery = query.trim().toLowerCase();
   return items.filter((item) => {
+    if (
+      filters.source !== SKETCHPAD_TASK_ORIGIN &&
+      isBackgroundSketchpadSession(item)
+    )
+      return false;
     if (
       normalizedQuery &&
       !item.title.toLowerCase().includes(normalizedQuery)
@@ -353,10 +363,7 @@ export function filterChannelItems(
     ) {
       return false;
     }
-    if (filters.source === ANY_SOURCE) {
-      return item.source !== SKETCHPAD_TASK_ORIGIN;
-    }
-    if (item.source !== filters.source) {
+    if (filters.source !== ANY_SOURCE && item.source !== filters.source) {
       return false;
     }
     return true;

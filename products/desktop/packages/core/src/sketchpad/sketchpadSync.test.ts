@@ -343,6 +343,8 @@ describe("SketchpadSyncClient", () => {
           z: 0,
           code: "export default () => null",
           codeVersion: 1,
+          surface: "card",
+          hidden: false,
         },
       },
       { type: "update_fragment", id: "note", patch: { x: 1 } },
@@ -359,6 +361,22 @@ describe("SketchpadSyncClient", () => {
     });
     expect(Object.keys(client.getState().snapshot.state)).toHaveLength(21);
     expect(client.getState().pending).toHaveLength(0);
+  });
+
+  it("loads older history despite having a newer snapshot and stream entries", async () => {
+    const { api, client, board } = setup();
+    board.headSeq = 3;
+    await client.load();
+    client.ingestStreamEntry(entry(3));
+    client.ingestStreamEntry(entry(1));
+    api.opsSince.mockResolvedValue({
+      results: [entry(2), entry(3)],
+      headSeq: 3,
+    });
+    await client.loadFullLog();
+    expect(api.opsSince).toHaveBeenCalledWith("board", 1, 1000);
+    expect(client.getState().log.map(({ seq }) => seq)).toEqual([1, 2, 3]);
+    expect(client.getState().logComplete).toBe(true);
   });
 
   it("does not offer a partial history for restore", async () => {

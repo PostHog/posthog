@@ -9,7 +9,10 @@ describe("createFragmentCompiler", () => {
         Object.fromEntries(refs.map((ref) => [ref, `${ref}!`])),
       );
       load.mockResolvedValueOnce({});
-      const compile = createFragmentCompiler(load);
+      const embeddedCompiler = new Function(
+        `return (${createFragmentCompiler.toString()})`,
+      )() as typeof createFragmentCompiler;
+      const compile = embeddedCompiler(load);
       const first = compile("0");
       expect(compile("0")).toBe(first);
       const refs = Array.from({ length: 514 }, (_, i) => String(i));

@@ -71,6 +71,8 @@ describe("SketchpadService", () => {
       h: 240,
       z: 9,
       codeVersion: 7,
+      surface: "card",
+      hidden: false,
       codeRef: ref,
     };
     const ops = [

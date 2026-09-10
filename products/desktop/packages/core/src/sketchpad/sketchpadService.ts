@@ -5,9 +5,12 @@ import {
   type SketchpadCompiledFragment,
   type SketchpadOpsPage,
   type SketchpadSummary,
+  sketchpadActorSchema,
   sketchpadAppendOpsResultSchema,
   sketchpadCompiledResultsSchema,
   sketchpadFragmentSchema,
+  sketchpadLogEntrySchema,
+  sketchpadOpSchema,
   sketchpadOpsPageSchema,
   sketchpadSchema,
   sketchpadSnapshotSchema,
@@ -79,22 +82,25 @@ interface ApiAppendOpsResult {
   head_seq: number;
 }
 
-function actorInput(actor: ApiActor): unknown {
-  return {
+function actorInput(actor: ApiActor): z.input<typeof sketchpadActorSchema> {
+  return sketchpadActorSchema.parse({
     kind: actor.kind,
     userId: actor.user_id ?? undefined,
     userUuid: actor.user_uuid ?? undefined,
     userName: actor.user_name ?? undefined,
     userEmail: actor.user_email ?? undefined,
     taskId: actor.task_id ?? undefined,
-  };
+  });
 }
 
-export function logEntryInput(value: unknown): unknown {
-  if (typeof value !== "object" || value === null) return value;
+export function logEntryInput(
+  value: unknown,
+): z.output<typeof sketchpadLogEntrySchema> {
+  if (typeof value !== "object" || value === null)
+    return sketchpadLogEntrySchema.parse(value);
   const entry = value as Record<string, unknown>;
   const actor = entry.actor;
-  return {
+  return sketchpadLogEntrySchema.parse({
     seq: entry.seq,
     opId: entry.op_id,
     actor:
@@ -103,7 +109,7 @@ export function logEntryInput(value: unknown): unknown {
         : actor,
     createdAt: entry.created_at,
     op: entry.op,
-  };
+  });
 }
 
 const compactSnapshotSchema = sketchpadSnapshotSchema.extend({
@@ -118,7 +124,10 @@ const sourcePatchSchema = z
   .object({ codeRef: z.string().length(64).optional() })
   .passthrough();
 
-function sourceInput(value: unknown, sources: Record<string, string>): unknown {
+function sourceInput(
+  value: unknown,
+  sources: Record<string, string>,
+): Record<string, unknown> {
   const { codeRef, ...fragment } = sourcePatchSchema.parse(value);
   return codeRef
     ? { ...fragment, code: z.string().parse(sources[codeRef]) }
@@ -128,28 +137,40 @@ function sourceInput(value: unknown, sources: Record<string, string>): unknown {
 function snapshotInput(
   value: unknown,
   sources: Record<string, string>,
-): unknown {
+): z.input<typeof sketchpadSnapshotSchema> {
   const compact = compactSnapshotSchema.parse(value);
   return {
     ...compact,
     fragments: compact.fragments.map((fragment) =>
-      sourceInput(fragment, sources),
+      sketchpadFragmentSchema.parse(sourceInput(fragment, sources)),
     ),
   };
 }
 
-function opInput(value: unknown, sources: Record<string, string>): unknown {
+function opInput(
+  value: unknown,
+  sources: Record<string, string>,
+): z.input<typeof sketchpadOpSchema> {
   const op = z.object({ type: z.string() }).passthrough().parse(value);
   if (op.type === "add_fragment")
-    return { ...op, fragment: sourceInput(op.fragment, sources) };
+    return sketchpadOpSchema.parse({
+      ...op,
+      fragment: sourceInput(op.fragment, sources),
+    });
   if (op.type === "update_fragment")
-    return { ...op, patch: sourceInput(op.patch, sources) };
+    return sketchpadOpSchema.parse({
+      ...op,
+      patch: sourceInput(op.patch, sources),
+    });
   if (op.type === "restore")
-    return { ...op, snapshot: snapshotInput(op.snapshot, sources) };
-  return op;
+    return sketchpadOpSchema.parse({
+      ...op,
+      snapshot: snapshotInput(op.snapshot, sources),
+    });
+  return sketchpadOpSchema.parse(op);
 }
 
-function sketchpadInput(api: ApiSketchpad): unknown {
+function sketchpadInput(api: ApiSketchpad): z.input<typeof sketchpadSchema> {
   return {
     id: api.id,
     name: api.name,
