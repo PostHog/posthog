@@ -13,7 +13,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query_stats import QueryStats, RecordedExecution
 
-from posthog.clickhouse.query_tagging import AccessMethod, reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import AccessMethod, Feature, reset_query_tags, tag_queries
 from posthog.query_scan.flag import QueryScanFlag
 from posthog.query_scan.trigger import MAX_SQL_BYTES, _has_open_filters_placeholder, maybe_trigger_query_scan
 
@@ -124,6 +124,14 @@ class TestQueryScanTrigger(SimpleTestCase):
         assert result.triggered is True
         assert self.delay.call_args.kwargs["killed"] is True
         assert self.delay.call_args.kwargs["duration_ms"] == 999
+
+    def test_an_mcp_run_is_analyzed_despite_its_api_key(self) -> None:
+        tag_queries(access_method=AccessMethod.PERSONAL_API_KEY, feature=Feature.MCP)
+
+        result = self._trigger()
+
+        assert result.triggered is True
+        assert self.delay.call_count == 1
 
     def test_a_lost_slot_claim_does_not_enqueue_a_second_job(self) -> None:
         # Two slow runs of the same query can both find no slot, so the conditional write is what
