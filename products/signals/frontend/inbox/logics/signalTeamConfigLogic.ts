@@ -32,9 +32,13 @@ export interface signalTeamConfigLogicValues {
     draftBaseBranchBranch: string
     draftBaseBranchIntegrationId: number | null
     draftBaseBranchRepo: string
+    draftIssueTrackerIntegrationId: number | null
     draftMaxReportsPerDay: number | null
+    issueTrackerConfig: Record<string, string>
+    issueTrackerIntegrationId: number | null
     maxReportsPerDay: number | null
     patchesInFlight: number
+    selectedIssueTrackerIntegrationId: number | null
     reportsGeneratedToday: number
     saveMaxReportsPerDayDisabledReason: string | null
     teamConfig: SignalTeamConfig | null
@@ -107,6 +111,9 @@ export interface signalTeamConfigLogicActions {
     setDraftBaseBranchRepo: (repo: string) => {
         repo: string
     }
+    setDraftIssueTrackerIntegrationId: (integrationId: number | null) => {
+        integrationId: number | null
+    }
     setDraftMaxReportsPerDay: (value: number | null) => {
         value: number | null
     }
@@ -126,6 +133,12 @@ export interface signalTeamConfigLogicMeta {
         defaultAutostartPriority: (teamConfig: SignalTeamConfig | null) => SignalReportPriority
         baseBranchOverrides: (teamConfig: SignalTeamConfig | null) => BaseBranchOverride[]
         maxReportsPerDay: (teamConfig: SignalTeamConfig | null) => number | null
+        issueTrackerIntegrationId: (teamConfig: SignalTeamConfig | null) => number | null
+        issueTrackerConfig: (teamConfig: SignalTeamConfig | null) => Record<string, string>
+        selectedIssueTrackerIntegrationId: (
+            draftIssueTrackerIntegrationId: number | null,
+            issueTrackerIntegrationId: number | null
+        ) => number | null
         reportsGeneratedToday: (teamConfig: SignalTeamConfig | null) => number
         dailyReportLimitReached: (teamConfig: SignalTeamConfig | null) => boolean
         teamConfigUpdating: (patchesInFlight: number) => boolean
@@ -175,6 +188,7 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
         removeBaseBranchOverride: (repo: string) => ({ repo }),
         setDraftMaxReportsPerDay: (value: number | null) => ({ value }),
         saveDraftMaxReportsPerDay: true,
+        setDraftIssueTrackerIntegrationId: (integrationId: number | null) => ({ integrationId }),
     }),
     loaders(() => {
         // Every patch of `autostart_base_branches` sends the whole map, so two in flight at once let the
@@ -247,6 +261,18 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                 patchTeamConfigFailure: (state: number) => Math.max(0, state - 1),
             },
         ],
+        // Which tracker the person just picked, before they have chosen a target inside it. The
+        // backend rejects an integration with no target, so the pair is only sent once both exist.
+        // Null means no pending pick: turning tracking off saves straight away, so the draft never
+        // has to hold that state.
+        draftIssueTrackerIntegrationId: [
+            null as number | null,
+            {
+                setDraftIssueTrackerIntegrationId: (_, { integrationId }) => integrationId,
+                patchTeamConfigSuccess: (state, { payload }) =>
+                    payload?.patch && 'issue_tracking_integration' in payload.patch ? null : state,
+            },
+        ],
         // The daily-limit input's draft. Seeded from the server once on first load (see the
         // loadTeamConfigSuccess listener) and re-anchored only when its own save settles, so saving
         // an unrelated setting on this shared singleton logic never wipes an unsaved edit.
@@ -285,6 +311,19 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
         maxReportsPerDay: [
             (s) => [s.teamConfig],
             (teamConfig: SignalTeamConfig | null): number | null => teamConfig?.max_reports_per_day ?? null,
+        ],
+        issueTrackerIntegrationId: [
+            (s) => [s.teamConfig],
+            (teamConfig: SignalTeamConfig | null): number | null => teamConfig?.issue_tracking_integration ?? null,
+        ],
+        issueTrackerConfig: [
+            (s) => [s.teamConfig],
+            (teamConfig: SignalTeamConfig | null): Record<string, string> => teamConfig?.issue_tracking_config ?? {},
+        ],
+        selectedIssueTrackerIntegrationId: [
+            (s) => [s.draftIssueTrackerIntegrationId, s.issueTrackerIntegrationId],
+            (draftIssueTrackerIntegrationId: number | null, issueTrackerIntegrationId: number | null): number | null =>
+                draftIssueTrackerIntegrationId ?? issueTrackerIntegrationId,
         ],
         reportsGeneratedToday: [
             (s) => [s.teamConfig],
