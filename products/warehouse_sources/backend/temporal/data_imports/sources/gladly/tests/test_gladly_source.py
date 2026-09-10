@@ -101,3 +101,11 @@ class TestGladlySource:
 
     def test_get_schemas_filtered_unknown_name_returns_empty(self):
         assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
+
+    def test_a_missing_report_body_is_classified_retryable_with_exhaustion_copy(self):
+        retryable = self.source.get_retryable_errors()
+        exhausted = self.source.get_retry_exhausted_errors()
+
+        assert "Gladly returned no report" in retryable
+        assert set(exhausted) <= retryable
+        assert not any("Gladly returned no report" in key for key in self.source.get_non_retryable_errors())

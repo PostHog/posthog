@@ -275,6 +275,7 @@ class TestFacadeReadsAndMappers(TestCase):
                 "initial_prompt_override": "framed prompt",
                 "end_run_when_done": True,
                 "store_skills": [{"name": "my-skill", "description": "Mine.", "version": 1}],
+                "systemPrompt": {"type": "preset", "preset": "claude_code", "append": "PostHog AI"},
                 "sandbox_jwt_kid": "secret",
             },
         )
@@ -289,6 +290,7 @@ class TestFacadeReadsAndMappers(TestCase):
         assert detail.state.get("end_run_when_done") == (True if include_agent_state else None)
         # The agent writes these into its skill roots at boot; dropped, it installs none.
         assert ("store_skills" in detail.state) is include_agent_state
+        assert ("systemPrompt" in detail.state) is include_agent_state
         assert "sandbox_jwt_kid" not in detail.state
 
     def test_get_task_run_maps_all_fields(self):
