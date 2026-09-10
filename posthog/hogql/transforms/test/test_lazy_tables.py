@@ -1,16 +1,19 @@
 from typing import Any
 
 import pytest
-from posthog.test.base import BaseTest, NewEventsSchemaSnapshotExtension
+from posthog.test.base import BaseTest, ClickhouseTestMixin, NewEventsSchemaSnapshotExtension, materialized
 
 from django.conf import settings
 from django.test import override_settings
 
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+from parameterized import parameterized
+
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode, PropertyGroupsMode
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -262,3 +265,56 @@ class TestLazyJoins(BaseTest):
             "AND session.$session_duration > 0"
         )
         self._assert_matches_snapshot(printed)
+
+
+# A self-join on person_id makes lazy-table resolution replace the aliased events scan with a subquery that projects
+# only the named HogQL fields, the raw properties blob among them. A property read on that alias must come from the
+# blob: ClickHouse rejects a reference to a precomputed column the subquery never selects.
+class TestLazyWrapPropertyResolution(ClickhouseTestMixin, BaseTest):
+    WRAPPING_JOIN = "FROM events e1 JOIN events e2 ON e1.person_id = e2.person_id"
+
+    def _print(self, select: str) -> str:
+        printed, _ = prepare_and_print_ast(
+            parse_select(select),
+            HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.OPTIMIZED),
+            ),
+            "clickhouse",
+        )
+        return printed
+
+    @parameterized.expand(
+        [
+            ("value_read", f"SELECT e2.properties.foo, e1.event {WRAPPING_JOIN}", "JSONExtract"),
+            ("aliased_value_read", f"SELECT e2.properties.foo AS b {WRAPPING_JOIN}", "JSONExtract"),
+            ("comparison", f"SELECT e1.event {WRAPPING_JOIN} WHERE e2.properties.foo = 'bar'", "JSONExtract"),
+            (
+                "key_existence",
+                f"SELECT e1.event {WRAPPING_JOIN} WHERE JSONHas(e2.properties, 'foo')",
+                "JSONHas(e2.properties",
+            ),
+        ]
+    )
+    def test_read_behind_the_wrap_uses_the_projected_blob(self, _name: str, select: str, blob_read: str) -> None:
+        printed = self._print(select)
+        assert "properties_group_custom" not in printed, printed
+        assert blob_read in printed, printed
+
+    def test_read_on_the_unwrapped_side_keeps_the_property_group(self) -> None:
+        printed = self._print(f"SELECT e1.properties.foo, e2.event {self.WRAPPING_JOIN}")
+        assert "e1.properties_group_custom" in printed, printed
+
+    @parameterized.expand(
+        [
+            ("value_read", f"SELECT e2.properties.$os {WRAPPING_JOIN}"),
+            ("deeper_keys", f"SELECT e2.properties.$os.x {WRAPPING_JOIN}"),
+            ("comparison", f"SELECT count() {WRAPPING_JOIN} WHERE e2.properties.$os IN ('Mac OS X', 'Windows')"),
+        ]
+    )
+    def test_materialized_column_read_behind_the_wrap_executes(self, _name: str, select: str) -> None:
+        # The materialized-column variant is the most reported one, and only ClickHouse can tell a printable column
+        # reference from an unprojected one, so this executes the query rather than reading the SQL.
+        with materialized("events", "$os"):
+            execute_hogql_query(select, team=self.team)

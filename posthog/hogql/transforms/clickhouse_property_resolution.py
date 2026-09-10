@@ -849,7 +849,8 @@ class ClickHousePropertyResolver(CloningVisitor):
         node = self._lowered_property_operand(expr)
         if node is not None and len(node.keys) == 1:
             field_type = _blob_field_type_of(node)
-            if field_type is not None:
+            # Same scope rule as the value read: out of scope, the bare column is not printable.
+            if field_type is not None and self._property_table_in_scope(field_type):
                 return field_type, str(node.keys[0])
 
         # The operand can also carry the property on its resolved type rather than as a bare `PropertyAccess`: a
@@ -887,9 +888,14 @@ class ClickHousePropertyResolver(CloningVisitor):
     # --- value substitution ---
 
     def visit_property_access(self, node: ast.PropertyAccess) -> ast.Expr:
-        substituted = _substitute_value_read(node, self.context)
-        if substituted is not None:
-            return substituted
+        # Decline the backing-column read when the blob's table left the current FROM: a lazy-table wrap replaced the
+        # table with a subquery that projects the blob but not the precomputed column, so `alias.mat_x` would name a
+        # column the subquery never selects. Falling through reads the projected blob, for the same value.
+        field_type = _blob_field_type_of(node)
+        if field_type is None or self._property_table_in_scope(field_type):
+            substituted = _substitute_value_read(node, self.context)
+            if substituted is not None:
+                return substituted
         return super().visit_property_access(node)
 
     # --- comparison / call rewrites ---
@@ -1034,7 +1040,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
 
         field_type = resolve_field_type(node.args[0])
-        if not isinstance(field_type, ast.FieldType):
+        if not isinstance(field_type, ast.FieldType) or not self._property_table_in_scope(field_type):
             return None
         table_type = _unwrap_to_table_type(field_type)
         if table_type is None or table_type.table.to_printed_clickhouse(self.context) not in (
@@ -1320,7 +1326,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             # property group for that key off the blob's FieldType.
             field_expr = node.args[0]
             field_type = resolve_field_type(field_expr)
-            if not isinstance(field_type, ast.FieldType):
+            if not isinstance(field_type, ast.FieldType) or not self._property_table_in_scope(field_type):
                 return None
             key = str(node.args[1].value)
             # Key-existence is answered from the property group even when a materialized column also exists, so resolve
