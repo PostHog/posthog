@@ -11,7 +11,7 @@ interface Column {
 }
 
 const MARKS: Record<Outcome, string> = {
-    success: '▸',
+    success: '▶',
     failure: '✗',
     cancelled: '⊘',
     skipped: '.',
@@ -22,9 +22,9 @@ const EMPTY_MATRIX_SUFFIX = '0'
 const LEGEND = [
     [MARKS.success, 'runs'],
     [MARKS.failure, 'runs and fails'],
-    [MARKS.cancelled, 'cancelled before it starts'],
+    [MARKS.cancelled, 'cancelled before start'],
     [MARKS.skipped, 'skipped'],
-    [`${EMPTY_MATRIX_SUFFIX} suffix`, 'matrix expands to zero cells'],
+    [EMPTY_MATRIX_SUFFIX, 'zero cell matrix expansion'],
 ]
     .map(([mark, meaning]) => `${mark} = ${meaning}`)
     .join('   ')

@@ -1,3 +1,5 @@
+// These tests check the workflows under .github/workflows, not the planner. A failure here means a
+// job condition in a workflow file changed what runs; the planner itself is covered by plan.test.ts.
 import { readdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
