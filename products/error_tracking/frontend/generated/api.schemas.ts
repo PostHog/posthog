@@ -71,6 +71,20 @@ export interface ErrorTrackingAlertDestinationApi {
     config: ErrorTrackingAlertSlackConfigApi
     /** Unique identifier of the destination. */
     readonly id: string
+    /**
+     * When a notification last reached this destination.
+     * @nullable
+     */
+    readonly last_delivered_at: string | null
+    /**
+     * When delivery to this destination last failed.
+     * @nullable
+     */
+    readonly last_failure_at: string | null
+    /** Message of the most recent delivery failure. */
+    readonly last_error: string
+    /** Delivery failures since the last successful delivery. */
+    readonly consecutive_failures: number
 }
 
 export interface ErrorTrackingAlertApi {
@@ -128,9 +142,9 @@ export interface ErrorTrackingAlertCreateRequestApi {
     /** Property filters a transition must match to open a notification thread. Same shape as hog function filters; the bytecode is compiled on save. */
     filters?: ErrorTrackingAlertFiltersApi
     /**
-     * Minimum seconds between thread-opening notifications per issue. 0 disables the throttle.
+     * Minimum seconds between thread-opening notifications per issue, at most 30 days. 0 disables the throttle.
      * @minimum 0
-     * @maximum 2147483647
+     * @maximum 2592000
      */
     throttle_seconds?: number
     /** Delivery targets notifications fan out to. */
@@ -148,9 +162,9 @@ export interface ErrorTrackingAlertPutRequestApi {
     /** Property filters a transition must match to open a notification thread. Same shape as hog function filters; the bytecode is compiled on save. */
     filters?: ErrorTrackingAlertFiltersApi
     /**
-     * Minimum seconds between thread-opening notifications per issue. 0 disables the throttle.
+     * Minimum seconds between thread-opening notifications per issue, at most 30 days. 0 disables the throttle.
      * @minimum 0
-     * @maximum 2147483647
+     * @maximum 2592000
      */
     throttle_seconds?: number
     /** Delivery targets notifications fan out to. */
@@ -172,9 +186,9 @@ export interface PatchedErrorTrackingAlertUpdateRequestApi {
     /** Property filters a transition must match to open a notification thread. Omit to keep the current filters. */
     filters?: ErrorTrackingAlertFiltersApi
     /**
-     * Minimum seconds between thread-opening notifications per issue. Omit to keep the current value.
+     * Minimum seconds between thread-opening notifications per issue, at most 30 days. Omit to keep the current value.
      * @minimum 0
-     * @maximum 2147483647
+     * @maximum 2592000
      */
     throttle_seconds?: number
     /** Delivery targets notifications fan out to. When provided, replaces all current destinations. */
