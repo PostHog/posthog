@@ -5,7 +5,13 @@ import { initKeaTests } from '~/test/init'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { isToolbarFeatureGated, toolbarEntitlementsLogic } from '~/toolbar/toolbarEntitlementsLogic'
+import {
+    ToolbarEntitlements,
+    ToolbarFeatureGateStatus,
+    isToolbarFeatureGated,
+    toolbarEntitlementsLogic,
+    toolbarFeatureGateStatus,
+} from '~/toolbar/toolbarEntitlementsLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { AvailableFeature } from '~/types'
 
@@ -28,6 +34,24 @@ describe('toolbarEntitlementsLogic', () => {
     ])('isEntitled requires confirmation when a feature is %s', (_desc, payload, expected) => {
         logic.actions.loadEntitlementsSuccess(payload as Record<string, boolean> | null)
         expect(logic.values.isEntitled(AvailableFeature.TOOLBAR_HEATMAPS)).toBe(expected)
+    })
+
+    it.each<[ToolbarFeatureGateStatus, string, boolean, ToolbarEntitlements | null, boolean]>([
+        ['available', 'the rollout is off', false, null, false],
+        ['checking', 'the request is pending', true, null, true],
+        ['unknown', 'the request failed', true, null, false],
+        ['unknown', 'the feature is missing', true, {}, false],
+        ['locked', 'the feature is false', true, { toolbar_heatmaps: false }, false],
+        ['available', 'the feature is true', true, { toolbar_heatmaps: true }, false],
+    ])('reports the gate as %s when %s', (expected, _desc, rolloutEnabled, entitlements, entitlementsLoading) => {
+        expect(
+            toolbarFeatureGateStatus(
+                AvailableFeature.TOOLBAR_HEATMAPS,
+                rolloutEnabled,
+                entitlements,
+                entitlementsLoading
+            )
+        ).toBe(expected)
     })
 
     it('loads the entitlement map from the endpoint', async () => {

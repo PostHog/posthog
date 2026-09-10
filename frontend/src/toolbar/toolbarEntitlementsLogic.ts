@@ -114,19 +114,46 @@ export const toolbarEntitlementsLogic = kea<toolbarEntitlementsLogicType>([
     permanentlyMount(),
 ])
 
-export function useToolbarEntitlement(feature: AvailableFeature): boolean {
-    const { isEntitled } = useValues(toolbarEntitlementsLogic)
-    return isEntitled(feature)
+/** `checking` and `unknown` block the feature like `locked` does, but the plan is not the reason. */
+export type ToolbarFeatureGateStatus = 'available' | 'checking' | 'unknown' | 'locked'
+
+export function toolbarFeatureGateStatus(
+    feature: AvailableFeature,
+    rolloutEnabled: boolean,
+    entitlements: ToolbarEntitlements | null,
+    entitlementsLoading: boolean
+): ToolbarFeatureGateStatus {
+    if (!rolloutEnabled) {
+        return 'available'
+    }
+    if (entitlementsLoading) {
+        return 'checking'
+    }
+    const entitled = entitlements?.[feature]
+    if (entitled === true) {
+        return 'available'
+    }
+    return entitled === false ? 'locked' : 'unknown'
 }
 
-export function useToolbarFeatureGate(feature: AvailableFeature, rolloutFlag: FeatureFlagKey): boolean {
+export function useToolbarFeatureGateStatus(
+    feature: AvailableFeature,
+    rolloutFlag: FeatureFlagKey
+): ToolbarFeatureGateStatus {
     const rolloutEnabled = useToolbarFeatureFlag(rolloutFlag)
-    const entitled = useToolbarEntitlement(feature)
-    return rolloutEnabled && !entitled
+    const { entitlements, entitlementsLoading } = useValues(toolbarEntitlementsLogic)
+    return toolbarFeatureGateStatus(feature, rolloutEnabled, entitlements, entitlementsLoading)
 }
 
 export function isToolbarFeatureGated(feature: AvailableFeature, rolloutFlag: FeatureFlagKey): boolean {
     const rolloutEnabled = !!toolbarPosthogJS.getFeatureFlag(rolloutFlag)
-    const entitled = toolbarEntitlementsLogic.findMounted()?.values.isEntitled(feature) ?? false
-    return rolloutEnabled && !entitled
+    const values = toolbarEntitlementsLogic.findMounted()?.values
+    return (
+        toolbarFeatureGateStatus(
+            feature,
+            rolloutEnabled,
+            values?.entitlements ?? null,
+            values?.entitlementsLoading ?? false
+        ) !== 'available'
+    )
 }

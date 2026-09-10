@@ -7,6 +7,7 @@ On a self-hosted deployment the endpoint reports every gated feature as entitled
 Legacy self-hosted license tiers therefore do not list these features.
 
 When the `toolbar-paid-heatmaps` rollout flag is enabled, toolbar heatmaps require `toolbar_heatmaps: true`. Loading, failed requests, and missing entitlements do not grant access. The menu shows a loading state while checking access and offers a retry when access cannot be determined. Only an explicit `false` shows the plan upgrade prompt.
+The toolbar button follows the same rule: it carries the lock badge only for an explicit `false`, and while the check is pending or failed its tooltip says that instead of asking for a subscription.
 
 Opening the heatmap menu while access is loading does not enable heatmaps. A confirmed entitlement enables the open menu; refreshing or losing that entitlement disables heatmaps. When the rollout flag is disabled, the toolbar retains its existing behavior.
 
