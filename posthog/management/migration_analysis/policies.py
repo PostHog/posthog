@@ -31,6 +31,18 @@ class _TableColumn:
     column: str
 
 
+_SQL_COMMENT = re.compile(r"--[^\n]*|/\*.*?\*/", re.DOTALL)
+
+
+def _without_sql_comments(sql: str) -> str:
+    """Drop SQL comments so a mention of a statement does not read as the statement.
+
+    A migration that writes "-- do not DROP CONSTRAINT here" describes what it does not do.
+    The result is only ever searched, never run, so a stripped string literal costs nothing.
+    """
+    return _SQL_COMMENT.sub(" ", sql)
+
+
 @frozen
 class _ConstrainedForeignKey:
     """A foreign key the database holds a constraint for."""
@@ -821,7 +833,8 @@ class OrphanedForeignKeyPolicy(MigrationPolicy):
         for db_op in self._database_operations(migration):
             if db_op.__class__.__name__ == "DropForeignKey" and getattr(db_op, "column", None) is None:
                 return True
-            if "DROP CONSTRAINT" in str(getattr(db_op, "sql", "") or "").upper():
+            sql = _without_sql_comments(str(getattr(db_op, "sql", "") or ""))
+            if "DROP CONSTRAINT" in sql.upper():
                 return True
         return False
 
