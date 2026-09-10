@@ -48,6 +48,10 @@ class AivenEndpointConfig:
     should_sync_default: bool = True
     # Only for ``fan_out="two_level"``: the intermediate list to fan out through.
     two_level: Optional[TwoLevelFanOut] = None
+    # False for endpoints whose rows carry identity PII (email, real name, or an opaque nested
+    # profile object) that a name-based sample scrubber can't reliably strip — keeps request/response
+    # bodies out of HTTP sample capture. See ``ClientConfig.capture``.
+    capture: bool = True
 
 
 AIVEN_ENDPOINTS: dict[str, AivenEndpointConfig] = {
@@ -87,6 +91,8 @@ AIVEN_ENDPOINTS: dict[str, AivenEndpointConfig] = {
         # membership row unique across projects.
         primary_keys=["project_name", "user_id"],
         partition_key="create_time",
+        # Rows carry `user_email` and `real_name` directly.
+        capture=False,
     ),
     "project_events": AivenEndpointConfig(
         name="project_events",
@@ -151,6 +157,8 @@ AIVEN_ENDPOINTS: dict[str, AivenEndpointConfig] = {
             intermediate_data_key="user_groups",
             child_params={"organization_id": "organization_id", "user_group_id": "user_group_id"},
         ),
+        # `user_info` is an opaque nested object carrying the member's profile details.
+        capture=False,
     ),
     # Two-level fan-out: per organization, per billing group. Maps projects to the billing group
     # they are billed under, which attributes invoice_lines back to projects.

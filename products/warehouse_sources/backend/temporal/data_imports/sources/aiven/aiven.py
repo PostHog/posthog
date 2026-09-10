@@ -41,10 +41,10 @@ def _auth_header_value(api_token: str) -> str:
     return f"aivenv1 {api_token}"
 
 
-def _client_config(api_token: str) -> ClientConfig:
+def _client_config(api_token: str, *, capture: bool) -> ClientConfig:
     # The credential travels via framework api_key auth (not a hand-built header) so its value is
     # registered for redaction wherever it surfaces in logs; only non-secret headers go here.
-    return {
+    config: ClientConfig = {
         "base_url": AIVEN_BASE_URL,
         "headers": {"Accept": "application/json"},
         "auth": {
@@ -54,6 +54,12 @@ def _client_config(api_token: str) -> ClientConfig:
             "location": "header",
         },
     }
+    if not capture:
+        # Rows carry identity PII (email, real name, or an opaque nested profile object) that a
+        # name-based sample scrubber can't reliably strip out of a nested field -- same pattern as
+        # gusto/cliniko. Keep bodies out of HTTP sample capture; requests are still metered and logged.
+        config["capture"] = False
+    return config
 
 
 def _stamp_parent_field(
@@ -271,7 +277,7 @@ def _compose(
 
 
 def _build_resource(config: AivenEndpointConfig, api_token: str, team_id: int, job_id: str) -> Resource:
-    client_config = _client_config(api_token)
+    client_config = _client_config(api_token, capture=config.capture)
 
     if config.fan_out == "none":
         return _standard_resource(config, client_config, team_id, job_id)
