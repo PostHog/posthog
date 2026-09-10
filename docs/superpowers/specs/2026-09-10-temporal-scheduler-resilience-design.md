@@ -315,6 +315,11 @@ Every coordinator emits low-cardinality metrics with `scheduler` and `region` la
 - resource-exhausted failures; and
 - worker slots available and used.
 
+Permit and backlog values are authoritative snapshots written by whichever worker ran the latest
+database activity. Companion snapshot-time gauges identify that writer: dashboards select the
+newest live target for each scheduler and region and reject samples older than the coordinator's
+freshness interval. They must not sum identical queue-wide snapshots across worker replicas.
+
 Dashboards show current values, high-percentile values, and growth over time. Capacity planning compares trailing seven-day demand with the prior seven days.
 
 An external monitor runs a synthetic check that proves a known scheduled item moves from due to completed. Its evaluator and notification path do not use the monitored task queue.
