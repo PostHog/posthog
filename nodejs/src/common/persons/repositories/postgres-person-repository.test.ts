@@ -255,6 +255,7 @@ describe('PostgresPersonRepository', () => {
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,
+                pending_keys: new Set<string>(),
             }
         }
 
@@ -1796,6 +1797,7 @@ describe('PostgresPersonRepository', () => {
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,
+                pending_keys: new Set<string>(),
             }
 
             // First update should succeed
@@ -1833,6 +1835,7 @@ describe('PostgresPersonRepository', () => {
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,
+                pending_keys: new Set<string>(),
             }
 
             // Update should fail due to version mismatch
@@ -1868,6 +1871,7 @@ describe('PostgresPersonRepository', () => {
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,
+                pending_keys: new Set<string>(),
             }
 
             // Update should fail because person doesn't exist
@@ -1899,6 +1903,7 @@ describe('PostgresPersonRepository', () => {
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,
+                pending_keys: new Set<string>(),
             }
 
             const [actualVersion, messages] = await repository.updatePersonAssertVersion(personUpdate)
@@ -1939,6 +1944,7 @@ describe('PostgresPersonRepository', () => {
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,
+                pending_keys: new Set<string>(),
             }
 
             const [actualVersion, messages] = await repository.updatePersonAssertVersion(personUpdate)
@@ -1977,6 +1983,7 @@ describe('PostgresPersonRepository', () => {
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,
+                pending_keys: new Set<string>(),
             }
 
             const [actualVersion, messages] = await repository.updatePersonAssertVersion(personUpdate)
@@ -2605,6 +2612,7 @@ describe('PostgresPersonRepository', () => {
                     original_is_identified: false,
                     original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                     original_last_seen_at: null,
+                    pending_keys: new Set<string>(),
                 }
 
                 await expect(oversizedRepository.updatePersonAssertVersion(personUpdate)).rejects.toThrow(
@@ -2855,6 +2863,7 @@ describe('PostgresPersonRepository', () => {
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,
+                pending_keys: new Set<string>(),
             })
 
             const personUpdate1 = createPersonUpdate(person1, 'test-assert-1')
