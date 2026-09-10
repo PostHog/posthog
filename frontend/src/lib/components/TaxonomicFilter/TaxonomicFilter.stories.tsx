@@ -201,6 +201,32 @@ export const SlowExpansionCount: Story = {
     },
 }
 
+export const LargeProjectCappedCount: Story = {
+    render: Properties.render,
+    args: {
+        taxonomicFilterLogicKey: 'large-project-capped-count',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/property_definitions': () => ({
+                    results: Array.from({ length: 100 }, (_, i) => ({ id: `property_${i}`, name: `property_${i}` })),
+                    count: 10_000,
+                }),
+            },
+        }),
+    ],
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="taxonomic-tab-event_properties"]' },
+        docs: {
+            description: {
+                story: 'A project above the count cap. The endpoint stops counting at 10,000, so the tab badge reads 10,000+.',
+            },
+        },
+    },
+}
+
 export const NumericalProperties: Story = {
     render: (args) => {
         return (

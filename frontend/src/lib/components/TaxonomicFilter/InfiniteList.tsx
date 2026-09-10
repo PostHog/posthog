@@ -38,6 +38,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
+import { formatDefinitionCountDelta } from 'lib/utils/definitionCount'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
@@ -668,7 +669,7 @@ export const InfiniteListRow = ({
                 onClick={expand}
             >
                 {group?.expandLabel?.({ count: totalResultCount, expandedCount }) ??
-                    `See ${expandedCount - totalResultCount} more ${pluralize(
+                    `See ${formatDefinitionCountDelta(expandedCount, totalResultCount)} more ${pluralize(
                         expandedCount - totalResultCount,
                         'row',
                         'rows',

@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, events, kea, key, listeners, path, pro
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 
+import { invalidateDefinitionLists } from 'lib/components/TaxonomicFilter/utils/invalidateDefinitionLists'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -126,6 +127,7 @@ export const propertyDefinitionEditModalLogic = kea<propertyDefinitionEditModalL
                         props.propertyDefinition.id,
                         formValues
                     )
+                    invalidateDefinitionLists()
 
                     actions.resetPropertyDefinitionEditForm(getPropertyDefinitionEditForm(propertyDefinition))
                     actions.loadTags()

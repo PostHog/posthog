@@ -17,6 +17,7 @@ import { initKeaTests } from '~/test/init'
 import {
     mockActionDefinition,
     mockEventPropertyDefinition,
+    mockEventPropertyDefinitions,
     mockGetEventDefinitions,
     mockGetPropertyDefinitions,
 } from '~/test/mocks'
@@ -158,6 +159,28 @@ describe('TaxonomicFilter', () => {
 
             expect(screen.getByTestId('taxonomic-tab-events')).toBeInTheDocument()
             expect(screen.getByTestId('taxonomic-tab-actions')).toBeInTheDocument()
+        })
+
+        it('shows a capped property count as 10,000+', async () => {
+            // The endpoint stops counting at the cap for large projects, so the exact number would be a lie.
+            useMocks({
+                get: {
+                    '/api/projects/:team/property_definitions': () => [
+                        200,
+                        { results: mockEventPropertyDefinitions, count: 10_000 },
+                    ],
+                },
+            })
+            renderFilter({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                ],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-event_properties')).toHaveTextContent('10,000+')
+            })
         })
 
         it.each([

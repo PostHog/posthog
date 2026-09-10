@@ -10,6 +10,14 @@ The expansion count must not delay the scoped results or keep the aggregate reve
 
 The legacy implementation separates these requests in `infiniteListLogic.ts`; the rebuilt implementation uses independent resources in `hooks/useGroupList.ts`. Keep this behavior consistent across both implementations.
 
+## Remote search cadence, paging and capped counts
+
+Both implementations wait 500 ms after the last keystroke before they send a remote search, and treat that wait as loading, so the list is held the same way as for a request in flight. Local-only categories, and the client-filtered first page of a category, filter on every keystroke.
+
+Remote categories load 100 rows per page. The legacy list loads the next page as the user scrolls. The rebuilt menu offers a "Show more" row until the loaded rows reach the reported count or a page comes back short.
+
+The definition endpoints stop counting at 10,000 rows for large projects, so a count of 10,000 means "10,000 or more". Category badges, expansion labels and the data management tables render such a count as `10,000+`. `frontend/src/lib/utils/definitionCount.ts` mirrors the backend cap.
+
 ## Event list pagination
 
 The event definitions API counts matching rows separately and applies `LIMIT` and `OFFSET` in PostgreSQL. The count describes all matches, including matches outside the requested page. Explicit ordering uses the project-unique event name as a final tie-breaker so equal timestamps do not cause skipped or repeated results between pages.

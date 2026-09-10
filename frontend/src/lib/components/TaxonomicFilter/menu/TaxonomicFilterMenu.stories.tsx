@@ -6,6 +6,7 @@ import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { FEATURE_FLAGS } from 'lib/constants'
 
+import { mswDecorator } from '~/mocks/browser'
 import { actionsModel } from '~/models/actionsModel'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
@@ -112,6 +113,35 @@ export const Properties: Story = {
         docs: {
             description: {
                 story: 'Property picker — chips for each property family. The preview pane on the right shows description, type, sent-as, and pin/view actions for the highlighted row.',
+            },
+        },
+    },
+}
+
+export const PagedProperties: Story = {
+    render: () => (
+        <Container taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]} triggerLabel="Pick property" />
+    ),
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/property_definitions': ({ request }) => {
+                    const offset = Number(new URL(request.url).searchParams.get('offset') ?? 0)
+                    return {
+                        count: 250,
+                        results: Array.from({ length: Math.min(100, 250 - offset) }, (_, i) => ({
+                            id: `property_${offset + i}`,
+                            name: `property_${String(offset + i).padStart(3, '0')}`,
+                        })),
+                    }
+                },
+            },
+        }),
+    ],
+    parameters: {
+        docs: {
+            description: {
+                story: 'A category with more rows than one page. The list ends in a "Show more" row that appends the next page.',
             },
         },
     },
