@@ -147,8 +147,6 @@ tools:
         annotations:
             readOnly: true
             destructive: false
-            # An llm simulation makes a real, charged model call and can answer differently
-            # each time, so a client must not retry it as if it were free and repeatable.
             idempotent: false
         title: Simulate detector on insight
         description: >
@@ -157,13 +155,13 @@ tools:
             numeric insight ID or its saved short ID. Omit detector_config to use the default daily z-score detector
             (threshold 0.95, window 90, first-difference preprocessing). To choose another detector, pass
             detector_config with a type (zscore, mad, iqr, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca,
-            ensemble, or llm). Always send the type explicitly: a config with no type is read as a z-score detector,
-            and any llm-only field you sent with it is dropped without an error. The llm type makes a real model call per simulation, is rate limited per project, and
-            takes the same instructions, threshold (default 0.7), and window (default 90) as an llm alert; its scores
-            are the model's confidence, not a statistical probability. Optionally specify date_from (e.g. '-48h',
-            '-30d') to control how far back to simulate, and series_index to pick which series to analyze. Returns data
-            values, anomaly scores per point, triggered indices and dates, and for ensemble detectors, per-sub-detector
-            score breakdowns.
+            ensemble, or llm). Always send the type explicitly: a config with no type is read as a z-score detector, and
+            any llm-only field you sent with it is dropped without an error. The llm type makes a real model call per
+            simulation, is rate limited per project, and takes the same instructions, threshold (default 0.7), and
+            window (default 90) as an llm alert; its scores are the model's confidence, not a statistical probability.
+            Optionally specify date_from (e.g. '-48h', '-30d') to control how far back to simulate, and series_index to
+            pick which series to analyze. Returns data values, anomaly scores per point, triggered indices and dates,
+            and for ensemble detectors, per-sub-detector score breakdowns.
     alert-update:
         operation: alerts_partial_update
         enabled: true
