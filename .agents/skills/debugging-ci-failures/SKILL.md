@@ -175,15 +175,17 @@ Inspect every `ci-report:section` block, including unknown sections. Record its
 title, status, summary, and links. Do not stop at the first `fail` section or
 treat the comment heading as an overall verdict.
 
-- Treat `fail` and `alert` as leads, and match them to the current job.
-- Treat `warn` as a non-blocking finding. Review its details and follow its
-  stated action, but do not call it a failed job unless its job failed.
+- Treat `fail` as a lead, and match it to the current job.
+- Treat `alert` and `warn` as non-blocking findings. Review their details and
+  follow their stated action, but do not call either a failed job unless its
+  job failed.
 - `ok` and `info` are not test results.
 - A missing report means the reporter did not run or could not write. It does
   not prove the PR is healthy.
 
-The report is a summary. Confirm its head SHA and job status. If it disagrees
-with the current logs, report the mismatch and use the logs for the cause.
+The report is a summary. A section without a head SHA or run link can be stale.
+Confirm it against the current job. If it disagrees with the current logs,
+report the mismatch and use the logs for the cause.
 
 Inspect read-only:
 
