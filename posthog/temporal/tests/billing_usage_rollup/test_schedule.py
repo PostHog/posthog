@@ -3,14 +3,14 @@ from django.conf import settings
 from temporalio.client import ScheduleActionStartWorkflow, ScheduleOverlapPolicy
 
 from posthog.temporal.billing_usage_rollup.schedule import SCHEDULE_ID, WORKFLOW_NAME, build_schedule
-from posthog.temporal.billing_usage_rollup.types import BillingUsageRecordsRollupInput
+from posthog.temporal.billing_usage_rollup.types import BillingUsageRecordsRollupWorkflowInput
 
 
 def test_billing_usage_rollup_schedule() -> None:
     schedule = build_schedule()
     assert isinstance(schedule.action, ScheduleActionStartWorkflow)
     assert schedule.action.workflow == WORKFLOW_NAME
-    assert list(schedule.action.args) == [BillingUsageRecordsRollupInput()]
+    assert list(schedule.action.args) == [BillingUsageRecordsRollupWorkflowInput()]
     assert schedule.action.id == SCHEDULE_ID
     assert schedule.action.task_queue == settings.ANALYTICS_PLATFORM_TASK_QUEUE
     assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP

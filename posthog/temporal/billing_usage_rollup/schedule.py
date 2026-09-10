@@ -14,7 +14,10 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
-from posthog.temporal.billing_usage_rollup.types import BillingUsageRecordsRollupInput
+from posthog.temporal.billing_usage_rollup.types import (
+    BILLING_USAGE_RECORDS_ROLLUP_DELAY_DAYS,
+    BillingUsageRecordsRollupWorkflowInput,
+)
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
 SCHEDULE_ID = "rollup-billing-usage-records-schedule"
@@ -25,10 +28,9 @@ def build_schedule() -> Schedule:
     return Schedule(
         action=ScheduleActionStartWorkflow(
             WORKFLOW_NAME,
-            BillingUsageRecordsRollupInput(),
+            BillingUsageRecordsRollupWorkflowInput(),
             id=SCHEDULE_ID,
             task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-            execution_timeout=timedelta(hours=2),
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         ),
         spec=ScheduleSpec(
@@ -40,7 +42,10 @@ def build_schedule() -> Schedule:
                 )
             ]
         ),
-        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=timedelta(days=1)),
+        policy=SchedulePolicy(
+            overlap=ScheduleOverlapPolicy.SKIP,
+            catchup_window=timedelta(days=BILLING_USAGE_RECORDS_ROLLUP_DELAY_DAYS + 1),
+        ),
     )
 
 
