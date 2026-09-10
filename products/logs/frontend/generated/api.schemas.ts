@@ -1928,8 +1928,34 @@ export interface _LogsPatternsRequestApi {
     query: _LogsPatternsBodyApi
 }
 
+/**
+ * * `stored_patterns` - stored_patterns
+ * * `body_mining` - body_mining
+ */
+export type LogsPatternsSourceEnumApi = (typeof LogsPatternsSourceEnumApi)[keyof typeof LogsPatternsSourceEnumApi]
+
+export const LogsPatternsSourceEnumApi = {
+    StoredPatterns: 'stored_patterns',
+    BodyMining: 'body_mining',
+} as const
+
+/**
+ * * `flag_disabled` - flag_disabled
+ * * `insufficient_version_coverage` - insufficient_version_coverage
+ * * `empty_window` - empty_window
+ * * `comparison` - comparison
+ */
+export type FallbackReasonEnumApi = (typeof FallbackReasonEnumApi)[keyof typeof FallbackReasonEnumApi]
+
+export const FallbackReasonEnumApi = {
+    FlagDisabled: 'flag_disabled',
+    InsufficientVersionCoverage: 'insufficient_version_coverage',
+    EmptyWindow: 'empty_window',
+    Comparison: 'comparison',
+} as const
+
 export interface _LogPatternExampleApi {
-    /** Log body as the miner saw it: whitespace-collapsed and truncated to the mining length cap, with the message field extracted from JSON bodies. This is not the raw stored line. */
+    /** Original-message example. Body mining normalizes whitespace, extracts JSON message fields and truncates to the mining cap. Stored-pattern aggregation returns the raw body prefix, limited to 4096 Unicode characters. */
     body: string
     /** Severity of the sampled line, e.g. "info", "error". */
     severity_text: string
@@ -1979,6 +2005,13 @@ export interface _LogPatternApi {
      * @nullable
      */
     match_literal: string | null
+    /** Exact canonical members of a stored-pattern group. Filter pattern IN these values AND pattern_version equals this group's version. Empty for body mining. */
+    match_patterns?: string[]
+    /**
+     * Version required by match_patterns. Null for body mining.
+     * @nullable
+     */
+    pattern_version?: number | null
 }
 
 export interface _LogsPatternsSparklineBucketApi {
@@ -1989,9 +2022,41 @@ export interface _LogsPatternsSparklineBucketApi {
 }
 
 export interface _LogsPatternsResponseApi {
-    /** Mined patterns ordered by `count` descending. */
+    /** Whether counts come from stored-pattern aggregation or body masking and Drain3 mining.
+     *
+     * * `stored_patterns` - stored_patterns
+     * * `body_mining` - body_mining */
+    source?: LogsPatternsSourceEnumApi
+    /**
+     * Stored pattern version used. Null for body mining.
+     * @nullable
+     */
+    pattern_version?: number | null
+    /** Why body mining was used. Null for stored-pattern aggregation.
+     *
+     * * `flag_disabled` - flag_disabled
+     * * `insufficient_version_coverage` - insufficient_version_coverage
+     * * `empty_window` - empty_window
+     * * `comparison` - comparison */
+    fallback_reason?: FallbackReasonEnumApi | null
+    /**
+     * Percentage of all matching rows with a nonempty pattern at the selected version. Null for body mining.
+     * @nullable
+     */
+    pattern_coverage_pct?: number | null
+    /**
+     * Exact rows represented by the returned stored-pattern groups. Null for body mining.
+     * @nullable
+     */
+    represented_count?: number | null
+    /**
+     * Matching rows outside returned groups, including other versions, unstamped rows and the long tail. Null for body mining.
+     * @nullable
+     */
+    remainder_count?: number | null
+    /** Pattern groups ordered by count. Stored-pattern counts are exact; body-mining counts describe the sample. */
     patterns: _LogPatternApi[]
-    /** Number of log rows fed to the miner (the sample size, capped at the sample limit). */
+    /** Rows scanned: the sample size for body mining, or the full matching count for stored-pattern aggregation. */
     scanned_count: number
     /** Total log rows matching the filters in the window, before sampling. Use with `scanned_count` to scale per-pattern counts when `sampled` is true. */
     total_count: number
@@ -2054,6 +2119,38 @@ export interface _LogPatternDiffEntryApi {
 }
 
 export interface _LogsPatternsDiffWindowApi {
+    /** Whether counts come from stored-pattern aggregation or body masking and Drain3 mining.
+     *
+     * * `stored_patterns` - stored_patterns
+     * * `body_mining` - body_mining */
+    source?: LogsPatternsSourceEnumApi
+    /**
+     * Stored pattern version used. Null for body mining.
+     * @nullable
+     */
+    pattern_version?: number | null
+    /** Why body mining was used. Null for stored-pattern aggregation.
+     *
+     * * `flag_disabled` - flag_disabled
+     * * `insufficient_version_coverage` - insufficient_version_coverage
+     * * `empty_window` - empty_window
+     * * `comparison` - comparison */
+    fallback_reason?: FallbackReasonEnumApi | null
+    /**
+     * Percentage of all matching rows with a nonempty pattern at the selected version. Null for body mining.
+     * @nullable
+     */
+    pattern_coverage_pct?: number | null
+    /**
+     * Exact rows represented by the returned stored-pattern groups. Null for body mining.
+     * @nullable
+     */
+    represented_count?: number | null
+    /**
+     * Matching rows outside returned groups, including other versions, unstamped rows and the long tail. Null for body mining.
+     * @nullable
+     */
+    remainder_count?: number | null
     /** Log rows fed to the miner for this window (sample size). */
     scanned_count: number
     /** Total log rows matching the filters in this window. */

@@ -4,7 +4,7 @@ import json
 import datetime as dt
 from bisect import bisect_right
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TypeVar
 
 from products.logs.backend.vendor.drain3 import Drain, LogMasker, MaskingInstruction
@@ -150,7 +150,6 @@ class LogSample:
     # Set on the examples the miner keeps, when `body` covers only a prefix of the raw line.
     # compile_match_regex drops its end anchor for those.
     truncated: bool = False
-    pattern: str | None = None
 
 
 @dataclass(frozen=True)
@@ -161,13 +160,12 @@ class MinedPattern:
     error_count: int
     first_seen: dt.datetime
     last_seen: dt.datetime
-    # Sampled rows that produced this pattern; `body` is the prepared (whitespace-collapsed,
-    # truncated) original message, not the stored pattern or the raw log line.
+    # Prepared messages for body mining; bounded raw bodies for stored-pattern groups.
     examples: list[LogSample]
     services: list[str]
-    # Raw sample counts per caller-supplied time bucket (empty when no buckets given).
+    # Sample or exact counts per caller-supplied time bucket (empty when no buckets given).
     bucket_counts: list[int]
-    # Raw sample counts keyed by lowercased severity_text.
+    # Sample or exact counts keyed by lowercased severity_text.
     severity_counts: dict[str, int]
     # RE2-safe regex over raw bodies, self-validated against the raw bodies of the sampled
     # example rows (not the prepared `examples` — raw lines are what the predicate executes
@@ -176,6 +174,8 @@ class MinedPattern:
     match_regex: str | None
     # Longest literal run in the template — plain-text fallback when match_regex is None.
     match_literal: str | None
+    match_patterns: list[str] = field(default_factory=list)
+    pattern_version: int | None = None
 
 
 @dataclass(frozen=False)
@@ -422,7 +422,7 @@ def mine_patterns(
     max_services: int | None = None,
     buckets: list[tuple[dt.datetime, dt.datetime]] | None = None,
 ) -> list[MinedPattern]:
-    """Cluster stored patterns via Drain3, falling back to bodies when no pattern exists.
+    """Cluster masked log bodies into templates via Drain3.
 
     Pure function — no ClickHouse or Django. The caller (query runner) is responsible
     for sampling and for the `scanned_count` / `sampled` metadata.
@@ -449,9 +449,7 @@ def mine_patterns(
 
     for sample in samples:
         prepared = _prepare_body(sample.body, truncate)
-        stored_pattern = _WHITESPACE_RE.sub(" ", sample.pattern or "").strip()
-        mining_text = stored_pattern[:truncate] if stored_pattern else masker.mask(prepared.text)
-        cluster, _change_type = drain.add_log_message(mining_text)
+        cluster, _change_type = drain.add_log_message(masker.mask(prepared.text))
         cluster_id = cluster.cluster_id
 
         acc = accumulators.get(cluster_id)
@@ -472,7 +470,7 @@ def mine_patterns(
                 acc.last_seen = sample.timestamp
 
         acc.count += 1
-        acc.truncated = acc.truncated or prepared.truncated or len(stored_pattern) > truncate
+        acc.truncated = acc.truncated or prepared.truncated
         severity = sample.severity_text.lower()
         acc.severity_counts[severity] = acc.severity_counts.get(severity, 0) + 1
         if len(acc.examples) < max_examples and all(e.body != prepared.text for e in acc.examples):
@@ -523,3 +521,42 @@ def mine_patterns(
     # Most frequent first; tie-break on template for deterministic ordering.
     patterns.sort(key=lambda p: (-p.count, p.pattern))
     return patterns[:max_patterns]
+
+
+def group_stored_patterns(patterns: list[MinedPattern], *, total_count: int) -> list[MinedPattern]:
+    """Roll up exact canonical-pattern aggregates without masking or truncating their identities."""
+    if not patterns:
+        return []
+    _, drain = _build_miner(
+        _env("LOGS_PATTERNS_SIM_TH", 0.4, float),
+        _env("LOGS_PATTERNS_DEPTH", 4, int),
+        len(patterns),
+    )
+    groups: dict[int, MinedPattern] = {}
+    max_services = _env("LOGS_PATTERNS_MAX_SERVICES", 4, int)
+    for pattern in sorted(patterns, key=lambda pattern: (-pattern.count, pattern.pattern)):
+        cluster, _ = drain.add_log_message(pattern.pattern)
+        previous = groups.get(cluster.cluster_id)
+        if previous is None:
+            groups[cluster.cluster_id] = replace(pattern, pattern=cluster.get_template())
+            continue
+        severities = previous.severity_counts.copy()
+        for severity, count in pattern.severity_counts.items():
+            severities[severity] = severities.get(severity, 0) + count
+        groups[cluster.cluster_id] = replace(
+            previous,
+            pattern=cluster.get_template(),
+            count=previous.count + pattern.count,
+            error_count=previous.error_count + pattern.error_count,
+            first_seen=min(previous.first_seen, pattern.first_seen),
+            last_seen=max(previous.last_seen, pattern.last_seen),
+            services=sorted(set(previous.services + pattern.services))[:max_services],
+            bucket_counts=[left + right for left, right in zip(previous.bucket_counts, pattern.bucket_counts)],
+            severity_counts=severities,
+            match_patterns=previous.match_patterns + pattern.match_patterns,
+        )
+    ordered = sorted(groups.values(), key=lambda pattern: (-pattern.count, pattern.pattern))
+    return [
+        replace(pattern, volume_share_pct=round(pattern.count / total_count * 100, 2) if total_count else 0)
+        for pattern in ordered[: _env("LOGS_PATTERNS_MAX_PATTERNS", 200, int)]
+    ]

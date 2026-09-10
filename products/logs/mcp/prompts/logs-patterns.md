@@ -24,6 +24,10 @@ This is the fastest way to understand what a log stream is _saying_ without read
 
 # Reading the response
 
+- `source` reports what was used: `stored_patterns` for exact stored-pattern aggregation followed by Drain3 grouping, or `body_mining` for body masking and Drain3. Include this distinction in your answer.
+- `pattern_version` identifies the version used for stored patterns. `fallback_reason` explains body mining: flag disabled, insufficient version coverage, an empty window, or comparison mode.
+- The `logs_patterns_query_v2` flag enables the stored-pattern path only when one version supplies nonempty patterns for at least 99% of **all** matching rows. This is the dominant version, not necessarily the newest.
+- On the stored-pattern path, `represented_count` counts the rows in the returned groups. `remainder_count` accounts for other versions, unstamped rows, the long tail and groups outside the display limit. Report this remainder rather than implying the returned groups cover everything.
 - `pattern` — the mined template. Masked tokens: `<uuid>`, `<ip>`, `<hex>`, `<num>`, and `<*>` for any word position that varied.
 - `estimated_count` / `estimated_error_count` — occurrences extrapolated to the full window. When `sampled` is false these are exact.
 - `severity_counts` — sampled occurrences per severity. A template split across `info` and `error` often means the same code path logging both outcomes.
@@ -35,12 +39,13 @@ Mining samples the window (`sampled: true` when it did): counts are estimates, a
 
 ## Pivoting to a pattern's raw lines
 
-To fetch the lines behind a pattern, call `query-logs` with a message filter in `filterGroup`:
+To fetch the lines behind a pattern, call `query-logs` with the appropriate filters in `filterGroup`:
 
+- If `match_patterns` is nonempty, use **both** exact filters instead of a message predicate: `{ "key": "pattern", "value": ["<canonical member>", "..."], "operator": "exact", "type": "log" }` and `{ "key": "pattern_version", "value": 3, "operator": "exact", "type": "log" }`. Substitute the returned members and version, and combine the filters with AND. Keep the original time range and filters. Do not narrow these exact groups using example services or severities.
 - If `match_regex` is set: `{ "key": "message", "value": "<match_regex>", "operator": "regex", "type": "log" }`
 - Else if `match_literal` is set: `{ "key": "message", "value": "<match_literal>", "operator": "icontains", "type": "log" }`
 
-Also pass the pattern's `services` as `serviceNames` and (when every entry is one of trace/debug/info/warn/error/fatal) the keys of `severity_counts` as `severityLevels` — both make the query dramatically cheaper.
+For body-mined patterns, also pass the pattern's `services` as `serviceNames` and (when every entry is one of trace/debug/info/warn/error/fatal) the keys of `severity_counts` as `severityLevels` — both make the query dramatically cheaper.
 
 # Parameters
 

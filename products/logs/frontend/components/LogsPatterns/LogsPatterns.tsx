@@ -96,13 +96,13 @@ function PatternExpandedRow({
         <div className="px-2 py-2 flex flex-col gap-2" data-attr="logs-pattern-expanded">
             <div className="flex items-center justify-between gap-2">
                 <div>{renderPatternTemplate(row.pattern)}</div>
-                {(row.match_regex || row.match_literal) && (
+                {(row.match_patterns?.length || row.match_regex || row.match_literal) && (
                     <LemonButton
                         type="secondary"
                         size="xsmall"
                         onClick={() => onViewMatchingLogs(row)}
                         tooltip={
-                            row.match_regex
+                            row.match_patterns?.length || row.match_regex
                                 ? 'Open the Logs view filtered to lines matching this pattern'
                                 : 'Open the Logs view filtered to lines containing this pattern’s literal text (pattern match unavailable)'
                         }
@@ -359,6 +359,17 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
 
     return (
         <div className="flex-1 min-h-0 overflow-auto" data-attr="logs-patterns">
+            {!compareEnabled &&
+                patternsResponse.source === 'stored_patterns' &&
+                !patternsResponseLoading &&
+                !patternsError && (
+                    <LemonBanner type="info" className="m-2" data-attr="logs-patterns-source-info">
+                        Using stored patterns v{patternsResponse.pattern_version}, grouped with Drain3. Counts are
+                        exact. {humanFriendlyLargeNumber(patternsResponse.represented_count ?? 0)} of{' '}
+                        {humanFriendlyLargeNumber(total_count)} matching lines appear in these groups;{' '}
+                        {humanFriendlyLargeNumber(patternsResponse.remainder_count ?? 0)} remain outside them.
+                    </LemonBanner>
+                )}
             {!compareEnabled && sampled && !patternsResponseLoading && !patternsError && (
                 <LemonBanner type="info" className="m-2" data-attr="logs-patterns-sample-info">
                     Patterns are mined from a representative sample of {humanFriendlyNumber(scanned_count)} lines out of
