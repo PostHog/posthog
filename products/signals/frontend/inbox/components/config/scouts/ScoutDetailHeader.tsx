@@ -179,7 +179,10 @@ function ScoutCostMetrics({ skillName }: { skillName: string }): JSX.Element | n
 
     return (
         <>
-            <Metric value={formatRunCost(rollup.spendUsd)} label={`Cost · ${scoutCostWindowLabel(rollup.windowDays)}`} />
+            <Metric
+                value={formatRunCost(rollup.spendUsd)}
+                label={`Cost · ${scoutCostWindowLabel(rollup.windowDays)}`}
+            />
             <Metric value={formatRunCost(rollup.perRun)} label="Cost per run" />
             <Metric
                 value={rollup.perReport === null ? 'No reports' : formatRunCost(rollup.perReport)}
