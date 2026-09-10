@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core.cache import cache
-from django.http import HttpResponse, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.test import (
     Client as DjangoClient,
     RequestFactory,
@@ -25,13 +25,14 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.middleware import per_request_logging_context_middleware
+from posthog.middleware import CSPMiddleware, per_request_logging_context_middleware
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
 
 from products.actions.backend.models.action import Action
+from products.canvas.backend.artifacts import CANVAS_ARTIFACT_RESPONSE_MARKER
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -1890,17 +1891,87 @@ class TestActivityLoggingMiddleware(APIBaseTest):
 
 
 class TestCSPMiddleware(APIBaseTest):
+    def test_replay_player_frame_carries_its_own_policy_and_reports_nothing(self):
+        # The frame exists so a recorded page stops being judged against the app policy. If the
+        # middleware branch goes, it silently inherits that policy again, along with its report-uri,
+        # and every replayed page resumes reporting a customer's site to our project.
+        response = self.client.get("/replay_player_frame/index.html")
+        assert response.status_code == 200
+        policy = response["Content-Security-Policy"]
+        assert "script-src 'none'" in policy
+        assert "img-src * data: blob:" in policy
+        assert "report-uri" not in policy
+        assert "Content-Security-Policy-Report-Only" not in response
+        assert "Reporting-Endpoints" not in response
+
+    def test_app_policy_allows_framing_the_replay_player_frame(self):
+        # The player frame is same-origin, and an http origin does not match the https: source
+        # that heatmaps need.
+        response = self.client.get("/")
+        assert "frame-src 'self' https:" in response["Content-Security-Policy-Report-Only"]
+
+    def test_replay_player_frame_serves_the_mount_node_without_a_session(self):
+        # Shared recordings render the player for logged-out viewers.
+        self.client.logout()
+        response = self.client.get("/replay_player_frame/index.html")
+        assert response.status_code == 200
+        # PlayerFrame.tsx looks the mount node up by this id. A rename here makes every player fall
+        # back to the app document.
+        assert 'id="player-frame-content"' in response.content.decode()
+
     def test_non_html_response_gets_strict_csp(self):
         response = self.client.get("/api/users/@me/")
         assert response.status_code == 200
         assert response["Content-Security-Policy"] == "default-src 'none'"
         assert "Content-Security-Policy-Report-Only" not in response
 
-    def test_html_response_gets_report_only_csp(self):
-        response = self.client.get("/")
+    @parameterized.expand(
+        [
+            ("app_root", "/"),
+            # No route serves this path, so the app catch-all answers it. It must keep the app
+            # policy, because the frame policy is enforced and its script-src 'none' stops the app
+            # from starting.
+            ("path_under_the_replay_frame_prefix", "/replay_player_frame"),
+        ]
+    )
+    def test_html_response_gets_report_only_csp(self, _name, path):
+        response = self.client.get(path)
         assert response.status_code == 200
         assert "Content-Security-Policy-Report-Only" in response
         assert "Content-Security-Policy" not in response
+
+    @parameterized.expand(
+        [
+            ("custom_policy", "/", False, "default-src 'self'", True),
+            ("canvas", "/", True, "sandbox allow-scripts; default-src 'none'", False),
+            ("custom_admin", "/admin/", False, "default-src *", True),
+            ("marked_admin", "/admin/", True, "default-src *", True),
+            ("marker_without_policy", "/", True, None, True),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_html_response_with_view_managed_csp(
+        self, _name: str, path: str, canvas_artifact: bool, policy: str | None, expects_reporting: bool
+    ) -> None:
+        def view(_request: HttpRequest) -> HttpResponse:
+            response = HttpResponse("<html><body>artifact</body></html>", content_type="text/html; charset=utf-8")
+            if policy is not None:
+                response["Content-Security-Policy"] = policy
+            if canvas_artifact:
+                setattr(response, CANVAS_ARTIFACT_RESPONSE_MARKER, True)
+            return response
+
+        response = CSPMiddleware(view)(RequestFactory().get(path))
+
+        if path == "/admin/":
+            assert "frame-ancestors 'none'" in response["Content-Security-Policy"]
+            assert "default-src *" not in response["Content-Security-Policy"]
+        elif policy is not None:
+            assert response["Content-Security-Policy"] == policy
+        else:
+            assert "Content-Security-Policy" not in response
+        assert ("Content-Security-Policy-Report-Only" in response) == (expects_reporting and path != "/admin/")
+        assert ("Reporting-Endpoints" in response) == expects_reporting
 
     @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
     def test_html_response_declares_default_reporting_endpoint_with_distinct_id(self):

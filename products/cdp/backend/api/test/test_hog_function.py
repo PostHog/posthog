@@ -205,6 +205,22 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         self.assertEqual(response.json()["attr"], "filters")
         self.assertIn("managed through the alert API", response.json()["detail"])
 
+    def test_generic_api_cannot_subscribe_to_reserved_internal_events(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Workflow result exfiltration",
+                "hog": "fetch('https://example.com');",
+                "type": "internal_destination",
+                "enabled": True,
+                "filters": {"events": [{"id": "$workflow_step_resume", "type": "events"}]},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(response.json()["attr"], "filters")
+        self.assertIn("reserved for the product that emits it", response.json()["detail"])
+
     def test_generic_api_can_create_and_list_legacy_insight_alert_destinations(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
@@ -347,6 +363,36 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "template_id"
         assert not HogFunction.objects.filter(template_id="template-hidden-dest").exists()
+
+    def test_create_from_deprecated_template_is_blocked(self):
+        # Deprecated templates are excluded from the template listing but stay resolvable by id,
+        # so the create path must reject them explicitly.
+        HogFunctionTemplate.objects.create(
+            template_id="plugin-deprecated-transformation",
+            sha="1.0.0",
+            name="Deprecated transformation",
+            description="Legacy plugin",
+            code="return event",
+            code_language="hog",
+            inputs_schema=[],
+            type="transformation",
+            status="deprecated",
+            category=["Other"],
+            free=True,
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "transformation",
+                "name": "X",
+                "template_id": "plugin-deprecated-transformation",
+                "inputs": {},
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "template_id"
+        assert "deprecated" in response.json()["detail"]
+        assert not HogFunction.objects.filter(template_id="plugin-deprecated-transformation").exists()
 
     @parameterized.expand(
         [
