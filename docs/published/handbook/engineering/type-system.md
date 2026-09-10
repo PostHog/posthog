@@ -106,6 +106,9 @@ def my_action(self, request, **kwargs):
 
 This validates inputs AND documents the endpoint for OpenAPI. Use `request.validated_query_data`, not manual `request.query_params` parsing.
 
+Response validation skips `PolymorphicProxySerializer` annotations, including list wrappers, because they describe OpenAPI unions and cannot validate response data.
+Concrete response serializers still follow the configured debug or strict validation mode.
+
 ### Troubleshooting
 
 **Types not generating?** Ensure your ViewSet is in `products/your_product/backend/` and the `products/your_product/frontend/` directory exists. Auto-tagging happens based on module path.

@@ -3,7 +3,9 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { phaiAiComposerSeedLogic } from 'scenes/max/phaiAiComposerSeedLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -607,6 +609,52 @@ describe('taskTrackerSceneLogic', () => {
         expect(logic.values.activeCreation).toEqual(expectedActiveCreation)
         expect(logic.values.historyExpanded).toBe(false)
         expect(router.values.location.pathname).toContain(expectedPath ?? initialPath)
+    })
+
+    it.each([null, '/activity/explore'])('keeps a URL prompt attached until navigation to %s', async (destination) => {
+        let finishCreation!: (response: [number, Record<string, unknown>]) => void
+        const creation = new Promise<[number, Record<string, unknown>]>((resolve) => {
+            finishCreation = resolve
+        })
+        let createCount = 0
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/': async ({ request }) => {
+                    createCount++
+                    createBody = (await request.json()) as Record<string, unknown>
+                    return creation
+                },
+            },
+        })
+        router.actions.push(urls.ai(undefined, 'analyze churn'))
+        const unmountBridge = phaiAiComposerSeedLogic().mount()
+        try {
+            logic.mount()
+            const streamKey = logic.values.activeCreation!.streamKey
+            expect(runStreamLogic({ streamKey }).values.threadItems).toEqual([
+                expect.objectContaining({ type: 'human_message', text: 'analyze churn' }),
+            ])
+            if (destination) {
+                router.actions.push(destination)
+                expect(logic.values.activeCreation).toBeNull()
+            }
+            await expectLogic(logic, () =>
+                finishCreation([200, { id: 'new-task', latest_run: { id: 'run-1' } }])
+            ).toFinishAllListeners()
+
+            expect(createBody).toMatchObject({ description: 'analyze churn' })
+            expect(createCount).toBe(1)
+            if (destination) {
+                expect(logic.values.activeCreation).toBeNull()
+                expect(router.values.location.pathname).toContain(destination)
+            } else {
+                expect(logic.values.activeCreation).toMatchObject({ taskId: 'new-task', runId: 'run-1' })
+                expect(router.values.location.pathname).toContain('/tasks/new-task')
+            }
+        } finally {
+            finishCreation([200, { id: 'new-task', latest_run: { id: 'run-1' } }])
+            unmountBridge()
+        }
     })
 
     // A CTA opens the panel and stamps its prompt onto composerSeedLogic BEFORE the composer mounts, so the
