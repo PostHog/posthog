@@ -297,6 +297,7 @@ rules:
                               |PluginConfig
                               |ProactivePreparedArtifact
                               |ProactiveRecommendation
+                              |ProactiveRecommendationOutcome
                               |ProactiveRecommendationRun
                               |ProactiveSubscriptionConfig
                               |ProductBrief
@@ -699,6 +700,7 @@ rules:
                         |PluginConfig
                         |ProactivePreparedArtifact
                         |ProactiveRecommendation
+                        |ProactiveRecommendationOutcome
                         |ProactiveRecommendationRun
                         |ProactiveSubscriptionConfig
                         |ProductBrief
