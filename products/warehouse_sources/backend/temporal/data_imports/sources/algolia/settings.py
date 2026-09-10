@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from enum import Enum
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -20,7 +22,7 @@ class AlgoliaApi(Enum):
     ANALYTICS = "analytics"
 
 
-@dataclass
+@frozen
 class AlgoliaEndpointConfig:
     name: str
     # Path on the Algolia REST API. `{index}` is substituted with the configured index name; for

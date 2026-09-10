@@ -1,10 +1,11 @@
 import re
-import dataclasses
 from typing import Any, Optional, cast
 from urllib.parse import quote
 
 import requests
 from requests import Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.settings import (
     ALGOLIA_ENDPOINTS,
@@ -59,7 +60,7 @@ class InvalidApplicationIdError(ValueError):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class AlgoliaResumeConfig:
     # Browse cursor token to continue an index scan from. None on the first page.
     cursor: str | None = None

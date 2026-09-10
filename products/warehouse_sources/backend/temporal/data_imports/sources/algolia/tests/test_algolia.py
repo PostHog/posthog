@@ -1,4 +1,5 @@
 import json
+import dataclasses
 from typing import Any
 
 import pytest
@@ -211,7 +212,9 @@ class TestPagePagination:
     ) -> None:
         session = MockSession.return_value
         manager = _make_manager()
-        monkeypatch.setattr(ALGOLIA_ENDPOINTS["synonyms"], "page_size", 2)
+        monkeypatch.setitem(
+            ALGOLIA_ENDPOINTS, "synonyms", dataclasses.replace(ALGOLIA_ENDPOINTS["synonyms"], page_size=2)
+        )
         calls = _wire(
             session,
             [
@@ -269,7 +272,9 @@ class TestOffsetPagination:
     ) -> None:
         session = MockSession.return_value
         manager = _make_manager()
-        monkeypatch.setattr(ALGOLIA_ENDPOINTS["top_searches"], "page_size", 2)
+        monkeypatch.setitem(
+            ALGOLIA_ENDPOINTS, "top_searches", dataclasses.replace(ALGOLIA_ENDPOINTS["top_searches"], page_size=2)
+        )
         calls = _wire(
             session,
             [
@@ -296,7 +301,9 @@ class TestOffsetPagination:
     ) -> None:
         session = MockSession.return_value
         manager = _make_manager()
-        monkeypatch.setattr(ALGOLIA_ENDPOINTS["ab_tests"], "page_size", 1)
+        monkeypatch.setitem(
+            ALGOLIA_ENDPOINTS, "ab_tests", dataclasses.replace(ALGOLIA_ENDPOINTS["ab_tests"], page_size=1)
+        )
         calls = _wire(
             session,
             [
