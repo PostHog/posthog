@@ -46,12 +46,7 @@ class KlaviyoValuesReportConfig:
     # Campaign and flow reports require a conversion metric on every request; form and segment
     # reports do not accept one, so their requests must omit it and skip the /metrics lookup.
     requires_conversion_metric: bool = True
-    # Path of the collection whose ids stand in for the groupings the report omits. Klaviyo returns
-    # a grouping only for an entity with activity in the window, so a report over quiet entities
-    # comes back empty and the table is never created. A zero-statistic row per missing id lists
-    # every entity and makes "no activity" a readable result. Only for a values report with one
-    # group_by column whose values are that collection's ids.
-    zero_fill_path: Optional[str] = None
+    list_all_ids_path: Optional[str] = None
 
 
 @dataclass
@@ -554,7 +549,7 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
             timeframe_key=VALUES_REPORT_TIMEFRAME_KEY,
             group_by=["form_id"],
             requires_conversion_metric=False,
-            zero_fill_path="/forms",
+            list_all_ids_path="/forms",
         ),
         description=(
             "Klaviyo's own signup-form performance statistics per form over the last 365 days, "

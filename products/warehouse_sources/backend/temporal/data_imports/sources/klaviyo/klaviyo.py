@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.se
     KLAVIYO_ENDPOINTS,
     KlaviyoEndpointConfig,
     KlaviyoFanOutConfig,
+    KlaviyoValuesReportConfig,
 )
 
 KLAVIYO_BASE_URL = "https://a.klaviyo.com/api"
@@ -478,13 +479,23 @@ def _series_rows(
             yield row
 
 
-def _zero_statistics(statistics: list[str]) -> dict[str, Any]:
-    """The statistics of an entity Klaviyo left out of a values report: no activity in the window.
-
-    Counts are zero. A rate is a ratio over those counts, so it has no value and stays null rather
-    than reading as a measured 0%.
-    """
+def _no_activity_statistics(statistics: list[str]) -> dict[str, Any]:
     return {statistic: None if statistic.endswith("_rate") else 0 for statistic in statistics}
+
+
+def _rows_for_ids_the_report_omitted(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    report: KlaviyoValuesReportConfig,
+    reported_ids: set[str],
+    common: dict[str, Any],
+) -> Iterator[dict[str, Any]]:
+    assert report.list_all_ids_path is not None
+    id_column = report.group_by[0]
+    for entity_id in _iter_resource_ids(session, headers, logger, report.list_all_ids_path, page_size=100):
+        if entity_id not in reported_ids:
+            yield {id_column: entity_id, **_no_activity_statistics(report.statistics), **common}
 
 
 def _get_values_report_rows(
@@ -539,9 +550,7 @@ def _get_values_report_rows(
     if metric_id:
         common["conversion_metric_id"] = metric_id
 
-    zero_fill_key = (
-        report.group_by[0] if report.zero_fill_path and not report.interval and len(report.group_by) == 1 else None
-    )
+    lists_all_ids = report.list_all_ids_path is not None and not report.interval and len(report.group_by) == 1
     reported_ids: set[str] = set()
 
     try:
@@ -556,8 +565,8 @@ def _get_values_report_rows(
                 rows = ({**r.get("groupings", {}), **r.get("statistics", {}), **common} for r in results)
 
             for row in rows:
-                if zero_fill_key is not None and row.get(zero_fill_key) is not None:
-                    reported_ids.add(str(row[zero_fill_key]))
+                if lists_all_ids and row.get(report.group_by[0]) is not None:
+                    reported_ids.add(str(row[report.group_by[0]]))
                 batcher.batch(row)
                 if batcher.should_yield():
                     yield batcher.get_table()
@@ -567,21 +576,11 @@ def _get_values_report_rows(
                 break
             url = next_url
 
-        if zero_fill_key is not None:
-            assert report.zero_fill_path is not None
-            zero_filled = 0
-            for entity_id in _iter_resource_ids(session, headers, logger, report.zero_fill_path, page_size=100):
-                if entity_id in reported_ids:
-                    continue
-                zero_filled += 1
-                batcher.batch({zero_fill_key: entity_id, **_zero_statistics(report.statistics), **common})
+        if lists_all_ids:
+            for row in _rows_for_ids_the_report_omitted(session, headers, logger, report, reported_ids, common):
+                batcher.batch(row)
                 if batcher.should_yield():
                     yield batcher.get_table()
-            if zero_filled:
-                logger.info(
-                    f"Klaviyo: {config.name} omitted {zero_filled} {zero_fill_key} values with no activity in "
-                    f"{report.timeframe_key}; wrote zero-statistic rows for them"
-                )
     except requests.HTTPError as exc:
         if (
             exc.response is not None

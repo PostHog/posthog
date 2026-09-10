@@ -1136,7 +1136,6 @@ class TestReportVariants:
             if json_body is not None:
                 captured["body"] = json_body
                 return {"data": {"attributes": {"results": []}}, "links": {}}
-            # A collection GET (the form report's /forms zero-fill listing) pages a list.
             return {"data": [], "links": {}}
 
         with patch.object(klaviyo, "_fetch_page", fake_fetch):
@@ -1152,7 +1151,6 @@ class TestReportVariants:
         attributes = captured["body"]["data"]["attributes"]
         assert captured["body"]["data"]["type"] == report_type
         assert "conversion_metric_id" not in attributes
-        # No /metrics walk. The form report also lists /forms to zero-fill the groupings it omits.
         assert fetched_urls[0] == f"https://a.klaviyo.com/api{path}"
         assert all("/metrics" not in url for url in fetched_urls)
         if expected_group_by is None:
@@ -1161,8 +1159,6 @@ class TestReportVariants:
             assert attributes["group_by"] == expected_group_by
 
     def test_form_values_report_lists_every_form_and_zero_fills_the_quiet_ones(self) -> None:
-        # Klaviyo returns a grouping only for a form with activity in the window. An account whose
-        # forms had none got an empty report, no table, and an initial sync that never completed.
         fetched_urls: list[str] = []
 
         def fake_fetch(
@@ -1200,20 +1196,15 @@ class TestReportVariants:
 
         by_form = {row["form_id"]: row for row in rows}
         assert set(by_form) == {"FORM_ACTIVE", "FORM_QUIET"}
-        # Klaviyo's own statistics are kept as returned.
         assert (by_form["FORM_ACTIVE"]["viewed_form"], by_form["FORM_ACTIVE"]["submits"]) == (40, 4)
         assert by_form["FORM_ACTIVE"]["submit_rate"] == 0.1
-        # The omitted form carries zero counts and no rate, tagged with the same window.
         quiet = by_form["FORM_QUIET"]
         assert quiet["timeframe_key"] == VALUES_REPORT_TIMEFRAME_KEY
         assert quiet["submit_rate"] is None
         assert all(quiet[statistic] == 0 for statistic in FORM_REPORT_STATISTICS if statistic != "submit_rate")
-        # One report POST, then one page of /forms; nothing else.
         assert len(fetched_urls) == 2
 
-    def test_only_reports_that_opt_in_zero_fill_omitted_groupings(self) -> None:
-        # A segment report returns nothing and must stay empty: listing /segments would invent rows
-        # for a report whose callers have not asked for that.
+    def test_a_report_without_a_list_all_ids_path_stays_empty(self) -> None:
         fetched_urls: list[str] = []
 
         def fake_fetch(
