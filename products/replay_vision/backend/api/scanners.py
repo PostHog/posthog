@@ -29,7 +29,7 @@ from posthog.schema import RecordingsQuery
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, set_tags_on_object
-from posthog.event_usage import report_user_action
+from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
@@ -94,6 +94,7 @@ from products.replay_vision.backend.queries import (
     PREVIEW_ESTIMATE_BUDGET,
     SAVE_ESTIMATE_BUDGET,
     estimate_scanner_session_volume,
+    is_experiment_linkage_unresolved,
     project_monthly_observations,
     refresh_scanner_estimate,
 )
@@ -122,7 +123,7 @@ from products.replay_vision.backend.scanning import (
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
-from products.replay_vision.backend.temporal.metrics import record_scanner_limit_reached
+from products.replay_vision.backend.temporal.metrics import record_estimate_outcome, record_scanner_limit_reached
 from products.signals.backend.facade.api import get_outcomes_for_signal_source_slice
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
@@ -142,11 +143,37 @@ class ScannerCreationMethod(models.TextChoices):
 
     Separate from the creation-flow experiment arm, which says only which flow a person was offered.
     Someone offered the AI flow can still fill the form by hand, so this is what says what they did.
+
+    These are the values a caller may send. The property reported on the event can also hold an
+    `EventSource` — see `_reported_creation_method`.
     """
 
     AI = "ai", "AI draft"
     TEMPLATE = "template", "Template"
     SCRATCH = "scratch", "From scratch"
+
+
+def _reported_creation_method(context: dict[str, Any], claimed: str | None) -> str | None:
+    """What `creation_method` says on the created event.
+
+    The field answers how a person filled the creation form, so only a request from the app can
+    answer it at all. Every other surface reports its own source instead, which keeps the values
+    mutually exclusive: `ai`/`template`/`scratch` mean a person in the editor, anything else names
+    the caller. An agent creating a scanner over MCP is not someone building one by hand, and
+    letting it report `scratch` inflates the hand-built side of the creation-flow comparison.
+
+    Worth the override rather than only filling in a missing value: the wizard creates several times
+    more scanners than the app does, and it already sends a method on some of its calls.
+
+    Max reaches the serializer directly with no HTTP request, so it declares its surface in the
+    context the same way it passes `user`. Without that it would fall through as unattributed, which
+    is the one gap a request-derived source cannot close.
+    """
+    request = context.get("request")
+    source = get_event_source(request) if request is not None else context.get("event_source")
+    if source is None:
+        return claimed
+    return claimed if source == EventSource.WEB else source.value
 
 
 def _goal_flow_variant(user: User, team: Team) -> str | None:
@@ -220,7 +247,10 @@ def _scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
         "sampling_rate": scanner.sampling_rate,
         "sampling_mode": scanner.sampling_mode,
         "enabled": scanner.enabled,
-        "has_filters": any(query.get(key) for key in _QUERY_FILTER_KEYS),
+        # experiment_targeting narrows the population server-side, so it counts as filtered; the
+        # separate flag keeps experiment-scoped scanners countable apart from hand-filtered ones.
+        "has_filters": any(query.get(key) for key in _QUERY_FILTER_KEYS) or bool(scanner.experiment_targeting),
+        "has_experiment_targeting": bool(scanner.experiment_targeting),
         "estimated_monthly_observations": estimate,
         "estimated_monthly_credits": (
             estimate * observation_credits_for_model(scanner.model) if estimate is not None else None
@@ -234,8 +264,26 @@ def _refresh_estimate_fail_soft(scanner: ReplayScanner) -> None:
     # The estimate is advisory — never fail a scanner save over it, and keep the save's latency tail short.
     try:
         refresh_scanner_estimate(scanner, budget=SAVE_ESTIMATE_BUDGET)
+    except (ValidationError, PermissionDenied) as error:
+        if is_experiment_linkage_unresolved(scanner, error):
+            # The experiment targeting cannot resolve an exposed population, most often the draft
+            # a wizard creates next to the scanner. The hourly refresher retries, and the outcome
+            # counter keeps the skip visible from the first save. `reason` takes `detail` because
+            # a DRF ValidationError stringifies as an ErrorDetail list.
+            record_estimate_outcome("experiment_linkage_unresolved")
+            logger.info(
+                "replay_vision.estimate_linkage_unresolved",
+                scanner_id=str(scanner.id),
+                reason=error.detail,
+            )
+        else:
+            # The scanner's own query no longer builds, for example a deleted action or a bad
+            # cohort reference. No launch heals that, so keep it in error tracking.
+            logger.exception("replay_vision.estimate_refresh_failed", scanner_id=str(scanner.id))
     except Exception:
         logger.exception("replay_vision.estimate_refresh_failed", scanner_id=str(scanner.id))
+    else:
+        record_estimate_outcome("refreshed")
 
 
 def _scanner_copy_name(team_id: int, source_name: str) -> str:
@@ -365,7 +413,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "How the creator built this scanner: from an AI draft, from a template, or from scratch. "
             "Reported to product analytics at creation and not stored on the scanner. Independent of "
             "any experiment the creator is in, since a person offered the AI flow can still fill the "
-            "form by hand. Ignored on update."
+            "form by hand. Only the app can answer this, so a request from anywhere else reports the "
+            "calling surface instead of whatever it sends here. Ignored on update."
         ),
     )
     scanner_config = serializers.JSONField(
@@ -766,11 +815,12 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             # read from the flag, so it carries intent to treat and keeps the arms comparable: someone
             # offered the AI flow counts as treated even when they ignore it. `creation_method` is what
             # the person actually did, which is what says whether AI-built scanners turn out better.
-            # None when the caller is not the app, since only the UI knows how the form was filled.
+            # It names the calling surface when the caller is not the app, since only the UI knows
+            # how the form was filled.
             {
                 **_scanner_lifecycle_properties(scanner),
                 "creation_flow_variant": _goal_flow_variant(user, team),
-                "creation_method": creation_method,
+                "creation_method": _reported_creation_method(self.context, creation_method),
             },
             team=team,
             request=self.context.get("request"),
@@ -1436,6 +1486,14 @@ class DraftScannerResponseSerializer(serializers.Serializer):
         help_text=(
             "Goal-based flow only: the monthly credit cap, set to `monthly_credit_budget` so a "
             "mis-estimate stops the scanner at the credits the user agreed to. Null on the legacy flow."
+        ),
+    )
+    experiment_targeting = ScannerExperimentTargetingField(
+        allow_null=True,
+        help_text=(
+            "Goal-based flow only: the experiment whose participants the draft watches, when the goal "
+            "named one of the project's launched experiments. Null when it named none. Carried "
+            "separately from `query`, which never holds an exposure filter."
         ),
     )
     estimated_monthly_observations = serializers.IntegerField(
@@ -2310,7 +2368,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         }
         # Scoped tokens must not receive data their scopes exclude. Core memory is INTERNAL
         # (session-only), so any scoped token loses it; the goal-based entity grounding (surveys,
-        # actions) is gated per resource against these scopes inside the drafter.
+        # actions, experiments) is gated per resource against these scopes inside the drafter.
         allowed_scopes = get_authenticator_scopes(request.successful_authenticator)
         include_business_context = allowed_scopes is None
 
@@ -2363,6 +2421,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "scanner_type": drafted.scanner_type,
                 # Whether the goal mapped to a real filter or fell back to no targeting.
                 "has_query": bool(drafted.query),
+                # Whether the goal named an experiment, so the scan watches its participants rather
+                # than everyone who reached the same pages.
+                "has_experiment_targeting": drafted.experiment_targeting is not None,
                 "sampling_mode": drafted.sampling_mode,
                 "sampling_rate": drafted.sampling_rate,
                 "model": drafted.model,
@@ -2386,6 +2447,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     "sampling_rate": drafted.sampling_rate,
                     "model": drafted.model,
                     "credit_limit": drafted.credit_limit,
+                    "experiment_targeting": drafted.experiment_targeting,
                     "estimated_monthly_observations": drafted.estimated_monthly_observations,
                 }
             ).data

@@ -793,6 +793,8 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
  * Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron `run_cron_schedule` that takes precedence when set), `enabled`, `emit` (dry-run) posture, `network_access` (trusted-domain allowlist vs full access for the scout's sandbox), or output destinations. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
  * @summary Update a scout config
  */
+export const signalsScoutConfigUpdateBodyDisplayNameMax = 200
+
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMax = 43200
 
@@ -818,6 +820,11 @@ export const signalsScoutConfigUpdateBodyWriteScopesMax = 7
 
 export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .object({
+        display_name: zod
+            .string()
+            .max(signalsScoutConfigUpdateBodyDisplayNameMax)
+            .optional()
+            .describe('Name shown in the UI. Does not change the skill name. Leave blank to use the default name.'),
         enabled: zod
             .boolean()
             .optional()
@@ -955,7 +962,7 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
                 "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
             ),
     })
-    .describe('Editable schedule, enablement, and emit posture for one scout config.')
+    .describe('Editable display name, schedule, enablement, and emit posture for one scout config.')
 
 /**
  * Leave a steering note the scout fleet reads on its next runs. Address it to one scout via `skill_name` (a configured scout), to one stage of the report pipeline via a reserved audience (`pipeline:report-research`), or omit it for a general note every scout sees. Each call creates a new note (no upsert); delete retires one. Attributed to the authenticated user.
@@ -1868,27 +1875,43 @@ export const UsersSignalAutonomyCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['P0', 'P1', 'P2', 'P3', 'P4'])
                 .describe('\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'),
-            zod.enum(['']),
             zod.null(),
         ])
         .optional(),
+    slack_notification_integration_id: zod
+        .number()
+        .nullish()
+        .describe(
+            "Primary key of a Slack `Integration` row in one of the caller's teams. Pair with `slack_notification_channel` to enable notifications; pass null on either to disable them."
+        ),
     slack_notification_channel: zod
         .string()
         .max(usersSignalAutonomyCreateBodySlackNotificationChannelMax)
         .nullish()
         .describe(
-            'Slack channel target in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null disables Slack notifications.'
+            '`channel_id|#channel-name` target, the same convention used by Insight Alerts, or a `member_id|@display-name` target (`U0123ABC456|@sam`) to send the ping as a direct message. A member target is checked against the workspace on save.'
+        ),
+    slack_notification_direct_message: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Set true to send the ping as a direct message from the PostHog app. The caller's own member id is resolved in the connected workspace and stored in `slack_notification_channel`, so nothing has to be picked. Rejected when the workspace has no eligible account for the caller, and cannot be combined with `slack_notification_channel`."
         ),
     slack_notification_min_priority: zod
         .union([
             zod
                 .enum(['P0', 'P1', 'P2', 'P3', 'P4'])
                 .describe('\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'),
-            zod.enum(['']),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Minimum report priority that triggers a Slack notification. P0 is highest. Null means notify on every priority. When set, reports without a priority judgment do not notify.\n\n\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'
+            'P0 is highest. Null = notify for every priority. When set, reports without a priority judgment do not notify.\n\n\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'
+        ),
+    github_assign_on_pull_request: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Add this user as a GitHub assignee on implementation pull requests for reports that suggest them as reviewer. Off by default. Turning it off stops future assignment and never removes an existing assignee.'
         ),
 })

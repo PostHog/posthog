@@ -64,7 +64,6 @@ function canvas(id: string, name: string, updatedAt: number): DashboardRecord {
     kind: "freeform",
     description: "",
     templateId: "freeform",
-    context: "",
     createdAt: updatedAt,
     updatedAt,
   };

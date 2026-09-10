@@ -35,6 +35,7 @@ import {
     METRIC_SHOW_CHANGE_DEFAULT,
     METRIC_SUMMARY_DEFAULT,
     METRIC_SUMMARY_LABELS,
+    resolveMetricLineColor,
     selectCurrentSeries,
     selectPreviousSeriesSummary,
 } from './Metric.utils'
@@ -71,17 +72,16 @@ export function MetricCard({ inCardView }: ChartParams): JSX.Element {
     )
     const changeTooltip = getMetricChangeTooltip(summary, previousSeries != null, interval)
 
-    const isIncrease = (change?.value ?? 0) >= 0
     const pillColors = {
         positiveColor: makeChangeColor(trendsFilter?.metricChangeIncreaseColor ?? METRIC_DEFAULT_INCREASE_COLOR),
         negativeColor: makeChangeColor(trendsFilter?.metricChangeDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR),
     }
-    const lineIncreaseColor = trendsFilter?.metricLineIncreaseColor ?? METRIC_DEFAULT_INCREASE_COLOR
-    const lineDecreaseColor = trendsFilter?.metricLineDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR
-    let lineColor: string | undefined
-    if ((trendsFilter?.metricColorByDirection ?? METRIC_COLOR_BY_DIRECTION_DEFAULT) && change != null) {
-        lineColor = isIncrease ? lineIncreaseColor : lineDecreaseColor
-    }
+    const lineColor = resolveMetricLineColor({
+        colorByDirection: trendsFilter?.metricColorByDirection ?? METRIC_COLOR_BY_DIRECTION_DEFAULT,
+        change,
+        increaseColor: trendsFilter?.metricLineIncreaseColor ?? METRIC_DEFAULT_INCREASE_COLOR,
+        decreaseColor: trendsFilter?.metricLineDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR,
+    })
 
     // Raw bucket keys, not display text: the sparkline positions its points off these strings, and
     // "June 16" repeats once a range spans a year. `formatMetricLabel` handles the display side.

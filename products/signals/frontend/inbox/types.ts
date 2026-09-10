@@ -371,6 +371,7 @@ export interface SignalUserAutonomyConfig {
     slack_notification_integration_id?: number | null
     slack_notification_channel?: string | null
     slack_notification_min_priority?: SignalReportPriority | null
+    github_assign_on_pull_request?: boolean
     created_at?: string
     updated_at?: string
 }

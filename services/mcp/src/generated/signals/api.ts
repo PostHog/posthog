@@ -951,6 +951,8 @@ export const SignalsScoutConfigUpdateParams = () => zod.object({
         ),
 })
 
+export const signalsScoutConfigUpdateBodyDisplayNameMax = 200
+
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMax = 43200
 
@@ -976,6 +978,11 @@ export const signalsScoutConfigUpdateBodyWriteScopesMax = 7
 
 export const SignalsScoutConfigUpdateBody = () => zod
     .object({
+        display_name: zod
+            .string()
+            .max(signalsScoutConfigUpdateBodyDisplayNameMax)
+            .optional()
+            .describe('Name shown in the UI. Does not change the skill name. Leave blank to use the default name.'),
         enabled: zod
             .boolean()
             .optional()
@@ -1113,7 +1120,7 @@ export const SignalsScoutConfigUpdateBody = () => zod
                 "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
             ),
     })
-    .describe('Editable schedule, enablement, and emit posture for one scout config.')
+    .describe('Editable display name, schedule, enablement, and emit posture for one scout config.')
 
 /**
  * Delete one scout config by its `id`, removing the per-(team, skill) schedule/emit row outright. The point is cleaning up an orphaned config whose skill was archived or deleted — it lingers in `list` with an empty `description`, never runs (the coordinator skips it and the skill can't load), but can't otherwise be removed over the API. Deletion is activity-logged. Note: auto-registration only scans live `signals-scout-*` skills, so a config deleted for one of those is back on the coordinator's next tick. A scout under any other name does not come back on its own: its config stays deleted until you re-register it, and its skill still reads as a scout meanwhile. To retire a live scout, archive its skill (or set `enabled=false` to make it inert) rather than deleting the config.

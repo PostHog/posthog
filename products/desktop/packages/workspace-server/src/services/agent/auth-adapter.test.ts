@@ -8,6 +8,7 @@ vi.mock("@posthog/agent/posthog-api", () => ({
 
 vi.stubGlobal("fetch", mockFetch);
 
+import { configureCustomCloud } from "@posthog/shared";
 import { AgentAuthAdapter } from "./auth-adapter";
 
 const baseCredentials = {
@@ -89,8 +90,6 @@ describe("AgentAuthAdapter", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    delete process.env.POSTHOG_API_KEY;
-    delete process.env.POSTHOG_AUTH_HEADER;
   });
 
   describe("getCurrentCredentials", () => {
@@ -129,6 +128,52 @@ describe("AgentAuthAdapter", () => {
         }),
       ]),
     );
+  });
+
+  it("gives a custom instance no PostHog MCP server", async () => {
+    configureCustomCloud({
+      url: "https://posthog.example.com",
+      oauthClientId: "client-id",
+    });
+    try {
+      const { servers } = await adapter.buildMcpServers({
+        ...baseCredentials,
+        apiHost: "https://posthog.example.com",
+      });
+
+      expect(deps.mcpProxy.register).not.toHaveBeenCalledWith(
+        "posthog",
+        expect.anything(),
+      );
+      expect(
+        servers.find((server) => server.name === "posthog"),
+      ).toBeUndefined();
+    } finally {
+      configureCustomCloud(null);
+    }
+  });
+
+  it("gives a loopback custom instance no default MCP port either", async () => {
+    configureCustomCloud({
+      url: "http://localhost:8020",
+      oauthClientId: "client-id",
+    });
+    try {
+      const { servers } = await adapter.buildMcpServers({
+        ...baseCredentials,
+        apiHost: "http://localhost:8020",
+      });
+
+      expect(deps.mcpProxy.register).not.toHaveBeenCalledWith(
+        "posthog",
+        "http://localhost:8787/mcp",
+      );
+      expect(
+        servers.find((server) => server.name === "posthog"),
+      ).toBeUndefined();
+    } finally {
+      configureCustomCloud(null);
+    }
   });
 
   it("identifies as the posthog-code consumer so the MCP server emits UI-app metadata", async () => {
@@ -366,8 +411,6 @@ describe("AgentAuthAdapter", () => {
       claudeCliPath: "/mock/claude-cli.js",
     });
 
-    expect(process.env.POSTHOG_API_KEY).toBe("test-access-token");
-    expect(process.env.POSTHOG_AUTH_HEADER).toBe("Bearer test-access-token");
     expect(process.env.LLM_GATEWAY_URL).toBe("http://127.0.0.1:9999");
     expect(process.env.CLAUDE_CODE_EXECUTABLE).toBe("/mock/claude-cli.js");
     expect(process.env.POSTHOG_PROJECT_ID).toBe("1");
@@ -375,23 +418,20 @@ describe("AgentAuthAdapter", () => {
     expect(process.env.PATH).toBe(pathBefore);
   });
 
-  it("does not export impersonated credentials to the process environment", async () => {
-    process.env.POSTHOG_API_KEY = "stale-token";
-    process.env.POSTHOG_AUTH_HEADER = "Bearer stale-token";
-    deps.authService.getState.mockReturnValue({
-      currentProjectId: 1,
-      sessionType: "impersonated",
-    });
+  it.each([
+    { sessionType: "impersonated" as const, expected: null },
+    { sessionType: "persistent" as const, expected: "test-access-token" },
+  ])(
+    "returns $expected as the publish token for $sessionType sessions",
+    async ({ sessionType, expected }) => {
+      deps.authService.getState.mockReturnValue({
+        currentProjectId: 1,
+        sessionType,
+      });
 
-    await adapter.configureProcessEnv({
-      credentials: baseCredentials,
-      proxyUrl: "http://127.0.0.1:9999",
-      claudeCliPath: "/mock/claude-cli.js",
-    });
-
-    expect(process.env.POSTHOG_API_KEY).toBeUndefined();
-    expect(process.env.POSTHOG_AUTH_HEADER).toBeUndefined();
-  });
+      await expect(adapter.gatewayPublishToken()).resolves.toBe(expected);
+    },
+  );
 
   it.each([
     { rtkEnabled: false, expected: "0" },

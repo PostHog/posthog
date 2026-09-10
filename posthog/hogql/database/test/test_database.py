@@ -1,8 +1,12 @@
 import io
 import json
+import time
 import pickle
+import threading
 import dataclasses
 from collections.abc import Collection
+from contextlib import suppress
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -11,7 +15,9 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from django.conf import settings
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from pydantic import BaseModel
@@ -59,6 +65,13 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2
+from posthog.hogql.database.sources_cache import (
+    SOURCES_CACHE_MAX_ENTRY_WEIGHT,
+    SOURCES_CACHE_TTL_SECONDS,
+    SourcesCacheKey,
+    clear_sources_cache,
+    get_or_fetch_sources,
+)
 from posthog.hogql.errors import ExposedHogQLError, QueryError, TableAccessDeniedError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
@@ -81,6 +94,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.revenue_analytics.backend.views import RevenueAnalyticsChargeView
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
@@ -1113,6 +1127,116 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert db.has_table("whatever_endpoint")
         assert "some_field" in db.get_table("events").fields
         assert "timestamp" in db.get_table("whatever0").fields
+
+    @staticmethod
+    def _ran_source_fetch_queries(ctx: CaptureQueriesContext) -> bool:
+        return any("datawarehouse" in query["sql"].lower() for query in ctx.captured_queries)
+
+    def test_cached_sources_warm_build_runs_no_queries(self):
+        credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="cached_table", team=self.team, columns={"id": "String"}, credential=credential, url_pattern=""
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="cached_view",
+            query={"query": "SELECT id FROM cached_table"},
+            columns={"id": "String"},
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
+
+        cold = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+        with CaptureQueriesContext(connection) as ctx:
+            warm = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+
+        # The warm build only recomputes the per-request access-control decision; it never
+        # refetches the catalog.
+        assert not self._ran_source_fetch_queries(ctx)
+        cold_serialized = cold.serialize(HogQLContext(team_id=self.team.pk, database=cold))
+        warm_serialized = warm.serialize(HogQLContext(team_id=self.team.pk, database=warm))
+        assert warm_serialized.keys() == cold_serialized.keys()
+        assert warm.has_table("cached_table")
+        assert warm.has_table("cached_view")
+
+    def test_cached_sources_shared_across_users_with_fresh_access_control(self):
+        other_user = self._create_user("other-user@posthog.com")
+        Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+
+        with CaptureQueriesContext(connection) as ctx:
+            Database.create_for(team=self.team, user=other_user, use_cached_sources=True)
+
+        assert not self._ran_source_fetch_queries(ctx)
+        # The catalog is shared, but the second user's access-control decision is computed
+        # fresh rather than reused from the user who warmed the cache.
+        assert any("organizationmembership" in query["sql"].lower() for query in ctx.captured_queries)
+
+    def test_sources_not_cached_by_default(self):
+        Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+
+        with CaptureQueriesContext(connection) as ctx:
+            Database.create_for(team=self.team, user=self.user)
+
+        assert self._ran_source_fetch_queries(ctx)
+
+    def test_cached_sources_bypassed_for_synthetic_users(self):
+        Database.create_for(team=self.team, user=SyntheticUser(self.team, "synthetic-1"), use_cached_sources=True)
+
+        with CaptureQueriesContext(connection) as ctx:
+            Database.create_for(team=self.team, user=SyntheticUser(self.team, "synthetic-2"), use_cached_sources=True)
+
+        assert self._ran_source_fetch_queries(ctx)
+
+    def test_cached_revenue_views_do_not_leak_expression_fields_between_users(self):
+        other_user = self._create_user("no-expression-access@posthog.com")
+        with team_scope(self.team.id, canonical=True):
+            DataWarehouseExpression.objects.create(
+                team=self.team, table_name="stub_revenue_view", field_name="secret_expr", expression="1 + 1"
+            )
+        stub_view = RevenueAnalyticsChargeView(
+            id="stub-view",
+            name="stub_revenue_view",
+            query="SELECT 'x' AS id",
+            fields={"id": StringDatabaseField(name="id")},
+            prefix="stub",
+        )
+
+        with (
+            patch(
+                "posthog.hogql.database.database.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: key == "hogql-warehouse-access-control",
+            ),
+            patch(
+                "products.revenue_analytics.backend.views.orchestrator.build_all_revenue_analytics_views",
+                return_value=[stub_view],
+            ),
+            patch.object(Database, "_is_warehouse_expression_denied", side_effect=[False, True]),
+        ):
+            allowed = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+            denied = Database.create_for(team=self.team, user=other_user, use_cached_sources=True)
+
+        assert allowed.get_table("stub_revenue_view") is not denied.get_table("stub_revenue_view")
+        assert "secret_expr" in allowed.get_table("stub_revenue_view").fields
+        assert "secret_expr" not in denied.get_table("stub_revenue_view").fields
+
+    def test_cached_sources_expire_and_pick_up_new_views(self):
+        Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="view_created_after_warm",
+            query={"query": "SELECT event FROM events"},
+            columns={"event": "String"},
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
+
+        within_ttl = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+        assert not within_ttl.has_table("view_created_after_warm")
+
+        with patch(
+            "posthog.hogql.database.sources_cache._time_source",
+            new=lambda: time.monotonic() + SOURCES_CACHE_TTL_SECONDS + 1,
+        ):
+            after_ttl = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+        assert after_ttl.has_table("view_created_after_warm")
 
     def test_materialized_backing_filter_keeps_source_tables_but_hides_backing_tables(self):
         credential = DataWarehouseCredential.objects.create(
@@ -4257,6 +4381,103 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             database = Database.create_for(team=self.team, user=self.user)
 
         assert ("system.activity_logs" in database.get_system_table_names()) is expected_visible
+
+
+class TestSourcesCacheConcurrency(TestCase):
+    def setUp(self):
+        clear_sources_cache()
+
+    def tearDown(self):
+        clear_sources_cache()
+
+    @staticmethod
+    def _stub_sources(row_count: int = 0) -> Any:
+        return SimpleNamespace(
+            group_types=[],
+            saved_queries=[],
+            endpoint_saved_queries=[],
+            revenue_views=[],
+            warehouse_tables=[object()] * row_count,
+            data_warehouse_joins=[],
+            data_warehouse_expressions=[],
+            event_modifier_saved_queries={},
+            virtual_schemas=[],
+        )
+
+    def test_concurrent_misses_for_one_key_fetch_once(self):
+        key = SourcesCacheKey(
+            team_id=1, connection_id=None, modifiers_fingerprint="fp", bypass_warehouse_access_control=False
+        )
+        stub = self._stub_sources()
+        fetch_count = 0
+        fetch_entered = threading.Event()
+        fetch_release = threading.Event()
+
+        def fetch() -> Any:
+            nonlocal fetch_count
+            fetch_count += 1
+            fetch_entered.set()
+            assert fetch_release.wait(timeout=5)
+            return stub
+
+        results: list[Any] = []
+        threads = [threading.Thread(target=lambda: results.append(get_or_fetch_sources(key, fetch))) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        assert fetch_entered.wait(timeout=5)
+        fetch_release.set()
+        for thread in threads:
+            thread.join(timeout=5)
+
+        assert fetch_count == 1
+        assert results == [stub, stub]
+
+    def test_waiters_wake_and_retry_when_the_owner_fetch_raises(self):
+        key = SourcesCacheKey(
+            team_id=1, connection_id=None, modifiers_fingerprint="fp", bypass_warehouse_access_control=False
+        )
+        stub = self._stub_sources()
+        owner_entered = threading.Event()
+        owner_release = threading.Event()
+
+        def failing_fetch() -> Any:
+            owner_entered.set()
+            assert owner_release.wait(timeout=5)
+            raise RuntimeError("fetch failed")
+
+        def owner() -> None:
+            with suppress(RuntimeError):
+                get_or_fetch_sources(key, failing_fetch)
+
+        results: list[Any] = []
+        owner_thread = threading.Thread(target=owner)
+        waiter_thread = threading.Thread(target=lambda: results.append(get_or_fetch_sources(key, lambda: stub)))
+        owner_thread.start()
+        assert owner_entered.wait(timeout=5)
+        waiter_thread.start()
+        owner_release.set()
+        owner_thread.join(timeout=5)
+        waiter_thread.join(timeout=5)
+
+        assert not waiter_thread.is_alive()
+        assert results == [stub]
+
+    def test_oversized_sources_are_returned_but_not_cached(self):
+        key = SourcesCacheKey(
+            team_id=1, connection_id=None, modifiers_fingerprint="fp", bypass_warehouse_access_control=False
+        )
+        fetch_count = 0
+
+        def fetch() -> Any:
+            nonlocal fetch_count
+            fetch_count += 1
+            return self._stub_sources(row_count=SOURCES_CACHE_MAX_ENTRY_WEIGHT + 1)
+
+        first = get_or_fetch_sources(key, fetch)
+        second = get_or_fetch_sources(key, fetch)
+
+        assert fetch_count == 2
+        assert first is not None and second is not None
 
 
 class TestCreateForPosthogTables(BaseTest):
