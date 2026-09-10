@@ -75,7 +75,14 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
 async def _make_job(
-    ateam, saved_query, status, *, engine=DataModelingJobEngine.CLICKHOUSE, error=None, parent_workflow_id=None
+    ateam,
+    saved_query,
+    status,
+    *,
+    engine=DataModelingJobEngine.CLICKHOUSE,
+    error=None,
+    parent_workflow_id=None,
+    created_by=None,
 ):
     return await database_sync_to_async(DataModelingJob.objects.create)(
         team=ateam,
@@ -84,6 +91,7 @@ async def _make_job(
         engine=engine,
         error=error,
         parent_workflow_id=parent_workflow_id,
+        created_by=created_by,
     )
 
 
@@ -201,23 +209,26 @@ class TestFailMaterializationActivity:
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
 
     @pytest.mark.parametrize(
-        "previous_status,parent_workflow_id,expect_email,expect_in_app",
+        "previous_status,parent_workflow_id,with_runner,expect_email,expect_in_app",
         [
-            (None, None, True, True),
-            (DataModelingJob.Status.COMPLETED, None, True, True),
-            (DataModelingJob.Status.FAILED, None, False, True),
-            (DataModelingJob.Status.FAILED, "execute-dag-workflow", False, False),
+            (None, None, True, True, True),
+            (DataModelingJob.Status.COMPLETED, None, True, True, True),
+            (DataModelingJob.Status.FAILED, None, True, False, True),
+            (DataModelingJob.Status.FAILED, None, False, False, True),
+            (DataModelingJob.Status.FAILED, "execute-dag-workflow", True, False, False),
         ],
     )
     async def test_emails_at_streak_start_and_notifies_in_app_on_every_manual_run(
         self,
         activity_environment,
         ateam,
+        auser,
         anode,
         asaved_query,
         adag,
         previous_status,
         parent_workflow_id,
+        with_runner,
         expect_email,
         expect_in_app,
     ):
@@ -225,7 +236,11 @@ class TestFailMaterializationActivity:
             error = "boom" if previous_status == DataModelingJob.Status.FAILED else None
             await _make_job(ateam, asaved_query, previous_status, error=error)
         current_job = await _make_job(
-            ateam, asaved_query, DataModelingJob.Status.RUNNING, parent_workflow_id=parent_workflow_id
+            ateam,
+            asaved_query,
+            DataModelingJob.Status.RUNNING,
+            parent_workflow_id=parent_workflow_id,
+            created_by=auser if with_runner else None,
         )
 
         inputs = FailMaterializationInputs(
@@ -250,9 +265,15 @@ class TestFailMaterializationActivity:
             mock_create.assert_called_once()
             data = mock_create.call_args.args[0]
             assert data.notification_type == NotificationType.MATERIALIZATION_FAILURE
-            assert data.priority == Priority.CRITICAL
-            assert data.target_id == str(ateam.pk)
             assert data.resource_id == str(asaved_query.id)
+            if with_runner:
+                assert data.target_type == TargetType.USER
+                assert data.target_id == str(auser.pk)
+                assert data.priority == Priority.CRITICAL
+            else:
+                assert data.target_type == TargetType.TEAM
+                assert data.target_id == str(ateam.pk)
+                assert data.priority == Priority.NORMAL
         else:
             mock_create.assert_not_called()
 

@@ -131,7 +131,7 @@ class _PrecomputedViewers(RecipientsResolver):
 def maybe_notify_materialization_failure(
     job: DataModelingJob, saved_query: DataWarehouseSavedQuery, team_id: int
 ) -> bool:
-    """Email on the first failure of a streak; a run started by hand also notifies in-app every time."""
+    """Email on the first failure of a streak; a run started by hand notifies its runner every time."""
     # An idempotent retry can land here with a job another path already completed or cancelled.
     if job.status != DataModelingJobStatus.FAILED:
         return False
@@ -147,15 +147,18 @@ def maybe_notify_materialization_failure(
 
     # A run with no parent was started by hand, usually to check a fix, and the person who started
     # it may have moved on. Silence mid-streak would read as success, so every failure is told.
+    runner_id = job.created_by_id
     create_notification(
         _failure_notification(
             team_id=team_id,
             views=[_FailedView(job=job, saved_query=saved_query)],
             resolver=_SavedQueryViewers(saved_query),
             source_id=str(job.id),
-            # Someone asked for this run and is waiting on its result, so it outranks the
-            # scheduled failures a person did not ask for.
-            priority=Priority.CRITICAL,
+            recipient_id=runner_id,
+            # A critical notification also raises a toast that does not close on its own, which is
+            # right for the person waiting on this run. An unattributed run has no such person and
+            # reaches everyone with access, so it stays at the volume of a scheduled failure.
+            priority=Priority.CRITICAL if runner_id else Priority.NORMAL,
         )
     )
     return True
@@ -192,6 +195,7 @@ def _failure_notification(
     views: list[_FailedView],
     resolver: RecipientsResolver,
     source_id: str,
+    recipient_id: int | None = None,
     priority: Priority = Priority.NORMAL,
 ) -> NotificationData:
     title, body = _failure_copy(views)
@@ -204,8 +208,8 @@ def _failure_notification(
         priority=priority,
         title=title[:255],
         body=body[:400],
-        target_type=TargetType.TEAM,
-        target_id=str(team_id),
+        target_type=TargetType.USER if recipient_id else TargetType.TEAM,
+        target_id=str(recipient_id) if recipient_id else str(team_id),
         # "warehouse_objects" (not "warehouse_view") is the AC resource — anything else
         # silently skips the access-control filter in create_notification
         resource_type="warehouse_objects",
