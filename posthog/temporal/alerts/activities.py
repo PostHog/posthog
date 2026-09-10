@@ -1,5 +1,6 @@
 import traceback
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
@@ -267,18 +268,25 @@ def _write_errored_alert_check(alert: AlertConfiguration, error: dict) -> tuple[
 
 
 def _evaluation_inputs(alert: AlertConfiguration) -> dict[str, object]:
-    return {
-        "insight_id": alert.insight_id,
-        "insight_query": alert.insight.query,
-        "condition": alert.condition,
-        "config": alert.config,
-        "threshold_id": alert.threshold_id,
-        "threshold_configuration": alert.threshold.configuration if alert.threshold else None,
-        "calculation_interval": alert.calculation_interval,
-        "detector_config": alert.detector_config,
-        "forecast_config": alert.forecast_config,
-        "project_timezone": alert.team.timezone,
-    }
+    # Deep-copied because the evaluation upgrades the insight query in place: upgrade_insight
+    # replaces the source node of a wrapper query (InsightVizNode and friends) inside the same dict
+    # that this snapshot would otherwise reference. The snapshot would then change together with
+    # the object it must be compared against, and the comparison against the reloaded alert would
+    # report a user edit that did not happen.
+    return deepcopy(
+        {
+            "insight_id": alert.insight_id,
+            "insight_query": alert.insight.query,
+            "condition": alert.condition,
+            "config": alert.config,
+            "threshold_id": alert.threshold_id,
+            "threshold_configuration": alert.threshold.configuration if alert.threshold else None,
+            "calculation_interval": alert.calculation_interval,
+            "detector_config": alert.detector_config,
+            "forecast_config": alert.forecast_config,
+            "project_timezone": alert.team.timezone,
+        }
+    )
 
 
 def _discarded_evaluation(alert: AlertConfiguration, evaluated_inputs: dict[str, object]) -> EvaluateAlertResult | None:

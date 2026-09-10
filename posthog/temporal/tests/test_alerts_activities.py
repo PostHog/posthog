@@ -29,6 +29,7 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
 )
 from posthog.models import Team, User
+from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.slo.types import SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import (
     AlertEvaluationResult,
@@ -567,6 +568,31 @@ class TestEvaluateAlert:
         assert refreshed.next_check_at is None
         count = await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).count)()
         assert count == 0
+
+    async def test_evaluate_keeps_a_result_when_the_query_schema_was_upgraded_in_place(self, ateam) -> None:
+        alert = await _create_alert(
+            ateam,
+            query={"kind": "InsightVizNode", "source": {**_valid_trends_query(), "version": 1}},
+        )
+
+        def upgrade_during_evaluation(evaluated_alert: AlertConfiguration) -> AlertEvaluationResult:
+            with upgrade_insight(evaluated_alert.insight):
+                pass
+            return AlertEvaluationResult(value=100.0, breaches=["value above threshold"])
+
+        with patch(
+            "posthog.temporal.alerts.activities.check_alert_for_insight",
+            side_effect=upgrade_during_evaluation,
+        ):
+            result = await ActivityEnvironment().run(
+                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id))
+            )
+
+        assert result.alert_check_id is not None
+        assert result.new_state == AlertState.FIRING
+        assert result.should_notify is True
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert.id)
+        assert refreshed.next_check_at is not None
 
     async def test_inconclusive_forecast_preserves_firing_state_without_notification(self, alert) -> None:
         alert.state = AlertState.FIRING
