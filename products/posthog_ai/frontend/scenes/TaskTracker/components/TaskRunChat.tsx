@@ -195,6 +195,7 @@ function LiveComposer({
         queuedMessages,
         isTerminal,
         selectedModel,
+        defaultModel,
         selectedEffort,
         consentBlocked,
         selectedMode,
@@ -278,6 +279,7 @@ function LiveComposer({
                         <ComposerModelEffortPickers
                             models={catalogue}
                             selectedModel={selectedModel}
+                            defaultModel={defaultModel}
                             selectedEffort={selectedEffort}
                             onModelChange={setModel}
                             onEffortChange={setEffort}

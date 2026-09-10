@@ -44,6 +44,33 @@ describe('ComposerModelEffortPickers', () => {
         cleanup()
     })
 
+    it.each([
+        [undefined, 'gpt-5.6-sol'],
+        ['gpt-5.6-luna', 'gpt-5.6-luna'],
+    ])('uses the default model %s when switching to Codex', async (defaultModel, expectedModel) => {
+        const onModelChange = jest.fn()
+        renderPickers({
+            selectedModel: 'claude-sonnet-5',
+            selectedEffort: ReasoningEffortEnumApi.Low,
+            defaultModel,
+            onModelChange,
+            models: [
+                ...CATALOGUE,
+                ...['gpt-5.6-luna', 'gpt-5.6-sol'].map((model) => ({
+                    runtime_adapter: RuntimeAdapterEnumApi.Codex,
+                    model,
+                    display_name: model,
+                    supported_efforts: [ReasoningEffortEnumApi.High],
+                })),
+            ],
+        })
+
+        fireEvent.click(screen.getByText('Harness'))
+        fireEvent.click(await screen.findByText('Codex'))
+
+        expect(onModelChange).toHaveBeenCalledWith(expectedModel)
+    })
+
     it('offers no way to change the default on a surface that has none to change', () => {
         renderPickers()
 

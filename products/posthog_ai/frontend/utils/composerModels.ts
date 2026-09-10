@@ -79,6 +79,22 @@ export function modelsForRuntimeAdapter(
     return catalogue.filter((option) => option.runtime_adapter === runtimeAdapter)
 }
 
+export function getDefaultModelForRuntimeAdapter(
+    catalogue: ModelChoiceApi[],
+    runtimeAdapter: RuntimeAdapterEnumApi,
+    configuredModel?: string | null
+): string | undefined {
+    const models = modelsForRuntimeAdapter(catalogue, runtimeAdapter)
+    const preferredModel = configuredModel ? normalizeModelId(configuredModel) : null
+    return (
+        models.find((option) => option.model === preferredModel)?.model ??
+        (runtimeAdapter === RuntimeAdapterEnumApi.Codex
+            ? models.find((option) => option.model === 'gpt-5.6-sol')?.model
+            : undefined) ??
+        models[0]?.model
+    )
+}
+
 /** One stop on the Faster/Smarter slider: a model paired with the effort it runs at. */
 export interface CapabilityNotch {
     model: string

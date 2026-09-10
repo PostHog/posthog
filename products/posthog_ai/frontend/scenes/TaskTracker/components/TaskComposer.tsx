@@ -39,6 +39,7 @@ export function TaskComposer(): JSX.Element {
         displayHeadline,
         consentBlocked,
         displayModel,
+        defaultModel,
         displayEffort,
         isDefaultSelection,
         // Permission modes belong to the harness, so they follow the model actually shown — the
@@ -117,6 +118,7 @@ export function TaskComposer(): JSX.Element {
                                     <ComposerModelEffortPickers
                                         models={catalogue}
                                         selectedModel={displayModel}
+                                        defaultModel={defaultModel}
                                         selectedEffort={displayEffort}
                                         isDefaultSelection={isDefaultSelection}
                                         onModelChange={(model) =>
