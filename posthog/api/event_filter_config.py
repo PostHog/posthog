@@ -21,6 +21,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.event_filter_config import (
     EventFilterConfig,
+    EventFilterMode,
     run_test_cases,
     validate_filter_tree,
     validate_test_cases,
@@ -62,7 +63,10 @@ class EventFilterConfigSerializer(serializers.ModelSerializer):
     def validate(self, attrs: dict) -> dict:
         filter_tree = attrs.get("filter_tree", self.instance.filter_tree if self.instance else None)
         test_cases = attrs.get("test_cases", self.instance.test_cases if self.instance else None)
-        if filter_tree and test_cases:
+        mode = attrs.get("mode", self.instance.mode if self.instance else EventFilterMode.DISABLED)
+        # Only a live filter must pass its tests. A disabled or dry run filter drops no events,
+        # so the user can save a filter that still has failing tests and keep working on it.
+        if mode == EventFilterMode.LIVE and filter_tree and test_cases:
             failures = run_test_cases(filter_tree, test_cases)
             if failures:
                 raise ValidationError({"test_cases": failures})

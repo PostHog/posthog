@@ -168,7 +168,9 @@ export function EventFilterScene(): JSX.Element {
                                       : 'No events are being filtered or counted.'}
                             </div>
                             {filterForm.mode === 'live' && !allTestsPass && filterForm.test_cases.length > 0 && (
-                                <div className="text-danger text-xs mt-1">Tests failing — will be saved as dry run</div>
+                                <div className="text-danger text-xs mt-1">
+                                    Tests are failing, so this will be saved as dry run.
+                                </div>
                             )}
                         </div>
                         <LemonSegmentedButton
@@ -260,8 +262,8 @@ export function EventFilterScene(): JSX.Element {
 
                     {!allTestsPass && filterForm.mode === 'live' && (
                         <LemonBanner type="warning">
-                            Some test cases are failing. The filter cannot go live until all tests pass. You can save
-                            with tests failing, but the filter will be saved in dry run mode.
+                            Some test cases are failing. The filter cannot go live until all tests pass. Save now to
+                            keep your work, and the filter is saved in dry run mode.
                         </LemonBanner>
                     )}
 
