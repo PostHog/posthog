@@ -1,4 +1,5 @@
 import json
+import hashlib
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -60,7 +61,7 @@ class TestSupportSlackEventsAPI(BaseTest):
 
         assert response.status_code == 403
 
-    @patch("products.conversations.backend.api.slack_events.process_supporthog_event")
+    @patch("products.conversations.backend.api.slack_events.process_supporthog_event_receipt")
     @patch("products.conversations.backend.api.slack_events.validate_support_request")
     def test_slack_retry_is_recorded_and_processed(self, mock_validate: MagicMock, mock_process: MagicMock):
         # Slack retries used to be discarded, so a timeout after Postgres accepted the
@@ -106,7 +107,7 @@ class TestSupportSlackEventsAPI(BaseTest):
         assert response.status_code == 200
         assert response.json() == {"challenge": "challenge123"}
 
-    @patch("products.conversations.backend.api.slack_events.process_supporthog_event")
+    @patch("products.conversations.backend.api.slack_events.process_supporthog_event_receipt")
     @patch("products.conversations.backend.api.slack_events.validate_support_request")
     def test_event_callback_enqueues_processing(self, mock_validate: MagicMock, mock_process: MagicMock):
         mock_validate.return_value = None
@@ -127,7 +128,7 @@ class TestSupportSlackEventsAPI(BaseTest):
         inbound_event_id = str(self._event_row().id)
         mock_process.delay.assert_called_with(inbound_event_id=inbound_event_id)
 
-    @patch("products.conversations.backend.api.slack_events.process_supporthog_event")
+    @patch("products.conversations.backend.api.slack_events.process_supporthog_event_receipt")
     @patch("products.conversations.backend.api.slack_events.validate_support_request")
     def test_event_callback_routes_to_handler(self, mock_validate: MagicMock, mock_process: MagicMock):
         mock_validate.return_value = None
@@ -144,7 +145,7 @@ class TestSupportSlackEventsAPI(BaseTest):
         assert response.status_code == 202
         mock_process.delay.assert_called_once()
 
-    @patch("products.conversations.backend.api.slack_events.process_supporthog_event")
+    @patch("products.conversations.backend.api.slack_events.process_supporthog_event_receipt")
     @patch("products.conversations.backend.api.slack_events.validate_support_request")
     def test_broker_failure_after_commit_still_acknowledges(self, mock_validate: MagicMock, mock_process: MagicMock):
         # Celery is a hint. A broker outage after the receipt commits must still 2xx so
@@ -165,7 +166,7 @@ class TestSupportSlackEventsAPI(BaseTest):
         assert row.status == ConversationInboundEvent.Status.PENDING
         assert row.source_id == "Ev_broker"
 
-    @patch("products.conversations.backend.api.slack_events.process_supporthog_event")
+    @patch("products.conversations.backend.api.slack_events.process_supporthog_event_receipt")
     @patch("products.conversations.backend.api.slack_events.validate_support_request")
     def test_oversized_payload_is_tombstoned_and_acknowledged(self, mock_validate: MagicMock, mock_process: MagicMock):
         mock_validate.return_value = None
@@ -186,7 +187,7 @@ class TestSupportSlackEventsAPI(BaseTest):
         assert row.last_error_code == "payload_too_large"
 
     @patch("products.conversations.backend.api.slack_events.proxy_to_secondary_region")
-    @patch("products.conversations.backend.api.slack_events.process_supporthog_event")
+    @patch("products.conversations.backend.api.slack_events.process_supporthog_event_receipt")
     @patch("products.conversations.backend.api.slack_events.validate_support_request")
     def test_proxies_to_secondary_when_team_not_found_on_primary(
         self, mock_validate: MagicMock, mock_process: MagicMock, mock_proxy: MagicMock
@@ -210,7 +211,7 @@ class TestSupportSlackEventsAPI(BaseTest):
         assert not ConversationInboundEvent.objects.unscoped().filter(source_id="Ev_proxy").exists()
 
     @patch("products.conversations.backend.api.slack_events.proxy_to_secondary_region")
-    @patch("products.conversations.backend.api.slack_events.process_supporthog_event")
+    @patch("products.conversations.backend.api.slack_events.process_supporthog_event_receipt")
     @patch("products.conversations.backend.api.slack_events.validate_support_request")
     def test_returns_502_when_event_proxy_to_secondary_fails(
         self, mock_validate: MagicMock, mock_process: MagicMock, mock_proxy: MagicMock
@@ -232,7 +233,7 @@ class TestSupportSlackEventsAPI(BaseTest):
         mock_process.delay.assert_not_called()
 
     @patch("products.conversations.backend.api.slack_events.proxy_to_secondary_region")
-    @patch("products.conversations.backend.api.slack_events.process_supporthog_event")
+    @patch("products.conversations.backend.api.slack_events.process_supporthog_event_receipt")
     @patch("products.conversations.backend.api.slack_events.validate_support_request")
     def test_drops_event_when_team_not_found_on_secondary(
         self, mock_validate: MagicMock, mock_process: MagicMock, mock_proxy: MagicMock
@@ -309,7 +310,7 @@ class TestSupportSlackInteractivityAPI(BaseTest):
 
         assert response.status_code == 400
 
-    @patch("products.conversations.backend.api.slack_interactivity.process_supporthog_interactivity")
+    @patch("products.conversations.backend.api.slack_interactivity.process_supporthog_interactivity_receipt")
     @patch("products.conversations.backend.api.slack_interactivity.validate_support_request")
     def test_missing_team_id_returns_200_without_processing(self, mock_validate: MagicMock, mock_process: MagicMock):
         mock_validate.return_value = None
@@ -319,7 +320,7 @@ class TestSupportSlackInteractivityAPI(BaseTest):
         assert response.status_code == 200
         mock_process.delay.assert_not_called()
 
-    @patch("products.conversations.backend.api.slack_interactivity.process_supporthog_interactivity")
+    @patch("products.conversations.backend.api.slack_interactivity.process_supporthog_interactivity_receipt")
     @patch("products.conversations.backend.api.slack_interactivity.validate_support_request")
     def test_block_actions_enqueues_processing(self, mock_validate: MagicMock, mock_process: MagicMock):
         mock_validate.return_value = None
@@ -343,8 +344,26 @@ class TestSupportSlackInteractivityAPI(BaseTest):
         mock_process.delay.assert_called_with(inbound_event_id=str(row.id))
         assert mock_process.delay.call_count == 2
 
+    @patch("products.conversations.backend.api.slack_interactivity.process_supporthog_interactivity_receipt")
+    @patch("products.conversations.backend.api.slack_interactivity.validate_support_request")
+    def test_block_actions_without_trigger_id_still_persists(self, mock_validate: MagicMock, mock_process: MagicMock):
+        mock_validate.return_value = None
+        payload = {
+            "type": "block_actions",
+            "team": {"id": "T123"},
+            "actions": [{"action_id": "open"}],
+        }
+
+        response = self._post_committed(payload)
+
+        assert response.status_code == 200
+        row = ConversationInboundEvent.objects.for_team(self.team.id).get()
+        signed_body = urlencode({"payload": json.dumps(payload)}).encode()
+        assert row.source_id == hashlib.sha256(signed_body).hexdigest()
+        mock_process.delay.assert_called_once_with(inbound_event_id=str(row.id))
+
     @patch("products.conversations.backend.api.slack_interactivity.proxy_to_secondary_region")
-    @patch("products.conversations.backend.api.slack_interactivity.process_supporthog_interactivity")
+    @patch("products.conversations.backend.api.slack_interactivity.process_supporthog_interactivity_receipt")
     @patch("products.conversations.backend.api.slack_interactivity.validate_support_request")
     def test_proxies_to_secondary_when_team_not_found_on_primary(
         self, mock_validate: MagicMock, mock_process: MagicMock, mock_proxy: MagicMock
@@ -360,7 +379,7 @@ class TestSupportSlackInteractivityAPI(BaseTest):
         mock_proxy.assert_called_once()
 
     @patch("products.conversations.backend.api.slack_interactivity.proxy_to_secondary_region")
-    @patch("products.conversations.backend.api.slack_interactivity.process_supporthog_interactivity")
+    @patch("products.conversations.backend.api.slack_interactivity.process_supporthog_interactivity_receipt")
     @patch("products.conversations.backend.api.slack_interactivity.validate_support_request")
     def test_returns_502_when_proxy_to_secondary_fails(
         self, mock_validate: MagicMock, mock_process: MagicMock, mock_proxy: MagicMock
@@ -377,7 +396,7 @@ class TestSupportSlackInteractivityAPI(BaseTest):
         mock_process.delay.assert_not_called()
 
     @patch("products.conversations.backend.api.slack_interactivity.proxy_to_secondary_region")
-    @patch("products.conversations.backend.api.slack_interactivity.process_supporthog_interactivity")
+    @patch("products.conversations.backend.api.slack_interactivity.process_supporthog_interactivity_receipt")
     @patch("products.conversations.backend.api.slack_interactivity.validate_support_request")
     def test_drops_click_when_team_not_found_on_secondary(
         self, mock_validate: MagicMock, mock_process: MagicMock, mock_proxy: MagicMock

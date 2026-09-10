@@ -8,7 +8,7 @@ from typing import Any
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Case, DateTimeField, F, Q, QuerySet, When
 from django.http import HttpRequest
 from django.utils import timezone
 
@@ -40,7 +40,7 @@ INBOUND_MAX_ATTEMPTS = 10
 INBOUND_BACKOFF_BASE_SECONDS = 2
 INBOUND_BACKOFF_MAX_SECONDS = 60
 INBOUND_SWEEP_BATCH_SIZE = 100
-# pinned: analytics event name — renaming breaks historical ClickHouse queries
+# pinned: analytics event name. Renaming breaks historical ClickHouse queries.
 INBOUND_SWEEP_EVENT = "conversations_inbound_sweep"
 
 
@@ -106,7 +106,7 @@ def _safe_wake(wake: Callable[[ConversationInboundEvent], None], row: Conversati
 
 def _should_wake(row: ConversationInboundEvent, *, now: datetime) -> bool:
     if row.status == ConversationInboundEvent.Status.PENDING:
-        return True
+        return row.due_at <= now
     return (
         row.status == ConversationInboundEvent.Status.PROCESSING
         and row.lease_expires_at is not None
@@ -157,8 +157,12 @@ def persist_inbound_event(
                 source_id=source_id,
                 **defaults,
             )
-    except IntegrityError:
-        row = ConversationInboundEvent.objects.for_team(team.id).get(source=source, source_id=source_id)
+    except IntegrityError as exc:
+        try:
+            row = ConversationInboundEvent.objects.for_team(team.id).get(source=source, source_id=source_id)
+        except ConversationInboundEvent.DoesNotExist:
+            # Unique conflict is the only IntegrityError that leaves a row to replay.
+            raise exc from None
         ConversationInboundEvent.objects.for_team(team.id).filter(id=row.id).update(
             provider_retry_num=provider_retry_num,
             provider_retry_reason=provider_retry_reason,
@@ -179,7 +183,6 @@ def accept_inbound_event(
     provider_retry_reason: str,
     wake: Callable[[ConversationInboundEvent], None],
 ) -> ConversationInboundEvent:
-    now = timezone.now()
     with transaction.atomic():
         row = persist_inbound_event(
             team=team,
@@ -190,7 +193,7 @@ def accept_inbound_event(
             provider_retry_num=provider_retry_num,
             provider_retry_reason=provider_retry_reason,
         )
-        if _should_wake(row, now=now):
+        if _should_wake(row, now=timezone.now()):
             transaction.on_commit(lambda: _safe_wake(wake, row))
     return row
 
@@ -227,10 +230,13 @@ def claim_inbound_event(inbound_event_id: str) -> InboundClaim | None:
     )
 
 
-def _fenced(claim: InboundClaim) -> Any:
+def _fenced(claim: InboundClaim) -> QuerySet[ConversationInboundEvent]:
+    # Retry leaves the same fencing token on a PENDING row. Status must still be
+    # PROCESSING so a later complete or fail cannot settle work that was released.
     return ConversationInboundEvent.objects.unscoped().filter(
         id=claim.event.id,
         fencing_token=claim.event.fencing_token,
+        status=ConversationInboundEvent.Status.PROCESSING,
     )
 
 
@@ -281,16 +287,28 @@ def schedule_inbound_retry(claim: InboundClaim, *, error_code: str, error: str) 
     return delay
 
 
-def due_inbound_event_ids(*, limit: int, now: datetime) -> list[tuple[UUID, str]]:
-    return list(
+def _ready_inbound_events(*, now: datetime) -> QuerySet[ConversationInboundEvent]:
+    return (
         ConversationInboundEvent.objects.unscoped()
         .filter(
             Q(status=ConversationInboundEvent.Status.PENDING, due_at__lte=now)
             | Q(status=ConversationInboundEvent.Status.PROCESSING, lease_expires_at__lte=now)
         )
-        .order_by("due_at")
-        .values_list("id", "source")[:limit]
+        .annotate(
+            ready_at=Case(
+                When(
+                    status=ConversationInboundEvent.Status.PROCESSING,
+                    then=F("lease_expires_at"),
+                ),
+                default=F("due_at"),
+                output_field=DateTimeField(),
+            )
+        )
     )
+
+
+def due_inbound_event_ids(*, limit: int, now: datetime) -> list[tuple[UUID, str]]:
+    return list(_ready_inbound_events(now=now).order_by("ready_at").values_list("id", "source")[:limit])
 
 
 def cleanup_inbound_payloads(now: datetime) -> int:
@@ -325,16 +343,7 @@ def record_inbound_queue_metrics(now: datetime) -> float:
         for status in (ConversationInboundEvent.Status.PENDING, ConversationInboundEvent.Status.PROCESSING):
             count = ConversationInboundEvent.objects.unscoped().filter(source=source, status=status).count()
             INBOUND_BACKLOG.labels(status=status, source=source).set(count)
-    oldest = (
-        ConversationInboundEvent.objects.unscoped()
-        .filter(
-            Q(status=ConversationInboundEvent.Status.PENDING, due_at__lte=now)
-            | Q(status=ConversationInboundEvent.Status.PROCESSING, lease_expires_at__lte=now)
-        )
-        .order_by("due_at")
-        .values_list("due_at", flat=True)
-        .first()
-    )
+    oldest = _ready_inbound_events(now=now).order_by("ready_at").values_list("ready_at", flat=True).first()
     if oldest is not None:
         oldest_age = max((now - oldest).total_seconds(), 0.0)
     INBOUND_OLDEST_READY_AGE_SECONDS.set(oldest_age)

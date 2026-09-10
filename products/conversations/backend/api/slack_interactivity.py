@@ -25,13 +25,13 @@ from products.conversations.backend.services.inbound_events import (
 )
 from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
 from products.conversations.backend.support_slack import team_for_slack_workspace, validate_support_request
-from products.conversations.backend.tasks.slack import process_supporthog_interactivity
+from products.conversations.backend.tasks.slack import process_supporthog_interactivity_receipt
 
 logger = structlog.get_logger(__name__)
 
 
 def _wake_slack_interactivity(row: ConversationInboundEvent) -> None:
-    cast(Any, process_supporthog_interactivity).delay(inbound_event_id=str(row.id))
+    cast(Any, process_supporthog_interactivity_receipt).delay(inbound_event_id=str(row.id))
 
 
 @csrf_exempt
@@ -52,14 +52,17 @@ def supporthog_interactivity_handler(request: HttpRequest) -> HttpResponse:
         logger.warning("supporthog_interactivity_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)
 
+    signed_body = request.body
+    raw_payload = request.POST.get("payload", "{}")
     try:
-        payload = json.loads(request.POST.get("payload", "{}"))
+        payload = json.loads(raw_payload)
     except (json.JSONDecodeError, TypeError):
         return HttpResponse("Invalid JSON", status=400)
     if not isinstance(payload, dict):
         return HttpResponse("Invalid payload", status=400)
 
-    slack_team_id = (payload.get("team") or {}).get("id", "")
+    slack_team = payload.get("team")
+    slack_team_id = slack_team.get("id", "") if isinstance(slack_team, dict) else ""
     if not slack_team_id:
         return HttpResponse(status=200)
 
@@ -76,7 +79,10 @@ def supporthog_interactivity_handler(request: HttpRequest) -> HttpResponse:
         accept_inbound_event(
             team=team,
             source=ConversationInboundEventSource.SLACK_INTERACTIVITY,
-            source_id=slack_interactivity_source_id(payload=payload, signed_body=request.body),
+            source_id=slack_interactivity_source_id(
+                payload=payload,
+                signed_body=signed_body,
+            ),
             provider_account_id=slack_team_id,
             payload=payload,
             provider_retry_num=retry_num,

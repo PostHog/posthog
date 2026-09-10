@@ -67,12 +67,21 @@ from ..support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, supporthog_miss
 logger = structlog.get_logger(__name__)
 
 
-def _slack_config_for_workspace(slack_team_id: str) -> TeamConversationsSlackConfig | None:
-    return (
-        TeamConversationsSlackConfig.objects.filter(slack_team_id=slack_team_id, slack_bot_token__isnull=False)
+def _slack_config_for_workspace(
+    slack_team_id: str, *, receipt_team_id: int | None = None
+) -> TeamConversationsSlackConfig | None:
+    config = (
+        TeamConversationsSlackConfig.objects.filter(
+            slack_team_id=slack_team_id,
+            slack_bot_token__isnull=False,
+        )
         .select_related("team")
         .first()
     )
+    if config is None or receipt_team_id is None:
+        return config
+    config_root_team_id = config.team.parent_team_id or config.team_id
+    return config if config_root_team_id == receipt_team_id else None
 
 
 def _handle_supporthog_event(event: dict[str, Any], team: Team, slack_team_id: str) -> None:
@@ -91,9 +100,9 @@ def _handle_supporthog_event(event: dict[str, Any], team: Team, slack_team_id: s
 
 def _wake_inbound_event(row: ConversationInboundEvent, *, countdown: int | None = None) -> None:
     task = (
-        process_supporthog_event
+        process_supporthog_event_receipt
         if row.source == ConversationInboundEventSource.SLACK_EVENTS
-        else process_supporthog_interactivity
+        else process_supporthog_interactivity_receipt
     )
     kwargs = {"inbound_event_id": str(row.id)}
     try:
@@ -124,7 +133,10 @@ def _process_event_from_receipt(inbound_event_id: str) -> None:
             claim, error_code="poison_payload", error="inbound event payload is missing or not an object"
         )
         return
-    config = _slack_config_for_workspace(claim.event.provider_account_id)
+    config = _slack_config_for_workspace(
+        claim.event.provider_account_id,
+        receipt_team_id=claim.event.team_id,
+    )
     if not config:
         fail_inbound_event(claim, error_code="no_team", error="slack workspace is not connected")
         return
@@ -146,6 +158,15 @@ def _process_event_from_receipt(inbound_event_id: str) -> None:
 
 
 @shared_task(
+    name="products.conversations.backend.tasks.process_supporthog_event_receipt",
+    ignore_result=True,
+)
+@skip_team_scope_audit
+def process_supporthog_event_receipt(inbound_event_id: str) -> None:
+    _process_event_from_receipt(inbound_event_id)
+
+
+@shared_task(
     name="products.conversations.backend.tasks.process_supporthog_event",
     ignore_result=True,
     max_retries=3,
@@ -156,11 +177,7 @@ def process_supporthog_event(
     event: dict[str, Any] | None = None,
     slack_team_id: str = "",
     event_id: str | None = None,
-    inbound_event_id: str | None = None,
 ) -> None:
-    if inbound_event_id:
-        _process_event_from_receipt(inbound_event_id)
-        return
     if not event:
         return
 
@@ -258,9 +275,10 @@ def _handle_supporthog_interactivity(
     *,
     is_retry: bool,
     allow_retry: bool,
+    receipt_team_id: int | None = None,
 ) -> None:
     """Handle a button click from the opt-in "open a ticket?" confirmation prompt."""
-    config = _slack_config_for_workspace(slack_team_id)
+    config = _slack_config_for_workspace(slack_team_id, receipt_team_id=receipt_team_id)
     if not config:
         logger.warning("supporthog_interactivity_no_team", slack_team_id=slack_team_id)
         return
@@ -391,6 +409,7 @@ def _process_interactivity_from_receipt(inbound_event_id: str) -> None:
             claim.event.provider_account_id,
             is_retry=claim.event.attempts > 1,
             allow_retry=claim.allow_retry,
+            receipt_team_id=claim.event.team_id,
         )
         complete_inbound_event(claim)
     except TransientInboundError:
@@ -398,6 +417,15 @@ def _process_interactivity_from_receipt(inbound_event_id: str) -> None:
     except Exception as exc:
         logger.exception("supporthog_interactivity_handler_failed", inbound_event_id=inbound_event_id, error=str(exc))
         _retry_inbound_claim(claim, error_code="handler_failed", error=str(exc)[:INBOUND_ERROR_MAX_LENGTH])
+
+
+@shared_task(
+    name="products.conversations.backend.tasks.process_supporthog_interactivity_receipt",
+    ignore_result=True,
+)
+@skip_team_scope_audit
+def process_supporthog_interactivity_receipt(inbound_event_id: str) -> None:
+    _process_interactivity_from_receipt(inbound_event_id)
 
 
 @shared_task(
@@ -410,12 +438,8 @@ def _process_interactivity_from_receipt(inbound_event_id: str) -> None:
 def process_supporthog_interactivity(
     payload: dict[str, Any] | None = None,
     slack_team_id: str = "",
-    inbound_event_id: str | None = None,
 ) -> None:
     """Handle a button click from the opt-in "open a ticket?" confirmation prompt."""
-    if inbound_event_id:
-        _process_interactivity_from_receipt(inbound_event_id)
-        return
     if not payload:
         return
     celery_retries = int(getattr(cast(Any, process_supporthog_interactivity).request, "retries", 0) or 0)
@@ -446,9 +470,12 @@ def sweep_inbound_events() -> None:
     for inbound_event_id, source in due_rows:
         try:
             if source == ConversationInboundEventSource.SLACK_EVENTS:
-                cast(Any, process_supporthog_event).delay(inbound_event_id=str(inbound_event_id))
+                cast(Any, process_supporthog_event_receipt).delay(inbound_event_id=str(inbound_event_id))
             elif source == ConversationInboundEventSource.SLACK_INTERACTIVITY:
-                cast(Any, process_supporthog_interactivity).delay(inbound_event_id=str(inbound_event_id))
+                cast(Any, process_supporthog_interactivity_receipt).delay(inbound_event_id=str(inbound_event_id))
+            else:
+                logger.warning("inbound_sweep_unknown_source", inbound_event_id=str(inbound_event_id), source=source)
+                continue
             dispatched += 1
         except Exception:
             logger.exception("inbound_sweep_dispatch_failed", inbound_event_id=str(inbound_event_id), source=source)

@@ -66,6 +66,12 @@ Workers claim a row with a fencing token and a short lease, then release the row
 A stale worker cannot complete or retry after a later claim of the same receipt.
 Redis is not the dedupe record: losing Redis must not drop or suppress a callback.
 
+Receipt workers use task names separate from the legacy payload tasks.
+During a rolling deploy, an old worker can discard a new receipt-task hint, but the committed row remains pending for the sweeper.
+Keep the legacy task names registered until payload tasks from the old endpoint have drained.
+If S1 is rolled back, its additive table and pending rows remain safe, but the old workers cannot drain them.
+Restore S1 workers to process those rows.
+
 ## Outbound email (already in Postgres)
 
 `EmailOutboxMessage` remains the outbound email outbox.

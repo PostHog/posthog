@@ -19,7 +19,7 @@ from products.conversations.backend.services.inbound_events import (
 )
 from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
 from products.conversations.backend.support_slack import team_for_slack_workspace, validate_support_request
-from products.conversations.backend.tasks.slack import process_supporthog_event
+from products.conversations.backend.tasks.slack import process_supporthog_event_receipt
 
 logger = structlog.get_logger(__name__)
 
@@ -34,7 +34,7 @@ SUPPORT_EVENT_TYPES = [
 
 
 def _wake_slack_event(row: ConversationInboundEvent) -> None:
-    cast(Any, process_supporthog_event).delay(inbound_event_id=str(row.id))
+    cast(Any, process_supporthog_event_receipt).delay(inbound_event_id=str(row.id))
 
 
 def _accept_event_callback(request: HttpRequest, data: dict[str, Any]) -> HttpResponse:
