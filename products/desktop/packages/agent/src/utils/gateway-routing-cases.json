@@ -110,6 +110,12 @@
       "expected": "posthog_ai"
     },
     {
+      "origin_product": "pulse_subscription",
+      "ai_stage": null,
+      "internal": true,
+      "expected": "pulse_subscription"
+    },
+    {
       "origin_product": "image_builder",
       "ai_stage": null,
       "internal": true,
