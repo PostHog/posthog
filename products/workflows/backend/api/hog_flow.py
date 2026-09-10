@@ -2548,8 +2548,10 @@ class EmailSendingAllowanceSerializer(serializers.Serializer):
     max_batch_audience = serializers.IntegerField(
         read_only=True,
         help_text=(
-            "The largest audience a single batch run can reach. A run stops here, and the rest of the "
-            "audience does not receive the workflow. Applies whether or not the tier is enforced."
+            "The largest audience a single batch run of an email workflow can reach. A run stops here, and "
+            "the rest of the audience does not receive the workflow. Applies whether or not the tier is "
+            "enforced. Workflows that send SMS, push, or webhooks are not subject to the tier, so this is "
+            "not their limit."
         ),
     )
     emails_sent_last_hour = serializers.IntegerField(

@@ -410,8 +410,8 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
                 {allowance.enforced
                     ? ' Emails above the hourly and daily allowance are not dropped, they are sent later.'
                     : ''}{' '}
-                A batch run sends up to the batch audience limit and stops. Anyone above the limit does not receive the
-                workflow.
+                An email batch run sends up to the batch audience limit and stops. Anyone above the limit does not
+                receive the workflow.
             </p>
             <div className="flex flex-wrap gap-8 mt-3">
                 {/* The hourly and daily allowance only shapes sends once the tier is enforced, so the
@@ -445,7 +445,7 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
                 <div>
                     <MetricLabel
                         label="Largest batch audience"
-                        tooltip="A batch run sends to at most this many people. Anyone above the limit does not receive the workflow."
+                        tooltip="An email batch run sends to at most this many people. Anyone above the limit does not receive the workflow. Workflows that send SMS, push, or webhooks are not capped by your tier."
                     />
                     <div className="text-lg font-semibold">{humanFriendlyNumber(allowance.max_batch_audience)}</div>
                 </div>

@@ -31066,7 +31066,7 @@ export namespace Schemas {
       readonly emails_per_hour: number;
       /** How many emails this tier allows per day. */
       readonly emails_per_day: number;
-      /** The largest audience a single batch run can reach. A run stops here, and the rest of the audience does not receive the workflow. Applies whether or not the tier is enforced. */
+      /** The largest audience a single batch run of an email workflow can reach. A run stops here, and the rest of the audience does not receive the workflow. Applies whether or not the tier is enforced. Workflows that send SMS, push, or webhooks are not subject to the tier, so this is not their limit. */
       readonly max_batch_audience: number;
       /** Emails sent by this project's workflows in the last hour. */
       readonly emails_sent_last_hour: number;
