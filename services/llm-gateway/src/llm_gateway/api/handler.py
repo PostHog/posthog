@@ -323,10 +323,23 @@ FORBIDDEN_REQUEST_PARAMS = frozenset(
         "extra_headers",
     }
 )
+NESTED_FORBIDDEN_REQUEST_PARAMS = FORBIDDEN_REQUEST_PARAMS - {"headers", "extra_headers"}
+
+
+def _sanitize_request_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _sanitize_request_value(nested_value)
+            for key, nested_value in value.items()
+            if key not in NESTED_FORBIDDEN_REQUEST_PARAMS
+        }
+    if isinstance(value, list):
+        return [_sanitize_request_value(item) for item in value]
+    return value
 
 
 def _sanitize_request_data(data: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in data.items() if k not in FORBIDDEN_REQUEST_PARAMS}
+    return {key: _sanitize_request_value(value) for key, value in data.items() if key not in FORBIDDEN_REQUEST_PARAMS}
 
 
 async def handle_llm_request(
