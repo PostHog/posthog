@@ -5,7 +5,7 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer
 from rest_framework import serializers, status
 from rest_framework.response import Response
 
@@ -208,6 +208,34 @@ class TestValidatedRequestDecorator(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.data["wrong_field"] == "value"
+
+    def test_polymorphic_response_serializer_skips_the_debug_check(self):
+        @validated_request(
+            request_serializer=EventCaptureRequestSerializer,
+            responses={
+                200: OpenApiResponse(
+                    response=PolymorphicProxySerializer(
+                        component_name="CaptureResult",
+                        serializers=[EventCaptureResponseSerializer, ErrorResponseSerializer],
+                        resource_type_field_name=None,
+                    ),
+                ),
+            },
+        )
+        def mock_endpoint(view_self, request):
+            return Response({"status": "ok"}, status=status.HTTP_200_OK)
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {"event": "$pageview", "distinct_id": "user_123"}
+
+        with patch("posthog.api.mixins.settings") as mock_settings:
+            mock_settings.DEBUG = True
+            response = mock_endpoint(view_instance, mock_request)
+
+        assert response.status_code == status.HTTP_200_OK
 
     def test_response_serializer_that_raises_while_parsing_logs_warning(self):
         @validated_request(
