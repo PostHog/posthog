@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from temporalio.converter import DataConverter
 
+from posthog.temporal.common.client import build_data_converter
 from posthog.temporal.scheduler.payload import (
     MAX_SCHEDULER_ITEMS_PER_PAGE,
     MAX_SCHEDULER_PAYLOAD_BYTES,
@@ -26,6 +27,17 @@ async def test_temporal_payload_size_matches_sdk_wire_payload_size() -> None:
 
     assert size == sum(payload.ByteSize() for payload in encoded)
     assert size > sum(len(payload.data) for payload in encoded)
+
+
+@pytest.mark.asyncio
+async def test_temporal_payload_size_measures_the_encrypted_wire_form_by_default() -> None:
+    value = _build_payload([f"item-{index}" for index in range(10)])
+    configured = build_data_converter()
+
+    size = await temporal_payload_size_bytes(value)
+
+    assert size == sum(payload.ByteSize() for payload in await configured.encode([value]))
+    assert size > await temporal_payload_size_bytes(value, data_converter=DataConverter.default)
 
 
 @pytest.mark.asyncio
