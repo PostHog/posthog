@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                    SELECT id, uuid, team_id::bigint as \"team_id!\",\n                           CASE WHEN $3::boolean THEN properties::text ELSE NULL END as \"properties?\",\n                           CASE WHEN $3::boolean THEN properties_last_updated_at::text ELSE NULL END as \"properties_last_updated_at?\",\n                           CASE WHEN $3::boolean THEN properties_last_operation::text ELSE NULL END as \"properties_last_operation?\",\n                           created_at, version, is_identified,\n                           CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,\n                           last_seen_at\n                    FROM posthog_person\n                    WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = false\n                    ",
+  "query": "\n                    SELECT id, uuid, team_id::bigint as \"team_id!\",\n                           CASE WHEN $3::boolean THEN properties::text ELSE NULL END as \"properties?\",\n                           NULL::text as \"properties_last_updated_at?\",\n                           NULL::text as \"properties_last_operation?\",\n                           created_at, version, is_identified,\n                           CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,\n                           last_seen_at\n                    FROM posthog_person\n                    WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = false\n                    ",
   "describe": {
     "columns": [
       {
@@ -80,5 +80,5 @@
       true
     ]
   },
-  "hash": "5aa0db28dba0afef09fade180567a6d0d856151fc49bd8cd8e8fdb0660baa23b"
+  "hash": "d2dbbfc2ceb009cc1a2ccc6013b288a201495f2f953618ce67fe42f461f8962e"
 }
