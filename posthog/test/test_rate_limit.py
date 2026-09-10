@@ -2,7 +2,7 @@ import json
 from datetime import timedelta
 from urllib.parse import quote
 
-from freezegun.api import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, Mock, call, patch
 
@@ -241,7 +241,7 @@ class TestUserAPI(APIBaseTest):
     def test_default_sustained_rate_limit(self, rate_limit_enabled_mock, incr_mock):
         base_time = now()
         for _ in range(5):
-            with freeze_time(base_time):
+            with time_machine.travel(base_time, tick=False):
                 response = self.client.get(
                     f"/api/projects/{self.team.pk}/feature_flags",
                     headers={"authorization": f"Bearer {self.personal_api_key}"},
@@ -249,7 +249,7 @@ class TestUserAPI(APIBaseTest):
                 base_time += timedelta(seconds=61)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        with freeze_time(base_time):
+        with time_machine.travel(base_time, tick=False):
             for _ in range(2):
                 response = self.client.get(
                     f"/api/projects/{self.team.pk}/feature_flags",
@@ -514,7 +514,7 @@ class TestUserAPI(APIBaseTest):
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_does_not_call_get_instance_setting_for_every_request(self, rate_limit_enabled_mock, incr_mock):
-        with freeze_time("2022-04-01 12:34:45") as frozen_time:
+        with time_machine.travel("2022-04-01 12:34:45", tick=False) as frozen_time:
             with override_instance_config("RATE_LIMITING_ALLOW_LIST_TEAMS", f"{self.team.pk}"):
                 with patch.object(
                     rate_limit,
@@ -529,7 +529,7 @@ class TestUserAPI(APIBaseTest):
 
                     assert wrapped_get_instance_setting.call_count == 1
 
-                    frozen_time.tick(delta=timedelta(seconds=65))
+                    frozen_time.shift(timedelta(seconds=65))
                     for _ in range(10):
                         self.client.get(
                             f"/api/projects/{self.team.pk}/feature_flags",
@@ -541,7 +541,7 @@ class TestUserAPI(APIBaseTest):
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_allow_list_works_as_expected(self, rate_limit_enabled_mock, incr_mock):
-        with freeze_time("2022-04-01 12:34:45"):
+        with time_machine.travel("2022-04-01 12:34:45", tick=False):
             with override_instance_config("RATE_LIMITING_ALLOW_LIST_TEAMS", f"{self.team.pk}"):
                 for _ in range(10):
                     response = self.client.get(
