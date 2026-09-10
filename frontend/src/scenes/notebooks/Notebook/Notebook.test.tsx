@@ -154,6 +154,17 @@ describe('Notebook load states', () => {
         sceneLogic.unmount()
     })
 
+    it('does not label the new-notebook placeholder as not found in the breadcrumbs', () => {
+        const get = jest.spyOn(api.notebooks, 'get').mockResolvedValue(notebook)
+
+        const sceneLogic = notebookSceneLogic({ shortId: 'new' })
+        sceneLogic.mount()
+
+        expect(get).not.toHaveBeenCalled()
+        expect(sceneLogic.values.breadcrumbs.at(-1)?.name).toBeNull()
+        sceneLogic.unmount()
+    })
+
     it('counts a failed load once per mount, however many retries fail', async () => {
         jest.spyOn(api.notebooks, 'get').mockRejectedValue({ status: 500 })
         const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)

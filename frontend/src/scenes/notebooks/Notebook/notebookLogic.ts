@@ -644,7 +644,8 @@ export interface notebookLogicMeta {
             notebook: NotebookType | null,
             notebookLoading: boolean,
             notebookLoadErrored: boolean,
-            mode: NotebookLogicMode
+            mode: NotebookLogicMode,
+            shortId: string
         ) => boolean
         notebookLoadFailed: (
             notebook: NotebookType | null,
@@ -1277,14 +1278,21 @@ export const notebookLogic = kea<notebookLogicType>([
             ): boolean => mode === 'notebook' && !props.cachedNotebook && !isLocalOnly && !!notebook,
         ],
         notebookMissing: [
-            (s) => [s.notebook, s.notebookLoading, s.notebookLoadErrored, s.mode],
+            (s) => [s.notebook, s.notebookLoading, s.notebookLoadErrored, s.mode, s.shortId],
             (
                 notebook: NotebookType | null,
                 notebookLoading: boolean,
                 notebookLoadErrored: boolean,
-                mode: NotebookLogicMode
+                mode: NotebookLogicMode,
+                shortId: string
             ): boolean =>
-                ['notebook', 'template'].includes(mode) && !notebook && !notebookLoading && !notebookLoadErrored,
+                ['notebook', 'template'].includes(mode) &&
+                // Nothing is ever requested for the `new` placeholder, so an absent notebook
+                // here means the scene has not created it yet, not that it does not exist.
+                shortId !== 'new' &&
+                !notebook &&
+                !notebookLoading &&
+                !notebookLoadErrored,
         ],
         notebookLoadFailed: [
             (s) => [s.notebook, s.notebookLoading, s.notebookLoadErrored],

@@ -96,8 +96,8 @@ export function NotebookScene(): JSX.Element {
         return <AccessDenied object="notebook" />
     }
 
-    // `new` is a placeholder the scene swaps for a real id, so nothing ever loads for it. That
-    // makes `notebookMissing` true, and this branch has to win before the not-found check.
+    // `new` is a placeholder the scene swaps for a real id once the notebook exists, so the
+    // skeleton stands in for the notebook the create request is still making.
     if (notebookId === 'new') {
         return <NotebookLoadingState />
     }
