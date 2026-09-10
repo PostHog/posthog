@@ -61,6 +61,12 @@ from products.replay_vision.backend.temporal.scanners.base import (
 )
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierScanner
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorScanner
+from products.replay_vision.backend.temporal.scanners.signal_verification import (
+    STEP_VERIFY_SIGNALS,
+    SignalAssessmentResponse,
+    build_signal_verification_step,
+    select_verified_signals,
+)
 from products.replay_vision.backend.temporal.state import load_scanner_llm_inputs
 from products.replay_vision.backend.temporal.types import (
     CallScannerProviderInputs,
@@ -438,12 +444,68 @@ async def _run_mission(
                 model=snapshot.model,
             )
             step_outputs = {**step_outputs, STEP_CORE: served}
+
+        finalized, signals = scanner.assemble(step_outputs)
+        if signals and snapshot.verify_positives in _VERIFY_MODES:
+            signals = await _verify_signal_findings(
+                signals=signals,
+                mode=snapshot.verify_positives,
+                verification=verification,
+                run=run,
+                cache=cache,
+                model=snapshot.model,
+            )
     finally:
         if cache is not None:
             await _delete_video_cache(cache_client, cache.name)
 
-    finalized, signals = scanner.assemble(step_outputs)
     return _MissionOutcome(finalized=finalized, signals=signals, verification=verification)
+
+
+async def _verify_signal_findings(
+    *,
+    signals: list[SignalFinding],
+    mode: str,
+    verification: VerificationRecord | None,
+    run: Any,
+    cache: Any | None,
+    model: str,
+) -> list[SignalFinding]:
+    retained: list[SignalFinding] = []
+    outcome = "assessed"
+    if verification is not None and (verification.skipped_reason is not None or verification.resolved_verdict != "yes"):
+        outcome = "monitor_unverified"
+    elif cache is None:
+        outcome = "no_cache"
+    else:
+        budget = _remaining_verify_budget_seconds()
+        if budget is not None and budget <= 0:
+            outcome = "no_budget"
+        else:
+            try:
+                step = build_signal_verification_step(signals)
+                outputs = await asyncio.wait_for(run(steps=[step], cache_name=cache.name), timeout=budget)
+                assessment = outputs.get(STEP_VERIFY_SIGNALS)
+                if isinstance(assessment, SignalAssessmentResponse):
+                    retained = select_verified_signals(signals, assessment)
+                else:
+                    outcome = "invalid_response"
+            except Exception as exc:
+                outcome = "assessment_failed"
+                logger.warning(
+                    "replay_vision.call_scanner_provider.signal_assessment_failed",
+                    model=model,
+                    error_type=type(exc).__name__,
+                )
+    logger.info(
+        "replay_vision.call_scanner_provider.signal_verification",
+        model=model,
+        mode=mode,
+        outcome=outcome,
+        candidate_count=len(signals),
+        retained_count=len(retained),
+    )
+    return retained if mode == "enforce" else signals
 
 
 async def _verify_positive_verdict(
@@ -721,8 +783,8 @@ async def _run_step(
             "replay_vision.call_scanner_provider.invalid_response",
             step=step.name,
             attempt=attempt + 1,
-            error=last_error,
-            response_preview=text[:500] if text else None,
+            error="invalid signal assessment" if step.name == STEP_VERIFY_SIGNALS else last_error,
+            response_preview=text[:500] if text and step.name != STEP_VERIFY_SIGNALS else None,
         )
         if attempt < _MAX_LLM_ATTEMPTS - 1:
             # Keep turn roles alternating on retry: the model's rejected answer is a model turn, then our
@@ -742,7 +804,7 @@ async def _run_step(
         "replay_vision.call_scanner_provider.step_exhausted",
         step=step.name,
         required=step.required,
-        error=last_error,
+        error="invalid signal assessment" if step.name == STEP_VERIFY_SIGNALS else last_error,
         provider_refused=last_was_empty,
     )
     return _StepResult(output=None, provider_refused=last_was_empty)
