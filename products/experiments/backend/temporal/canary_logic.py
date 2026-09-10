@@ -292,7 +292,7 @@ def evaluate_canary_runs(
     for run in (run_a, run_b):
         if not run.is_precomputed:
             flipped.append(f"{run.label} (exposures)")
-        elif run.metric_events_path == "direct_scan":
+        if run.metric_events_path == "direct_scan":
             flipped.append(f"{run.label} (metric events)")
     if flipped:
         # A forced-precomputed run fell back to the direct scan (e.g. the lazy computation executor timed
