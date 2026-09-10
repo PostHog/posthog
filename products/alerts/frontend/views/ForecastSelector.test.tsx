@@ -1,4 +1,5 @@
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
+import { useState } from 'react'
 
 import { dayjs } from 'lib/dayjs'
 
@@ -164,6 +165,28 @@ describe('ForecastSelector', () => {
         )
 
         expect(container.querySelector('[data-attr="alertForm-forecast-target-date"]')?.textContent).toBe(expected)
+    })
+
+    // An emptied number field reports NaN, and the path opens with NaN too, so the value the
+    // selector holds is non-finite for as long as the field is empty. LemonInput renders that as an
+    // empty controlled input, so it has to receive it: handing it `undefined` instead flips the
+    // field between uncontrolled and controlled on the first keystroke and back again on a clear.
+    it('keeps the target input controlled while it is empty', () => {
+        const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+        function Editor(): JSX.Element {
+            const [config, setConfig] = useState<ForecastConfig>({ ...expiredTarget, target: Number.NaN })
+            return <ForecastSelector value={config} onChange={setConfig} insightInterval="day" targetDateError={null} />
+        }
+        const input = render(<Editor />).getByLabelText('Target value') as HTMLInputElement
+
+        expect(input.value).toBe('')
+        fireEvent.change(input, { target: { value: '5' } })
+        expect(input.value).toBe('5')
+        fireEvent.change(input, { target: { value: '' } })
+        expect(input.value).toBe('')
+        expect(consoleError).not.toHaveBeenCalled()
+
+        consoleError.mockRestore()
     })
 
     it.each([

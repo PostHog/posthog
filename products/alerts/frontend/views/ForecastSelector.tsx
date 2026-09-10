@@ -230,7 +230,10 @@ function TargetByDateFields({
                     data-attr="alertForm-forecast-target"
                     aria-label="Target value"
                     status={targetValueError ? 'danger' : undefined}
-                    value={Number.isFinite(config.target) ? config.target : undefined}
+                    // LemonInput shows a NaN number as an empty controlled field, so an empty
+                    // target keeps the value it holds. Sending `undefined` instead would mean
+                    // "uncontrolled" there, and the field would flip on the first keystroke.
+                    value={config.target}
                     disabledReason={disabledReason}
                     onChange={(target) => onChange({ ...config, target: target ?? Number.NaN })}
                 />
