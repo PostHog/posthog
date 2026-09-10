@@ -231,7 +231,7 @@ def build_harvest_prompt(candidate: HarvestCandidate) -> HarvestPrompt:
 
 def load_dead_clusters(*, team_id: int, repository: str, scope: str) -> list[HarvestCandidate]:
     with team_scope(team_id):
-        inventory = ReaperInventory.objects.get(repository=repository, scope=scope)
+        inventory = ReaperInventory.objects.for_team(team_id).get(repository=repository, scope=scope)
         clusters = ReaperCluster.objects.filter(
             inventory=inventory,
             status=ClusterStatus.DEAD,
@@ -332,7 +332,7 @@ def dispatch_harvest(request: HarvestRequest) -> HarvestResult:
 
 def _mark_harvesting(team_id: int, cluster_id: UUID, task_id: UUID) -> None:
     with team_scope(team_id):
-        cluster = ReaperCluster.objects.get(id=cluster_id)
+        cluster = ReaperCluster.objects.for_team(team_id).get(id=cluster_id)
         cluster.task_id = task_id
         cluster.status = ClusterStatus.HARVESTING
         cluster.save(update_fields=["task_id", "status", "updated_at"])
@@ -342,7 +342,7 @@ def _mark_harvesting(team_id: int, cluster_id: UUID, task_id: UUID) -> None:
 def sync_harvest(*, team_id: int, repository: str, scope: str) -> SyncResult:
     result = SyncResult()
     with team_scope(team_id):
-        inventory = ReaperInventory.objects.get(repository=repository, scope=scope)
+        inventory = ReaperInventory.objects.for_team(team_id).get(repository=repository, scope=scope)
         harvesting = list(ReaperCluster.objects.filter(inventory=inventory, status=ClusterStatus.HARVESTING))
         task_ids = [c.task_id for c in harvesting if c.task_id]
         # A task can be rerun, and only one of its runs carries the pull request, so PR discovery
