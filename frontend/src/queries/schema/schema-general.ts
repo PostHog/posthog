@@ -8539,6 +8539,7 @@ export const externalDataSources = [
     'Freshchat',
     'Freshservice',
     'Fulcrum',
+    'GainsightCs',
     'GainsightPx',
     'GitBook',
     'Glassfrog',
