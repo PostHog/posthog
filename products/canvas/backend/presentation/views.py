@@ -1874,6 +1874,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             tool,
             payload.validated_data["arguments"],
             actor_label=user.email or "",
+            approved=payload.validated_data["approved"],
         )
         # Every call is audited: the trigger names the tool, the activity log
         # row names the viewer whose connection it used. Never the arguments.

@@ -34,7 +34,9 @@ Scoped credentials need both `canvas:write` and `user:read`. A canvas-only crede
 
 The endpoint checks channel access, the feature flag, and the current version's declared provider and tool. It limits requests per viewer and canvas. The activity log records the provider, tool, and outcome, but not arguments or results.
 
-Responses contain `status`, `result`, `detail`, `truncated`, and `connect_path`. Status values are `ok`, `not_connected`, `needs_reauth`, `blocked`, `tool_missing`, `write_blocked`, and `upstream_error`. Invalid arguments return HTTP 400. Access and capability failures return HTTP 403.
+Responses contain `status`, `result`, `detail`, `truncated`, and `connect_path`. Status values are `ok`, `not_connected`, `needs_reauth`, `needs_approval`, `blocked`, `tool_missing`, `write_blocked`, and `upstream_error`. Invalid arguments return HTTP 400. Access and capability failures return HTTP 403.
+
+For `needs_approval`, the host shows the tool and its exact arguments in a Quill permission dialog. After explicit approval, it retries that call with `approved: true`. This approval applies only to that request. It does not change saved MCP permissions or override team blocks, revoked connections, removed tools, or read-only restrictions. The iframe cannot supply approval through `ph.connectors.call`.
 
 Results are limited to 256 KiB. Large results become a bounded `preview` with `truncated: true`. Provider parsing failures return `upstream_error`, not an unhandled exception.
 
@@ -89,7 +91,7 @@ Connector reads use the host cache, which defaults to 60 seconds. A repeated cal
 
 ## Host safety
 
-The canvas host asks the viewer before it sends connector calls. Consent is limited to the canvas version, provider, and tool. The prompt explains that the canvas can receive private data and share it through its declared capabilities. A denied call stays blocked until the viewer retries from a user action.
+The canvas host asks the viewer in a Quill permission dialog before it sends connector calls. Consent is limited to the canvas version, provider, and tool. The prompt explains that the canvas can receive private data and share it through its declared capabilities. A denied call stays blocked until the viewer retries from a user action. MCP tools that require approval use the same dialog, with an **Allow once** action. Pending dialogs close without approval when the canvas version or authentication context changes. Connector requests wait for the viewer rather than failing at the normal 30-second data-request timeout. The per-canvas concurrency limit still applies.
 
 Connector results and consent use authentication-scoped caches. Account, organization, and project changes clear these caches. Results are also separated by canvas version. Never write connector results into shared canvas state.
 

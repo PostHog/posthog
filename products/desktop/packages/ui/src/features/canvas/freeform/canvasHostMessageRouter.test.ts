@@ -114,53 +114,59 @@ describe("createCanvasHostMessageRouter", () => {
     );
   });
 
-  it("does not apply the data-request timeout to approved agent requests", async () => {
-    vi.useFakeTimers();
-    try {
-      const post = vi.fn();
-      let approve: (value: unknown) => void = () => {};
-      const onDataRequest = vi.fn(
-        () =>
-          new Promise<unknown>((resolve) => {
-            approve = resolve;
-          }),
-      );
-      const route = createCanvasHostMessageRouter({
-        post,
-        callbacks: () => ({ onDataRequest }),
-        hasUserActivation: () => true,
-        openExternal: vi.fn(),
-      });
+  it.each(["agentRequest", "connectorCall"] as const)(
+    "does not time out %s while waiting for approval",
+    async (method) => {
+      vi.useFakeTimers();
+      try {
+        const post = vi.fn();
+        let approve: (value: unknown) => void = () => {};
+        const onDataRequest = vi.fn(
+          () =>
+            new Promise<unknown>((resolve) => {
+              approve = resolve;
+            }),
+        );
+        const route = createCanvasHostMessageRouter({
+          post,
+          callbacks: () => ({ onDataRequest }),
+          hasUserActivation: () => true,
+          openExternal: vi.fn(),
+        });
 
-      const routed = route({
-        channel: "posthog-canvas",
-        type: "data-request",
-        id: "request-1",
-        method: "agentRequest",
-        payload: { prompt: "Change it" },
-      });
-
-      // Elapse well past the 30s generic data-request timeout: an approval
-      // dialog can sit open this long, and the canvas must not be told it
-      // failed while a later approval could still start the run.
-      await vi.advanceTimersByTimeAsync(60_000);
-      expect(post).not.toHaveBeenCalled();
-
-      // The viewer's approval is the only response the canvas receives.
-      approve({ requestOutcome: "new_run" });
-      await routed;
-      expect(post).toHaveBeenCalledTimes(1);
-      expect(post).toHaveBeenCalledWith(
-        expect.objectContaining({
+        const routed = route({
+          channel: "posthog-canvas",
+          type: "data-request",
           id: "request-1",
-          ok: true,
-          result: { requestOutcome: "new_run" },
-        }),
-      );
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+          method,
+          payload:
+            method === "agentRequest"
+              ? { prompt: "Change it" }
+              : { provider: "mcp:calendar.example.com", tool: "list_events" },
+        });
+
+        // Elapse well past the 30s generic data-request timeout: an approval
+        // dialog can sit open this long, and the canvas must not be told it
+        // failed while a later approval could still start the run.
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(post).not.toHaveBeenCalled();
+
+        // The viewer's approval is the only response the canvas receives.
+        approve({ requestOutcome: "new_run" });
+        await routed;
+        expect(post).toHaveBeenCalledTimes(1);
+        expect(post).toHaveBeenCalledWith(
+          expect.objectContaining({
+            id: "request-1",
+            ok: true,
+            result: { requestOutcome: "new_run" },
+          }),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("does not count a pending agent request against the concurrency limit", async () => {
     const post = vi.fn();

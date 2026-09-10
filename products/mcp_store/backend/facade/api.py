@@ -597,6 +597,7 @@ def call_member_server_tool(
     *,
     actor_label: str = "",
     allow_writes: bool = True,
+    approved: bool = False,
 ) -> ConnectorCallOutcome:
     """Call one tool on the server at ``server_host`` with the member's own
     connection (or the team's shared one). Runs the same policy resolution
@@ -627,13 +628,15 @@ def call_member_server_tool(
         else None
     )
     decision, block_reason = resolve_call_decision(tool, policy_context)
+    if approved and block_reason == "needs_approval":
+        decision, block_reason = "approved", None
     if gateway_server is not None:
         record_tool_call_audit(installation, gateway_server, caller, actor_label, tool_name, decision)
     if block_reason == "removed":
         return ConnectorCallOutcome(status="tool_missing", detail=f"Tool '{tool_name}' is no longer available.")
     if block_reason == "needs_approval":
         return ConnectorCallOutcome(
-            status="blocked", detail=f"Tool '{tool_name}' needs your approval in Settings → MCP servers."
+            status="needs_approval", detail=f"Tool '{tool_name}' needs your approval before this call can run."
         )
     if block_reason is not None:
         return ConnectorCallOutcome(status="blocked", detail=f"Tool '{tool_name}' is turned off by team policy.")

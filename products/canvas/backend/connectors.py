@@ -59,6 +59,7 @@ class ConnectorCallStatus(models.TextChoices):
     OK = "ok"
     NOT_CONNECTED = "not_connected"
     NEEDS_REAUTH = "needs_reauth"
+    NEEDS_APPROVAL = "needs_approval"
     BLOCKED = "blocked"
     TOOL_MISSING = "tool_missing"
     WRITE_BLOCKED = "write_blocked"
@@ -561,10 +562,10 @@ def _call_native_tool(
 
 
 def _call_mcp_tool(
-    team_id: int, user_id: int, host: str, tool_name: str, arguments: dict[str, Any], actor_label: str
+    team_id: int, user_id: int, host: str, tool_name: str, arguments: dict[str, Any], actor_label: str, approved: bool
 ) -> ConnectorCallResult:
     outcome = mcp_store_facade.call_member_server_tool(
-        team_id, user_id, host, tool_name, arguments, actor_label=actor_label, allow_writes=False
+        team_id, user_id, host, tool_name, arguments, actor_label=actor_label, allow_writes=False, approved=approved
     )
     if outcome.status != "ok":
         return ConnectorCallResult(
@@ -590,6 +591,7 @@ def call_connector_tool(
     arguments: dict[str, Any],
     *,
     actor_label: str = "",
+    approved: bool = False,
 ) -> ConnectorCallResult:
     """Run one declared connector tool as the viewer. The caller has already
     checked the canvas's capabilities and the rollout flag."""
@@ -603,7 +605,7 @@ def call_connector_tool(
             detail=f'Unknown provider "{provider}". Use a native provider ({", ".join(sorted(NATIVE_CONNECTORS))}) '
             f'or "{MCP_PROVIDER_PREFIX}<server host>".',
         )
-    return _call_mcp_tool(team_id, user_id, host, tool_name, arguments, actor_label)
+    return _call_mcp_tool(team_id, user_id, host, tool_name, arguments, actor_label, approved)
 
 
 @frozen

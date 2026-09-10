@@ -1041,6 +1041,11 @@ class CanvasConnectorsResponseSerializer(serializers.Serializer):
 class CanvasConnectorCallSerializer(serializers.Serializer):
     """Payload for calling one connector tool as the viewer."""
 
+    approved = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="True only after the viewer approves this specific MCP tool call in the host. Does not change saved permissions.",
+    )
     provider = serializers.CharField(max_length=300, help_text="Declared provider id, e.g. 'github'.")
     tool = serializers.CharField(max_length=200, help_text="Declared tool name, e.g. 'list_pull_requests'.")
     arguments = serializers.DictField(
@@ -1058,6 +1063,7 @@ class CanvasConnectorCallResultSerializer(serializers.Serializer):
         help_text=(
             "'ok' carries a result. 'not_connected' and 'needs_reauth' mean the viewer must connect the provider "
             "at connect_path. 'blocked' is team policy. 'write_blocked' is a tool that may write. "
+            "'needs_approval' requires the viewer to approve this call in the host. "
             "'upstream_error' is a failure at the provider."
         ),
     )

@@ -136,13 +136,11 @@ export function createCanvasHostMessageRouter(
           const call = options
             .callbacks()
             .onDataRequest(message.method, message.payload);
-          // agentRequest settles only when a viewer approves or cancels the
-          // request in a dialog, which can take arbitrarily long. Racing it
-          // against the generic timeout would tell the canvas the request
-          // failed while the dialog is still open and a later approval could
-          // still start the run, so it opts out of the timeout.
+          // Approval dialogs can stay open longer than the I/O timeout.
+          // Do not report a failure while a later approval can still run the call.
           const result =
-            message.method === "agentRequest"
+            message.method === "agentRequest" ||
+            message.method === "connectorCall"
               ? await call
               : await Promise.race([
                   call,

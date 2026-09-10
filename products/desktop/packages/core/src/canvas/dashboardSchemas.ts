@@ -242,6 +242,7 @@ export const requestCanvasAgentInput = canvasAgentRequestInputSchema.extend({
 });
 
 export const canvasConnectorCallServiceInput = z.object({
+  approved: z.boolean().optional(),
   id: z.string().min(1),
   provider: z.string().min(1).max(300),
   tool: z.string().min(1).max(200),
@@ -255,6 +256,7 @@ export const canvasConnectorCallResultSchema = z.object({
     "ok",
     "not_connected",
     "needs_reauth",
+    "needs_approval",
     "blocked",
     "tool_missing",
     "write_blocked",
