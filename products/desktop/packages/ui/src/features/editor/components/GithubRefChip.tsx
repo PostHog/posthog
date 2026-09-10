@@ -18,6 +18,7 @@ interface GithubRefChipLinkProps
   /** Names the icon for screen readers. Omit when the icon says nothing extra. */
   iconLabel?: string;
   toneClass?: string;
+  preservePrNumber?: boolean;
   children: ReactNode;
 }
 
@@ -32,7 +33,15 @@ export const GithubRefChipLink = forwardRef<
   HTMLButtonElement,
   GithubRefChipLinkProps
 >(function GithubRefChipLink(
-  { href, icon: RefIcon, iconLabel, toneClass, children, ...buttonProps },
+  {
+    href,
+    icon: RefIcon,
+    iconLabel,
+    toneClass,
+    preservePrNumber,
+    children,
+    ...buttonProps
+  },
   ref,
 ) {
   return (
@@ -71,6 +80,7 @@ export const GithubRefChipLink = forwardRef<
         // chip edge in a narrow panel instead of truncating.
         className={cn(
           "inline-block max-w-[min(16rem,calc(100%-1rem))] truncate align-top",
+          preservePrNumber && "min-w-[10ch]",
           toneClass,
         )}
       >
@@ -98,6 +108,7 @@ export function GithubRefChip({
     <GithubRefChipLink
       href={href}
       icon={kind === "pr" ? GitPullRequestIcon : GithubLogoIcon}
+      preservePrNumber={kind === "pr"}
     >
       {children}
     </GithubRefChipLink>
