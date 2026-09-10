@@ -136,6 +136,7 @@ jobs:
             legacy: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') && 'true' || (steps.filter.outputs.legacy || 'true') }}
             schema: ${{ steps.filter.outputs.schema || 'true' }}
             product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
+            repo_invariants: ${{ steps.filter.outputs.repo_invariants || 'false' }}
             product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
             timing_scripts: ${{ steps.filter.outputs.timing_scripts }}
         steps:
@@ -359,6 +360,14 @@ jobs:
                         - '.github/scripts/turbo-discover.js'
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
+                      repo_invariants:
+                        # posthog/test/repo_invariants/ reads AGENTS.md and the semgrep
+                        # rule ids it names. Both are excluded from the backend filter
+                        # (markdown is dropped outright, .semgrep is not listed), so a
+                        # change to either would skip repo-checks and report green while
+                        # leaving a tag pointing at a rule that no longer exists.
+                        - 'AGENTS.md'
+                        - '.semgrep/**'
                       product_yamls:
                         # Validates owner team slugs against PostHog/posthog collaborator teams,
                         # and lints the distributed owners.yaml files (schema, conflicts, dead
@@ -1239,7 +1248,7 @@ jobs:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
         # A per-commit check — the hourly scheduled run skips it as already covered.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true') && github.event_name != 'schedule'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true') && github.event_name != 'schedule'
         timeout-minutes: 10
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}

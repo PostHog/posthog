@@ -51,8 +51,21 @@ def _ruff_enforces(repo_root: Path, code: str) -> bool:
     lint = tomllib.loads((repo_root / "pyproject.toml").read_text())["tool"]["ruff"].get("lint", {})
     if code in lint.get("ignore", []):
         return False
+    # A code exempted for whole trees does not hold repo-wide, so a bare tag would
+    # tell a reviewer CI covers paths where it accepts the violation.
+    for config, table in ((lint, "per-file-ignores"), (_products_ruff(repo_root), "per-file-ignores")):
+        if any(code in codes for codes in config.get(table, {}).values()):
+            return False
     selected = lint.get("select", []) + lint.get("extend-select", [])
     return any(code.startswith(entry) for entry in selected)
+
+
+def _products_ruff(repo_root: Path) -> dict:
+    path = repo_root / "products" / "ruff.toml"
+    if not path.exists():
+        return {}
+    config = tomllib.loads(path.read_text())
+    return config.get("lint", config)
 
 
 def _resolves(tag: str, repo_root: Path, semgrep_ids: set[str]) -> bool:
@@ -78,7 +91,8 @@ def test_agents_md_lint_tags_name_something_real() -> None:
 
     assert not unresolved, (
         f"AGENTS.md tags these as machine-enforced, but nothing by that name enforces them: {unresolved}. "
-        "Either the rule was renamed, deleted, or moved to ruff's ignore list (fix the tag, or retag the "
+        "Either the rule was renamed or deleted, or a ruff code moved to `ignore` or a per-file exemption "
+        "list (fix the tag, or retag the "
         f"rule as [review]), or the tag names a command rather than a rule id (add it to FREE_FORM in {Path(__file__).name})."
     )
 
