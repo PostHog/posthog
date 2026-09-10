@@ -1217,9 +1217,10 @@ class SignalReportMetricRefreshResponseSerializer(serializers.Serializer):
         many=True,
         read_only=True,
         help_text=(
-            "One entry per requested report the caller can read, in request order. A metric whose "
-            "snapshot was fresh, whose query failed, or whose budget ran out keeps its previous "
-            "snapshot; merge by metric_id."
+            "One entry per requested report the caller can read whose status is ready or "
+            "pending_input, in request order. A report in any other status has no entry. A metric "
+            "whose snapshot was fresh, whose query failed, or whose budget ran out keeps its "
+            "previous snapshot; merge by metric_id."
         ),
     )
 

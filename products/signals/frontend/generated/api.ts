@@ -758,7 +758,7 @@ export const getSignalsReportsRefreshMetricsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Re-run the stored metric queries of the given reports through the query cache and save the newest values as their snapshots. Call it when a person opens the inbox list or a report, with the ids on screen. Report titles and summaries are point-in-time text and never change here; only value, value_at, and series do. A snapshot measured in the last 15 minutes is served as is. Each call refreshes at most 20 metrics inside a 20-second budget, row metrics first; the rest keep their previous snapshot until the next open. Returns snapshot-only metrics for every requested report the caller can read.
+ * Re-run the stored metric queries of the given reports through the query cache and save the newest values as their snapshots. Call it when a person opens the inbox list or a report, with the ids on screen. Report titles and summaries are point-in-time text and never change here; only value, value_at, and series do. A snapshot measured in the last 15 minutes is served as is. Each call refreshes at most 20 metrics inside a 20-second budget, row metrics first; the rest keep their previous snapshot until the next open. Returns snapshot-only metrics for every requested report the caller can read whose status is ready or pending_input. A report in any other status is left out of the response, and its saved snapshots stay as they are.
  * @summary Refresh the saved metric snapshots of the reports on screen
  */
 export const signalsReportsRefreshMetricsCreate = async (
