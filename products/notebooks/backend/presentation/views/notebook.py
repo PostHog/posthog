@@ -1644,23 +1644,28 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self._get_notebook_for_kernel()
         self._require_query_access()
 
-        if "variables" in serializer.validated_data:
-            # Saved through the notebook's own serializer, so a run and a plain PATCH apply the
-            # same limits and the same duplicate-name rule.
-            variables_update = self.get_serializer(
-                notebook, data={"variables": serializer.validated_data["variables"]}, partial=True
-            )
-            variables_update.is_valid(raise_exception=True)
-            notebook = variables_update.save()
-
         try:
-            start = start_notebook_run(
-                notebook,
-                user if isinstance(user, User) else None,
-                self.team,
-                # A session cookie is the editor; anything else is a programmatic client.
-                trigger=classify_request_source(request)[0],
-            )
+            # One transaction, because a refused run must not leave the variables changed.
+            # They are saved first so the plan and the snapshot bind the values the caller
+            # asked for, and a 400 or 409 after that would otherwise have already rewritten
+            # the notebook — including for the run already in flight.
+            with transaction.atomic():
+                if "variables" in serializer.validated_data:
+                    # Saved through the notebook's own serializer, so a run and a plain PATCH
+                    # apply the same limits and the same duplicate-name rule.
+                    variables_update = self.get_serializer(
+                        notebook, data={"variables": serializer.validated_data["variables"]}, partial=True
+                    )
+                    variables_update.is_valid(raise_exception=True)
+                    notebook = variables_update.save()
+
+                start = start_notebook_run(
+                    notebook,
+                    user if isinstance(user, User) else None,
+                    self.team,
+                    # A session cookie is the editor; anything else is a programmatic client.
+                    trigger=classify_request_source(request)[0],
+                )
         except NotebookRunNothingToRun as e:
             return Response({"detail": str(e)}, status=400)
         except NotebookRunAlreadyRunning as e:

@@ -35,8 +35,8 @@ flowchart TD
 Rules the loop follows:
 
 - Document order is dependency order, because a cell can only read exports of earlier cells. The plan needs no sorting.
-- The plan freezes at start. A cell added while the run works does not join it. A cell deleted while it works still runs, and its result has no cell to land in.
-- The cell's **code** is read fresh at dispatch, so a person who edits a later cell during the run gets what they can see.
+- The plan freezes the whole cell at start — its code, its connection, and its raw-SQL flag — not just which cells run. A cell added while the run works does not join it. A cell edited or deleted while it works still executes what the plan captured, and a deleted cell's result has no cell to land in.
+- Freezing the code is a security boundary, not only a consistency one. Notebook write access and query access are separate grants, so if the run re-read the document at dispatch, an editor who cannot run queries could swap a later cell and have it execute under the initiator's access. The plan is read once, in the request that already passed the query-access check.
 - The run stops at the first cell that does not finish `done`.
 - Before each dispatch the workflow reads the run's status. That is how an interrupt reaches the loop.
 - A dispatch that meets a busy notebook (409) or a full project (429) retries for two minutes. A person clicking Run on one cell is the case worth waiting out.
@@ -52,7 +52,7 @@ All three are gated on `revamped-py-notebooks`, the same way `sql_v2/run` is, an
 | `GET notebooks/{short_id}/runs/{run_id}/`            | `notebook:read`, `query:read`  |                       | `{run_id, status, trigger, variables, cell_count, current_index, current_node_id, failed_node_id, error, cells, created_at, finished_at}` |
 | `POST notebooks/{short_id}/runs/{run_id}/interrupt/` | `notebook:write`               |                       | `{interrupted, status}`                                                                                                                   |
 
-- `POST runs/` with `variables` saves them through the notebook's own serializer first, so a run and a plain PATCH apply the same limits and the same duplicate-name rule. The run then snapshots what the notebook holds.
+- `POST runs/` with `variables` saves them through the notebook's own serializer first, so a run and a plain PATCH apply the same limits and the same duplicate-name rule. The run then snapshots what the notebook holds. The save and the run record share one transaction, so a refused run leaves the variables untouched.
 - A notebook with no runnable cell returns 400. A notebook that already has a run returns 409.
 - `starts_sandbox` is true when the plan holds a Python cell and no kernel is live for the caller. Both clients must tell the user the hourly price.
 - `GET runs/{run_id}/` is cheap: no result envelopes. A client fetches the one cell it wants from `GET sql_v2/runs/{run_id}`.
