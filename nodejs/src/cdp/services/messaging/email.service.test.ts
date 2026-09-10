@@ -634,10 +634,9 @@ describe('EmailService', () => {
             })
         })
 
-        // Reproduces the 2026-09 email queue incident against the real limiter: a rate-limited
-        // workflow's backlog used to re-park every denial onto the same jittered 1-2s window, so
-        // the whole backlog woke as a herd, re-claimed against one token, and monopolized the
-        // queue head until its shared transition counter overflowed and stalled the queue.
+        // Reproduces the 2026-09 incident: every denied send used to retry after ~1s, so a
+        // big backlog hammered the queue nonstop and starved everyone else's emails. Now each
+        // denial gets its own future slot and the backlog stays out of the way.
         describe('a denied backlog cannot crowd out other sends (incident regression)', () => {
             it('spreads denied sends over distinct future slots and leaves unlimited workflows untouched', async () => {
                 const redis = createRedisV2PoolFromConfig({

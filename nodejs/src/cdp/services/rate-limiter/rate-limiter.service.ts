@@ -46,15 +46,16 @@ const claimLatency = new Histogram({
 // monotonic clock — NTP drift between workers can't over- or under-refill
 // the bucket on this code path.
 //
-// Returns {granted, retryAfterMs, reserved}. A full denial with ARGV[5] > 0 also advances
-// the bucket's `resv` slot cursor and returns the caller's distance to that slot,
-// so each denied caller parks for a distinct time instead of every caller
-// re-claiming against the same next token. The first caller of an episode waits
-// only for the tokens the bucket is short of; callers behind it chain a further
-// requested/refill each. The cursor never advances past the horizon; callers beyond
-// it get the horizon back and re-contend when they wake. `reserved` is 1 only when
-// the cursor moved, which is what tells a caller its slot is exclusive and needs no
-// spreading.
+// Returns {granted, retryAfterMs, reserved}.
+//
+// The reservation (ARGV[5] > 0), in plain terms: when the bucket says no, it also
+// hands the caller a time slot, like a ticket at a counter. The bucket remembers
+// the last slot it gave out (`resv`). The first denied caller waits only until the
+// missing tokens have refilled. Everyone after that gets the next slot, one token
+// interval later. So a denied backlog lines itself up over the future instead of
+// everyone retrying at once. No slot is given out further than ARGV[5] ahead; past
+// that the caller gets ARGV[5] back with reserved=0 and asks again when it wakes.
+// A slot is a place in line, not a promise: the caller still claims when it wakes.
 const CLAIM_UP_TO_LUA = `
 local key = KEYS[1]
 local requested = tonumber(ARGV[1])
@@ -107,11 +108,10 @@ if granted > 0 or reserveOnDenyMaxMs <= 0 or refillPerSecond <= 0 then
     return {granted, 0, 0}
 end
 
--- Behind a live cursor, the caller in front drains its request at its own slot, so this
--- caller waits a further full interval on top of it. First in line, it waits only for the
--- tokens the bucket is still short of: the partial refill already in the pool is credit it
--- has earned, and charging the full interval would both delay the send and let the accrual
--- run past capacity, where the cap discards it. Same deficit the pair script charges below.
+-- First in line: wait only for the tokens that are actually missing. A partly
+-- refilled bucket is credit the caller already earned, and waiting a full interval
+-- on top would throw that credit away (the pool caps at capacity). Behind someone:
+-- take the slot after theirs, one full token interval later.
 local slotAt
 if rawResv ~= false and tonumber(rawResv) > now then
     slotAt = tonumber(rawResv) + (requested / refillPerSecond) * 1000
@@ -138,13 +138,12 @@ return {0, math.ceil(slotAt - now), 1}
 //   ARGV[1]      = requested tokens (integer)
 //   ARGV[2..4]   = capacity, refill/sec, TTL seconds for KEYS[1]
 //   ARGV[5..7]   = capacity, refill/sec, TTL seconds for KEYS[2]
-// Returns {1, 0, 0} on success. On denial returns {0, i, retryAfterMs} where i is the first
-// bucket (1-based) that cannot cover the request and retryAfterMs is how long until every short
-// bucket has accrued its missing tokens, so the caller can park until the claim can
-// mathematically succeed instead of polling at a fixed cadence. Both buckets are measured,
-// because the slower one decides when the pair can be granted. Competing callers may still take
-// those tokens first, so retryAfterMs is a lower bound, not a reservation. A short bucket that
-// never refills has no horizon, and then the denial reports none.
+// Returns {1, 0, 0} when granted. On denial: {0, i, retryAfterMs}, where i is the
+// first bucket (1-based) that came up short and retryAfterMs is how long until BOTH
+// buckets have their missing tokens back (the slower one decides). That is a lower
+// bound, not a reservation: other callers can take those tokens first, so the wake
+// still has to claim. A bucket that never refills has no horizon, and then the
+// denial reports none.
 const CLAIM_ALL_OR_NOTHING_PAIR_LUA = `
 local time = redis.call('TIME')
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
@@ -255,24 +254,18 @@ export class RateLimiterService {
     }
 
     /**
-     * Like claimUpTo, but a full denial also reserves the caller's place in line.
-     * The bucket keeps a "next free slot" cursor; each denial advances it and returns
-     * how long to park until the reserved slot. The first denial of an episode is charged
-     * only the tokens the bucket is short of, so a partly refilled bucket does not make a
-     * caller sit out an interval it has already served part of; denials behind it chain a
-     * further requested/refill each. That
-     * gives every denied caller a distinct wake time, so a backlog spreads itself
-     * over future refill instead of the whole backlog re-claiming against the same
-     * next token on every retry. The cursor never advances past `reserveOnDenyMs`,
-     * so a backlog deeper than the horizon re-contends there instead of reserving
-     * unboundedly far out. The slot is a place in line, not a guarantee — the wake
-     * must still claim. `retryAfterMs` is null on grants and on error-path denials.
+     * Like claimUpTo, but when the bucket says no, the caller also gets a time to come
+     * back at. First denial: wait only for the missing tokens. Every denial after that:
+     * the next slot, one token interval later. A denied backlog lines itself up over
+     * the future instead of everyone retrying at once.
      *
-     * `reserved` says whether the cursor actually moved. It is false past the horizon
-     * and on error-path denials, where every caller gets the same answer back and must
-     * spread its own wake. Only a reserved slot is the caller's alone, and only then is
-     * the returned distance exactly one slot behind the caller in front — so only then
-     * can the caller park on it unchanged.
+     * Slots only go out up to `reserveOnDenyMs` ahead. Past that, `reserved` is false
+     * and `retryAfterMs` is just the horizon: many callers get that same answer, so
+     * each one must spread its own wake before parking on it. Only a reserved slot
+     * (`reserved` true) is the caller's alone and safe to park on as-is.
+     *
+     * A slot is a place in line, not a promise. The wake still has to claim.
+     * `retryAfterMs` is null on grants and when the limiter itself failed.
      */
     public async claimOrReserve(
         req: ClaimRequest,

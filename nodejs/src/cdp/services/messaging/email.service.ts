@@ -129,10 +129,9 @@ function pickCapRetryDelayMs(retryAfterMs: number | null, refillPerSecond: numbe
     return Math.floor(clampedMs * (1 + Math.random()))
 }
 
-// A reserved park never reaches past the horizon, so it lands at or below the top bucket.
-// A park beyond the top bucket is an overflow send, jittered above the horizon because its
-// own slot lies further out than the cursor will reserve. A sustained rate up there is the
-// signal that a team's backlog outruns its sending budget.
+// How far denied sends park. Everything at or below the top bucket is a real slot.
+// Above the top bucket is overflow: the backlog is deeper than one hour of refill.
+// A sustained rate up there means a team queues more email than its limit can send.
 const emailReservedParkMs = new Histogram({
     name: 'cdp_email_reserved_park_ms',
     help: 'How far into the future a rate-limit-denied email parked, by limiter.',
@@ -141,25 +140,22 @@ const emailReservedParkMs = new Histogram({
 })
 
 function pickReservedRetryDelayMs(retryAfterMs: number | null, refillPerSecond: number, reserved: boolean): number {
-    // A denial with no horizon means the limiter itself failed, not that the bucket was empty.
-    // Fall back to the clamped token interval.
+    // No horizon means the limiter itself failed, not that the bucket was empty.
+    // Wake on the short token-bucket cadence, not on a cap that paces in hours.
     if (retryAfterMs === null) {
         return pickTokenBucketRetryDelayMs(refillPerSecond)
     }
     const parkMs = Math.max(retryAfterMs, CAP_RETRY_MIN_MS)
-    // A reserved slot is exclusive and sits exactly one token interval behind the slot in front
-    // of it, so it must be parked on unchanged. Spreading it would move a wake earlier whenever
-    // the spread shrank, the bucket would then be a fraction of a token short (burst capacity is
-    // about one second of budget, so it banks no surplus to cover the gap), and the send would be
-    // denied again and re-reserve behind every slot taken since.
+    // A reserved slot is the caller's own, exactly one token interval behind the slot
+    // in front. Park on it as-is. Waking any earlier means the token is not there yet
+    // (the bucket banks no surplus), the send gets denied again, and it goes to the
+    // back of the line.
     if (reserved) {
         return parkMs
     }
-    // Past the horizon the limiter reserves nothing and hands every caller the same wake time,
-    // and that population is unbounded. Spread it across the whole horizon, the way the tier-cap
-    // sibling above does. An overflow caller's own slot already lies past the horizon, so waking
-    // it exactly there is too early by construction: it cannot send yet, and the whole group
-    // arriving together only refills the queue head with claims that must be denied.
+    // Past the horizon nothing is reserved: every overflow caller got this same wake
+    // time back. Spread them over the next horizon so they do not arrive as one herd
+    // asking for tokens that will not be there.
     return Math.floor(parkMs * (1 + Math.random()))
 }
 
