@@ -136,9 +136,9 @@ function PatternExpandedRow({
 }
 
 // Highlight Drain's `<*>` wildcard and the masking placeholders (`<ip>`, `<num>`, `<uuid>`,
-// `<hex>`, …) the runner emits — see _MASKING_INSTRUCTIONS in
+// `<hex>`, …) the runner emits — see _PLACEHOLDER_PATTERNS in
 // products/logs/backend/log_patterns.py for the authoritative token vocabulary.
-const PATTERN_TOKEN = String.raw`<\*>|<[a-z][a-z0-9]*>`
+const PATTERN_TOKEN = String.raw`<\*>|<[a-zA-Z][a-zA-Z0-9_]*>`
 const PATTERN_TOKEN_SPLIT = new RegExp(`(${PATTERN_TOKEN})`, 'g')
 const PATTERN_TOKEN_MATCH = new RegExp(`^(${PATTERN_TOKEN})$`)
 

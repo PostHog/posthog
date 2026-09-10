@@ -92,6 +92,7 @@ def _sample(
     service: str = "api",
     ts: dt.datetime | None = None,
     truncated: bool = False,
+    pattern: str | None = None,
 ) -> LogSample:
     return LogSample(
         body=body,
@@ -99,10 +100,78 @@ def _sample(
         service_name=service,
         timestamp=ts or dt.datetime(2026, 6, 23, 12, 0, 0, tzinfo=dt.UTC),
         truncated=truncated,
+        pattern=pattern,
     )
 
 
 class TestMinePatterns(TestCase):
+    @parameterized.expand(
+        [
+            (
+                "vendor_ids",
+                ["Archive job run_A7c queued", "Archive job run_B8d queued"],
+                "Archive job <ID> queued",
+            ),
+            (
+                "shared_library_names",
+                ["Loaded codec.so from worker.example.com", "Loaded codec.so from backup.example.com"],
+                "Loaded codec.so from <HOST>",
+            ),
+            (
+                "json_email",
+                [
+                    '{"message":"Delivery to one@example.com accepted"}',
+                    '{"message":"Delivery to two@example.com accepted"}',
+                ],
+                "Delivery to <EMAIL> accepted",
+            ),
+        ]
+    )
+    def test_clusters_stored_patterns_without_masking_again(
+        self, _name: str, bodies: list[str], stored_pattern: str
+    ) -> None:
+        patterns = mine_patterns([_sample(body, pattern=stored_pattern) for body in bodies])
+
+        assert len(patterns) == 1
+        pattern = patterns[0]
+        assert pattern.pattern == stored_pattern
+        assert pattern.count == len(bodies)
+        assert [example.body for example in pattern.examples] == [
+            _prepare_body(body, _BODY_TRUNCATE).text for body in bodies
+        ]
+        assert pattern.match_regex is not None
+        assert all(re.search(pattern.match_regex, body) for body in bodies)
+
+    @parameterized.expand([(None,), ("",), (" \n\t",)])
+    def test_missing_stored_patterns_fall_back_to_body(self, stored_pattern: str | None) -> None:
+        patterns = mine_patterns([_sample("Processed 12 records", pattern=stored_pattern)])
+
+        assert patterns[0].pattern == "Processed <num> records"
+        assert patterns[0].count == 1
+
+    def test_stored_and_body_samples_keep_all_counts(self) -> None:
+        patterns = mine_patterns(
+            [
+                _sample("Archive job run_A7c queued", pattern="Archive job <ID> queued"),
+                _sample("Processed 12 records", severity="error"),
+            ]
+        )
+
+        assert sum(pattern.count for pattern in patterns) == 2
+        assert sum(pattern.error_count for pattern in patterns) == 1
+        assert sum(pattern.volume_share_pct for pattern in patterns) == 100
+
+    def test_stored_pattern_truncation_keeps_the_raw_body_pivot(self) -> None:
+        body = "counter " + " ".join(["1"] * 150)
+        stored_pattern = "counter " + " ".join(["<N>"] * 150)
+
+        pattern = mine_patterns([_sample(body, pattern=stored_pattern)])[0]
+
+        assert len(pattern.pattern) <= _BODY_TRUNCATE
+        assert pattern.examples[0].body == body
+        assert pattern.match_regex is not None
+        assert re.search(pattern.match_regex, body)
+
     def test_merges_messages_differing_by_one_word_into_one_template(self) -> None:
         samples = [
             _sample("User alice not found"),
@@ -527,6 +596,8 @@ class TestCompileMatchRegex(TestCase):
         [
             ("longest_run_wins", "at <uuid> failed to charge card for team <num>", "failed to charge card for team"),
             ("too_thin", "<*> ab <num>", None),
+            ("ingestion_placeholders", "At <ID> sent to <EMAIL>", "sent to"),
+            ("unknown_ingestion_placeholder", "<JSON_ARRAY>", None),
         ]
     )
     def test_extract_match_literal(self, _name: str, template: str, expected: str | None) -> None:
@@ -540,6 +611,9 @@ class TestCompileMatchRegex(TestCase):
         # prepared form (here: whitespace-collapsed) would silently match nothing.
         assert extract_match_literal("job done ok", ["job   done\n\nok"]) is None
         assert extract_match_literal("Job Done OK", ["prefix job done ok suffix"]) == "Job Done OK"
+
+    def test_unknown_ingestion_placeholders_withhold_regex(self) -> None:
+        assert _compile_prose("payload <JSON_ARRAY>", ["payload [1,2,3]"]) is None
 
 
 class TestPrepareJsonBody(TestCase):
