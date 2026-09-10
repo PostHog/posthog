@@ -33,6 +33,7 @@ COUNT_TRIGGER_QUERY_WIDTH = 20
 # Max batched check activities in flight at once, capping concurrent count queries at the
 # same ceiling as the legacy per-report path.
 COUNT_TRIGGER_MAX_CONCURRENT_CHECKS = 5
+REPORT_START_BATCH_SIZE = 100
 COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT = timedelta(seconds=120)
 # Per-attempt ClickHouse budget. A too-slow count query fails with a catchable
 # ClickHouseQueryTimeOut the activity can split-and-retry, unlike a Temporal activity

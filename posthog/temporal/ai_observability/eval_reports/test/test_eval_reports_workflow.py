@@ -9,12 +9,17 @@ from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.temporal.ai_observability.eval_reports.activities import (
+    ack_eval_report_cursors_activity,
     deliver_report_activity,
+    fetch_count_triggered_eval_report_candidates_activity,
+    fetch_due_eval_reports_activity,
     update_next_delivery_date_activity,
 )
 from posthog.temporal.ai_observability.eval_reports.types import (
+    AckEvalReportCursorsInput,
     CheckCountTriggeredEvalReportOutput,
     CheckCountTriggeredEvalReportsBatchOutput,
+    CheckCountTriggeredReportsWorkflowInputs,
     FetchDueEvalReportsOutput,
     GenerateAndDeliverEvalReportWorkflowInput,
     PrepareReportContextOutput,
@@ -25,10 +30,12 @@ from posthog.temporal.ai_observability.eval_reports.types import (
     UpdateNextDeliveryDateInput,
 )
 from posthog.temporal.ai_observability.eval_reports.workflow import (
+    CheckCountTriggeredReportsWorkflow,
     GenerateAndDeliverEvalReportWorkflow,
     ScheduleAllEvalReportsWorkflow,
     _check_count_triggered_eval_report_candidates,
     _check_count_triggered_eval_report_candidates_batched,
+    _start_report_workflows,
 )
 
 
@@ -69,6 +76,116 @@ async def test_scheduled_coordinator_only_waits_for_child_start_acceptance() -> 
         assert call.kwargs["parent_close_policy"] == temporalio.workflow.ParentClosePolicy.ABANDON
         assert call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE
     execute_child_workflow.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_scheduled_coordinator_acknowledges_cursor_after_child_starts() -> None:
+    events: list[str] = []
+    acknowledged_inputs: list[AckEvalReportCursorsInput] = []
+
+    async def fake_execute_activity(activity, inputs, **_kwargs):
+        if activity is fetch_due_eval_reports_activity:
+            return FetchDueEvalReportsOutput(report_ids=["report-a"], cursor_before="41")
+        if activity is ack_eval_report_cursors_activity:
+            events.append("ack")
+            acknowledged_inputs.append(inputs)
+            return True
+        raise AssertionError(f"unexpected activity: {activity}")
+
+    async def fake_start_child_workflow(*_args, **_kwargs):
+        events.append("start")
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
+            new=fake_execute_activity,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.start_child_workflow",
+            side_effect=fake_start_child_workflow,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.patched",
+            return_value=True,
+        ),
+    ):
+        await ScheduleAllEvalReportsWorkflow().run(ScheduleAllEvalReportsWorkflowInputs(region="eu"))
+
+    assert events == ["start", "ack"]
+    assert acknowledged_inputs[0].cursor_before == "41"
+    assert acknowledged_inputs[0].report_ids == ["report-a"]
+
+
+@pytest.mark.asyncio
+async def test_count_coordinator_acknowledges_cursor_after_due_child_starts() -> None:
+    events: list[str] = []
+
+    async def fake_execute_activity(activity, _inputs, **_kwargs):
+        if activity is fetch_count_triggered_eval_report_candidates_activity:
+            return FetchDueEvalReportsOutput(
+                report_ids=["report-a"],
+                report_id_groups=[["report-a"]],
+                cursor_before="41",
+            )
+        if activity is ack_eval_report_cursors_activity:
+            events.append("ack")
+            return True
+        raise AssertionError(f"unexpected activity: {activity}")
+
+    async def fake_check_candidates(_groups):
+        events.append("check")
+        return ["report-a"]
+
+    async def fake_start_child_workflow(*_args, **_kwargs):
+        events.append("start")
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
+            new=fake_execute_activity,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow._check_count_triggered_eval_report_candidates_batched",
+            new=fake_check_candidates,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.start_child_workflow",
+            side_effect=fake_start_child_workflow,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.patched",
+            return_value=True,
+        ),
+    ):
+        await CheckCountTriggeredReportsWorkflow().run(CheckCountTriggeredReportsWorkflowInputs(region="eu"))
+
+    assert events == ["check", "start", "ack"]
+
+
+@pytest.mark.asyncio
+async def test_report_child_starts_are_emitted_in_bounded_batches() -> None:
+    gather_batch_sizes: list[int] = []
+    original_gather = asyncio.gather
+
+    async def recording_gather(*tasks, **kwargs):
+        gather_batch_sizes.append(len(tasks))
+        return await original_gather(*tasks, **kwargs)
+
+    with (
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.REPORT_START_BATCH_SIZE", 2),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow._start_report_workflow",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.asyncio.gather",
+            side_effect=recording_gather,
+        ),
+    ):
+        await _start_report_workflows("scheduled", "report", ["a", "b", "c", "d", "e"])
+
+    assert gather_batch_sizes == [2, 2, 1]
 
 
 @pytest.mark.parametrize(

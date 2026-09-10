@@ -28,6 +28,7 @@ from posthog.temporal.ai_observability.eval_reports.activities import (
     _fetch_count_triggered_eval_report_candidate_groups,
     _fetch_eval_report_candidate_page,
     _find_nth_eval_timestamp,
+    _group_count_triggered_report_rows,
     _load_detector_evaluation_ids,
     _load_evaluation_target,
     _period_for_scheduled_report,
@@ -647,11 +648,37 @@ class TestCountTriggeredReportChecks(BaseTest):
             region="test",
             max_reports_per_run=2,
             candidate_sql=_COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
+            rotate_item_cursor=True,
         )
 
         self.assertEqual({team_id for _report_id, team_id in page.rows}, {self.team.id, other_team.id})
         self.assertIn(str(other_team_report.id), {report_id for report_id, _team_id in page.rows})
         self.assertEqual(page.items_lower_bound, 3)
+
+    def test_bounded_candidate_page_refills_capacity_from_a_noisy_team(self):
+        for _ in range(5):
+            self._create_report()
+        quiet_teams = [Team.objects.create(organization=self.organization, name=f"quiet-{index}") for index in range(3)]
+        quiet_reports = [self._create_report(team=team) for team in quiet_teams]
+        reports = (
+            EvaluationReport.objects.deliverable()
+            .filter(frequency=EvaluationReport.Frequency.EVERY_N, trigger_threshold__isnull=False)
+            .order_by()
+        )
+
+        page = _fetch_eval_report_candidate_page(
+            reports,
+            scheduler="test_eval_reports_bounded_refill",
+            region="test",
+            max_reports_per_run=5,
+            candidate_sql=_COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
+            rotate_item_cursor=True,
+        )
+
+        selected_ids = {report_id for report_id, _team_id in page.rows}
+        self.assertEqual(len(page.rows), 5)
+        self.assertTrue({str(report.id) for report in quiet_reports}.issubset(selected_ids))
+        self.assertEqual(page.items_lower_bound, 6)
 
     def test_bounded_candidate_page_rotates_the_tenant_cursor(self):
         other_team = Team.objects.create(organization=self.organization, name="other")
@@ -676,6 +703,7 @@ class TestCountTriggeredReportChecks(BaseTest):
             region="test",
             max_reports_per_run=1,
             candidate_sql=_COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
+            rotate_item_cursor=True,
         )
         _advance_eval_report_cursors(
             first_page,
@@ -690,6 +718,7 @@ class TestCountTriggeredReportChecks(BaseTest):
             region="test",
             max_reports_per_run=1,
             candidate_sql=_COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
+            rotate_item_cursor=True,
         )
 
         ordered_team_ids = sorted(reports_by_team)
@@ -735,6 +764,63 @@ class TestCountTriggeredReportChecks(BaseTest):
         self.assertEqual([report_id for report_id, _team_id in first_page.rows], expected_ids[:2])
         self.assertEqual([report_id for report_id, _team_id in second_page.rows], expected_ids[2:4])
 
+    def test_item_rotation_tracks_each_tenant_independently(self):
+        own_reports = [self._create_report() for _ in range(5)]
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other_reports = [self._create_report(team=other_team) for _ in range(5)]
+        queryset = (
+            EvaluationReport.objects.deliverable()
+            .filter(frequency=EvaluationReport.Frequency.EVERY_N, trigger_threshold__isnull=False)
+            .order_by()
+        )
+        scheduler = "test_eval_reports_per_tenant_item_rotation"
+
+        first_page = _fetch_eval_report_candidate_page(
+            queryset,
+            scheduler=scheduler,
+            region="test",
+            max_reports_per_run=4,
+            candidate_sql=_COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
+            rotate_item_cursor=True,
+        )
+        _advance_eval_report_cursors(
+            first_page,
+            first_page.rows,
+            scheduler=scheduler,
+            region="test",
+            rotate_item_cursor=True,
+        )
+        second_page = _fetch_eval_report_candidate_page(
+            queryset,
+            scheduler=scheduler,
+            region="test",
+            max_reports_per_run=4,
+            candidate_sql=_COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
+            rotate_item_cursor=True,
+        )
+
+        expected_first_ids = {
+            *sorted(str(report.id) for report in own_reports)[:2],
+            *sorted(str(report.id) for report in other_reports)[:2],
+        }
+        expected_second_ids = {
+            *sorted(str(report.id) for report in own_reports)[2:4],
+            *sorted(str(report.id) for report in other_reports)[2:4],
+        }
+        self.assertEqual({report_id for report_id, _team_id in first_page.rows}, expected_first_ids)
+        self.assertEqual({report_id for report_id, _team_id in second_page.rows}, expected_second_ids)
+
+    def test_count_triggered_groups_interleave_tenant_chunks(self):
+        rows = [
+            *((f"a-{index}", 1) for index in range(5)),
+            *((f"b-{index}", 2) for index in range(3)),
+        ]
+
+        with patch("posthog.temporal.ai_observability.eval_reports.activities.COUNT_TRIGGER_QUERY_WIDTH", 2):
+            groups = _group_count_triggered_report_rows(rows)
+
+        self.assertEqual(groups, [["a-0", "a-1"], ["b-0", "b-1"], ["a-2", "a-3"], ["b-2"], ["a-4"]])
+
     def test_item_cursor_advances_only_through_payload_selected_rows(self):
         reports = [self._create_report() for _ in range(5)]
         queryset = (
@@ -774,6 +860,42 @@ class TestCountTriggeredReportChecks(BaseTest):
         expected_ids = sorted(str(report.id) for report in reports)
         self.assertEqual(first_page.rows[0][0], expected_ids[0])
         self.assertEqual(second_page.rows[0][0], expected_ids[1])
+
+    def test_cursor_acknowledgement_is_idempotent_after_a_lost_activity_reply(self):
+        reports = [self._create_report() for _ in range(2)]
+        queryset = (
+            EvaluationReport.objects.deliverable()
+            .filter(frequency=EvaluationReport.Frequency.EVERY_N, trigger_threshold__isnull=False)
+            .order_by()
+        )
+        scheduler = "test_eval_reports_idempotent_ack"
+        page = _fetch_eval_report_candidate_page(
+            queryset,
+            scheduler=scheduler,
+            region="test",
+            max_reports_per_run=2,
+            candidate_sql=_COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
+            rotate_item_cursor=True,
+        )
+
+        first_ack = _advance_eval_report_cursors(
+            page,
+            page.rows,
+            scheduler=scheduler,
+            region="test",
+            rotate_item_cursor=True,
+        )
+        retry_ack = _advance_eval_report_cursors(
+            page,
+            page.rows,
+            scheduler=scheduler,
+            region="test",
+            rotate_item_cursor=True,
+        )
+
+        self.assertEqual(len(reports), 2)
+        self.assertTrue(first_ack)
+        self.assertTrue(retry_ack)
 
     def test_check_report_returns_due_when_threshold_is_crossed(self):
         report = self._create_report(trigger_threshold=100)

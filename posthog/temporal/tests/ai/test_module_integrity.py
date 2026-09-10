@@ -39,6 +39,7 @@ class TestAITemporalModuleIntegrity:
     def test_activities_remain_unchanged(self):
         """Ensure all expected activities are present in the module."""
         expected_activities = [
+            "ack_eval_report_cursors_activity",
             "get_approximate_actions_count",
             "batch_summarize_actions",
             "batch_embed_and_sync_actions",

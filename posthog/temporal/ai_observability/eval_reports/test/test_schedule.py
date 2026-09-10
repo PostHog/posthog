@@ -5,6 +5,7 @@ from unittest import mock
 
 from temporalio.client import ScheduleActionStartWorkflow, ScheduleOverlapPolicy
 
+from posthog.temporal.ai_observability.eval_reports.constants import COORDINATOR_EXECUTION_TIMEOUT
 from posthog.temporal.ai_observability.eval_reports.schedule import (
     create_count_trigger_schedule,
     create_eval_reports_schedule,
@@ -49,7 +50,7 @@ async def test_eval_report_schedules_have_bounded_inputs_and_explicit_recovery_p
             **({"buffer_minutes": 15} if expected_catchup_window == timedelta(hours=1) else {}),
         }
     ]
-    assert schedule.action.execution_timeout == timedelta(minutes=10)
+    assert schedule.action.execution_timeout == COORDINATOR_EXECUTION_TIMEOUT
     assert schedule.action.retry_policy is not None
     assert schedule.action.retry_policy.maximum_attempts == 1
     assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP

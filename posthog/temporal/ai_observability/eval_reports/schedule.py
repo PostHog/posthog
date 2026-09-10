@@ -18,6 +18,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.temporal.ai_observability.eval_reports.constants import (
     CHECK_COUNT_TRIGGERED_REPORTS_WORKFLOW_NAME,
+    COORDINATOR_EXECUTION_TIMEOUT,
     COUNT_TRIGGER_SCHEDULE_ID,
     SCHEDULE_ALL_EVAL_REPORTS_WORKFLOW_NAME,
     SCHEDULE_ID,
@@ -41,7 +42,7 @@ async def create_eval_reports_schedule(client: Client):
             ),
             id=SCHEDULE_ID,
             task_queue=settings.LLMA_TASK_QUEUE,
-            execution_timeout=timedelta(minutes=10),
+            execution_timeout=COORDINATOR_EXECUTION_TIMEOUT,
             retry_policy=RetryPolicy(maximum_attempts=1),
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))]),
@@ -70,7 +71,7 @@ async def create_count_trigger_schedule(client: Client):
             ),
             id=COUNT_TRIGGER_SCHEDULE_ID,
             task_queue=settings.LLMA_TASK_QUEUE,
-            execution_timeout=timedelta(minutes=10),
+            execution_timeout=COORDINATOR_EXECUTION_TIMEOUT,
             retry_policy=RetryPolicy(maximum_attempts=1),
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=5))]),

@@ -5,6 +5,7 @@ Metrics are emitted via Temporal's built-in metric meter (activity/workflow cont
 and scraped by the Prometheus endpoint on the worker pod.
 """
 
+import time
 import typing
 import datetime as dt
 
@@ -48,6 +49,7 @@ EVAL_REPORTS_LATENCY_HISTOGRAM_BUCKETS = [
 # ---------------------------------------------------------------------------
 
 EVAL_REPORTS_ACTIVITY_TYPES = {
+    "ack_eval_report_cursors_activity",
     "fetch_due_eval_reports_activity",
     "fetch_count_triggered_eval_report_candidates_activity",
     "check_count_triggered_eval_report_activity",
@@ -156,6 +158,10 @@ def record_coordinator_candidate_inventory(count: int, trigger_type: str, region
         "llma_eval_reports_coordinator_page_saturated",
         "One when candidate discovery deferred work beyond the current poll",
     ).set(int(saturated))
+    meter.create_gauge(
+        "llma_eval_reports_coordinator_candidate_snapshot_unixtime",
+        "Unix time when this worker sampled count-triggered candidate inventory",
+    ).set(time.time())
 
 
 # ---------------------------------------------------------------------------

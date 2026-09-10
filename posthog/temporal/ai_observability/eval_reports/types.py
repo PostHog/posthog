@@ -29,6 +29,14 @@ class CheckCountTriggeredReportsWorkflowInputs:
     region: str = "local"
 
 
+@dataclasses.dataclass(frozen=True)
+class AckEvalReportCursorsInput:
+    trigger_type: str
+    region: str
+    cursor_before: str
+    report_ids: list[str]
+
+
 @dataclasses.dataclass
 class CheckCountTriggeredEvalReportInput:
     report_id: str
@@ -62,6 +70,9 @@ class FetchDueEvalReportsOutput:
     oldest_due_at_iso: str | None = None
     payload_bytes: int = 0
     limited_by: str = "none"
+    # None preserves replay for fetch results written before cursor acknowledgement moved into
+    # its own activity. An empty string is a valid first-page cursor.
+    cursor_before: str | None = None
 
 
 @dataclasses.dataclass

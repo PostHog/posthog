@@ -13,6 +13,7 @@ from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.temporal.ai_observability.eval_reports.activities import (
+    ack_eval_report_cursors_activity,
     check_count_triggered_eval_report_activity,
     check_count_triggered_eval_reports_activity,
     deliver_report_activity,
@@ -38,6 +39,7 @@ from posthog.temporal.ai_observability.eval_reports.constants import (
     FETCH_RETRY_POLICY,
     GENERATE_EVAL_REPORT_WORKFLOW_NAME,
     PREPARE_ACTIVITY_TIMEOUT,
+    REPORT_START_BATCH_SIZE,
     SCHEDULE_ALL_EVAL_REPORTS_WORKFLOW_NAME,
     STORE_ACTIVITY_TIMEOUT,
     STORE_RETRY_POLICY,
@@ -51,10 +53,12 @@ from posthog.temporal.ai_observability.eval_reports.emit_signal import (
 )
 from posthog.temporal.ai_observability.eval_reports.metrics import record_coordinator_reports_found
 from posthog.temporal.ai_observability.eval_reports.types import (
+    AckEvalReportCursorsInput,
     CheckCountTriggeredEvalReportInput,
     CheckCountTriggeredEvalReportsBatchInput,
     CheckCountTriggeredReportsWorkflowInputs,
     DeliverReportInput,
+    FetchDueEvalReportsOutput,
     GenerateAndDeliverEvalReportWorkflowInput,
     PrepareReportContextInput,
     RunEvalReportAgentInput,
@@ -96,6 +100,7 @@ class ScheduleAllEvalReportsWorkflow(PostHogWorkflow):
             result.report_ids,
             patch_id="eval-report-scheduled-coordinator-fire-and-forget-2026-09",
         )
+        await _ack_eval_report_cursors(result, "scheduled", inputs.region)
 
 
 @temporalio.workflow.defn(name=CHECK_COUNT_TRIGGERED_REPORTS_WORKFLOW_NAME)
@@ -127,15 +132,15 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
         else:
             report_ids = await _check_count_triggered_eval_report_candidates(result.report_ids)
 
-        if not report_ids:
-            return
+        if report_ids:
+            await _dispatch_report_workflows(
+                "count_triggered_eval_report",
+                "eval-report-count",
+                report_ids,
+                patch_id="eval-report-count-coordinator-fire-and-forget-2026-09",
+            )
 
-        await _dispatch_report_workflows(
-            "count_triggered_eval_report",
-            "eval-report-count",
-            report_ids,
-            patch_id="eval-report-count-coordinator-fire-and-forget-2026-09",
-        )
+        await _ack_eval_report_cursors(result, "count_triggered", inputs.region)
 
 
 async def _check_count_triggered_eval_report_candidates(report_ids: list[str]) -> list[str]:
@@ -277,14 +282,17 @@ async def _start_report_workflows(kind: str, workflow_id_prefix: str, report_ids
     one slow child. ABANDON keeps accepted children running after this coordinator closes.
     """
 
-    # An awaited start resolves only after the server records the child, so starting them
-    # one at a time spends a workflow task per report and leaves the tail unstarted when the
-    # coordinator's execution timeout lands mid-dispatch. Gathering emits every start command
-    # in one workflow task, which is what the pre-batching path this replaces already did.
-    results = await asyncio.gather(
-        *(_start_report_workflow(workflow_id_prefix, report_id) for report_id in report_ids),
-        return_exceptions=True,
-    )
+    # An awaited start resolves only after the server records the child. Emit bounded groups so
+    # dispatch does not spend one workflow task per report or put the whole page into one command
+    # activation.
+    results: list[bool | BaseException] = []
+    for report_id_batch in batched(report_ids, REPORT_START_BATCH_SIZE, strict=False):
+        results.extend(
+            await asyncio.gather(
+                *(_start_report_workflow(workflow_id_prefix, report_id) for report_id in report_id_batch),
+                return_exceptions=True,
+            )
+        )
 
     already_started = 0
     failed_count = 0
@@ -332,6 +340,32 @@ async def _start_report_workflow(workflow_id_prefix: str, report_id: str) -> boo
         return True
     except WorkflowAlreadyStartedError:
         return False
+
+
+async def _ack_eval_report_cursors(
+    result: FetchDueEvalReportsOutput,
+    trigger_type: str,
+    region: str,
+) -> None:
+    if result.cursor_before is None or not result.report_ids:
+        return
+
+    advanced = await temporalio.workflow.execute_activity(
+        ack_eval_report_cursors_activity,
+        AckEvalReportCursorsInput(
+            trigger_type=trigger_type,
+            region=region,
+            cursor_before=result.cursor_before,
+            report_ids=result.report_ids,
+        ),
+        start_to_close_timeout=UPDATE_SCHEDULE_ACTIVITY_TIMEOUT,
+        retry_policy=UPDATE_SCHEDULE_RETRY_POLICY,
+    )
+    if not advanced:
+        temporalio.workflow.logger.warning(
+            "eval_report_coordinator.cursor_acknowledgement_conflict",
+            extra={"trigger_type": trigger_type, "reports_count": len(result.report_ids)},
+        )
 
 
 def _log_legacy_fan_out_failures(kind: str, report_ids: list[str], results: list) -> None:

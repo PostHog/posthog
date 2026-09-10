@@ -3,7 +3,7 @@
 import math
 import time
 import datetime as dt
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Sequence
 from itertools import batched
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -39,6 +39,7 @@ from posthog.temporal.ai_observability.eval_reports.targets import (
     target_event_predicate,
 )
 from posthog.temporal.ai_observability.eval_reports.types import (
+    AckEvalReportCursorsInput,
     CheckCountTriggeredEvalReportInput,
     CheckCountTriggeredEvalReportOutput,
     CheckCountTriggeredEvalReportsBatchInput,
@@ -68,6 +69,8 @@ logger = get_logger(__name__)
 
 _SCHEDULED_EVAL_REPORTS_SCHEDULER = "eval_reports_scheduled"
 _COUNT_TRIGGERED_EVAL_REPORTS_SCHEDULER = "eval_reports_count_triggered"
+_ZERO_UUID = "00000000-0000-0000-0000-000000000000"
+_MAX_DISCOVERY_REFILL_ROUNDS = 12
 
 _REPORTABLE_EVALUATION_SQL = """
     evaluation.enabled = TRUE
@@ -122,17 +125,22 @@ _SCHEDULED_REPORT_CANDIDATE_SQL = f"""
 """
 
 _COUNT_TRIGGERED_REPORT_CANDIDATE_SQL = f"""
-    WITH selected_teams(team_id, team_order) AS (
-        SELECT * FROM unnest(%s::bigint[]) WITH ORDINALITY
+    WITH selected_teams AS (
+        SELECT team_id, item_cursor, team_order
+        FROM unnest(%s::bigint[], %s::uuid[]) WITH ORDINALITY
+            AS selected(team_id, item_cursor, team_order)
     ),
     bounded_candidates AS (
         SELECT
             selected_teams.team_id,
             selected_teams.team_order,
-            candidate.id
+            candidate.id,
+            candidate.item_wrapped
         FROM selected_teams
         CROSS JOIN LATERAL (
-            SELECT report.id
+            SELECT
+                report.id,
+                report.id <= selected_teams.item_cursor AS item_wrapped
             FROM llm_analytics_evaluationreport AS report
             INNER JOIN llm_analytics_evaluation AS evaluation ON evaluation.id = report.evaluation_id
             WHERE report.team_id = selected_teams.team_id
@@ -141,7 +149,7 @@ _COUNT_TRIGGERED_REPORT_CANDIDATE_SQL = f"""
               AND report.frequency = 'every_n'
               AND report.trigger_threshold IS NOT NULL
               AND {_REPORTABLE_EVALUATION_SQL}
-            ORDER BY (report.id <= %s::uuid), report.id
+            ORDER BY item_wrapped, report.id
             LIMIT %s
         ) AS candidate
     ),
@@ -150,7 +158,7 @@ _COUNT_TRIGGERED_REPORT_CANDIDATE_SQL = f"""
             id,
             team_id,
             team_order,
-            ROW_NUMBER() OVER (PARTITION BY team_id ORDER BY id) AS team_rank
+            ROW_NUMBER() OVER (PARTITION BY team_id ORDER BY item_wrapped, id) AS team_rank
         FROM bounded_candidates
     )
     SELECT id, team_id
@@ -165,7 +173,6 @@ class _EvalReportCandidatePage(NamedTuple):
     items_lower_bound: int
     oldest_due_at: dt.datetime | None
     team_cursor: str
-    item_cursor: str | None
 
 
 @temporalio.activity.defn
@@ -212,18 +219,11 @@ async def fetch_due_eval_reports_activity(
             report_ids=[report_id for report_id, _team_id in rows],
             due_items_lower_bound=candidates.items_lower_bound,
             oldest_due_at_iso=candidates.oldest_due_at.isoformat() if candidates.oldest_due_at else None,
+            cursor_before=candidates.team_cursor,
         ),
         max_items=inputs.max_reports_per_run,
     )
     report_ids = [report_id for report_id, _team_id in selection.items]
-    if selection.items:
-        await database_sync_to_async(_advance_eval_report_cursors, thread_sensitive=False)(
-            candidates,
-            selection.items,
-            scheduler=_SCHEDULED_EVAL_REPORTS_SCHEDULER,
-            region=inputs.region,
-            rotate_item_cursor=False,
-        )
     limited_by = _effective_limit(selection.limited_by, candidates.items_lower_bound, len(report_ids))
     oldest_age_seconds = _oldest_age_seconds(candidates.oldest_due_at)
     record_scheduler_metrics_safely(
@@ -249,6 +249,7 @@ async def fetch_due_eval_reports_activity(
         oldest_age_seconds=oldest_age_seconds,
         payload_bytes=selection.encoded_size_bytes,
         limited_by=limited_by,
+        cursor_before=candidates.team_cursor,
         region=inputs.region,
     )
     from posthog.temporal.ai_observability.eval_reports.metrics import record_coordinator_reports_found
@@ -260,6 +261,7 @@ async def fetch_due_eval_reports_activity(
         oldest_due_at_iso=candidates.oldest_due_at.isoformat() if candidates.oldest_due_at else None,
         payload_bytes=selection.encoded_size_bytes,
         limited_by=limited_by,
+        cursor_before=candidates.team_cursor,
     )
 
 
@@ -298,19 +300,15 @@ async def fetch_count_triggered_eval_report_candidates_activity(
     candidates = await get_report_candidates()
     selection = await select_items_within_temporal_payload(
         candidates.rows,
-        build_payload=lambda rows: _count_triggered_payload(rows, candidates.items_lower_bound),
+        build_payload=lambda rows: _count_triggered_payload(
+            rows,
+            candidates.items_lower_bound,
+            candidates.team_cursor,
+        ),
         max_items=inputs.max_reports_per_run,
     )
     report_id_groups = _group_count_triggered_report_rows(selection.items)
     report_ids = [report_id for report_id, _team_id in selection.items]
-    if selection.items:
-        await database_sync_to_async(_advance_eval_report_cursors, thread_sensitive=False)(
-            candidates,
-            selection.items,
-            scheduler=_COUNT_TRIGGERED_EVAL_REPORTS_SCHEDULER,
-            region=inputs.region,
-            rotate_item_cursor=True,
-        )
     limited_by = _effective_limit(selection.limited_by, candidates.items_lower_bound, len(report_ids))
     await logger.ainfo(
         "llma_eval_reports_coordinator_count_triggered_candidates_poll",
@@ -327,6 +325,14 @@ async def fetch_count_triggered_eval_report_candidates_activity(
 
     record_coordinator_check_count(len(report_ids), "count_triggered")
     record_scheduler_metrics_safely(
+        lambda: DEFAULT_SCHEDULER_METRICS.observe_payload(
+            _COUNT_TRIGGERED_EVAL_REPORTS_SCHEDULER,
+            inputs.region,
+            "discovery",
+            selection.encoded_size_bytes,
+        )
+    )
+    record_scheduler_metrics_safely(
         lambda: record_coordinator_candidate_inventory(
             candidates.items_lower_bound,
             "count_triggered",
@@ -340,6 +346,7 @@ async def fetch_count_triggered_eval_report_candidates_activity(
         due_items_lower_bound=candidates.items_lower_bound,
         payload_bytes=selection.encoded_size_bytes,
         limited_by=limited_by,
+        cursor_before=candidates.team_cursor,
     )
 
 
@@ -366,16 +373,25 @@ def _group_count_triggered_report_rows(rows: Sequence[tuple[str, int]]) -> list[
     ids_by_team: dict[int, list[str]] = defaultdict(list)
     for report_id, team_id in rows:
         ids_by_team[team_id].append(report_id)
+    chunks_by_team = [list(batched(ids, COUNT_TRIGGER_QUERY_WIDTH, strict=False)) for ids in ids_by_team.values()]
     return [
-        list(chunk) for ids in ids_by_team.values() for chunk in batched(ids, COUNT_TRIGGER_QUERY_WIDTH, strict=False)
+        list(team_chunks[chunk_rank])
+        for chunk_rank in range(max((len(team_chunks) for team_chunks in chunks_by_team), default=0))
+        for team_chunks in chunks_by_team
+        if chunk_rank < len(team_chunks)
     ]
 
 
-def _count_triggered_payload(rows: Sequence[tuple[str, int]], items_lower_bound: int) -> FetchDueEvalReportsOutput:
+def _count_triggered_payload(
+    rows: Sequence[tuple[str, int]],
+    items_lower_bound: int,
+    cursor_before: str,
+) -> FetchDueEvalReportsOutput:
     return FetchDueEvalReportsOutput(
         report_ids=[report_id for report_id, _team_id in rows],
         report_id_groups=_group_count_triggered_report_rows(rows),
         due_items_lower_bound=items_lower_bound,
+        cursor_before=cursor_before,
     )
 
 
@@ -401,22 +417,6 @@ def _fetch_eval_report_candidate_page(
         except ValueError:
             team_cursor = 0
 
-        item_state = None
-        item_discovery_cursor = None
-        item_cursor = "00000000-0000-0000-0000-000000000000"
-        if rotate_item_cursor:
-            item_state, _ = TemporalSchedulerState.objects.get_or_create(
-                scheduler=f"{scheduler}_items",
-                region=region,
-            )
-            item_state = TemporalSchedulerState.objects.select_for_update().get(pk=item_state.pk)
-            item_discovery_cursor = item_state.discovery_cursor
-            if item_discovery_cursor:
-                try:
-                    item_cursor = str(UUID(item_discovery_cursor))
-                except ValueError:
-                    item_cursor = "00000000-0000-0000-0000-000000000000"
-
         teams_after_cursor = list(
             reports.filter(team_id__gt=team_cursor)
             .order_by("team_id")
@@ -437,20 +437,35 @@ def _fetch_eval_report_candidate_page(
             deferred_teams = deferred_teams or len(teams_before_cursor) > remaining_team_slots
 
         if not selected_team_ids:
-            return _EvalReportCandidatePage([], 0, oldest_due_at, team_discovery_cursor, item_discovery_cursor)
+            return _EvalReportCandidatePage([], 0, oldest_due_at, team_discovery_cursor)
 
         candidate_limit = max_reports_per_run + 1
         candidates_per_team = math.ceil(candidate_limit / len(selected_team_ids))
-        query_params: list[Any] = [
-            selected_team_ids,
-            *(candidate_sql_params or []),
-            *([item_cursor] if rotate_item_cursor else []),
-            candidates_per_team,
-            candidate_limit,
-        ]
-        with connection.cursor() as cursor:
-            cursor.execute(candidate_sql, query_params)
-            bounded_rows = [(str(report_id), int(team_id)) for report_id, team_id in cursor.fetchall()]
+        item_cursors = (
+            _load_eval_report_item_cursors(scheduler, region, selected_team_ids) if rotate_item_cursor else {}
+        )
+        bounded_rows: list[tuple[str, int]] = []
+        for _round in range(_MAX_DISCOVERY_REFILL_ROUNDS):
+            query_params: list[Any] = [
+                selected_team_ids,
+                *([item_cursors[team_id] for team_id in selected_team_ids] if rotate_item_cursor else []),
+                *(candidate_sql_params or []),
+                candidates_per_team,
+                candidate_limit,
+            ]
+            with connection.cursor() as cursor:
+                cursor.execute(candidate_sql, query_params)
+                bounded_rows = [(str(report_id), int(team_id)) for report_id, team_id in cursor.fetchall()]
+
+            if len(bounded_rows) >= candidate_limit:
+                break
+            rows_per_team = Counter(team_id for _report_id, team_id in bounded_rows)
+            if not any(count >= candidates_per_team for count in rows_per_team.values()):
+                break
+            next_limit = min(candidate_limit, candidates_per_team * 2)
+            if next_limit == candidates_per_team:
+                break
+            candidates_per_team = next_limit
 
     deferred_candidates = len(bounded_rows) > max_reports_per_run
     selected_rows = bounded_rows[:max_reports_per_run]
@@ -460,8 +475,49 @@ def _fetch_eval_report_candidate_page(
         items_lower_bound,
         oldest_due_at,
         team_discovery_cursor,
-        item_discovery_cursor,
     )
+
+
+def _item_cursor_scheduler(scheduler: str, team_id: int) -> str:
+    return f"{scheduler}_items:{team_id}"
+
+
+def _load_eval_report_item_cursor_states(
+    scheduler: str,
+    region: str,
+    team_ids: Sequence[int],
+) -> dict[int, TemporalSchedulerState]:
+    scheduler_by_team = {team_id: _item_cursor_scheduler(scheduler, team_id) for team_id in team_ids}
+    TemporalSchedulerState.objects.bulk_create(
+        [
+            TemporalSchedulerState(scheduler=item_scheduler, region=region)
+            for item_scheduler in scheduler_by_team.values()
+        ],
+        ignore_conflicts=True,
+    )
+    states_by_scheduler = {
+        state.scheduler: state
+        for state in TemporalSchedulerState.objects.select_for_update().filter(
+            scheduler__in=scheduler_by_team.values(),
+            region=region,
+        )
+    }
+    return {team_id: states_by_scheduler[item_scheduler] for team_id, item_scheduler in scheduler_by_team.items()}
+
+
+def _load_eval_report_item_cursors(
+    scheduler: str,
+    region: str,
+    team_ids: Sequence[int],
+) -> dict[int, str]:
+    states = _load_eval_report_item_cursor_states(scheduler, region, team_ids)
+    cursors: dict[int, str] = {}
+    for team_id, state in states.items():
+        try:
+            cursors[team_id] = str(UUID(state.discovery_cursor)) if state.discovery_cursor else _ZERO_UUID
+        except ValueError:
+            cursors[team_id] = _ZERO_UUID
+    return cursors
 
 
 def _advance_eval_report_cursors(
@@ -475,27 +531,83 @@ def _advance_eval_report_cursors(
     if not selected_rows:
         return False
 
+    next_team_cursor = str(selected_rows[-1][1])
+    last_report_id_by_team = {team_id: report_id for report_id, team_id in selected_rows}
     with transaction.atomic():
         state = TemporalSchedulerState.objects.select_for_update().get(scheduler=scheduler, region=region)
-        if state.discovery_cursor != page.team_cursor:
-            return False
-
-        item_state = None
+        item_states: dict[int, TemporalSchedulerState] = {}
         if rotate_item_cursor:
-            item_state = TemporalSchedulerState.objects.select_for_update().get(
-                scheduler=f"{scheduler}_items",
-                region=region,
+            item_states = _load_eval_report_item_cursor_states(
+                scheduler,
+                region,
+                list(last_report_id_by_team),
             )
-            if item_state.discovery_cursor != page.item_cursor:
-                return False
 
-        state.discovery_cursor = str(selected_rows[-1][1])
+        if state.discovery_cursor != page.team_cursor:
+            # The activity may have committed and then lost its reply. Treat the exact
+            # post-ack state as success so Temporal retries are idempotent, while a genuinely
+            # different cursor still exposes concurrent or stale work.
+            if state.discovery_cursor != next_team_cursor:
+                return False
+            if item_states and any(
+                item_states[team_id].discovery_cursor != report_id
+                for team_id, report_id in last_report_id_by_team.items()
+            ):
+                return False
+            return True
+
+        state.discovery_cursor = next_team_cursor
         state.save(update_fields=["discovery_cursor", "updated_at"])
-        if item_state is not None:
-            item_state.discovery_cursor = selected_rows[-1][0]
-            item_state.save(update_fields=["discovery_cursor", "updated_at"])
+        if item_states:
+            updated_at = dt.datetime.now(tz=dt.UTC)
+            for team_id, report_id in last_report_id_by_team.items():
+                item_states[team_id].discovery_cursor = report_id
+                item_states[team_id].updated_at = updated_at
+            TemporalSchedulerState.objects.bulk_update(
+                list(item_states.values()),
+                ["discovery_cursor", "updated_at"],
+            )
 
     return True
+
+
+@temporalio.activity.defn
+async def ack_eval_report_cursors_activity(inputs: AckEvalReportCursorsInput) -> bool:
+    """Advance discovery only after the coordinator has durably received and processed a page."""
+
+    if inputs.trigger_type == "scheduled":
+        scheduler = _SCHEDULED_EVAL_REPORTS_SCHEDULER
+        rotate_item_cursor = False
+    elif inputs.trigger_type == "count_triggered":
+        scheduler = _COUNT_TRIGGERED_EVAL_REPORTS_SCHEDULER
+        rotate_item_cursor = True
+    else:
+        raise ValueError("unsupported evaluation report trigger_type")
+
+    @database_sync_to_async(thread_sensitive=False)
+    def ack() -> bool:
+        from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
+
+        team_by_report_id = {
+            str(report_id): int(team_id)
+            for report_id, team_id in EvaluationReport.objects.filter(id__in=inputs.report_ids).values_list(
+                "id", "team_id"
+            )
+        }
+        selected_rows = [
+            (report_id, team_by_report_id[report_id])
+            for report_id in inputs.report_ids
+            if report_id in team_by_report_id
+        ]
+        return _advance_eval_report_cursors(
+            _EvalReportCandidatePage([], 0, None, inputs.cursor_before),
+            selected_rows,
+            scheduler=scheduler,
+            region=inputs.region,
+            rotate_item_cursor=rotate_item_cursor,
+        )
+
+    return await ack()
 
 
 @temporalio.activity.defn
@@ -548,9 +660,9 @@ def _fetch_count_triggered_eval_report_candidate_groups() -> list[list[str]]:
         .values_list("id", "team_id")[:MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN]
     ):
         ids_by_team[team_id].append(str(pk))
-    return [
-        list(chunk) for ids in ids_by_team.values() for chunk in batched(ids, COUNT_TRIGGER_QUERY_WIDTH, strict=False)
-    ]
+    return _group_count_triggered_report_rows(
+        [(report_id, team_id) for team_id, report_ids in ids_by_team.items() for report_id in report_ids]
+    )
 
 
 def _load_count_triggered_report(report_id: str) -> "EvaluationReport | None":
