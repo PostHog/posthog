@@ -74,6 +74,8 @@ jobs:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
                   persist-credentials: false
 
             - name: Setup pnpm
@@ -133,12 +135,58 @@ jobs:
             - name: Serve Storybook
               working-directory: products/desktop
               run: |
-                  pnpm --filter code exec http-server apps/code/storybook-static --port 6006 --silent &
+                  STORYBOOK_ROOT=apps/code/storybook-static node --input-type=module <<'EOF' &
+                  import { createReadStream, statSync } from "node:fs";
+                  import { createServer } from "node:http";
+                  import { extname, resolve, sep } from "node:path";
+
+                  const root = resolve(process.env.STORYBOOK_ROOT);
+                  const contentTypes = {
+                    ".css": "text/css",
+                    ".html": "text/html",
+                    ".js": "text/javascript",
+                    ".json": "application/json",
+                    ".png": "image/png",
+                    ".svg": "image/svg+xml",
+                    ".woff2": "font/woff2",
+                  };
+
+                  createServer((request, response) => {
+                    const pathname = decodeURIComponent(new URL(request.url ?? "/", "http://127.0.0.1").pathname);
+                    const filePath = resolve(root, `.${pathname}`);
+                    if (!filePath.startsWith(`${root}${sep}`)) {
+                      response.writeHead(403).end();
+                      return;
+                    }
+                    try {
+                      if (!statSync(filePath).isFile()) throw new Error("Not a file");
+                      response.writeHead(200, { "Content-Type": contentTypes[extname(filePath)] ?? "application/octet-stream" });
+                      createReadStream(filePath).pipe(response);
+                    } catch {
+                      response.writeHead(404).end();
+                    }
+                  }).listen(6006, "127.0.0.1");
+                  EOF
                   pnpm --filter code exec wait-on http://127.0.0.1:6006/iframe.html --timeout 30000
 
             - name: Clean snapshot directory
               working-directory: products/desktop
               run: find apps/code/.storybook/__snapshots__ -name '*.png' -delete 2>/dev/null || true
+
+            - name: Capture story screenshots
+              id: test-runner
+              continue-on-error: true
+              working-directory: products/desktop
+              env:
+                  HOME: /root
+              run: pnpm --filter code run test:visual:ci:update
+
+            # The Desktop build uses Node 22, while the Visual Review CLI requires Node 24.
+            - name: Setup Node.js for Visual Review
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version: 24
 
             # The CLI comes from the base branch on PRs. This prevents a PR from
             # modifying the token-consuming client that evaluates its own screenshots.
@@ -170,7 +218,7 @@ jobs:
                   VR_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
                   VR_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
                   VR_PR: ${{ github.event.pull_request.number }}
-                  VR_PURPOSE: ${{ github.event_name == 'push' && 'observe' || 'review' }}
+                  VR_PURPOSE: ${{ (github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'trunk-merge/'))) && 'observe' || 'review' }}
               run: |
                   RUN_ID=$(node vr-cli/products/visual_review/cli/dist/cli/src/index.js run create \
                     --type desktop-storybook \
@@ -181,14 +229,6 @@ jobs:
                     --purpose "$VR_PURPOSE" \
                     --token "$VR_TOKEN")
                   echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
-
-            - name: Capture story screenshots
-              id: test-runner
-              continue-on-error: true
-              working-directory: products/desktop
-              env:
-                  HOME: /root
-              run: pnpm --filter code run test:visual:ci:update
 
             - name: Upload snapshots to Visual Review
               if: always() && steps.visual-review.outputs.run_id != ''
@@ -210,7 +250,7 @@ jobs:
                   args=(
                     --run-id "${{ steps.visual-review.outputs.run_id }}"
                     --baseline products/desktop/apps/code/snapshots.yml
-                    --purpose "${{ github.event_name == 'push' && 'observe' || 'review' }}"
+                    --purpose "${{ (github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'trunk-merge/'))) && 'observe' || 'review' }}"
                     --token "$VR_TOKEN"
                   )
                   if [ "$VR_TOLERATE_DRIFT" = 'true' ]; then
