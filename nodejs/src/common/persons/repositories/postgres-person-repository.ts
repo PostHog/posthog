@@ -14,6 +14,8 @@ import { PersonUpdate } from '~/common/persons/person-update-batch'
 import { CreatePersonResult, MoveDistinctIdsResult, PersonPropertiesSize } from '~/common/utils/db/db'
 import {
     moveDistinctIdsCountHistogram,
+    moveDistinctIdsDurationHistogram,
+    movedRowsBand,
     personPropertiesSizeHistogram,
     personUpdateVersionMismatchCounter,
 } from '~/common/utils/db/metrics'
@@ -1629,6 +1631,7 @@ export class PostgresPersonRepository
         tx?: TransactionClient
     ): Promise<MoveDistinctIdsResult> {
         let movedDistinctIdResult: QueryResult<any> | null = null
+        const stopMoveTimer = moveDistinctIdsDurationHistogram.startTimer()
         try {
             const hasLimit = limit !== undefined
             const query = hasLimit
@@ -1682,14 +1685,17 @@ export class PostgresPersonRepository
                 })
                 // Track 0 moved IDs for failed merges
                 moveDistinctIdsCountHistogram.observe(0)
+                stopMoveTimer({ rows: '0' })
                 return {
                     success: false,
                     error: 'TargetNotFound',
                 }
             }
 
+            stopMoveTimer({ rows: 'error' })
             throw error
         }
+        stopMoveTimer({ rows: movedRowsBand(movedDistinctIdResult.rows.length) })
 
         // this is caused by a race condition where the _source_ person was deleted after fetching but
         // before the update query ran and will trigger a retry with updated persons
@@ -1762,6 +1768,7 @@ export class PostgresPersonRepository
         const sourceIds = sources.map((source) => source.id).sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1))
 
         let movedDistinctIdResult: QueryResult<any> | null = null
+        const stopMoveTimer = moveDistinctIdsDurationHistogram.startTimer()
         try {
             movedDistinctIdResult = await this.postgres.query(
                 tx ?? PostgresUse.PERSONS_WRITE,
@@ -1787,14 +1794,17 @@ export class PostgresPersonRepository
                     person_id: target.id,
                 })
                 moveDistinctIdsCountHistogram.observe(0)
+                stopMoveTimer({ rows: '0' })
                 return {
                     success: false,
                     error: 'TargetNotFound',
                 }
             }
 
+            stopMoveTimer({ rows: 'error' })
             throw error
         }
+        stopMoveTimer({ rows: movedRowsBand(movedDistinctIdResult.rows.length) })
 
         // Unlike the single-source variant, zero moved rows for a source is not
         // a failure here: a concurrently completed merge may have already moved
