@@ -25,8 +25,8 @@ rules:
 
           The rule follows an object URL or a `data:` URL through the assignments in one
           function, so it catches the shapes we write. It does not follow a URL back out
-          of a helper function that returns one, and it cannot read the fixed part of a
-          template literal. Treat it as a check on first-party code, not as a proof.
+          of a helper function that returns one. Treat it as a check on first-party code,
+          not as a proof.
 
           If a dynamic body is genuinely unavoidable, put `// nosemgrep: no-dynamic-worker-body`
           on the line before it with a reason, and state where the body comes from and why
@@ -55,11 +55,14 @@ rules:
                       - metavariable-regex:
                             metavariable: $SCHEME
                             regex: '^[''"`](data|blob):'
-                # Semgrep cannot constrain the fixed part of a template literal, so any
-                # interpolated worker URL is a source. Give a same-origin path a real
-                # string or a `new URL(...)` rather than an interpolation.
-                - pattern: |
-                      `...${$X}...`
+                # A `data:` or `blob:` URL interpolated from a value. A template-literal
+                # pattern cannot reach the fixed part, so bind the whole literal and read
+                # the scheme off its text. The `${` keeps a constant body out.
+                - patterns:
+                      - pattern: $TEMPLATE
+                      - metavariable-regex:
+                            metavariable: $TEMPLATE
+                            regex: '^`(data|blob):[\s\S]*\$\{'
       # Only the URL argument is a sink. Without this, an interpolated worker name in the
       # options object matches too.
       pattern-sinks:

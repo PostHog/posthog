@@ -53,14 +53,25 @@ const h = new Worker(WORKER_URL, { type: 'module' })
 // ok: no-dynamic-worker-body
 const i = new Worker(precomputedUrl)
 
-// A same-origin path assembled from a value. The scheme decides, not the concatenation,
-// so this stays clean.
+// A same-origin path assembled from a value. The scheme decides, not the concatenation
+// or the interpolation, so all three of these stay clean.
 // ok: no-dynamic-worker-body
 const p = new Worker('/static/workers/' + workerName, { type: 'module' })
 
-// An interpolated worker name is not the worker body.
 // ok: no-dynamic-worker-body
-const q = new Worker(WORKER_URL, { name: `snapshot-${playerId}` })
+const q = new Worker(`/static/workers/${workerName}.js`, { type: 'module' })
+
+// ok: no-dynamic-worker-body
+const r = new Worker(`${STATIC_BASE}/decompressionWorker.js`, { type: 'module' })
+
+const interpolatedPath = `/static/workers/${workerName}.js`
+// ok: no-dynamic-worker-body
+const s = new Worker(interpolatedPath, { type: 'module' })
+
+// Only the URL argument counts. A blob URL somewhere else in the call is not the worker
+// body.
+// ok: no-dynamic-worker-body
+const t = new Worker('/static/decompressionWorker.js', { name: URL.createObjectURL(debugBlob) })
 
 // Object URLs for downloads and previews are untouched: nothing runs them as code.
 // ok: no-dynamic-worker-body
