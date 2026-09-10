@@ -41,6 +41,7 @@ from .ast_helpers import (
     module_has_prefix,
     module_level_import_froms,
     module_level_import_nodes,
+    module_type_aliases,
     tree_has_top_level_functions,
 )
 from .paths import REPO_ROOT, TACH_TOML, get_tach_block
@@ -922,11 +923,13 @@ _UNTYPED_SUBJECT_PARAMS: frozenset[str] = frozenset({"request", "team", "user"})
 
 # Libraries whose types must stay off a facade signature, and the name a ledger row gives each one.
 # Core models are absent on purpose: every product may depend on core, so a core model in a facade
-# signature adds no coupling the repo does not already have.
+# signature adds no coupling the repo does not already have. typing_extensions exports the same
+# names as typing and reports under the same source, so the spelling a module picks cannot decide
+# whether its `Any` counts.
 _LIBRARY_SOURCES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("django.db.models", "django.http"), "django"),
     (("rest_framework",), "rest_framework"),
-    (("typing",), "typing"),
+    (("typing", "typing_extensions"), "typing"),
 )
 _LIBRARY_NAMES: frozenset[str] = frozenset(source for _, source in _LIBRARY_SOURCES)
 
@@ -1009,11 +1012,12 @@ class _ModelNames:
 
 @dataclass(frozen=True)
 class _FacadeImportEnv:
-    """What one facade module's imports bind, as far as the shape rules care."""
+    """What one facade module's imports and type aliases bind, as far as the shape rules care."""
 
     types: dict[str, _ForbiddenType]  # local name -> the forbidden type it binds
     modules: dict[str, str]  # local module alias -> source, for a `models.QuerySet` annotation
     special_forms: dict[str, str]  # local name -> the typing special form it binds
+    aliases: dict[str, ast.expr]  # local name -> the expression a module-level type alias stands for
     model_names: _ModelNames
 
 
@@ -1155,7 +1159,13 @@ def _facade_import_env(
             forbidden = _forbidden(source, alias.name, model_names)
             if forbidden is not None:
                 types[bound] = forbidden
-    return _FacadeImportEnv(types=types, modules=modules, special_forms=special_forms, model_names=model_names)
+    return _FacadeImportEnv(
+        types=types,
+        modules=modules,
+        special_forms=special_forms,
+        aliases=module_type_aliases(tree),
+        model_names=model_names,
+    )
 
 
 @dataclass(frozen=True)
@@ -1192,15 +1202,24 @@ def _first_argument(node: ast.expr) -> ast.expr:
     return node
 
 
-def _annotation_refs(env: _FacadeImportEnv, node: ast.expr | None) -> list[_TypeRef]:
+def _annotation_refs(
+    env: _FacadeImportEnv, node: ast.expr | None, expanding: frozenset[str] = frozenset()
+) -> list[_TypeRef]:
     """Every type an annotation names.
 
     A quoted annotation is parsed and read the same way, which is how a TYPE_CHECKING import still
     counts. One that does not parse is skipped, because this is a ratchet and not a proof.
+
+    A name a module-level type alias binds is read as the expression it stands for, so the spelling
+    a facade picks for a type cannot decide whether it counts. `expanding` holds the aliases already
+    open, because an alias may name another one and a pair may name each other.
     """
     if node is None:
         return []
     if isinstance(node, ast.Name):
+        alias = env.aliases.get(node.id)
+        if alias is not None and node.id not in expanding:
+            return _annotation_refs(env, alias, expanding | {node.id})
         return [_TypeRef(node.id, node.id)]
     if isinstance(node, ast.Attribute):
         root: ast.expr = node
@@ -1214,21 +1233,23 @@ def _annotation_refs(env: _FacadeImportEnv, node: ast.expr | None) -> list[_Type
             parsed = ast.parse(node.value, mode="eval")
         except SyntaxError:
             return []
-        return _annotation_refs(env, parsed.body)
+        return _annotation_refs(env, parsed.body, expanding)
     if isinstance(node, ast.Subscript):
         form = _special_form(env, node.value)
         if form == _LITERAL:
             # The arguments of a Literal are values. A string among them is data, so parsing it as
             # a forward reference reports a type that never crosses.
-            return _annotation_refs(env, node.value)
+            return _annotation_refs(env, node.value, expanding)
         if form == _ANNOTATED:
             # Annotated is one type followed by metadata, and only the type is on the boundary.
-            return _annotation_refs(env, node.value) + _annotation_refs(env, _first_argument(node.slice))
-        return _annotation_refs(env, node.value) + _annotation_refs(env, node.slice)
+            return _annotation_refs(env, node.value, expanding) + _annotation_refs(
+                env, _first_argument(node.slice), expanding
+            )
+        return _annotation_refs(env, node.value, expanding) + _annotation_refs(env, node.slice, expanding)
     if isinstance(node, ast.BinOp):
-        return _annotation_refs(env, node.left) + _annotation_refs(env, node.right)
+        return _annotation_refs(env, node.left, expanding) + _annotation_refs(env, node.right, expanding)
     if isinstance(node, (ast.Tuple, ast.List)):
-        return [ref for element in node.elts for ref in _annotation_refs(env, element)]
+        return [ref for element in node.elts for ref in _annotation_refs(env, element, expanding)]
     return []
 
 
@@ -1275,6 +1296,36 @@ def _is_sanctioned(product: str, forbidden: _ForbiddenType) -> bool:
     return key in CARVE_OUTS or key in MODEL_CROSSINGS
 
 
+def _iter_accepts_findings(
+    env: _FacadeImportEnv,
+    product: str,
+    facade_module: str,
+    dotted_module: str,
+    symbol: str,
+    parameter: str,
+    annotation: ast.expr | None,
+) -> Iterator[FacadeShapeFinding]:
+    """One `accepts` finding per forbidden type on one parameter.
+
+    `Any` only counts on the tenant and actor names, because an `Any` payload says nothing about a
+    Django object."""
+    for forbidden in _forbidden_types_in(env, annotation):
+        if _is_sanctioned(product, forbidden):
+            continue
+        if forbidden == _ANY and parameter not in _UNTYPED_SUBJECT_PARAMS:
+            continue
+        yield FacadeShapeFinding(
+            product=product,
+            facade_module=facade_module,
+            dotted_module=dotted_module,
+            kind="accepts",
+            source=forbidden.source,
+            type_name=forbidden.type_name,
+            symbol=symbol,
+            parameter=parameter,
+        )
+
+
 def _iter_signature_findings(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     env: _FacadeImportEnv,
@@ -1286,8 +1337,7 @@ def _iter_signature_findings(
     """One finding per forbidden type in one signature.
 
     A bare `-> Any` is a finding of its own: it promises nothing, which is the evasion the whole
-    check exists to close. On a parameter, `Any` only counts on the tenant and actor names, because
-    an `Any` payload says nothing about a Django object."""
+    check exists to close."""
     for forbidden in _forbidden_types_in(env, node.returns):
         if _is_sanctioned(product, forbidden):
             continue
@@ -1306,35 +1356,76 @@ def _iter_signature_findings(
     for arg in [*args.posonlyargs, *args.args, *args.kwonlyargs, args.vararg, args.kwarg]:
         if arg is None or arg.arg in ("self", "cls"):
             continue
-        for forbidden in _forbidden_types_in(env, arg.annotation):
-            if _is_sanctioned(product, forbidden):
+        yield from _iter_accepts_findings(env, product, facade_module, dotted_module, symbol, arg.arg, arg.annotation)
+
+
+# Decorators that generate a constructor out of the annotated class-level fields: the stdlib one
+# under every spelling (`@dataclass`, `@dataclass(...)`, `@dataclasses.dataclass`) and the house
+# `@frozen` of posthog.dataclasses.
+_DATACLASS_DECORATORS: frozenset[str] = frozenset({"dataclass", "frozen"})
+
+
+def _has_generated_constructor(node: ast.ClassDef) -> bool:
+    return any(decorator_name(decorator) in _DATACLASS_DECORATORS for decorator in node.decorator_list)
+
+
+def _annotation_head(node: ast.expr) -> str:
+    """The bare name at the head of an annotation, with any module prefix dropped."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return ""
+
+
+def _is_class_var(annotation: ast.expr) -> bool:
+    """True for `ClassVar[...]`, which is shared state rather than a field, so it takes no keyword."""
+    return isinstance(annotation, ast.Subscript) and _annotation_head(annotation.value) == "ClassVar"
+
+
+def _iter_dataclass_field_findings(
+    tree: ast.Module, env: _FacadeImportEnv, product: str, facade_module: str, dotted_module: str
+) -> Iterator[FacadeShapeFinding]:
+    """Signature findings for the constructors a dataclass decorator generates.
+
+    A field is a keyword of the generated `__init__`, so a model on one is a model the caller hands
+    the class, exactly like an annotated parameter of a written constructor. Such a row names
+    `<Class>.__init__` and carries the field as its parameter. facade/contracts.py is read like every
+    other facade module, because a frozen contract is precisely what must never carry a model."""
+    for node in ast.iter_child_nodes(tree):
+        if not isinstance(node, ast.ClassDef) or node.name.startswith("_"):
+            continue
+        if not _has_generated_constructor(node):
+            continue
+        for statement in node.body:
+            if not isinstance(statement, ast.AnnAssign) or not isinstance(statement.target, ast.Name):
                 continue
-            if forbidden == _ANY and arg.arg not in _UNTYPED_SUBJECT_PARAMS:
+            if _is_class_var(statement.annotation):
                 continue
-            yield FacadeShapeFinding(
-                product=product,
-                facade_module=facade_module,
-                dotted_module=dotted_module,
-                kind="accepts",
-                source=forbidden.source,
-                type_name=forbidden.type_name,
-                symbol=symbol,
-                parameter=arg.arg,
+            yield from _iter_accepts_findings(
+                env,
+                product,
+                facade_module,
+                dotted_module,
+                f"{node.name}.__init__",
+                statement.target.id,
+                statement.annotation,
             )
 
 
 def _iter_module_signature_findings(
     tree: ast.Module, env: _FacadeImportEnv, product: str, facade_module: str, dotted_module: str
 ) -> Iterator[FacadeShapeFinding]:
-    """Signature findings for the module's public call surface: its module-level functions and the
-    public methods, constructor included, of the public classes it defines. A leading underscore
-    marks a helper the facade keeps to itself, and converting a model to a contract is exactly what
-    such a helper is for."""
+    """Signature findings for the module's public call surface: its module-level functions, the
+    public methods, constructor included, of the public classes it defines, and the constructors a
+    dataclass decorator generates. A leading underscore marks a helper the facade keeps to itself,
+    and converting a model to a contract is exactly what such a helper is for."""
     for owner, node in iter_public_callables(tree, include_init=True):
         if owner.startswith("_"):
             continue
         symbol = f"{owner}.{node.name}" if owner else node.name
         yield from _iter_signature_findings(node, env, product, facade_module, dotted_module, symbol)
+    yield from _iter_dataclass_field_findings(tree, env, product, facade_module, dotted_module)
 
 
 def _top_level_function(tree: ast.Module, name: str) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
@@ -1342,6 +1433,82 @@ def _top_level_function(tree: ast.Module, name: str) -> ast.FunctionDef | ast.As
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
             return node
     return None
+
+
+def _cached_parse(cache: dict[str, ast.Module | None], source_path: str, backend_dir: Path) -> ast.Module | None:
+    if source_path not in cache:
+        cache[source_path] = ast_parse_safe(_source_file(source_path, backend_dir))
+    return cache[source_path]
+
+
+@dataclass(frozen=True)
+class _ImportHop:
+    """Where a module-level import says a name it binds comes from."""
+
+    source_path: str  # backend-relative, e.g. "backend/logic/crud.py"
+    name: str  # the name at that source, which an alias may rename
+
+
+def _import_hop(tree: ast.Module, source_path: str, name: str, backend_dir: Path) -> _ImportHop | None:
+    """The module-level import that binds `name` in this module, resolved to the module it names.
+
+    None when nothing binds it, or when what binds it is outside this product's backend: a chain
+    that leaves the product ends there, the same way the class walk ends."""
+    package_parts = _module_package_parts(source_path)
+    for level, module, aliases in module_level_import_froms(tree):
+        for original, asname in aliases:
+            if (asname or original) != name:
+                continue
+            module_rel = (
+                _resolve_relative(package_parts, level, module)
+                if level > 0
+                else _resolve_absolute_module(module or "", backend_dir)
+            )
+            if module_rel is None:
+                continue
+            nested = _backend_rel_path(module_rel, backend_dir)
+            if nested is not None:
+                return _ImportHop(nested, original)
+    return None
+
+
+@dataclass(frozen=True)
+class _ResolvedFunction:
+    """A function a facade hands out, with the module that finally defines it."""
+
+    node: ast.FunctionDef | ast.AsyncFunctionDef
+    source_path: str  # backend-relative, e.g. "backend/logic/crud.py"
+
+
+# How many re-export hops a name may take before the walk gives up. A package __init__ that surfaces
+# a submodule is one hop, and a chain longer than a handful is a structure problem of its own.
+_REEXPORT_HOPS = 5
+
+
+def _resolve_function(
+    source_path: str,
+    name: str,
+    backend_dir: Path,
+    parse_cache: dict[str, ast.Module | None],
+    hops: int = _REEXPORT_HOPS,
+) -> _ResolvedFunction | None:
+    """The function a name resolves to, following the re-exports of this product's own modules.
+
+    A facade reaches its logic through a package (`from ..logic import fn`), and that package
+    __init__ commonly surfaces the function from a submodule rather than defining it. Without the
+    hop the real signature is never read, so the spelling would decide whether a type counts."""
+    tree = _cached_parse(parse_cache, source_path, backend_dir)
+    if tree is None:
+        return None
+    node = _top_level_function(tree, name)
+    if node is not None:
+        return _ResolvedFunction(node, source_path)
+    if hops <= 0:
+        return None
+    hop = _import_hop(tree, source_path, name, backend_dir)
+    if hop is None:
+        return None
+    return _resolve_function(hop.source_path, hop.name, backend_dir, parse_cache, hops - 1)
 
 
 def _iter_reexport_signature_findings(
@@ -1357,8 +1524,10 @@ def _iter_reexport_signature_findings(
     A re-export is part of the facade's own call surface: a consumer imports the name from the
     facade and another module answers, whether the facade spells that as an import it re-exports or
     as a PEP 562 lazy map. So the defining function is read under the facade name, and neither
-    spelling can be what gets a type past the check. Annotations are resolved in the defining
-    module's own namespace, which is where they were written.
+    spelling can be what gets a type past the check. The chain is followed through the product's own
+    modules, because a package __init__ commonly re-exports the function rather than defining it.
+    Annotations are resolved in the defining module's own namespace, which is where they were
+    written.
 
     A class is a re-export the wiring doctrine reads instead (facade_class_imports), and a name the
     facade module defines itself is already read by the module scan. A source outside this product's
@@ -1380,20 +1549,18 @@ def _iter_reexport_signature_findings(
         # record the same signature twice.
         if handed.source_path.startswith(_FACADE_PREFIX):
             continue
-        if handed.source_path not in parse_cache:
-            parse_cache[handed.source_path] = ast_parse_safe(_source_file(handed.source_path, backend_dir))
-        source_tree = parse_cache[handed.source_path]
+        resolved = _resolve_function(handed.source_path, handed.original, backend_dir, parse_cache)
+        if resolved is None or resolved.source_path.startswith(_FACADE_PREFIX):
+            continue
+        source_tree = _cached_parse(parse_cache, resolved.source_path, backend_dir)
         if source_tree is None:
             continue
-        node = _top_level_function(source_tree, handed.original)
-        if node is None:
-            continue
-        if handed.source_path not in env_cache:
-            env_cache[handed.source_path] = _facade_import_env(
-                source_tree, product, model_names, backend_dir, _module_package_parts(handed.source_path)
+        if resolved.source_path not in env_cache:
+            env_cache[resolved.source_path] = _facade_import_env(
+                source_tree, product, model_names, backend_dir, _module_package_parts(resolved.source_path)
             )
         yield from _iter_signature_findings(
-            node, env_cache[handed.source_path], product, facade_module, dotted_module, handed.bound
+            resolved.node, env_cache[resolved.source_path], product, facade_module, dotted_module, handed.bound
         )
 
 

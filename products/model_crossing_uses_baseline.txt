@@ -51,6 +51,7 @@ billing_alerts.BillingAlertConfiguration products.billing_alerts.backend.facade.
 billing_alerts.BillingAlertConfiguration products.billing_alerts.backend.facade.api.preview_alert facade-accepts(alert) 1
 billing_alerts.BillingAlertConfiguration products.billing_alerts.backend.facade.api.reschedule_billing_alert_configuration facade-accepts(alert) 1
 billing_alerts.BillingAlertConfiguration products.billing_alerts.backend.facade.api.visible_events_for_alert facade-accepts(alert) 1
+billing_alerts.BillingAlertEvent products.billing_alerts.backend.facade.api.BillingAlertDispatchResult.__init__ facade-accepts(event) 1
 billing_alerts.BillingAlertEvent products.billing_alerts.backend.facade.api.visible_events_for_alert facade-returns 1
 canvas.Canvas products.canvas.backend.facade.api.seed_home_canvas facade-accepts(canvas) 1
 canvas.Canvas products.tasks.backend.logic.services.loop_runs get_model 1
@@ -192,6 +193,7 @@ django.HttpResponse products.tasks.backend.facade.webhooks.handle_pull_request_r
 django.HttpResponseBase products.exports.backend.facade.api.get_export_asset_content_response facade-returns 1
 django.JsonResponse products.notebooks.backend.facade.sql_v2.notebook_sql_v2_callback facade-returns 1
 django.JsonResponse products.tasks.backend.facade.agent_proxy.agent_proxy_callback facade-returns 1
+django.Model products.access_control.backend.facade.object_names.DisplayModel.__init__ facade-accepts(model) 1
 django.Model products.access_control.backend.facade.object_names.model_has_field facade-accepts(model) 1
 django.Model products.access_control.backend.facade.object_names.resources_with_object_access_controls facade-returns 1
 django.Model products.access_control.backend.facade.resolution_preview.object_models facade-returns 1
@@ -285,6 +287,8 @@ exports.ExportedAsset products.exports.backend.facade.api.get_export_asset facad
 exports.ExportedAsset products.exports.backend.facade.api.get_export_asset_content_response facade-accepts(asset) 1
 exports.ExportedAsset products.exports.backend.facade.api.render_png_export facade-returns 1
 exports.ExportedAsset products.exports.backend.facade.api.save_export_asset_content_from_file facade-accepts(asset) 1
+exports.ExportedAsset products.exports.backend.facade.exporters.get_export_format_handler facade-returns 1
+exports.ExportedAsset products.exports.backend.facade.exporters.register_export_format_handler facade-accepts(handler) 1
 feature_flags.FeatureFlag access_control.FeatureFlagRoleAccess.feature_flag reverse-accessor(access) 1
 feature_flags.FeatureFlag early_access_features.EarlyAccessFeature.feature_flag reverse-accessor(features) 1
 feature_flags.FeatureFlag experiments.Experiment.feature_flag reverse-accessor(experiment_set) 1

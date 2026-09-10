@@ -362,9 +362,13 @@ The names the doctrine spells out (`queries.py`, `temporal.py`, `max_tools.py`, 
 `api*.py` never counts, because it holds the data capabilities, and neither do `contracts.py`, `enums.py` and `testing.py`.
 
 A model reaches another facade through the owner's `facade/models` shim as often as through its models module, so both spellings count.
+A module-level type alias (`Handler = Callable[[Thing], None]`, or the explicit `TypeAlias` spelling) is read as the expression it stands for, so giving a type a name does not take it off the boundary.
 The signature rules read the functions a facade hands out that another module defines, under the facade name a consumer imports, because a re-export is part of the same call surface.
 Both spellings count: a plain import the facade re-exports, and a PEP 562 lazy map.
+The chain is followed through the product's own modules, because a facade reaches its logic through a package (`from ..logic import fn`) whose `__init__` commonly re-exports the function rather than defining it.
 The public surface of a class includes its `__init__`, because a constructor takes what the caller hands the class.
+A dataclass decorator (`@dataclass`, `@dataclass(frozen=True)`, the house `@frozen`) generates that constructor out of the annotated fields, so each field is read as a parameter of `<Class>.__init__`.
+`facade/contracts.py` is read like every other facade module for this, because a frozen contract is exactly what must never carry a model.
 Only registered Django models count.
 A class is a model when one of its bases reaches a Django model base (`models.Model`, or an abstract base that `posthog/models/utils.py` or `posthog/models/scoping/` exports), or another class of the product's model modules that already counts.
 That leaves out what a models module holds besides its tables: choices, enums, managers, the pydantic models a JSON field is validated against, and the errors it raises, all of which a contract may carry.
@@ -374,6 +378,7 @@ Classes on the carve-out and watched-models lists above are sanctioned for the p
 Core models are not reported either, because product to core is the sanctioned direction.
 `products/model_crossing_uses_baseline.txt` records what the facades do today, as the `facade-*` kinds next to the other couplings the import graph cannot see.
 The first column says what crosses: `<product>.<Class>` for a product model, the source library for everything else (`django`, `rest_framework`, `typing`), and the facade module for a `facade-logic` line.
+`typing_extensions` reports as `typing`, because it exports the same names and the import a module picks must not decide whether its `Any` counts.
 The second column is the facade symbol that carries it, or the module itself for a `facade-logic` line, whose count is the number of bodies left in it.
 The file only shrinks: a finding that is not on it fails the lint, and a row whose finding is gone fails the repo-invariant test, so regenerate with `bin/hogli product:crossings --all --write-baseline` in the same change.
 

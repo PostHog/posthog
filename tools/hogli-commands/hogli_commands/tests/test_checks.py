@@ -2138,9 +2138,52 @@ class TestFacadeShape:
                 {"api.py": "from django.db.models import QuerySet as QS\n\n\ndef things() -> QS:\n    ...\n"},
                 {("things", "", "returns", "QuerySet")},
             ),
+            # a module-level alias is a name for the same type, so the spelling a facade picks
+            # cannot decide whether the model on it counts
+            (
+                {
+                    "api.py": "from collections.abc import Callable\n\nfrom ..models import Thing\n\nHandler = Callable[[Thing], None]\n\n\ndef register(handler: Handler) -> None:\n    return None\n"
+                },
+                {("register", "handler", "accepts", "Thing")},
+            ),
+            # ...and the explicit TypeAlias spelling of the same alias
+            (
+                {
+                    "api.py": "from typing import TypeAlias\n\nfrom ..models import Thing\n\nRows: TypeAlias = list[Thing]\n\n\ndef load() -> Rows:\n    ...\n"
+                },
+                {("load", "", "returns", "Thing")},
+            ),
+            # a dataclass field is a keyword of the constructor the decorator generates, so a model
+            # on one is a model the caller hands the class
+            (
+                {
+                    "api.py": "from dataclasses import dataclass\n\nfrom ..models import Thing\n\n\n@dataclass\nclass Row:\n    thing: Thing\n"
+                },
+                {("Row.__init__", "thing", "accepts", "Thing")},
+            ),
+            (
+                {
+                    "api.py": "from dataclasses import dataclass\n\nfrom ..models import Thing\n\n\n@dataclass(frozen=True)\nclass Row:\n    thing: Thing\n"
+                },
+                {("Row.__init__", "thing", "accepts", "Thing")},
+            ),
+            # a frozen contract is precisely what must never carry a model, so contracts.py is read
+            # like every other facade module
+            (
+                {
+                    "contracts.py": "from posthog.dataclasses import frozen\n\nfrom ..models import Thing\n\n\n@frozen\nclass ThingData:\n    thing: Thing\n"
+                },
+                {("ThingData.__init__", "thing", "accepts", "Thing")},
+            ),
             # a bare `-> Any` promises nothing, which is the evasion the check exists to close
             (
                 {"api.py": "from typing import Any\n\n\ndef serialize() -> Any:\n    ...\n"},
+                {("serialize", "", "returns", "Any")},
+            ),
+            # ...and typing_extensions exports the same name, so it cannot be the import that gets
+            # an `Any` past the check
+            (
+                {"api.py": "from typing_extensions import Any\n\n\ndef serialize() -> Any:\n    ...\n"},
                 {("serialize", "", "returns", "Any")},
             ),
             # ...but data inside a container is still data
@@ -2273,7 +2316,7 @@ class TestFacadeShape:
         assert [(f.source, f.type_name) for f in findings] == [("lookalike", "ExternalDataSource")]
 
     @pytest.mark.parametrize(
-        "facade_api, symbol",
+        "facade_api, extra_sources, symbol",
         [
             # a PEP 562 map: the consumer imports the name from the facade and the map decides
             # which module answers
@@ -2281,28 +2324,40 @@ class TestFacadeShape:
                 '_B = "products.my_product.backend."\n'
                 '_LAZY = {"get_thing": "logic.crud"}\n\n\n'
                 "def __getattr__(name):\n    ...\n",
+                {},
                 "get_thing",
             ),
             # a module with no definitions of its own hands out everything it imports
-            ("from ..logic.crud import get_thing\n", "get_thing"),
+            ("from ..logic.crud import get_thing\n", {}, "get_thing"),
             # the self-alias idiom, which also suppresses ruff's F401
             (
                 "from ..logic.crud import get_thing as get_thing\n\n\ndef other() -> None:\n    return None\n",
+                {},
                 "get_thing",
             ),
             # a renamed re-export is read under the name the facade hands out
-            ("from ..logic.crud import get_thing as fetch\n\n__all__ = ['fetch']\n", "fetch"),
+            ("from ..logic.crud import get_thing as fetch\n\n__all__ = ['fetch']\n", {}, "fetch"),
+            # a facade reaches its logic through the package, whose __init__ commonly surfaces the
+            # function from a submodule rather than defining it
+            (
+                "from ..logic import get_thing\n",
+                {"logic/__init__.py": "from .crud import get_thing\n"},
+                "get_thing",
+            ),
         ],
     )
     def test_a_re_exported_function_is_read_under_the_facade_name(
-        self, tmp_path: Path, facade_api: str, symbol: str
+        self, tmp_path: Path, facade_api: str, extra_sources: dict[str, str], symbol: str
     ) -> None:
         # A re-export is part of the facade's own call surface: the consumer imports the name from
         # the facade, so neither spelling can be what gets the model past the check.
         backend = _write_shape_product(
             tmp_path,
             {"api.py": facade_api},
-            sources={"logic/crud.py": "from ..models import Thing\n\n\ndef get_thing() -> Thing:\n    ...\n"},
+            sources={
+                "logic/crud.py": "from ..models import Thing\n\n\ndef get_thing() -> Thing:\n    ...\n",
+                **extra_sources,
+            },
         )
         findings = facade_shape_findings(backend, "my_product")
         assert [(f.dotted_module, f.symbol, f.kind, f.type_name) for f in findings] == [

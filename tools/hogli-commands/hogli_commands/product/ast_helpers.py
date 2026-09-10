@@ -245,6 +245,41 @@ def module_dunder_all(tree: ast.Module) -> set[str] | None:
     return None
 
 
+# What a module-level assignment may bind that can name a type. A call, a dict or a literal binds a
+# value, and expanding one where an annotation names it would read data as a type.
+_TYPE_ALIAS_VALUES: tuple[type[ast.expr], ...] = (ast.Name, ast.Attribute, ast.Subscript, ast.BinOp)
+
+
+def _is_type_alias_annotation(node: ast.expr) -> bool:
+    """True for the `TypeAlias` annotation, under both the bare and the `typing.TypeAlias` spelling."""
+    return (isinstance(node, ast.Name) and node.id == "TypeAlias") or (
+        isinstance(node, ast.Attribute) and node.attr == "TypeAlias"
+    )
+
+
+def module_type_aliases(tree: ast.Module) -> dict[str, ast.expr]:
+    """Module-level type aliases: {the name a module binds -> the expression it stands for}.
+
+    Both spellings count: a plain `Handler = Callable[[Thing], None]` and the explicit
+    `Handler: TypeAlias = ...`. An annotated assignment with any other annotation binds an ordinary
+    module variable (`_handlers: dict[str, Handler] = {}`), which is data and not a type."""
+    aliases: dict[str, ast.expr] = {}
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            bound = node.targets[0].id
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and _is_type_alias_annotation(node.annotation)
+        ):
+            bound = node.target.id
+        else:
+            continue
+        if isinstance(node.value, _TYPE_ALIAS_VALUES):
+            aliases[bound] = node.value
+    return aliases
+
+
 def module_level_import_nodes(tree: ast.Module, *, type_checking: bool = False) -> list[ast.Import | ast.ImportFrom]:
     """Every module-level import statement, in source order.
 
