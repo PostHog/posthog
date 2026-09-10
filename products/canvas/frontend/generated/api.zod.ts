@@ -1457,6 +1457,12 @@ export const sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentZMax = 2147483647
 
 export const sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentCodeMax = 200000
 
+export const sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentCapabilitiesInsightsItemMax = 128
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentCapabilitiesInsightsMax = 100
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentCapabilitiesStateMax = 1
+
 export const sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchTitleMax = 120
 
 export const sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchWMin = 80
@@ -1469,6 +1475,12 @@ export const sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchZMin = -2147483648
 export const sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchZMax = 2147483647
 
 export const sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchCodeMax = 200000
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchCapabilitiesInsightsItemMax = 128
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchCapabilitiesInsightsMax = 100
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchCapabilitiesStateMax = 1
 
 export const sketchpadsOpsAppendBodyOpsItemOpOneFiveKeyMax = 128
 
@@ -1487,6 +1499,12 @@ export const sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemZMin = -
 export const sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemZMax = 2147483647
 
 export const sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemCodeMax = 200000
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemCapabilitiesInsightsItemMax = 128
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemCapabilitiesInsightsMax = 100
+
+export const sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemCapabilitiesStateMax = 1
 
 export const sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsMax = 2000
 
@@ -1549,6 +1567,26 @@ export const SketchpadsOpsAppendBody = /* @__PURE__ */ zod.object({
                                 codeVersion: zod.number().optional(),
                                 surface: zod.enum(['card', 'plain']).optional(),
                                 hidden: zod.boolean().optional(),
+                                capabilities: zod
+                                    .object({
+                                        inlineQueries: zod.boolean().optional(),
+                                        insights: zod
+                                            .array(
+                                                zod
+                                                    .string()
+                                                    .min(1)
+                                                    .max(
+                                                        sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentCapabilitiesInsightsItemMax
+                                                    )
+                                            )
+                                            .max(sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentCapabilitiesInsightsMax)
+                                            .optional(),
+                                        state: zod
+                                            .array(zod.enum(['shared']))
+                                            .max(sketchpadsOpsAppendBodyOpsItemOpOneOneFragmentCapabilitiesStateMax)
+                                            .optional(),
+                                    })
+                                    .optional(),
                             }),
                         }),
                         zod.object({
@@ -1581,6 +1619,26 @@ export const SketchpadsOpsAppendBody = /* @__PURE__ */ zod.object({
                                 codeVersion: zod.number().optional(),
                                 surface: zod.enum(['card', 'plain']).optional(),
                                 hidden: zod.boolean().optional(),
+                                capabilities: zod
+                                    .object({
+                                        inlineQueries: zod.boolean().optional(),
+                                        insights: zod
+                                            .array(
+                                                zod
+                                                    .string()
+                                                    .min(1)
+                                                    .max(
+                                                        sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchCapabilitiesInsightsItemMax
+                                                    )
+                                            )
+                                            .max(sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchCapabilitiesInsightsMax)
+                                            .optional(),
+                                        state: zod
+                                            .array(zod.enum(['shared']))
+                                            .max(sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchCapabilitiesStateMax)
+                                            .optional(),
+                                    })
+                                    .optional(),
                             }),
                         }),
                         zod.object({
@@ -1640,6 +1698,30 @@ export const SketchpadsOpsAppendBody = /* @__PURE__ */ zod.object({
                                             codeVersion: zod.number().optional(),
                                             surface: zod.enum(['card', 'plain']).optional(),
                                             hidden: zod.boolean().optional(),
+                                            capabilities: zod
+                                                .object({
+                                                    inlineQueries: zod.boolean().optional(),
+                                                    insights: zod
+                                                        .array(
+                                                            zod
+                                                                .string()
+                                                                .min(1)
+                                                                .max(
+                                                                    sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemCapabilitiesInsightsItemMax
+                                                                )
+                                                        )
+                                                        .max(
+                                                            sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemCapabilitiesInsightsMax
+                                                        )
+                                                        .optional(),
+                                                    state: zod
+                                                        .array(zod.enum(['shared']))
+                                                        .max(
+                                                            sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemCapabilitiesStateMax
+                                                        )
+                                                        .optional(),
+                                                })
+                                                .optional(),
                                         })
                                     )
                                     .max(sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsMax)

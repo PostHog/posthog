@@ -80083,6 +80083,25 @@ export namespace Schemas {
       Plain: 'plain',
     } as const;
 
+    export type SketchpadSnapshotFragmentsItemCapabilitiesStateItem = typeof SketchpadSnapshotFragmentsItemCapabilitiesStateItem[keyof typeof SketchpadSnapshotFragmentsItemCapabilitiesStateItem];
+
+
+    export const SketchpadSnapshotFragmentsItemCapabilitiesStateItem = {
+      Shared: 'shared',
+    } as const;
+
+    export type SketchpadSnapshotFragmentsItemCapabilities = {
+      inlineQueries?: boolean;
+      /**
+         * @maxItems 100
+         * @items.minLength 1
+         * @items.maxLength 128
+         */
+      insights?: string[];
+      /** @maxItems 1 */
+      state?: SketchpadSnapshotFragmentsItemCapabilitiesStateItem[];
+    };
+
     export type SketchpadSnapshotFragmentsItem = {
       /**
          * @minLength 1
@@ -80117,6 +80136,7 @@ export namespace Schemas {
       codeVersion?: number;
       surface?: SketchpadSnapshotFragmentsItemSurface;
       hidden?: boolean;
+      capabilities?: SketchpadSnapshotFragmentsItemCapabilities;
     };
 
     export type SketchpadSnapshotState = {[key: string]: unknown};
@@ -80135,6 +80155,25 @@ export namespace Schemas {
       Card: 'card',
       Plain: 'plain',
     } as const;
+
+    export type SketchpadReadSnapshotFragmentsItemCapabilitiesStateItem = typeof SketchpadReadSnapshotFragmentsItemCapabilitiesStateItem[keyof typeof SketchpadReadSnapshotFragmentsItemCapabilitiesStateItem];
+
+
+    export const SketchpadReadSnapshotFragmentsItemCapabilitiesStateItem = {
+      Shared: 'shared',
+    } as const;
+
+    export type SketchpadReadSnapshotFragmentsItemCapabilities = {
+      inlineQueries?: boolean;
+      /**
+         * @maxItems 100
+         * @items.minLength 1
+         * @items.maxLength 128
+         */
+      insights?: string[];
+      /** @maxItems 1 */
+      state?: SketchpadReadSnapshotFragmentsItemCapabilitiesStateItem[];
+    };
 
     export type SketchpadReadSnapshotFragmentsItem = {
       /**
@@ -80165,6 +80204,7 @@ export namespace Schemas {
       codeVersion?: number;
       surface?: SketchpadReadSnapshotFragmentsItemSurface;
       hidden?: boolean;
+      capabilities?: SketchpadReadSnapshotFragmentsItemCapabilities;
       /**
          * @minLength 64
          * @maxLength 64
@@ -80298,6 +80338,17 @@ export namespace Schemas {
       codeVersion?: number;
       surface?: 'card' | 'plain';
       hidden?: boolean;
+      capabilities?: {
+      inlineQueries?: boolean;
+      /**
+         * @maxItems 100
+         * @items.minLength 1
+         * @items.maxLength 128
+         */
+      insights?: string[];
+      /** @maxItems 1 */
+      state?: 'shared'[];
+    };
     };
     } | {
       type: 'update_fragment';
@@ -80330,6 +80381,17 @@ export namespace Schemas {
       codeVersion?: number;
       surface?: 'card' | 'plain';
       hidden?: boolean;
+      capabilities?: {
+      inlineQueries?: boolean;
+      /**
+         * @maxItems 100
+         * @items.minLength 1
+         * @items.maxLength 128
+         */
+      insights?: string[];
+      /** @maxItems 1 */
+      state?: 'shared'[];
+    };
     };
     } | {
       type: 'remove_fragment';
@@ -80384,6 +80446,17 @@ export namespace Schemas {
       codeVersion?: number;
       surface?: 'card' | 'plain';
       hidden?: boolean;
+      capabilities?: {
+      inlineQueries?: boolean;
+      /**
+         * @maxItems 100
+         * @items.minLength 1
+         * @items.maxLength 128
+         */
+      insights?: string[];
+      /** @maxItems 1 */
+      state?: 'shared'[];
+    };
     })[];
       state?: {[key: string]: unknown};
     };
@@ -80540,6 +80613,17 @@ export namespace Schemas {
       codeVersion?: number;
       surface?: 'card' | 'plain';
       hidden?: boolean;
+      capabilities?: {
+      inlineQueries?: boolean;
+      /**
+         * @maxItems 100
+         * @items.minLength 1
+         * @items.maxLength 128
+         */
+      insights?: string[];
+      /** @maxItems 1 */
+      state?: 'shared'[];
+    };
       /**
          * @minLength 64
          * @maxLength 64
@@ -80572,6 +80656,17 @@ export namespace Schemas {
       codeVersion?: number;
       surface?: 'card' | 'plain';
       hidden?: boolean;
+      capabilities?: {
+      inlineQueries?: boolean;
+      /**
+         * @maxItems 100
+         * @items.minLength 1
+         * @items.maxLength 128
+         */
+      insights?: string[];
+      /** @maxItems 1 */
+      state?: 'shared'[];
+    };
       /**
          * @minLength 64
          * @maxLength 64
@@ -80626,6 +80721,17 @@ export namespace Schemas {
       codeVersion?: number;
       surface?: 'card' | 'plain';
       hidden?: boolean;
+      capabilities?: {
+      inlineQueries?: boolean;
+      /**
+         * @maxItems 100
+         * @items.minLength 1
+         * @items.maxLength 128
+         */
+      insights?: string[];
+      /** @maxItems 1 */
+      state?: 'shared'[];
+    };
       /**
          * @minLength 64
          * @maxLength 64

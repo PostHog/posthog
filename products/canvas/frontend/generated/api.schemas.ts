@@ -1669,6 +1669,25 @@ export const SketchpadSnapshotApiFragmentsItemSurface = {
     Plain: 'plain',
 } as const
 
+export type SketchpadSnapshotApiFragmentsItemCapabilitiesStateItem =
+    (typeof SketchpadSnapshotApiFragmentsItemCapabilitiesStateItem)[keyof typeof SketchpadSnapshotApiFragmentsItemCapabilitiesStateItem]
+
+export const SketchpadSnapshotApiFragmentsItemCapabilitiesStateItem = {
+    Shared: 'shared',
+} as const
+
+export type SketchpadSnapshotApiFragmentsItemCapabilities = {
+    inlineQueries?: boolean
+    /**
+     * @maxItems 100
+     * @items.minLength 1
+     * @items.maxLength 128
+     */
+    insights?: string[]
+    /** @maxItems 1 */
+    state?: SketchpadSnapshotApiFragmentsItemCapabilitiesStateItem[]
+}
+
 export type SketchpadSnapshotApiFragmentsItem = {
     /**
      * @minLength 1
@@ -1703,6 +1722,7 @@ export type SketchpadSnapshotApiFragmentsItem = {
     codeVersion?: number
     surface?: SketchpadSnapshotApiFragmentsItemSurface
     hidden?: boolean
+    capabilities?: SketchpadSnapshotApiFragmentsItemCapabilities
 }
 
 export type SketchpadSnapshotApiState = { [key: string]: unknown }
@@ -1721,6 +1741,25 @@ export const SketchpadReadSnapshotApiFragmentsItemSurface = {
     Card: 'card',
     Plain: 'plain',
 } as const
+
+export type SketchpadReadSnapshotApiFragmentsItemCapabilitiesStateItem =
+    (typeof SketchpadReadSnapshotApiFragmentsItemCapabilitiesStateItem)[keyof typeof SketchpadReadSnapshotApiFragmentsItemCapabilitiesStateItem]
+
+export const SketchpadReadSnapshotApiFragmentsItemCapabilitiesStateItem = {
+    Shared: 'shared',
+} as const
+
+export type SketchpadReadSnapshotApiFragmentsItemCapabilities = {
+    inlineQueries?: boolean
+    /**
+     * @maxItems 100
+     * @items.minLength 1
+     * @items.maxLength 128
+     */
+    insights?: string[]
+    /** @maxItems 1 */
+    state?: SketchpadReadSnapshotApiFragmentsItemCapabilitiesStateItem[]
+}
 
 export type SketchpadReadSnapshotApiFragmentsItem = {
     /**
@@ -1751,6 +1790,7 @@ export type SketchpadReadSnapshotApiFragmentsItem = {
     codeVersion?: number
     surface?: SketchpadReadSnapshotApiFragmentsItemSurface
     hidden?: boolean
+    capabilities?: SketchpadReadSnapshotApiFragmentsItemCapabilities
     /**
      * @minLength 64
      * @maxLength 64
@@ -1914,6 +1954,17 @@ export type SketchpadReadOperationApi =
               codeVersion?: number
               surface?: 'card' | 'plain'
               hidden?: boolean
+              capabilities?: {
+                  inlineQueries?: boolean
+                  /**
+                   * @maxItems 100
+                   * @items.minLength 1
+                   * @items.maxLength 128
+                   */
+                  insights?: string[]
+                  /** @maxItems 1 */
+                  state?: 'shared'[]
+              }
               /**
                * @minLength 64
                * @maxLength 64
@@ -1947,6 +1998,17 @@ export type SketchpadReadOperationApi =
               codeVersion?: number
               surface?: 'card' | 'plain'
               hidden?: boolean
+              capabilities?: {
+                  inlineQueries?: boolean
+                  /**
+                   * @maxItems 100
+                   * @items.minLength 1
+                   * @items.maxLength 128
+                   */
+                  insights?: string[]
+                  /** @maxItems 1 */
+                  state?: 'shared'[]
+              }
               /**
                * @minLength 64
                * @maxLength 64
@@ -2005,6 +2067,17 @@ export type SketchpadReadOperationApi =
                   codeVersion?: number
                   surface?: 'card' | 'plain'
                   hidden?: boolean
+                  capabilities?: {
+                      inlineQueries?: boolean
+                      /**
+                       * @maxItems 100
+                       * @items.minLength 1
+                       * @items.maxLength 128
+                       */
+                      insights?: string[]
+                      /** @maxItems 1 */
+                      state?: 'shared'[]
+                  }
                   /**
                    * @minLength 64
                    * @maxLength 64
@@ -2107,6 +2180,17 @@ export type SketchpadOperationApi =
               codeVersion?: number
               surface?: 'card' | 'plain'
               hidden?: boolean
+              capabilities?: {
+                  inlineQueries?: boolean
+                  /**
+                   * @maxItems 100
+                   * @items.minLength 1
+                   * @items.maxLength 128
+                   */
+                  insights?: string[]
+                  /** @maxItems 1 */
+                  state?: 'shared'[]
+              }
           }
       }
     | {
@@ -2140,6 +2224,17 @@ export type SketchpadOperationApi =
               codeVersion?: number
               surface?: 'card' | 'plain'
               hidden?: boolean
+              capabilities?: {
+                  inlineQueries?: boolean
+                  /**
+                   * @maxItems 100
+                   * @items.minLength 1
+                   * @items.maxLength 128
+                   */
+                  insights?: string[]
+                  /** @maxItems 1 */
+                  state?: 'shared'[]
+              }
           }
       }
     | {
@@ -2198,6 +2293,17 @@ export type SketchpadOperationApi =
                   codeVersion?: number
                   surface?: 'card' | 'plain'
                   hidden?: boolean
+                  capabilities?: {
+                      inlineQueries?: boolean
+                      /**
+                       * @maxItems 100
+                       * @items.minLength 1
+                       * @items.maxLength 128
+                       */
+                      insights?: string[]
+                      /** @maxItems 1 */
+                      state?: 'shared'[]
+                  }
               }[]
               state?: { [key: string]: unknown }
           }
