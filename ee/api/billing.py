@@ -268,9 +268,7 @@ class HasBillingAccess(permissions.BasePermission):
 
 class HasBillingUsageSpendReadAccess(permissions.BasePermission):
     """
-    Permission for read-only billing usage/spend endpoints. The frontend additionally requires
-    usage-spend-dashboards before honoring the member grant, but that flag is not an authorization
-    input here or in the billing service.
+    Permission for read-only billing usage/spend endpoints.
     """
 
     message = "You do not have access to billing usage and spend data for this organization."

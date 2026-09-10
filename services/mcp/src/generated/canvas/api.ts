@@ -96,7 +96,6 @@ export const canvasesPartialUpdateBodyNameMax = 400
 export const CanvasesPartialUpdateBody = () => zod
     .object({
         name: zod.string().max(canvasesPartialUpdateBodyNameMax).optional().describe('Updated display name.'),
-        context: zod.string().optional().describe('Updated author context markdown.'),
         description: zod
             .string()
             .optional()
@@ -1506,7 +1505,8 @@ export const CanvasesValidateCreateBody = () => zod
  * List the connector catalog: every provider and tool a canvas may declare, with the caller's connection state.
  *
  * Authoring agents read this to write ph.connectors.call sites and the
- * matching capabilities.connectors declarations.
+ * matching capabilities.connectors declarations. Sandbox tokens receive
+ * only static native tools, with no connection lookup or MCP installation data.
  */
 export const CanvasesConnectorsRetrieveParams = () => zod.object({
     project_id: zod

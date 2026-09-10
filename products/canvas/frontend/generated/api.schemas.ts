@@ -150,7 +150,6 @@ export interface CanvasApi {
     readonly description: string
     readonly channel: string
     readonly template_id: string
-    readonly context: string
     /** @nullable */
     readonly generation_task_id: string | null
     /** Whether the canvas is pinned to its channel. */
@@ -220,8 +219,6 @@ export interface PatchedCanvasUpdateApi {
      * @maxLength 400
      */
     name?: string
-    /** Updated author context markdown. */
-    context?: string
     /** Updated canvas description (for components, the store-search text). */
     description?: string
     /** Id of the space the canvas belongs to. */
@@ -1549,8 +1546,11 @@ export interface CanvasConnectorApi {
      * * `native` - Native
      * * `mcp` - Mcp */
     kind: ConnectorKindEnumApi
-    /** True when the caller has a usable connection to this provider. */
-    connected: boolean
+    /**
+     * True when the caller has a usable connection. Null in the static catalog returned to sandbox authors.
+     * @nullable
+     */
+    connected: boolean | null
     /** In-app path where the caller connects this provider. */
     connect_path: string
     /** Tools the caller's connection exposes, sorted by name. */
