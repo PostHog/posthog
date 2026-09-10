@@ -72,6 +72,15 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   Anything a destination does besides navigating must live in its route
   component, not its `onPick`: the restore path navigates by href and never
   reaches the navigation bridge.
+  A destination that owns a column is never somewhere else when you are in it,
+  so its `onReclick` hands the keyboard to the column's search rather than
+  navigating to its root. Navigating there would close what you are reading and
+  then record the emptied route as where you were, which is how a destination
+  forgets. Spaces is the exception only in what it does instead: it shows the
+  list, the one thing above the space you are in.
+  Both ends ask which destination an href belongs to, and the answer comes from
+  `railPaneForHref` — the href, never the route pattern, because a report page
+  belongs to the list that opened it and only its `?from=` says which.
   Both ends share `isRestorableVisitHref` (`railPane.ts`): the writer never records an href a click may not restore (settings, folder settings, redirect aliases) and the restore path re-checks the stored one, so bad persisted state falls through to the destination's root.
 - **Testing flag-off locally:** dev builds default `project-bluebird` and
   `code-spaces-layout` on, and that default beats posthog's own override. Force
