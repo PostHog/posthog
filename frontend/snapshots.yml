@@ -3204,6 +3204,10 @@ snapshots:
         hash: v1.k794b7964.5d9407311260cf6d60e52217801013baf5523971043d3a384399661606956094.gY3eS5hEKko3Uw025q_K8VD0OY4XUOo6iNkvdlzwrnA
     insights-sqlpiegraph--default--light:
         hash: v1.k794b7964.cb8ad5af06a0440258a2aad8b7a5531e83bed58ee3e1dfe019e9fcb549569b96.n6v4Nqqfp1KvW3ouAH4u2gEwzMI3eDb3hA3y2hHbBxY
+    insights-sqlpiegraph--donut--dark:
+        hash: v1.k794b7964.82aaa0a087924f644605cd2d5f30bda7be4c61920bcca32c5045648c7cb9e619.bU8E_cnb9DE-6jtn_ZFWs7rrOy4H7w0yOIB330Bhow4
+    insights-sqlpiegraph--donut--light:
+        hash: v1.k794b7964.9d198b0b5b60cc715b556997c7f4bca3bf5f3af702e0f5eb6cf26ab6348c9a0b.ePE-V3iAQvrNcUzXtXfMNkhRrSxjR4EhvgAs5K_XcZA
     insights-sqlpiegraph--legend-at-bottom--dark:
         hash: v1.k794b7964.c47d48ad6a252d8a5dfc135b3d269bc028523df242a7b79c5b96d9d111ae0376._DhCXEiBO9wMl5fx3iWvB8BVIaxe19bUBzUQb55bkAo
     insights-sqlpiegraph--legend-at-bottom--light:
