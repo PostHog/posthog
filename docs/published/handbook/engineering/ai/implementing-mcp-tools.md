@@ -330,6 +330,36 @@ Product teams own their definitions and control which operations are exposed as 
    The generated code uses `.extend()` to replace just that field.
    See [supported annotations](https://modelcontextprotocol.io/specification/2025-06-18/schema#toolannotations) for the full list.
 
+   #### Hand-written override of a generated tool
+
+   The two overrides above reshape a generated tool's schema.
+   Neither can change what happens before the request goes out.
+   `validators` runs as a synchronous `superRefine`, so it cannot await anything;
+   `inject_body` supplies static values; `rename_params` only renames.
+
+   When a tool has to read current state before writing, export a hand-written tool under the generated tool's own name.
+   `mergeToolFactories` gives hand-written entries precedence on a name collision, so the hand-written tool replaces the generated one everywhere:
+   the Hono catalog, the CLI, `getToolsFromContext`, and `posthog-connection-call`.
+
+   `src/tools/featureFlags/updateFeatureFlag.ts` is the reference.
+   It spreads the generated tool so the name, schema and any field codegen adds later carry over, replaces only the handler, and delegates back to the generated handler to make the request:
+
+   ```ts
+   const generated = GENERATED_TOOLS['update-feature-flag']!()
+
+   return {
+     ...generated,
+     handler: async (context, params) => {
+       const existing = await context.api.request({ method: 'GET', path: `...` })
+       return generated.handler(context, { ...params, filters: merge(existing, params.filters) })
+     },
+   }
+   ```
+
+   Reach for this only when a read-modify-write is genuinely needed.
+   Every override is a name collision that has to stay deliberate, which `tests/unit/tool-name-validation.test.ts` enforces by pinning the set of shadowed names.
+   If a second tool needs the same treatment, add support for a `before_request:` hook to the YAML config instead of a second shadow.
+
    #### Typed-confirm paradigm for destructive tools
 
    For destructive or security-sensitive tools (account changes, key revocation, bulk deletes),

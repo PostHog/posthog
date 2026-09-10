@@ -475,6 +475,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "require a pooler-specific username such as postgres.<project-ref>. Check your "
                 "credentials, then re-enable the sync."
             ),
+            # Supabase/Supavisor trips its circuit breaker after repeated bad credentials and refuses
+            # new connections with "FATAL: (ECIRCUITBREAKER) too many authentication failures, new
+            # connections are temporarily blocked". The block only clears once the failing attempts
+            # stop, so it's deterministic until the customer fixes the credentials — retrying just
+            # re-hits the block. Distinct from the transient credential-fetch variant of the same
+            # code, which postgres.py keeps retrying (see `_CONNECTION_DROPPED_ERROR_SUBSTRINGS`).
+            "too many authentication failures": (
+                "Your database connection pooler is blocking new connections after too many failed "
+                'sign-in attempts ("too many authentication failures"). This usually means the '
+                "username or password is wrong. Check your credentials, wait for the block to clear, "
+                "then re-enable the sync."
+            ),
             # A Postgres server configured with `pam` auth in pg_hba.conf rejects bad credentials with
             # "FATAL: PAM authentication failed for user <user>" instead of PostgreSQL's
             # "password authentication failed for user", so the password key above doesn't
@@ -487,21 +499,6 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 '("PAM authentication failed"). Your PostgreSQL server authenticates this user '
                 "through PAM (for example against the system password database or LDAP), and it "
                 "rejected the username or password. Check your credentials, then re-enable the sync."
-            ),
-            # Supavisor trips its own circuit breaker after repeated authentication failures against
-            # a tenant and temporarily refuses new connects, reporting "FATAL:  (ECIRCUITBREAKER) too
-            # many authentication failures, new connections are temporarily blocked". Distinct from
-            # the pooler-bookkeeping "(ECIRCUITBREAKER) failed to retrieve database credentials"
-            # variant kept retryable in postgres.py's `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` — this one
-            # is tripped by the credentials themselves being rejected repeatedly, so it's the same
-            # deterministic class as "password authentication failed" and retrying with the same
-            # credentials just re-trips the breaker. Match the stable message, excluding the volatile
-            # host/port the raw driver text prefixes it with.
-            "too many authentication failures": (
-                "Your database's connection pooler has temporarily blocked new connections after "
-                'repeated authentication failures ("too many authentication failures"). This usually '
-                "means the configured username or password is wrong. Check your credentials, then "
-                "re-enable the sync."
             ),
             "could not translate host name": _DNS_RESOLUTION_ERROR,
             "timeout expired connection to server at": None,
