@@ -36,6 +36,7 @@ from products.canvas.backend.facade.api import (
     canvas_connectors_enabled,
     connector_listings,
     default_layout,
+    native_connector_listings,
     seed_home_canvas,
     subtract_preexisting_diagnostics,
     validate_layout,
@@ -1790,7 +1791,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         ],
         responses={
             200: CanvasConnectorsResponseSerializer,
-            403: OpenApiResponse(description="Connectors are not enabled for this team, or the caller is a sandbox."),
+            403: OpenApiResponse(description="Connectors are not enabled for this team."),
         },
     )
     @action(methods=["GET"], detail=False, url_path="connectors")
@@ -1798,21 +1799,17 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         """List the connector catalog: every provider and tool a canvas may declare, with the caller's connection state.
 
         Authoring agents read this to write ph.connectors.call sites and the
-        matching capabilities.connectors declarations.
+        matching capabilities.connectors declarations. Sandbox tokens receive
+        only static native tools, with no connection lookup or MCP installation data.
         """
         user = self._connector_actor(request)
-        if user is None:
-            return Response(
-                {"detail": "The connector catalog is a viewer surface; sandbox tokens cannot read it."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
         if not canvas_connectors_enabled(self.team):
             return Response(
                 {"detail": "Canvas connectors are not enabled for this team."}, status=status.HTTP_403_FORBIDDEN
             )
         raw_hosts = request.query_params.get("mcp_hosts")
         mcp_hosts = [host.strip() for host in raw_hosts.split(",") if host.strip()] if raw_hosts else None
-        listings = connector_listings(self.team_id, user.id, mcp_hosts)
+        listings = native_connector_listings() if user is None else connector_listings(self.team_id, user.id, mcp_hosts)
         return Response(CanvasConnectorsResponseSerializer(instance={"connectors": listings}).data)
 
     @extend_schema(
