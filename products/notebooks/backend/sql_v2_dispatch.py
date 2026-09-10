@@ -6,7 +6,7 @@ the same concurrency ceilings, the same routing between the direct (ClickHouse) 
 the sandbox kernel. The view keeps only what a view owns: validate, call, format.
 """
 
-from typing import Any, Literal, TypedDict
+from typing import Literal, TypedDict
 from uuid import UUID
 
 from django.db.models import QuerySet
