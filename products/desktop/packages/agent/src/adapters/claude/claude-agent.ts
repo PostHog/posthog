@@ -2854,6 +2854,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     });
     const options = buildSessionOptions({
       cwd,
+      sketchpadId: meta?.sketchpadId,
       mcpServers,
       permissionMode,
       posthogExecPermissionRegex,

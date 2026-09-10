@@ -87,6 +87,7 @@ export type GatewayEnv = {
 
 export interface BuildOptionsParams {
   cwd: string;
+  sketchpadId?: string;
   mcpServers: Record<string, McpServerConfig>;
   permissionMode: CodeExecutionMode;
   posthogExecPermissionRegex?: RegExp;
@@ -626,10 +627,12 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
   // disableBuiltInTools is a legacy shorthand for tools: [] — kept for
   // backward compatibility but callers should prefer the tools array.
   const tools: Options["tools"] =
-    params.userProvidedOptions?.tools ??
-    (params.disableBuiltInTools
+    params.sketchpadId || params.disableBuiltInTools
       ? []
-      : { type: "preset", preset: "claude_code" });
+      : (params.userProvidedOptions?.tools ?? {
+          type: "preset",
+          preset: "claude_code",
+        });
 
   const agents = buildAgents(params.userProvidedOptions?.agents);
   const registeredAgentNames = new Set(Object.keys(agents));
