@@ -136,6 +136,12 @@ export const AlertsCreateBody = () => zod.object({
             'Alert condition type. Determines how the value is evaluated: absolute_value, relative_increase, or relative_decrease.'
         ),
     enabled: zod.boolean().optional().describe('Whether the alert is actively being evaluated.'),
+    schedule_start_time: zod
+        .string()
+        .nullish()
+        .describe(
+            "Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior."
+        ),
     config: zod
         .union([
             zod
@@ -1443,6 +1449,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
             'Alert condition type. Determines how the value is evaluated: absolute_value, relative_increase, or relative_decrease.'
         ),
     enabled: zod.boolean().optional().describe('Whether the alert is actively being evaluated.'),
+    schedule_start_time: zod
+        .string()
+        .nullish()
+        .describe(
+            "Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior."
+        ),
     config: zod
         .union([
             zod
