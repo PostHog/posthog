@@ -47,7 +47,14 @@ const editSchemaOptions: Record<EditableSerializedFieldTypes, string> = {
     unknown: 'Unknown',
 }
 const editSchemaOptionsKeys = Object.keys(editSchemaOptions) as Array<EditableSerializedFieldTypes>
-const editSchemaOptionsAsArray = editSchemaOptionsKeys.map((n) => ({ value: n, label: editSchemaOptions[n] }))
+const editSchemaOptionsAsArray = editSchemaOptionsKeys.map((n) => ({
+    value: n,
+    label: editSchemaOptions[n],
+    // `update_schema` has no ClickHouse type for `unknown` and fails on it, but a column can
+    // already read as `unknown`. Hiding keeps the label for the current value and takes the option
+    // out of the menu.
+    hidden: n === 'unknown',
+}))
 
 const isNonEditableSchemaType = (schemaType: unknown): schemaType is NonEditableSchemaTypes => {
     return typeof schemaType === 'string' && nonEditableSchemaTypes.includes(schemaType as NonEditableSchemaTypes)

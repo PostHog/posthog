@@ -68,7 +68,11 @@ describe('SelfManagedColumnsSection', () => {
         await userEvent.click(screen.getByRole('button', { name: 'Edit column types' }))
 
         await userEvent.click(screen.getByRole('button', { name: 'String' }))
-        await userEvent.click(await screen.findByText('Integer'))
+        // Saving a column as Unknown fails, so the type PostHog can't store is not on offer.
+        expect(await screen.findByText('Integer')).toBeInTheDocument()
+        expect(screen.queryByText('Unknown')).not.toBeInTheDocument()
+
+        await userEvent.click(screen.getByText('Integer'))
         await userEvent.click(screen.getByRole('button', { name: 'Save types' }))
 
         await waitFor(() => expect(updateSchema).toHaveBeenCalledWith('table-1', { total: 'integer' }))
