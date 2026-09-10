@@ -1284,8 +1284,10 @@ describe('replayScannerLogic', () => {
 
     describe('observationsPage / sort URL sync', () => {
         let scannedLogic: ReturnType<typeof replayScannerLogic.build>
+        let observationRequests: URL[]
 
         beforeEach(() => {
+            observationRequests = []
             useMocks({
                 get: {
                     '/api/projects/:team/vision/scanners/:id/': () => [
@@ -1299,7 +1301,10 @@ describe('replayScannerLogic', () => {
                             enabled: true,
                         },
                     ],
-                    '/api/projects/:team/vision/scanners/:id/observations/': { results: [], count: 0 },
+                    '/api/projects/:team/vision/scanners/:id/observations/': ({ request }) => {
+                        observationRequests.push(new URL(request.url))
+                        return [200, { results: [], count: 0 }]
+                    },
                     '/api/projects/:team/vision/scanners/:id/observations/stats/': {
                         status_counts: {
                             total: 0,
@@ -1319,6 +1324,45 @@ describe('replayScannerLogic', () => {
             })
             scannedLogic = replayScannerLogic({ id: 'sid' })
             scannedLogic.mount()
+        })
+
+        it('loads rows only when the table opens and preserves filters across tab changes', async () => {
+            await expectLogic(scannedLogic).toFinishAllListeners()
+            expect(observationRequests).toHaveLength(0)
+            expect(scannedLogic.values.observationStatsApi).not.toBeNull()
+
+            await expectLogic(scannedLogic, () => {
+                router.actions.push(urls.replayVision('sid'), {
+                    tab: 'configuration',
+                    status: 'failed',
+                    sort: 'created_at',
+                })
+            }).toFinishAllListeners()
+            expect(observationRequests).toHaveLength(0)
+
+            await expectLogic(scannedLogic, () =>
+                scannedLogic.actions.setObservationsActive(true)
+            ).toFinishAllListeners()
+            expect(observationRequests).toHaveLength(1)
+            expect(observationRequests[0].searchParams.get('status')).toBe('failed')
+            expect(observationRequests[0].searchParams.get('order_by')).toBe('created_at')
+
+            await expectLogic(scannedLogic, () => scannedLogic.actions.refreshObservations()).toFinishAllListeners()
+            expect(observationRequests).toHaveLength(2)
+
+            await expectLogic(scannedLogic, () => {
+                scannedLogic.actions.setObservationsActive(false)
+                scannedLogic.actions.refreshObservations()
+                scannedLogic.actions.setObservationStatusFilter(['succeeded'])
+            }).toFinishAllListeners()
+            expect(observationRequests).toHaveLength(2)
+
+            await expectLogic(scannedLogic, () =>
+                scannedLogic.actions.setObservationsActive(true)
+            ).toFinishAllListeners()
+            expect(observationRequests).toHaveLength(3)
+            expect(observationRequests[2].searchParams.get('status')).toBe('succeeded')
+            expect(observationRequests[2].searchParams.get('order_by')).toBe('created_at')
         })
 
         afterEach(() => {
@@ -1517,6 +1561,7 @@ describe('replayScannerLogic', () => {
             persisted.mount()
             try {
                 // The initial foreground load (also manual refresh, filter/sort/pagination) shows the overlay.
+                persisted.actions.setObservationsActive(true)
                 expect(persisted.values.observationsLoading).toBe(true)
 
                 persisted.actions.loadObservationsSuccess([], 0)

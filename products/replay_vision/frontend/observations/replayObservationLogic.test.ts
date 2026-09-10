@@ -10,43 +10,48 @@ import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
 describe('replayObservationLogic', () => {
     let retrySpy: jest.Mock
+    let requestParams: Record<string, string>[]
     let viewedSpy: jest.Mock
     let scannerOrigin: 'configured' | 'inline'
     let observationStatus: 'failed' | 'running'
     let sceneLogic: ReturnType<typeof replayObservationSceneLogic.build>
 
     beforeEach(() => {
+        requestParams = []
         scannerOrigin = 'configured'
         observationStatus = 'failed'
         retrySpy = jest.fn(() => [202, { workflow_id: 'wf-retry' }])
         viewedSpy = jest.fn(() => [204])
         useMocks({
             get: {
-                '/api/projects/:team/vision/observations/:id/': () => [
-                    200,
-                    {
-                        id: 'obs-1',
-                        scanner_id: 'scanner-9',
-                        scanner_origin: scannerOrigin,
-                        session_id: 'sess-1',
-                        status: observationStatus,
-                        error_reason: 'internal_error:boom',
-                        scanner_snapshot: {
-                            // An inline scanner carries no name.
-                            name: scannerOrigin === 'configured' ? 'My scanner' : '',
-                            scanner_type: 'monitor',
-                            scanner_version: 1,
-                            model: 'm',
-                            provider: 'p',
-                            emits_signals: false,
-                            scanner_config: { prompt: 'q' },
+                '/api/projects/:team/vision/observations/:id/': ({ request }) => {
+                    requestParams.push(Object.fromEntries(new URL(request.url).searchParams))
+                    return [
+                        200,
+                        {
+                            id: 'obs-1',
+                            scanner_id: 'scanner-9',
+                            scanner_origin: scannerOrigin,
+                            session_id: 'sess-1',
+                            status: observationStatus,
+                            error_reason: 'internal_error:boom',
+                            scanner_snapshot: {
+                                // An inline scanner carries no name.
+                                name: scannerOrigin === 'configured' ? 'My scanner' : '',
+                                scanner_type: 'monitor',
+                                scanner_version: 1,
+                                model: 'm',
+                                provider: 'p',
+                                emits_signals: false,
+                                scanner_config: { prompt: 'q' },
+                            },
+                            scanner_result: null,
+                            triggered_by: 'schedule',
+                            viewed: false,
+                            created_at: '2026-07-01T00:00:00Z',
                         },
-                        scanner_result: null,
-                        triggered_by: 'schedule',
-                        viewed: false,
-                        created_at: '2026-07-01T00:00:00Z',
-                    },
-                ],
+                    ]
+                },
             },
             post: {
                 '/api/projects/:team/vision/observations/:id/retry/': retrySpy,
@@ -60,6 +65,41 @@ describe('replayObservationLogic', () => {
 
     afterEach(() => {
         sceneLogic?.unmount()
+    })
+
+    test.each([
+        { params: {}, expected: {} },
+        { params: { tab: 'observations', order_by: '-created_at' }, expected: {} },
+        { params: { order_by: '-created_at', status: 'succeeded' }, expected: { status: 'succeeded' } },
+        { params: { order_by: 'created_at' }, expected: { order_by: 'created_at' } },
+        {
+            params: { order_by: '-result_score', min_score: '0', max_score: '8.5', verdict: 'yes', tags: 'checkout' },
+            expected: { order_by: '-result_score', min_score: '0', max_score: '8.5', verdict: 'yes', tags: 'checkout' },
+        },
+        {
+            params: {
+                triggered_by: 'schedule',
+                session_id: 'session-example',
+                recording_subject: 'example',
+                labeled: 'true',
+            },
+            expected: {
+                triggered_by: 'schedule',
+                session_id: 'session-example',
+                recording_subject: 'example',
+                labeled: 'true',
+            },
+        },
+    ])('preserves detail request semantics for $params', async ({ params, expected }) => {
+        router.actions.push('/replay-vision/observations/obs-1', params)
+        const logic = replayObservationLogic({ id: 'obs-1' })
+        logic.mount()
+        try {
+            await expectLogic(logic).toDispatchActions(['loadObservationSuccess'])
+            expect(requestParams).toEqual([expected])
+        } finally {
+            logic.unmount()
+        }
     })
 
     test.each([

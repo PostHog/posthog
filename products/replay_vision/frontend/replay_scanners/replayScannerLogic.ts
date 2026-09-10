@@ -388,6 +388,7 @@ export interface replayScannerLogicValues {
     observationTriggeredByFilter: ObservationTriggeredByValue[]
     observationVerdictFilter: ObservationVerdictValue[]
     observations: ReplayObservationApi[]
+    observationsActive: boolean
     observationsLoading: boolean
     observationsPage: number
     observationsSort: ObservationsSorting | null
@@ -663,6 +664,9 @@ export interface replayScannerLogicActions {
     setObservationVerdictFilter: (values: ObservationVerdictValue[]) => {
         values: ObservationVerdictValue[]
     }
+    setObservationsActive: (active: boolean) => {
+        active: boolean
+    }
     setObservationsPage: (page: number) => {
         page: number
     }
@@ -789,6 +793,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     key((props) => props.id),
 
     actions({
+        setObservationsActive: (active: boolean) => ({ active }),
         loadScanner: true,
         loadScannerSuccess: (scanner: ScannerFormValues) => ({ scanner }),
         loadScannerFailure: true,
@@ -1066,6 +1071,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     })),
 
     reducers({
+        observationsActive: [false, { setObservationsActive: (_, { active }) => active }],
         scannerDraftSavedAt: [
             null as number | null,
             {
@@ -1564,7 +1570,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             )
         }
         const reloadObservationsAndStats = (background = false): void => {
-            actions.loadObservations(background)
+            if (values.observationsActive) {
+                actions.loadObservations(background)
+            }
             actions.loadObservationStats()
         }
         const persistDraft = (): void => {
@@ -1765,7 +1773,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             loadScannerSuccess: ({ scanner }) => {
                 actions.setScannerValues(scanner)
                 // A `?sort=result` deep-link can't resolve order_by until the scanner type is known — refire now.
-                if (values.observationsSort?.columnKey === 'result' && scanner.scanner_type) {
+                if (
+                    values.observationsActive &&
+                    values.observationsSort?.columnKey === 'result' &&
+                    scanner.scanner_type
+                ) {
                     actions.loadObservations()
                     actions.loadObservationStats()
                 }
@@ -2186,6 +2198,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
 
+            setObservationsActive: ({ active }) => {
+                if (active) {
+                    actions.loadObservations()
+                }
+            },
+
             loadObservations: async (_, breakpoint) => {
                 if (props.id === 'new') {
                     actions.loadObservationsSuccess([], 0)
@@ -2393,7 +2411,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         cache.draftTouched = false
         actions.loadScanner()
         if (props.id !== 'new') {
-            actions.loadObservations()
             actions.loadObservationStats()
         }
         // Setup re-runs when the tab becomes visible
