@@ -86,6 +86,7 @@ def test_older_usage_sample_fills_missing_measurements(team) -> None:
     )
 
     worker = WizardWorker.objects.for_team(team.id).get(run_id=run.id)
+    assert worker.resource_usage is not None
     assert worker.resource_usage["provider_cpu_usage_usec"] == 150
     assert worker.resource_usage["provider_billed_cpu_usage_usec"] == 200
     assert worker.resource_usage["provider_usage_measured_at"] == (now + timedelta(seconds=1)).isoformat()
