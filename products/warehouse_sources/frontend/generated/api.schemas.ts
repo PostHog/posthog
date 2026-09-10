@@ -249,6 +249,11 @@ export interface ExternalDataSchemaApi {
     readonly label: string | null
     /** @nullable */
     readonly table: ExternalDataSchemaApiTable
+    /**
+     * Rows every sync of this schema moved, summed over all of its runs. The data warehouse bills this quantity. It differs from the table's row count on merge and full-refresh syncs, which rewrite rows the table already holds, so the two cannot be reconciled against each other.
+     * @nullable
+     */
+    readonly rows_synced_total: number | null
     should_sync?: boolean
     /** @nullable */
     readonly last_synced_at: string | null
@@ -412,6 +417,11 @@ export interface PatchedExternalDataSchemaApi {
     readonly label?: string | null
     /** @nullable */
     readonly table?: PatchedExternalDataSchemaApiTable
+    /**
+     * Rows every sync of this schema moved, summed over all of its runs. The data warehouse bills this quantity. It differs from the table's row count on merge and full-refresh syncs, which rewrite rows the table already holds, so the two cannot be reconciled against each other.
+     * @nullable
+     */
+    readonly rows_synced_total?: number | null
     should_sync?: boolean
     /** @nullable */
     readonly last_synced_at?: string | null
