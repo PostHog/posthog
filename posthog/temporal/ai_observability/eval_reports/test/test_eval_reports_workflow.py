@@ -132,12 +132,11 @@ async def test_count_coordinator_acknowledges_cursor_after_due_child_starts() ->
             return True
         raise AssertionError(f"unexpected activity: {activity}")
 
-    async def fake_check_candidates(_groups):
+    async def fake_check_candidates(_groups, *, dispatch_due_reports):
         events.append("check")
-        return ["report-a"]
-
-    async def fake_start_child_workflow(*_args, **_kwargs):
+        assert dispatch_due_reports is True
         events.append("start")
+        return ["report-a"]
 
     with (
         patch(
@@ -147,10 +146,6 @@ async def test_count_coordinator_acknowledges_cursor_after_due_child_starts() ->
         patch(
             "posthog.temporal.ai_observability.eval_reports.workflow._check_count_triggered_eval_report_candidates_batched",
             new=fake_check_candidates,
-        ),
-        patch(
-            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.start_child_workflow",
-            side_effect=fake_start_child_workflow,
         ),
         patch(
             "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.patched",
@@ -713,3 +708,34 @@ async def test_batched_count_check_caps_concurrent_group_activities() -> None:
         await _check_count_triggered_eval_report_candidates_batched([[f"report-{index}"] for index in range(5)])
 
     assert max_active == 2
+
+
+@pytest.mark.asyncio
+async def test_batched_count_check_dispatches_each_completed_window() -> None:
+    async def fake_execute_activity(_activity, inputs, **_kwargs):
+        return CheckCountTriggeredEvalReportsBatchOutput(
+            results=[
+                CheckCountTriggeredEvalReportOutput(report_id=report_id, due=True) for report_id in inputs.report_ids
+            ]
+        )
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
+            new=fake_execute_activity,
+        ),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.COUNT_TRIGGER_MAX_CONCURRENT_CHECKS", 1),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow._dispatch_report_workflows",
+            new_callable=AsyncMock,
+        ) as dispatch,
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.record_coordinator_reports_found"),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.logger"),
+    ):
+        report_ids = await _check_count_triggered_eval_report_candidates_batched(
+            [["due-a"], ["due-b"]],
+            dispatch_due_reports=True,
+        )
+
+    assert report_ids == ["due-a", "due-b"]
+    assert [call.args[2] for call in dispatch.await_args_list] == [["due-a"], ["due-b"]]

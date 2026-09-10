@@ -127,12 +127,16 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
         # the decision is replay-deterministic: histories recorded before batching (and
         # fetch results produced by a pre-batching worker mid-deploy) decode
         # report_id_groups as None and keep their per-report command sequence.
-        if result.report_id_groups is not None:
-            report_ids = await _check_count_triggered_eval_report_candidates_batched(result.report_id_groups)
+        uses_batched_checks = result.report_id_groups is not None
+        if uses_batched_checks:
+            report_ids = await _check_count_triggered_eval_report_candidates_batched(
+                result.report_id_groups or [],
+                dispatch_due_reports=True,
+            )
         else:
             report_ids = await _check_count_triggered_eval_report_candidates(result.report_ids)
 
-        if report_ids:
+        if report_ids and not uses_batched_checks:
             await _dispatch_report_workflows(
                 "count_triggered_eval_report",
                 "eval-report-count",
@@ -191,7 +195,11 @@ async def _check_count_triggered_eval_report_candidates(report_ids: list[str]) -
     return due_report_ids
 
 
-async def _check_count_triggered_eval_report_candidates_batched(report_id_groups: list[list[str]]) -> list[str]:
+async def _check_count_triggered_eval_report_candidates_batched(
+    report_id_groups: list[list[str]],
+    *,
+    dispatch_due_reports: bool = False,
+) -> list[str]:
     due_report_ids: list[str] = []
     failed: list[tuple[str, str]] = []
     skipped_counts = {
@@ -206,6 +214,7 @@ async def _check_count_triggered_eval_report_candidates_batched(report_id_groups
     # COUNT_TRIGGER_MAX_CONCURRENT_CHECKS count queries in flight — the legacy path's ceiling.
     for index in range(0, len(report_id_groups), COUNT_TRIGGER_MAX_CONCURRENT_CHECKS):
         window = report_id_groups[index : index + COUNT_TRIGGER_MAX_CONCURRENT_CHECKS]
+        window_due_report_ids: list[str] = []
         tasks = [
             temporalio.workflow.execute_activity(
                 check_count_triggered_eval_reports_activity,
@@ -226,8 +235,20 @@ async def _check_count_triggered_eval_report_candidates_batched(report_id_groups
             for output in group_result.results:
                 if output.due:
                     due_report_ids.append(output.report_id)
+                    window_due_report_ids.append(output.report_id)
                 elif output.skipped_reason is not None:
                     skipped_counts[output.skipped_reason] = skipped_counts.get(output.skipped_reason, 0) + 1
+
+        # Start reports as each bounded check window completes. If the coordinator later
+        # reaches its execution timeout, results from earlier windows are still delivered;
+        # the unacknowledged discovery cursor makes the unfinished page safe to retry.
+        if dispatch_due_reports and window_due_report_ids:
+            await _dispatch_report_workflows(
+                "count_triggered_eval_report",
+                "eval-report-count",
+                window_due_report_ids,
+                patch_id="eval-report-count-coordinator-fire-and-forget-2026-09",
+            )
 
     if failed:
         temporalio.workflow.logger.warning(
