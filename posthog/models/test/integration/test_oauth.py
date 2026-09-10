@@ -384,11 +384,26 @@ class TestOauthIntegrationModel(BaseTest):
                     {"code": "code", "state": "next=/projects/test"},
                 )
 
+    @parameterized.expand(
+        [
+            ("gateway_error", {"status_code": 503, "text": "service unavailable"}),
+            (
+                "non_json_body",
+                {
+                    "status_code": 200,
+                    "text": "<html>maintenance</html>",
+                    "json.side_effect": requests.exceptions.JSONDecodeError(
+                        "Expecting value", "<html>maintenance</html>", 0
+                    ),
+                },
+            ),
+        ]
+    )
     @patch("posthog.models.integration.oauth.requests.post")
     @patch("posthog.models.integration.oauth.requests.get")
-    def test_token_info_http_error_raises_validation_error(self, mock_get, mock_post):
-        # A gateway error from token_info leaves the integration id unset, and the authorization
-        # code is already spent, so this must give a 400 that tells the user to reconnect.
+    def test_token_info_unusable_response_raises_validation_error(self, _name, token_info, mock_get, mock_post):
+        # An answer we cannot read leaves the integration id unset, and the authorization code is
+        # already spent, so this must give a 400 that tells the user to reconnect.
         with self.settings(**self.mock_settings):
             mock_post.return_value.status_code = 200
             mock_post.return_value.json.return_value = {
@@ -396,8 +411,7 @@ class TestOauthIntegrationModel(BaseTest):
                 "refresh_token": "FAKE_REFRESH_TOKEN",
                 "expires_in": 3600,
             }
-            mock_get.return_value.status_code = 503
-            mock_get.return_value.text = "service unavailable"
+            mock_get.return_value.configure_mock(**token_info)
 
             with pytest.raises(ValidationError, match="try connecting again"):
                 OauthIntegration.integration_from_oauth_response(

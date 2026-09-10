@@ -1008,7 +1008,18 @@ class OauthIntegration:
                 )
 
             if token_info_res.status_code == 200:
-                data = token_info_res.json()
+                try:
+                    data = token_info_res.json()
+                except ValueError:
+                    # A 200 carrying a maintenance page or an empty body has no account details in
+                    # it. Treat it like a failed call: nothing gets set, and the id guard below ends
+                    # the flow with a 400 unless the provider resolves its id another way.
+                    logger.exception(
+                        f"OAuth token_info returned a non-JSON body for {kind}",
+                        token_info_url=oauth_config.token_info_url,
+                        response=token_info_res.text[:500],
+                    )
+                    data = {}
 
                 # Jira returns an array of accessible resources, extract the first one
                 if kind == "jira" and isinstance(data, list):
