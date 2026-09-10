@@ -44,6 +44,22 @@ describe('dataWarehouseColumnsWithJoins', () => {
         }
     )
 
+    it('resolves a connector-synced join target through its printed, backquoted name', () => {
+        const columns = dataWarehouseColumnsWithJoins(
+            ['ad_spend'],
+            {
+                ad_spend: table('ad_spend', [
+                    field('spend', 'integer'),
+                    field('campaign', 'lazy_table', '`stripe.campaigns`'),
+                ]),
+                'stripe.campaigns': table('stripe.campaigns', [field('title', 'string')]),
+            },
+            true
+        )
+
+        expect(columns.map((column) => column.name)).toEqual(['spend', 'campaign.title'])
+    })
+
     it('keeps a table without joins unchanged and tolerates an unknown joined table', () => {
         expect(dataWarehouseColumnsWithJoins(['unknown_table'], tablesMap, true)).toEqual([])
         expect(
