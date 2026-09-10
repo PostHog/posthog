@@ -58,6 +58,26 @@ interface ServerConnection {
   name: string;
   client: Client;
   transport: StreamableHTTPClientTransport;
+  /** Config the connection was created with, so reuse can reject a stale one. */
+  config: McpServerConnectionConfig;
+}
+
+function headersEqual(
+  a: Record<string, string>,
+  b: Record<string, string>,
+): boolean {
+  const keys = Object.keys(a);
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every((key) => a[key] === b[key])
+  );
+}
+
+function configMatches(
+  a: McpServerConnectionConfig,
+  b: McpServerConnectionConfig,
+): boolean {
+  return a.url === b.url && headersEqual(a.headers, b.headers);
 }
 
 class MissingMcpServerConfigError extends Error {}
@@ -334,8 +354,21 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
   ): Promise<ServerConnection> {
     const existing = this.connections.get(serverName);
     if (existing) {
-      this.log.debug("Reusing existing MCP connection", { serverName });
-      return existing;
+      const current = this.serverConfigs.get(serverName);
+      // A connection keeps the auth headers of the config it was created
+      // with. After a re-registration changes url or headers (a project
+      // switch rewrites X-PostHog-Project-Id), reuse would send requests to
+      // the previous project, so drop the connection and let the fetch
+      // reconnect with the new config.
+      if (
+        current &&
+        existing.config &&
+        configMatches(current, existing.config)
+      ) {
+        this.log.debug("Reusing existing MCP connection", { serverName });
+        return existing;
+      }
+      await this.disconnectServer(serverName);
     }
 
     // Deduplicate concurrent connection attempts. The pending entry must cover
@@ -404,7 +437,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
       serverVersion: client.getServerVersion(),
     });
 
-    return { name: config.name, client, transport };
+    return { name: config.name, client, transport, config };
   }
 
   /**
