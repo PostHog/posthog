@@ -1024,7 +1024,10 @@ class CanvasConnectorSerializer(serializers.Serializer):
         choices=ConnectorKind.choices,
         help_text="'native' runs through a PostHog personal integration; 'mcp' through an MCP store installation.",
     )
-    connected = serializers.BooleanField(help_text="True when the caller has a usable connection to this provider.")
+    connected = serializers.BooleanField(
+        allow_null=True,
+        help_text="True when the caller has a usable connection. Null in the static catalog returned to sandbox authors.",
+    )
     connect_path = serializers.CharField(help_text="In-app path where the caller connects this provider.")
     tools = CanvasConnectorToolSerializer(many=True, help_text="Tools the caller's connection exposes, sorted by name.")
 

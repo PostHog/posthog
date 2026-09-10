@@ -12,6 +12,7 @@ import pyarrow as pa
 import requests
 from asgiref.sync import async_to_sync
 from dateutil import parser as dateutil_parser
+from prometheus_client import Counter
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
@@ -46,6 +47,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.set
 )
 
 GITHUB_BASE_URL = "https://api.github.com"
+
+# A capped fan-out drops the oldest admitted parents, and the cursor still advances past them.
+FAN_OUT_PARENT_CAP_HITS = Counter(
+    "warehouse_github_fan_out_parent_cap_hits_total",
+    "Fan-out walks that hit max_fan_out_parents and skipped older parents in the window.",
+    labelnames=["endpoint"],
+)
+
+# The reconcile cursor is a PostHog job timestamp compared against GitHub's updated_at, so allow
+# for clock skew between the two before trusting it to skip a parent.
+_RECONCILE_SKEW_ALLOWANCE = timedelta(minutes=5)
 
 # GitHub's date-based REST API versions are sent in the X-GitHub-Api-Version header. The header is
 # the only version-dependent part for the endpoints we sync — response shapes are compatible across
@@ -1232,6 +1244,7 @@ def _fan_out_get_rows(
             ):
                 continue
             if max_parents is not None and fanned_out_parents >= max_parents:
+                FAN_OUT_PARENT_CAP_HITS.labels(endpoint=endpoint).inc()
                 logger.warning(
                     "Github: fan-out parent cap reached; older parents in the window skipped",
                     endpoint=endpoint,
@@ -1489,6 +1502,7 @@ def github_source(
     egress_identity: GithubEgressIdentity | None = None,
     response_name: str | None = None,
     api_version: str = GITHUB_DEFAULT_API_VERSION,
+    reconcile_since: datetime | None = None,
 ) -> SourceResponse:
     endpoint_config = GITHUB_ENDPOINTS[endpoint]
 
@@ -1566,9 +1580,8 @@ def github_source(
             # webhook drain would miss rollback/auto_inactive transitions; chase the drain with a
             # bounded fan-out over recent parents so those rows still arrive from the list API.
             # should_use_incremental_field is forced on so the fan-out applies the parent recency
-            # skip when a watermark exists. A webhook schema configures no incremental field, so in
-            # that case the watermark arrives as None and only the window override and the parent
-            # cap bound the walk.
+            # skip. A webhook schema configures no incremental field, so the previous successful
+            # sync's start (reconcile_since) stands in as the watermark.
             return _chain_webhook_items_with_reconciliation(
                 webhook_items,
                 lambda: get_rows(
@@ -1578,19 +1591,15 @@ def github_source(
                     logger=logger,
                     resumable_source_manager=resumable_source_manager,
                     should_use_incremental_field=True,
-                    db_incremental_field_last_value=db_incremental_field_last_value,
+                    db_incremental_field_last_value=db_incremental_field_last_value
+                    or (reconcile_since - _RECONCILE_SKEW_ALLOWANCE if reconcile_since else None),
                     incremental_field=incremental_field,
                     egress_identity=egress_identity,
                     api_version=api_version,
                     parent_cutoff_override=_now_utc() - timedelta(days=reconcile_days),
-                    # The recency skip bounds the walk on its own once a watermark exists, and every
-                    # parent it admits is known to hold an unseen child, so a count bound would drop
-                    # one for good: the run advances the watermark past it either way.
-                    max_parents=(
-                        None
-                        if isinstance(db_incremental_field_last_value, datetime)
-                        else endpoint_config.max_fan_out_parents
-                    ),
+                    # Stays on with a watermark so the first run after a long gap stays bounded. A parent
+                    # past the cap loses its inactive transition until GitHub updates it again.
+                    max_parents=endpoint_config.max_fan_out_parents,
                 ),
             )
 
