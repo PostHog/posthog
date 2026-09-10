@@ -6,10 +6,12 @@ from uuid import uuid4
 import pytest
 
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.constants import AvailableFeature
+from posthog.models import Team
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.experiments.backend.experiment_service import ExperimentService
@@ -17,6 +19,7 @@ from products.experiments.backend.facade import (
     PulseExperimentDraftInput,
     api as experiments_facade,
     create_pulse_experiment_draft,
+    get_pulse_experiment_lifecycle,
 )
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -231,3 +234,49 @@ def test_create_pulse_experiment_draft_rejects_a_deleted_experiment_replay(team,
 
     with pytest.raises(ValueError, match="does not match"):
         create_pulse_experiment_draft(input)
+
+
+@pytest.mark.django_db
+def test_pulse_experiment_lifecycle_uses_start_date_not_feature_flag_activity(team, user) -> None:
+    input = PulseExperimentDraftInput(
+        team_id=team.id,
+        actor_id=user.id,
+        artifact_id=uuid4(),
+        title="Improve checkout completion",
+        target="The checkout flow",
+        metric_direction="increase",
+        expected_metric_movement="completed purchases",
+    )
+    created = create_pulse_experiment_draft(input)
+    FeatureFlag.objects.filter(id=created.feature_flag_id).update(active=True)
+
+    draft = get_pulse_experiment_lifecycle(team_id=team.id, experiment_id=created.experiment_id)
+    Experiment.objects.filter(id=created.experiment_id).update(start_date=timezone.now())
+    activated = get_pulse_experiment_lifecycle(team_id=team.id, experiment_id=created.experiment_id)
+
+    assert draft.state == "draft"
+    assert draft.start_date is None
+    assert activated.state == "activated"
+    assert activated.start_date is not None
+
+
+@pytest.mark.django_db
+def test_pulse_experiment_lifecycle_hides_missing_cross_team_and_deleted_experiments(team, user) -> None:
+    input = PulseExperimentDraftInput(
+        team_id=team.id,
+        actor_id=user.id,
+        artifact_id=uuid4(),
+        title="Improve checkout completion",
+        target="The checkout flow",
+        metric_direction="increase",
+        expected_metric_movement="completed purchases",
+    )
+    created = create_pulse_experiment_draft(input)
+    other_team = Team.objects.create(organization=team.organization, name="Other team")
+
+    assert get_pulse_experiment_lifecycle(team_id=other_team.id, experiment_id=created.experiment_id).state == "unknown"
+    assert get_pulse_experiment_lifecycle(team_id=team.id, experiment_id=999_999).state == "unknown"
+
+    Experiment.objects.filter(id=created.experiment_id).update(deleted=True)
+
+    assert get_pulse_experiment_lifecycle(team_id=team.id, experiment_id=created.experiment_id).state == "unknown"

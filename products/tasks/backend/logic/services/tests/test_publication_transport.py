@@ -9,6 +9,7 @@ import requests
 from products.tasks.backend.logic.services.publication_transport import (
     BranchCreation,
     DraftPullRequest,
+    DraftPullRequestLifecycle,
     NormalizedTreeOperation,
     PublicationAmbiguousError,
     PublicationConflictError,
@@ -17,6 +18,7 @@ from products.tasks.backend.logic.services.publication_transport import (
     create_draft_pull_request,
     create_server_branch,
     create_server_commit,
+    read_draft_pull_request_lifecycle,
     read_draft_pull_request_state,
     reconcile_draft_pull_request,
     reconcile_server_branch,
@@ -353,6 +355,64 @@ def test_read_draft_pull_request_state_rejects_a_mismatched_remote_head() -> Non
 
     with pytest.raises(PublicationTransportError, match="protected pull request"):
         read_draft_pull_request_state(
+            client,
+            publication,
+            pr_number=17,
+            expected_pr_url="https://github.com/Example/Repository/pull/17",
+            expected_commit_sha=COMMIT,
+        )
+
+
+@pytest.mark.parametrize(
+    ("state", "merged", "merged_at", "expected"),
+    [
+        ("open", False, None, DraftPullRequestLifecycle(state="open", merged_at=None)),
+        ("closed", False, None, DraftPullRequestLifecycle(state="closed", merged_at=None)),
+        (
+            "closed",
+            True,
+            "2026-09-08T10:30:00Z",
+            DraftPullRequestLifecycle(state="merged", merged_at=datetime(2026, 9, 8, 10, 30, tzinfo=UTC)),
+        ),
+    ],
+)
+def test_read_draft_pull_request_lifecycle_preserves_merge_evidence_only_for_merged_prs(
+    state: str, merged: bool, merged_at: str | None, expected: DraftPullRequestLifecycle
+) -> None:
+    client = FakeGitHubClient()
+    publication = _input()
+    client.pull_request = {
+        **_draft_payload(publication),
+        "state": state,
+        "merged": merged,
+        "merged_at": merged_at,
+    }
+
+    assert (
+        read_draft_pull_request_lifecycle(
+            client,
+            publication,
+            pr_number=17,
+            expected_pr_url="https://github.com/Example/Repository/pull/17",
+            expected_commit_sha=COMMIT,
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize("merged_at", [None, "not-a-timestamp", "2026-09-08T10:30:00"])
+def test_read_draft_pull_request_lifecycle_rejects_merged_pr_without_aware_timestamp(merged_at: str | None) -> None:
+    client = FakeGitHubClient()
+    publication = _input()
+    client.pull_request = {
+        **_draft_payload(publication),
+        "state": "closed",
+        "merged": True,
+        "merged_at": merged_at,
+    }
+
+    with pytest.raises(PublicationTransportError, match="merge timestamp"):
+        read_draft_pull_request_lifecycle(
             client,
             publication,
             pr_number=17,

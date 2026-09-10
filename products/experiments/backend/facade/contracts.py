@@ -7,7 +7,7 @@ between the experiments product and the rest of the system.
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -115,6 +115,15 @@ class PulseExperimentDraftResult:
     experiment_id: int
     feature_flag_id: int
     url: str
+
+
+@frozen
+class PulseExperimentLifecycleResult:
+    """Read-only lifecycle state for an experiment prepared by Pulse."""
+
+    experiment_id: int
+    state: Literal["draft", "activated", "unknown"]
+    start_date: datetime | None
 
 
 @dataclass(frozen=True)

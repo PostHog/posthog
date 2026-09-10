@@ -39,6 +39,7 @@ class DraftPublicationLifecycleResult:
     remote_state: Literal["pending", "open", "merged", "closed", "unknown"]
     pr_number: int | None
     pr_url: str | None
+    merged_at: datetime | None = None
 
 
 class InvalidDraftPublicationError(ValueError):

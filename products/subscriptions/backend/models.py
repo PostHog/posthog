@@ -69,7 +69,12 @@ class ProactivePreparedArtifact(TeamScopedRootMixin, UUIDModel):
     class Status(models.TextChoices):
         PREPARING = "preparing", "Preparing"
         PREPARED = "prepared", "Prepared"
+        ADOPTED = "adopted", "Adopted"
         FAILED = "failed", "Failed"
+
+    class AdoptionSource(models.TextChoices):
+        DRAFT_PR_MERGED = "draft_pr_merged", "Draft pull request merged"
+        EXPERIMENT_ACTIVATED = "experiment_activated", "Experiment activated"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -92,6 +97,8 @@ class ProactivePreparedArtifact(TeamScopedRootMixin, UUIDModel):
     url = models.URLField(max_length=2_000, null=True, blank=True)
     failure_code = models.CharField(max_length=128, null=True, blank=True)
     prepared_at = models.DateTimeField(null=True, blank=True)
+    adoption_source = models.CharField(max_length=32, choices=AdoptionSource.choices, null=True, blank=True)
+    adopted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(TeamScopedRootMixin.Meta):
         indexes = [models.Index(fields=["team", "status", "created_at"])]

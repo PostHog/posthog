@@ -86,6 +86,12 @@ PullRequestState = Literal["open", "merged", "closed"]
 
 
 @frozen
+class DraftPullRequestLifecycle:
+    state: PullRequestState
+    merged_at: datetime | None
+
+
+@frozen
 class ServerGitHubPublicationClient:
     installation_id: str
     token: str = field(repr=False)
@@ -230,7 +236,25 @@ def read_draft_pull_request_state(
     expected_pr_url: str,
     expected_commit_sha: str,
 ) -> PullRequestState:
-    """Read one protected draft PR, rejecting every identity mismatch."""
+    """Read the state of one protected draft PR, rejecting every identity mismatch."""
+    return read_draft_pull_request_lifecycle(
+        client,
+        publication,
+        pr_number=pr_number,
+        expected_pr_url=expected_pr_url,
+        expected_commit_sha=expected_commit_sha,
+    ).state
+
+
+def read_draft_pull_request_lifecycle(
+    client: GitHubPublicationClient,
+    publication: PublicationTransportInput,
+    *,
+    pr_number: int,
+    expected_pr_url: str,
+    expected_commit_sha: str,
+) -> DraftPullRequestLifecycle:
+    """Read one protected draft PR lifecycle, rejecting every identity mismatch."""
     _validate_pull_request_read_input(publication)
     if type(pr_number) is not int or pr_number <= 0 or not expected_pr_url or not _SHA.fullmatch(expected_commit_sha):
         raise ValueError("Protected pull request identity is invalid")
@@ -265,12 +289,25 @@ def read_draft_pull_request_state(
     ):
         raise PublicationTransportError("GitHub returned a mismatched protected pull request")
     if state == "open" and merged is False:
-        return "open"
+        return DraftPullRequestLifecycle(state="open", merged_at=None)
     if state == "closed" and merged is True:
-        return "merged"
+        merged_at = _parse_merged_at(payload.get("merged_at"))
+        return DraftPullRequestLifecycle(state="merged", merged_at=merged_at)
     if state == "closed" and merged is False:
-        return "closed"
+        return DraftPullRequestLifecycle(state="closed", merged_at=None)
     raise PublicationTransportError("GitHub returned an invalid protected pull request state")
+
+
+def _parse_merged_at(value: object) -> datetime:
+    if not isinstance(value, str):
+        raise PublicationTransportError("GitHub returned an invalid protected pull request merge timestamp")
+    try:
+        merged_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as err:
+        raise PublicationTransportError("GitHub returned an invalid protected pull request merge timestamp") from err
+    if merged_at.tzinfo is None or merged_at.utcoffset() is None:
+        raise PublicationTransportError("GitHub returned an invalid protected pull request merge timestamp")
+    return merged_at
 
 
 def _current_base(client: GitHubPublicationClient, publication: PublicationTransportInput) -> str:

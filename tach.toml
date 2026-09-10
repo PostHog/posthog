@@ -132,6 +132,7 @@ depends_on = [
     "products.slack_app",
     "products.stamphog",
     "products.streamlit_apps",
+    "products.subscriptions",
     "products.surveys",
     "products.tasks",
     "products.tracing",

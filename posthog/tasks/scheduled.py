@@ -116,6 +116,7 @@ from products.streamlit_apps.backend.facade.api import (
     prune_old_streamlit_app_versions,
     stop_idle_streamlit_sandboxes,
 )
+from products.subscriptions.backend.facade.tasks import reconcile_proactive_artifact_adoptions
 from products.tasks.backend.facade.tasks import (
     bake_dev_stack_image_task,
     reconcile_loop_trigger_schedules_task,
@@ -248,6 +249,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/10"),
         revoke_blocklisted_gateway_credentials.s(),
         name="wizard blocklist gateway credential revoke",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        reconcile_proactive_artifact_adoptions.s(),
+        name="reconcile proactive artifact adoptions",
+        expires_seconds=9 * 60,
     )
 
     # Team metadata cache sync - hourly
