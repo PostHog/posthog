@@ -34,6 +34,17 @@ export class BlockMetadataParquetStore {
         if (rows.length === 0) {
             return
         }
+        const currentRows = rows.filter((row) => row.format_version === 2)
+        const legacyRows = rows.filter((row) => row.format_version !== 2)
+        if (currentRows.length > 0) {
+            await this.writeDataset(currentRows, `${this.prefix}/v2`, `${this.prefix}-replay-index/v2`)
+        }
+        if (legacyRows.length > 0) {
+            await this.writeDataset(legacyRows, this.prefix, `${this.prefix}-replay-index/v1`)
+        }
+    }
+
+    private async writeDataset(rows: MlBlockMetadataRow[], prefix: string, indexPrefix: string): Promise<void> {
         // Sorting clusters a recording's blocks together for better compression and reads.
         rows.sort((a, b) => cmp(a.team_id, b.team_id) || cmp(a.session_id, b.session_id))
         let body: Buffer
@@ -48,7 +59,7 @@ export class BlockMetadataParquetStore {
                 await this.s3Client.send(
                     new PutObjectCommand({
                         Bucket: this.bucket,
-                        Key: `${this.prefix}-replay-index/v1/${partition}/part-${this.nodeId}-${Date.now()}-${this.seq}.parquet`,
+                        Key: `${indexPrefix}/${partition}/part-${this.nodeId}-${Date.now()}-${this.seq}.parquet`,
                         Body: indexBody,
                         ContentType: 'application/vnd.apache.parquet',
                     })
@@ -57,7 +68,7 @@ export class BlockMetadataParquetStore {
             }
             body = await rowsToParquetBuffer(rows)
             bounds = eventTimeBounds(rows)
-            key = this.objectKey(new Date(bounds.minMs).toISOString().slice(0, 10))
+            key = this.objectKey(prefix, new Date(bounds.minMs).toISOString().slice(0, 10))
             await this.s3Client.send(
                 new PutObjectCommand({
                     Bucket: this.bucket,
@@ -81,9 +92,9 @@ export class BlockMetadataParquetStore {
     }
 
     /** Partition by event date (`dt=`), but keep a write-time stamp + seq + pod id in the name for uniqueness. */
-    private objectKey(dt: string): string {
+    private objectKey(prefix: string, dt: string): string {
         this.seq += 1
-        return `${this.prefix}/dt=${dt}/part-${this.nodeId}-${Date.now()}-${this.seq}.parquet`
+        return `${prefix}/dt=${dt}/part-${this.nodeId}-${Date.now()}-${this.seq}.parquet`
     }
 }
 

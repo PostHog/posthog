@@ -80,7 +80,7 @@ const options = {
 describe('ImageBatcher', () => {
     afterEach(() => jest.restoreAllMocks())
 
-    it('scrubs a multi-team batch into one shard for the flush, storing offsets after', async () => {
+    it.each([false, true])('scrubs mixed teams and separates legacy records (mixed formats: %s)', async (mixed) => {
         const store = new FakeStore()
         const offsets = new FakeOffsets()
         const observeCaptureToS3 = jest.spyOn(ImageScrubConsumerMetrics, 'observeCaptureToS3').mockImplementation()
@@ -90,13 +90,22 @@ describe('ImageBatcher', () => {
         await batcher.handleBatch(
             [
                 msg(0, 0, pt(1), Buffer.from('a'), undefined, captureHeader),
-                msg(0, 1, pt(2), Buffer.from('b'), undefined, captureHeader),
+                msg(0, 1, mixed ? '42' : pt(2), Buffer.from('b'), undefined, captureHeader),
             ],
             1
         )
 
-        expect(store.writes).toHaveLength(1)
-        expect(store.writes[0].map((i) => i.pseudoTeam).sort()).toEqual([pt(1), pt(2)])
+        expect(store.writes).toHaveLength(mixed ? 2 : 1)
+        expect(
+            store.writes
+                .flat()
+                .map((i) => i.teamId ?? i.pseudoTeam)
+                .sort()
+        ).toEqual([pt(1), mixed ? '42' : pt(2)])
+        if (mixed) {
+            expect(store.writes[0][0].teamId).toBe('42')
+            expect(store.writes[1][0].pseudoTeam).toBe(pt(1))
+        }
         expect(offsets.stored).toBe(1)
         expect(observeCaptureToS3).toHaveBeenCalledTimes(2)
         expect(observeCaptureToS3).toHaveBeenNthCalledWith(1, 'inline', CAPTURED_AT, expect.any(Number))

@@ -36,9 +36,12 @@ const msg = (value: unknown): { value: Buffer | null } => ({
 
 describe('parseBlockMetadataMessages', () => {
     it('parses well-formed rows and preserves their fields', () => {
-        const rows = parseBlockMetadataMessages([msg(fullRow({ session_id: 'a', event_count: 3 })), msg(fullRow())])
+        const rows = parseBlockMetadataMessages([
+            msg(fullRow({ session_id: 'a', event_count: 3, team_id: '42', format_version: 2 })),
+            msg(fullRow()),
+        ])
         expect(rows).toHaveLength(2)
-        expect(rows[0]).toMatchObject({ session_id: 'a', event_count: 3 })
+        expect(rows[0]).toMatchObject({ session_id: 'a', event_count: 3, team_id: '42', format_version: 2 })
     })
 
     it('skips null values and malformed JSON without throwing', () => {
@@ -49,9 +52,12 @@ describe('parseBlockMetadataMessages', () => {
 
     it('skips shape-invalid rows (poison-pill guard) without throwing', () => {
         const rows = parseBlockMetadataMessages([
-            msg({ session_id: 'a', event_count: 3 }), // missing required numeric fields + urls
+            msg({ session_id: 'a', event_count: 3, team_id: '42', format_version: 2 }), // missing required numeric fields + urls
             msg(fullRow({ event_count: 'oops' as unknown as number })), // wrong type
             msg(fullRow({ urls: 'not-an-array' as unknown as string[] })),
+            msg(fullRow({ format_version: 2, team_id: 'a'.repeat(32) })),
+            msg(fullRow({ format_version: 2, team_id: '9007199254740992' })),
+            msg({ ...fullRow(), format_version: 3 }),
             msg(fullRow({ session_id: 'good' })),
         ])
         expect(rows).toHaveLength(1)

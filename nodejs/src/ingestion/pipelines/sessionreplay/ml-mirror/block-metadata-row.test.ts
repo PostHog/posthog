@@ -6,7 +6,7 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 
 import { parseBlockUrl, toBlockMetadataRow } from './block-metadata-row'
-import { PSEUDONYM_SESSION, PSEUDONYM_TEAM, pseudonymize } from './pseudonymize'
+import { PSEUDONYM_SESSION, pseudonymize } from './pseudonymize'
 
 const SECRET = 'test-secret'
 
@@ -46,9 +46,10 @@ describe('ml-mirror block-metadata-row', () => {
     })
 
     describe('toBlockMetadataRow', () => {
-        it('pseudonymizes ids and never carries the raw values', () => {
+        it('stores the raw team ID and pseudonymizes session and distinct IDs', () => {
             const row = toBlockMetadataRow(block(), SECRET)!
-            expect(row.team_id).toBe(pseudonymize(SECRET, PSEUDONYM_TEAM, '7'))
+            expect(row.team_id).toBe('7')
+            expect(row.format_version).toBe(2)
             expect(row.session_id).toBe(pseudonymize(SECRET, PSEUDONYM_SESSION, 'sess-1'))
             expect(row.distinct_id).not.toContain('user@example.com')
             expect(row.session_id).not.toBe('sess-1')

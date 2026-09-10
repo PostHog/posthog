@@ -66,6 +66,7 @@ const REVOKED_PARTITION_CODES = new Set([
 interface PlannedScrub {
     index: number
     ref: string
+    teamId?: string
     pseudoTeam?: string
     hash: string
     source: 'bytes' | 'url'
@@ -377,6 +378,7 @@ export class ImageBatcher {
             const candidate: PlannedScrub = {
                 index,
                 ref,
+                teamId: parsed.teamId,
                 pseudoTeam: parsed.pseudoTeam,
                 hash: parsed.hash,
                 source: parsed.source,
@@ -510,7 +512,7 @@ export class ImageBatcher {
                 sourceOffset: planned.sourceOffset,
             }
         }
-        return { pseudoTeam: planned.pseudoTeam!, hash: planned.hash, bytes }
+        return { teamId: planned.teamId, pseudoTeam: planned.pseudoTeam, hash: planned.hash, bytes }
     }
 
     private rememberContentAddressedRef(planned: PlannedScrub): void {
@@ -545,7 +547,7 @@ export class ImageBatcher {
                     headers: planned.transportHeaders,
                     detail: {
                         ...poisoned.detail,
-                        pseudoTeam: planned.pseudoTeam,
+                        ...(planned.teamId ? { teamId: planned.teamId } : { pseudoTeam: planned.pseudoTeam }),
                         hash: planned.hash,
                         sourceTopic: planned.sourceTopic,
                         sourcePartition: planned.sourcePartition,
@@ -605,15 +607,21 @@ export class ImageBatcher {
                     }
                 })
             )
-            if (inlineItems.length > 0) {
-                const { bytes } = await this.store.writeShard(inlineItems.map((item) => item.image))
+            for (const items of [
+                inlineItems.filter((item) => item.image.teamId !== undefined),
+                inlineItems.filter((item) => item.image.teamId === undefined),
+            ]) {
+                if (items.length === 0) {
+                    continue
+                }
+                const { bytes } = await this.store.writeShard(items.map((item) => item.image))
                 const storedAtMs = Date.now()
-                for (const item of inlineItems) {
+                for (const item of items) {
                     if (item.capturedAtMs !== undefined) {
                         ImageScrubConsumerMetrics.observeCaptureToS3('inline', item.capturedAtMs, storedAtMs)
                     }
                 }
-                ImageScrubConsumerMetrics.observeShard(inlineItems.length, bytes)
+                ImageScrubConsumerMetrics.observeShard(items.length, bytes)
             }
             this.buffer = []
             this.bufferBytes = 0

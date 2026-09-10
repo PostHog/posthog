@@ -6,7 +6,8 @@ import { logger } from '~/common/utils/logger'
 import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
 
 export interface ScrubbedImage {
-    pseudoTeam: string
+    teamId?: string
+    pseudoTeam?: string
     hash: string
     bytes: Buffer
 }
@@ -21,14 +22,14 @@ export interface ScrubbedUrlImage {
 export type UrlImageWriteOutcome = 'created' | 'already_exists'
 
 interface IndexRow {
-    pseudoTeam: string
+    teamId?: string
+    pseudoTeam?: string
     hash: string
     shard: string
     offset: number
     length: number
 }
 
-const INDEX_FORMAT_VERSION = 1
 const URL_SOURCE_PARTITION_METADATA = 'source-partition'
 const URL_SOURCE_OFFSET_METADATA = 'source-offset'
 const URL_WRITE_MAX_ATTEMPTS = 8
@@ -44,21 +45,22 @@ const S3_WRITE_RETRY_BUDGET_MS = 45_000
 const S3_WRITE_RETRY_BASE_MS = 100
 const S3_WRITE_RETRY_MAX_BACKOFF_MS = 2_000
 
-const INDEX_SCHEMA = new ParquetSchema({
+const INDEX_FIELDS = {
     format_version: { type: 'INT64', compression: 'SNAPPY' },
-    pseudo_team: { type: 'UTF8', compression: 'SNAPPY' },
     hash: { type: 'UTF8', compression: 'SNAPPY' },
     shard: { type: 'UTF8', compression: 'SNAPPY' },
     offset: { type: 'INT64', compression: 'SNAPPY' },
     length: { type: 'INT64', compression: 'SNAPPY' },
-})
+} as const
+const LEGACY_INDEX_SCHEMA = new ParquetSchema({ ...INDEX_FIELDS, pseudo_team: { type: 'UTF8', compression: 'SNAPPY' } })
+const INDEX_SCHEMA = new ParquetSchema({ ...INDEX_FIELDS, team_id: { type: 'UTF8', compression: 'SNAPPY' } })
 
-function indexRowsToParquet(rows: IndexRow[]): Promise<Buffer> {
+function indexRowsToParquet(rows: IndexRow[], rawTeamIds: boolean): Promise<Buffer> {
     return parquetRecordsToBuffer(
-        INDEX_SCHEMA,
+        rawTeamIds ? INDEX_SCHEMA : LEGACY_INDEX_SCHEMA,
         rows.map((r) => ({
-            format_version: BigInt(INDEX_FORMAT_VERSION),
-            pseudo_team: r.pseudoTeam,
+            format_version: BigInt(rawTeamIds ? 2 : 1),
+            ...(rawTeamIds ? { team_id: r.teamId } : { pseudo_team: r.pseudoTeam }),
             hash: r.hash,
             shard: r.shard,
             offset: BigInt(r.offset),
@@ -134,20 +136,34 @@ export class ImageShardStore {
     }
 
     public async writeShard(images: ScrubbedImage[]): Promise<{ shard: string; bytes: number }> {
+        const rawTeamIds = images[0]?.teamId !== undefined
+        if (
+            images.some((image) => (image.teamId !== undefined) !== rawTeamIds || !(image.teamId ?? image.pseudoTeam))
+        ) {
+            throw new Error('Inline image shards must use one team ID format')
+        }
+        const prefix = rawTeamIds ? `${this.prefix}/v2` : this.prefix
         this.seq += 1
         const stamp = `${this.nodeId}-${Date.now()}-${this.seq}`
-        const shardKey = `${this.prefix}/shards/${stamp}.bin`
+        const shardKey = `${prefix}/shards/${stamp}.bin`
 
         const rows: IndexRow[] = []
         const parts: Buffer[] = []
         let offset = 0
         for (const img of images) {
-            rows.push({ pseudoTeam: img.pseudoTeam, hash: img.hash, shard: shardKey, offset, length: img.bytes.length })
+            rows.push({
+                teamId: img.teamId,
+                pseudoTeam: img.pseudoTeam,
+                hash: img.hash,
+                shard: shardKey,
+                offset,
+                length: img.bytes.length,
+            })
             parts.push(img.bytes)
             offset += img.bytes.length
         }
         const shardBody = Buffer.concat(parts, offset)
-        const indexBody = await indexRowsToParquet(rows)
+        const indexBody = await indexRowsToParquet(rows, rawTeamIds)
 
         // Shard before index: an index pointing at a missing shard breaks reads; a dangling shard only wastes storage.
         await this.send(
@@ -162,7 +178,7 @@ export class ImageShardStore {
             await this.send(
                 new PutObjectCommand({
                     Bucket: this.bucket,
-                    Key: `${this.prefix}/index/${stamp}.parquet`,
+                    Key: `${prefix}/index/${stamp}.parquet`,
                     Body: indexBody,
                     ContentType: 'application/vnd.apache.parquet',
                 })

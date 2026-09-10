@@ -1,6 +1,8 @@
 /** Single source of truth for the ML block-metadata columns: drives the Parquet schema, the row→record
  *  mapping (in parquet-writer.ts), and the poison-row validator below. Kept free of the Parquet dependency
  *  so the message-parsing path doesn't pull it in. */
+import { isRawTeamId } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
+
 import { MlBlockMetadataRow } from './block-metadata-row'
 
 export type ParquetType = 'UTF8' | 'INT32' | 'INT64' | 'TIMESTAMP_MILLIS'
@@ -51,6 +53,9 @@ export function isWellFormedRow(row: unknown): row is MlBlockMetadataRow {
         return false
     }
     const r = row as Record<string, unknown>
+    if (r.format_version !== undefined && (r.format_version !== 2 || !isRawTeamId(r.team_id))) {
+        return false
+    }
     for (const col of COLUMNS) {
         if (col.optional) {
             continue

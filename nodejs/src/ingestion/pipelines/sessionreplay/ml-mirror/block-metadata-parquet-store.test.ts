@@ -121,6 +121,30 @@ describe('BlockMetadataParquetStore', () => {
         expect(entries.find((entry) => entry.kind === 'full_snapshot')?.url).toBeNull()
     })
 
+    it('keeps raw team metadata and replay indexes separate from queued legacy rows', async () => {
+        const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod-1')
+        const legacy = {
+            ...row('s1', 'a'.repeat(32)),
+            session_start_ts_ms: 1000,
+            replay_index_entries: [
+                { kind: 'full_snapshot' as const, windowId: 'w', eventTimestamp: 1000, eventIndex: 0 },
+            ],
+        }
+        await store.write([legacy, { ...legacy, format_version: 2, team_id: '42' }])
+
+        expect(puts).toHaveLength(4)
+        for (const [prefix, team] of [
+            ['block-metadata/v2/dt=', '42'],
+            ['block-metadata/dt=', 'a'.repeat(32)],
+            ['block-metadata-replay-index/v2/', '42'],
+            ['block-metadata-replay-index/v1/', 'a'.repeat(32)],
+        ]) {
+            const put = puts.find((put) => put.Key!.startsWith(prefix))!
+            expect(put).toBeDefined()
+            expect((await readRows(put.Body)).map((row) => row.team_id)).toEqual([team])
+        }
+    })
+
     it('writes one dt-partitioned Parquet object that round-trips', async () => {
         const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod-1')
         await store.write([row('s1', 't1'), row('s2', 't1')])

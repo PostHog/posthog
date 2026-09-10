@@ -4,6 +4,7 @@ import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB_DLQ } from '~/common/config/kafka-topi
 import { RedisConnectionConfig } from '~/common/utils/db/redis'
 
 export type MlMirrorConfig = {
+    SESSION_RECORDING_ML_S3_PREFIX: string
     /** S3 key prefix under the bucket for the block-metadata Parquet dataset (used by the sink). */
     SESSION_RECORDING_ML_METADATA_PREFIX: string
     /** Optional S3 key of the `{ text, url }` allow-list document; empty → in-binary defaults. */
@@ -39,7 +40,7 @@ export type MlMirrorConfig = {
 
     /**
      * Produce collected original images to the scrub topic. Enabling changes the mirrored JSONL
-     * shape: image fields carry `image:<pseudoTeam>:<hash>` refs instead of blurred data URIs, so
+     * shape: image fields carry `image:<teamId>:<hash>` refs instead of blurred data URIs, so
      * both the scrub consumer lane AND ref-aware downstream readers must be live first.
      */
     SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: boolean
@@ -209,6 +210,7 @@ export type MlMirrorConfig = {
 
 export function getDefaultMlMirrorConfig(): MlMirrorConfig {
     return {
+        SESSION_RECORDING_ML_S3_PREFIX: 'rrweb_2',
         SESSION_RECORDING_ML_METADATA_PREFIX: 'block-metadata',
         SESSION_RECORDING_ML_ALLOW_LIST_S3_KEY: '',
         SESSION_RECORDING_ML_PSEUDONYM_SECRET: '',
