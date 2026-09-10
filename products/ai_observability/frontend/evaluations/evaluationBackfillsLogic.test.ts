@@ -401,6 +401,21 @@ describe('evaluationBackfillsLogic', () => {
         expect(estimateMock).toHaveBeenCalledTimes(1)
     })
 
+    it('recounts the range when the refresh after a create already shows the run finished', async () => {
+        await mountAndSettle()
+
+        // A short walk can be over before the first refresh lands, so the list never shows it running.
+        listMock.mockResolvedValue({ count: 1, results: [backfill({ status: 'completed' })] })
+        logic.actions.createBackfill()
+
+        await expectLogic(logic).toDispatchActions(['createBackfillDone', 'requestEstimate', 'requestEstimateSuccess'])
+        await expectLogic(logic).toMatchValues({
+            estimate: expect.objectContaining({ total_units: 42 }),
+            startDisabledReason: undefined,
+        })
+        expect(estimateMock).toHaveBeenCalledTimes(1)
+    })
+
     it('offers a retry when the list fails to load, instead of reading as an empty list', async () => {
         listMock.mockRejectedValueOnce(new ApiError('Backfills are unavailable', 503))
         mountLogic()

@@ -422,14 +422,18 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                 if (!teamId) {
                     return
                 }
-                const wasActive = values.hasActiveBackfill
                 try {
                     const response = await evaluationsBackfillsList(String(teamId), props.evaluationId, {
                         limit: BACKFILL_PAGE_SIZE,
                     })
                     actions.loadBackfillsSuccess(response.results ?? [])
-                    if (wasActive && !values.hasActiveBackfill) {
-                        // A finished run changed which units already have a result, so the count is stale.
+                    if (values.hasActiveBackfill) {
+                        cache.recountWhenIdle = true
+                    } else if (cache.recountWhenIdle) {
+                        // A finished run changed which units already have a result, so the count is
+                        // stale. A short run can be over by the first refresh, so the recount hangs
+                        // off the run being gone rather than off having seen it running.
+                        cache.recountWhenIdle = false
                         cache.lastEstimate = null
                         actions.requestEstimate()
                     }
@@ -503,6 +507,7 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                     succeeded = true
                     // The units this run covers now have a result, so the count it started from is stale.
                     cache.lastEstimate = null
+                    cache.recountWhenIdle = true
                     lemonToast.success('Backfill started')
                     actions.loadBackfills()
                 } catch (error) {
