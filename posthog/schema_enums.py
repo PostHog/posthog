@@ -3047,6 +3047,7 @@ class IntegrationKind(StrEnum):
     LINEAR = "linear"
     GITHUB = "github"
     GITLAB = "gitlab"
+    HELPSCOUT = "helpscout"
     META_ADS = "meta-ads"
     INSTAGRAM = "instagram"
     CLICKUP = "clickup"

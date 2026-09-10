@@ -5586,6 +5586,7 @@ export const INTEGRATION_KINDS = [
     'linear',
     'github',
     'gitlab',
+    'helpscout',
     'meta-ads',
     'instagram',
     'clickup',
@@ -7426,6 +7427,7 @@ export type HogFunctionTypeType =
     | 'site_app'
     | 'transformation'
     | 'transformation_log'
+    | 'legacy_destination'
 
 export type HogFunctionType = {
     id: string
