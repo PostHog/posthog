@@ -809,8 +809,7 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 updated_fields = [*updated_fields, "charts"]
             if input.metrics is not None:
                 report.metrics = input.metrics
-                report.metrics_last_refresh_attempt_at = None
-                updated_fields = [*updated_fields, "metrics", "metrics_last_refresh_attempt_at"]
+                updated_fields = [*updated_fields, "metrics"]
             if input.suggested_prompts is not None:
                 report.suggested_prompts = input.suggested_prompts
                 updated_fields = [*updated_fields, "suggested_prompts"]
@@ -1034,8 +1033,7 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
                 updated_fields = [*updated_fields, "charts"]
             if input.metrics is not None:
                 report.metrics = input.metrics
-                report.metrics_last_refresh_attempt_at = None
-                updated_fields = [*updated_fields, "metrics", "metrics_last_refresh_attempt_at"]
+                updated_fields = [*updated_fields, "metrics"]
             if input.suggested_prompts is not None:
                 report.suggested_prompts = input.suggested_prompts
                 updated_fields = [*updated_fields, "suggested_prompts"]

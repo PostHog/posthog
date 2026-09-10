@@ -367,6 +367,22 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Re-run the stored metric queries of the given reports through the query cache and save the newest values as their snapshots. Call it when a person opens the inbox list or a report, with the ids on screen. Report titles and summaries are point-in-time text and never change here; only value, value_at, and series do. A snapshot measured in the last 15 minutes is served as is. Each call refreshes at most 20 metrics inside a 20-second budget, row metrics first; the rest keep their previous snapshot until the next open. Returns snapshot-only metrics for every requested report the caller can read.
+ * @summary Refresh the saved metric snapshots of the reports on screen
+ */
+export const signalsReportsRefreshMetricsCreateBodyReportIdsMax = 20
+
+export const SignalsReportsRefreshMetricsCreateBody = /* @__PURE__ */ zod.object({
+    report_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(signalsReportsRefreshMetricsCreateBodyReportIdsMax)
+        .describe(
+            "Reports on screen, in display order. Each report's row metric is refreshed before any report's supporting metrics. At most 20 ids per call."
+        ),
+})
+
+/**
  * Create a scout skill and its runnable config atomically. Any valid skill name works — the config row is what makes the skill a scout. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, network access, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
  * @summary Create a scout
  */
@@ -1212,7 +1228,7 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
                             .number()
                             .nullish()
                             .describe(
-                                'Latest saved snapshot, initially observed during authoring and optionally replaced by a background refresh. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.'
+                                'Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.'
                             ),
                         value_at: zod.iso
                             .datetime({ offset: true })
@@ -1523,7 +1539,7 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
                             .number()
                             .nullish()
                             .describe(
-                                'Latest saved snapshot, initially observed during authoring and optionally replaced by a background refresh. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.'
+                                'Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.'
                             ),
                         value_at: zod.iso
                             .datetime({ offset: true })

@@ -709,7 +709,6 @@ def set_report_metrics(
             return False
         SignalReport.objects.filter(team_id=team_id, id=report_id).update(
             metrics=payload,
-            metrics_last_refresh_attempt_at=None,
             updated_at=timezone.now(),
         )
         if attribution is not None:

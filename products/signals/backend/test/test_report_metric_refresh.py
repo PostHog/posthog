@@ -1,443 +1,283 @@
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 from django.utils import timezone
 
-from temporalio.client import ScheduleOverlapPolicy
+from parameterized import parameterized
+from rest_framework import status
 
-from posthog.schema import ChartDisplayType, HogQLQueryResponse
+from posthog.constants import AvailableFeature
 
-from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
-
-from posthog.clickhouse.client.connection import Workload
-from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.temporal.schedule import schedules as temporal_schedules
-
-from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.signals.backend.models import SignalReport
-from products.signals.backend.report_metrics import MAX_METRIC_SERIES_POINTS
-from products.signals.backend.temporal import ACTIVITIES, WORKFLOWS
-from products.signals.backend.temporal.report_metric_refresh.activities import (
-    _longitudinal_affected_users,
-    _whole_window_affected_users,
-    collect_report_metric_refresh_page,
-    collect_report_metric_refresh_page_activity,
-    refresh_report_metric_snapshots_batch,
-    refresh_report_metric_snapshots_batch_activity,
+from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
+from products.signals.backend.report_metric_refresh import (
+    MAX_METRIC_SERIES_POINTS,
+    MetricMeasurement,
+    _persist_metric_snapshot,
+    longitudinal_values,
+    refresh_report_metric_snapshots,
+    whole_window_value,
 )
-from products.signals.backend.temporal.report_metric_refresh.schedule import (
-    SCHEDULE_ID,
-    create_signals_report_metric_refresh_schedule,
-)
-from products.signals.backend.temporal.report_metric_refresh.types import (
-    REPORT_METRIC_REFRESH_BATCH_SIZE,
-    REPORT_METRIC_REFRESH_BATCH_TIMEOUT_SECONDS,
-    REPORT_METRIC_REFRESH_MAX_CONCURRENT_BATCHES,
-    REPORT_METRIC_REFRESH_MAX_REPORTS,
-    REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS,
-    REPORT_METRIC_REFRESH_SCHEDULE_MINUTES,
-    ReportMetricRefreshBatchInput,
-    ReportMetricRefreshPageInput,
-    ReportMetricRefreshTarget,
-)
-from products.signals.backend.temporal.report_metric_refresh.workflow import (
-    WORKFLOW_NAME,
-    SignalReportMetricRefreshWorkflow,
-)
+from products.signals.backend.serializers import SignalReportMetricRefreshRequestSerializer
+
+_MEASURE = "products.signals.backend.report_metric_refresh.measure_metric"
 
 
-def _metric(*, event: str = "$exception", value: float = 17) -> dict:
+def _metric(
+    *,
+    metric_id: str = "affected-users",
+    kind: str = "affected_users",
+    role: str = "primary",
+    event: str = "$exception",
+    value: float | None = 17,
+    value_at: str | None = "2026-08-29T12:00:00Z",
+) -> dict:
+    series = [{"kind": "EventsNode", "event": event, "math": "dau" if kind == "affected_users" else "total"}]
     return {
-        "metric_id": "affected-users",
-        "title": "Affected users",
-        "kind": "affected_users",
-        "role": "primary",
+        "metric_id": metric_id,
+        "title": "Affected users" if kind == "affected_users" else "Occurrences",
+        "kind": kind,
+        "role": role,
         "value": value,
-        "value_at": "2026-08-29T12:00:00Z",
+        "value_at": value_at,
         "value_format": "count",
         "unit": "users",
         "query": {
             "kind": "InsightVizNode",
-            "source": {
-                "kind": "TrendsQuery",
-                "dateRange": {"date_from": "-30d"},
-                "series": [{"kind": "EventsNode", "event": event, "math": "dau"}],
-            },
+            "source": {"kind": "TrendsQuery", "dateRange": {"date_from": "-14d"}, "series": series},
         },
         "caption": None,
         "comparison": None,
     }
 
 
-_LONGITUDINAL_QUERY = "products.signals.backend.temporal.report_metric_refresh.activities._longitudinal_affected_users"
+def _measurement(value: float = 21, *, measured_at: datetime | None = None) -> MetricMeasurement:
+    return MetricMeasurement(value=value, measured_at=measured_at or timezone.now(), series=[1.0, 2.0, 3.0])
 
 
-class TestReportMetricRefresh(APIBaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        # The bucket query runs after every successful headline query; keep it off ClickHouse here.
-        series_query = patch(_LONGITUDINAL_QUERY, return_value=[])
-        series_query.start()
-        self.addCleanup(series_query.stop)
+class TestReportMetricRefreshRequestValidation(SimpleTestCase):
+    def test_rejects_more_than_one_page_of_ids(self) -> None:
+        serializer = SignalReportMetricRefreshRequestSerializer(
+            data={"report_ids": [f"00000000-0000-4000-8000-{i:012d}" for i in range(21)]}
+        )
+        assert not serializer.is_valid()
+        assert serializer.errors["report_ids"][0].code == "max_length"
+
+
+class TestReportMetricRefreshApi(APIBaseTest):
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/refresh_metrics/"
 
     def _report(self, **kwargs) -> SignalReport:
         defaults = {
             "team": self.team,
             "status": SignalReport.Status.READY,
             "title": "Impact report",
-            "summary": "A current report",
+            "summary": "A point-in-time description",
             "metrics": [_metric()],
         }
         defaults.update(kwargs)
         return SignalReport.objects.create(**defaults)
 
-    def _batch_input(
-        self,
-        *reports: SignalReport,
-        stale_before: datetime | None = None,
-    ) -> ReportMetricRefreshBatchInput:
-        return ReportMetricRefreshBatchInput(
-            targets=[ReportMetricRefreshTarget(team_id=self.team.id, report_id=str(report.id)) for report in reports],
-            stale_before=stale_before or timezone.now() + timedelta(minutes=1),
-        )
+    def _refresh(self, *reports: SignalReport):
+        return self.client.post(self._url(), {"report_ids": [str(report.id) for report in reports]}, format="json")
 
-    def test_discovery_keyset_pages_only_current_stale_reports(self) -> None:
-        now = timezone.now()
-        never_attempted = self._report()
-        stale = self._report(
-            status=SignalReport.Status.PENDING_INPUT,
-            metrics_last_refresh_attempt_at=now - timedelta(hours=2),
-        )
-        self._report(metrics_last_refresh_attempt_at=now)
-        self._report(status=SignalReport.Status.RESOLVED)
-        self._report(metrics=[])
+    def test_refresh_replaces_only_the_numbers_and_returns_snapshots(self) -> None:
+        report = self._report()
+        before = SignalReport.objects.get(id=report.id)
+        measured_at = timezone.now().replace(microsecond=0)
 
-        first_page = collect_report_metric_refresh_page(
-            ReportMetricRefreshPageInput(stale_before=now - timedelta(hours=1), page_size=1)
-        )
+        with patch(_MEASURE, return_value=_measurement(21, measured_at=measured_at)) as measure:
+            response = self._refresh(report)
 
-        assert first_page.targets == [
-            ReportMetricRefreshTarget(team_id=self.team.id, report_id=str(never_attempted.id))
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert measure.call_count == 1
+        [row] = response.json()["reports"]
+        assert row["id"] == str(report.id)
+        assert row["metrics"][0]["value"] == 21.0
+        assert row["metrics"][0]["series"] == [1.0, 2.0, 3.0]
+        assert "query" not in row["metrics"][0]
+        assert "comparison" not in row["metrics"][0]
+
+        after = SignalReport.objects.get(id=report.id)
+        assert after.metrics[0]["value"] == 21.0
+        assert after.metrics[0]["value_at"] == measured_at.isoformat()
+        assert after.metrics[0]["query"] == before.metrics[0]["query"]
+        assert (after.title, after.summary, after.updated_at) == (before.title, before.summary, before.updated_at)
+
+    def test_fresh_snapshot_is_served_without_a_query(self) -> None:
+        recent = (timezone.now() - timedelta(minutes=1)).isoformat()
+        report = self._report(metrics=[_metric(value_at=recent)])
+
+        with patch(_MEASURE) as measure:
+            response = self._refresh(report)
+
+        assert response.status_code == status.HTTP_200_OK
+        measure.assert_not_called()
+        assert response.json()["reports"][0]["metrics"][0]["value"] == 17.0
+
+    def test_row_metrics_refresh_before_supporting_metrics_when_the_budget_runs_out(self) -> None:
+        first = self._report(
+            metrics=[
+                _metric(metric_id="occurrences", kind="occurrences", role="supporting"),
+                _metric(metric_id="affected-users", role="supporting"),
+            ]
+        )
+        second = self._report(metrics=[_metric(metric_id="primary", kind="occurrences", role="primary")])
+
+        with (
+            patch("products.signals.backend.report_metric_refresh.MAX_REPORT_METRIC_REFRESHES_PER_REQUEST", 2),
+            patch(_MEASURE, return_value=_measurement(5)) as measure,
+        ):
+            response = self._refresh(first, second)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert measure.call_count == 2
+        refreshed = {
+            (row["id"], metric["metric_id"]): metric["value"]
+            for row in response.json()["reports"]
+            for metric in row["metrics"]
+        }
+        assert refreshed[(str(first.id), "affected-users")] == 5.0
+        assert refreshed[(str(second.id), "primary")] == 5.0
+        assert refreshed[(str(first.id), "occurrences")] == 17.0
+
+    @parameterized.expand(
+        [
+            ("query_failure", RuntimeError("clickhouse down")),
+            ("invalid_count", _measurement(2.5)),
         ]
-        assert first_page.next_cursor is not None
-        second_page = collect_report_metric_refresh_page(
-            ReportMetricRefreshPageInput(
-                stale_before=now - timedelta(hours=1),
-                page_size=1,
-                cursor=first_page.next_cursor,
-            )
+    )
+    def test_a_failed_or_invalid_measurement_keeps_the_previous_snapshot(self, _name: str, outcome: object) -> None:
+        report = self._report()
+        kwargs = {"side_effect": outcome} if isinstance(outcome, Exception) else {"return_value": outcome}
+
+        with patch(_MEASURE, **kwargs):
+            response = self._refresh(report)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["reports"][0]["metrics"][0]["value"] == 17.0
+        assert SignalReport.objects.get(id=report.id).metrics[0]["value"] == 17
+
+    def test_property_restricted_member_cannot_trigger_a_shared_refresh(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team, name="secret_plan", property_type="String", type=PropertyDefinition.Type.EVENT
         )
-        assert second_page.targets == [ReportMetricRefreshTarget(team_id=self.team.id, report_id=str(stale.id))]
-        assert second_page.next_cursor is None
-
-    def test_refresh_updates_snapshot_and_attempt_clock_without_reordering_report(self) -> None:
-        good = self._report(metrics=[_metric(event="$good")])
-        poison = self._report(metrics=[_metric(event="$poison")])
-        malformed = self._report(metrics=[{"kind": "affected_users"}])
-        original_updated_at = {report.id: report.updated_at for report in (good, poison, malformed)}
-        cached_at = datetime(2026, 8, 29, 12, 30, tzinfo=UTC)
-
-        def run_query(query: dict, _team) -> tuple[float, datetime]:
-            if query["source"]["series"][0]["event"] == "$poison":
-                raise ValueError("poison query")
-            return 42.0, cached_at
-
-        with (
-            patch(
-                "products.signals.backend.temporal.report_metric_refresh.activities._whole_window_affected_users",
-                side_effect=run_query,
-            ),
-            patch(_LONGITUDINAL_QUERY, return_value=[3.0, 5.0, 9.0]),
-        ):
-            result = refresh_report_metric_snapshots_batch(self._batch_input(good, poison, malformed))
-
-        assert result.attempted == 3
-        assert result.updated == 1
-        assert result.failed == 2
-        for report in (good, poison, malformed):
-            report.refresh_from_db()
-            assert report.metrics_last_refresh_attempt_at is not None
-            assert report.updated_at == original_updated_at[report.id]
-        assert good.metrics[0]["value"] == 42.0
-        assert good.metrics[0]["value_at"] == cached_at.isoformat()
-        assert good.metrics[0]["series"] == [3.0, 5.0, 9.0]
-        assert poison.metrics[0]["value"] == 17
-        assert "series" not in poison.metrics[0]
-
-    def test_series_query_failure_keeps_the_refreshed_headline_value(self) -> None:
-        report = self._report(metrics=[{**_metric(), "series": [1.0, 2.0]}])
-        cached_at = datetime(2026, 8, 29, 12, 30, tzinfo=UTC)
-
-        with (
-            patch(
-                "products.signals.backend.temporal.report_metric_refresh.activities._whole_window_affected_users",
-                return_value=(42.0, cached_at),
-            ),
-            patch(_LONGITUDINAL_QUERY, side_effect=ValueError("bucket query failed")),
-        ):
-            result = refresh_report_metric_snapshots_batch(self._batch_input(report))
-
-        assert result.updated == 1
-        assert result.failed == 0
-        report.refresh_from_db()
-        assert report.metrics[0]["value"] == 42.0
-        assert report.metrics[0]["series"] is None
-
-    def test_activity_retry_skips_a_target_completed_after_the_sweep_cutoff(self) -> None:
-        now = timezone.now()
-        metric = _metric()
-        metric["value_at"] = (now - timedelta(hours=2)).isoformat()
-        report = self._report(metrics=[metric])
-        inputs = self._batch_input(report, stale_before=now - timedelta(hours=1))
-
-        with patch(
-            "products.signals.backend.temporal.report_metric_refresh.activities._whole_window_affected_users",
-            return_value=(42.0, now),
-        ) as run_query:
-            first_attempt = refresh_report_metric_snapshots_batch(inputs)
-            retry = refresh_report_metric_snapshots_batch(inputs)
-
-        assert first_attempt.updated == 1
-        assert retry.attempted == 0
-        assert retry.skipped == 1
-        assert run_query.call_count == 1
-
-    def test_snapshot_write_compares_and_swaps_the_complete_metric_state(self) -> None:
-        report = self._report(metrics=[_metric(event="$old")])
-        original_updated_at = report.updated_at
-
-        def replace_metric_before_result(_query: dict, _team) -> tuple[float, datetime]:
-            edited_metric = _metric(event="$old", value=99)
-            edited_metric["caption"] = "Edited while the query was running."
-            SignalReport.objects.filter(id=report.id).update(
-                metrics=[edited_metric],
-                metrics_last_refresh_attempt_at=None,
-            )
-            return 42.0, timezone.now()
-
-        with patch(
-            "products.signals.backend.temporal.report_metric_refresh.activities._whole_window_affected_users",
-            side_effect=replace_metric_before_result,
-        ):
-            result = refresh_report_metric_snapshots_batch(self._batch_input(report))
-
-        report.refresh_from_db()
-        assert result.updated == 0
-        assert result.skipped == 1
-        assert report.metrics[0]["query"]["source"]["series"][0]["event"] == "$old"
-        assert report.metrics[0]["caption"] == "Edited while the query was running."
-        assert report.metrics[0]["value"] == 99
-        assert report.metrics_last_refresh_attempt_at is None
-        assert report.updated_at == original_updated_at
-
-    def test_older_cached_measurement_does_not_overwrite_a_newer_snapshot(self) -> None:
-        newer_measurement = timezone.now()
-        metric = _metric()
-        metric["value_at"] = newer_measurement.isoformat()
-        report = self._report(metrics=[metric])
-        original_updated_at = report.updated_at
-
-        with patch(
-            "products.signals.backend.temporal.report_metric_refresh.activities._whole_window_affected_users",
-            return_value=(42.0, newer_measurement - timedelta(hours=1)),
-        ):
-            result = refresh_report_metric_snapshots_batch(self._batch_input(report))
-
-        report.refresh_from_db()
-        assert result.updated == 0
-        assert result.skipped == 1
-        assert report.metrics[0]["value"] == 17
-        assert report.metrics[0]["value_at"] == newer_measurement.isoformat()
-        assert report.metrics_last_refresh_attempt_at is not None
-        assert report.updated_at == original_updated_at
-
-    def test_attempt_clock_never_moves_backwards(self) -> None:
-        now = timezone.now()
-        newer_attempt = now + timedelta(minutes=5)
-        metric = _metric()
-        metric["value_at"] = (now - timedelta(hours=1)).isoformat()
-        report = self._report(metrics=[metric], metrics_last_refresh_attempt_at=newer_attempt)
-        inputs = self._batch_input(report, stale_before=newer_attempt + timedelta(minutes=1))
-
-        with (
-            patch(
-                "products.signals.backend.temporal.report_metric_refresh.activities._whole_window_affected_users",
-                return_value=(42.0, now),
-            ),
-            patch(
-                "products.signals.backend.temporal.report_metric_refresh.activities.timezone.now",
-                return_value=now,
-            ),
-        ):
-            result = refresh_report_metric_snapshots_batch(inputs)
-
-        report.refresh_from_db()
-        assert result.updated == 1
-        assert report.metrics_last_refresh_attempt_at == newer_attempt
-
-    def test_correcting_a_malformed_metric_wins_the_attempt_marker_race(self) -> None:
-        malformed = [{"kind": "affected_users"}]
-        report = self._report(metrics=malformed)
-
-        def correct_metric(_metrics: object):
-            SignalReport.objects.filter(id=report.id).update(metrics=[_metric(event="$corrected")])
-            return None
-
-        with patch(
-            "products.signals.backend.temporal.report_metric_refresh.activities._affected_users_metric",
-            side_effect=correct_metric,
-        ):
-            result = refresh_report_metric_snapshots_batch(self._batch_input(report))
-
-        report.refresh_from_db()
-        assert result.failed == 1
-        assert result.skipped == 1
-        assert report.metrics_last_refresh_attempt_at is None
-
-    def test_query_uses_cache_timestamp_and_offline_runner(self) -> None:
-        cached_at = datetime(2026, 8, 29, 10, 15, tzinfo=UTC)
-        stored_query = _metric()["query"]
-        with patch.object(
-            TrendsQueryRunner,
-            "run",
-            autospec=True,
-            return_value=SimpleNamespace(results=[{"aggregated_value": 41}], last_refresh=cached_at),
-        ) as run:
-            value, measured_at = _whole_window_affected_users(stored_query, self.team)
-
-        runner = run.call_args.args[0]
-        assert runner.workload == Workload.OFFLINE
-        assert runner.hogql_settings == HogQLGlobalSettings(
-            max_execution_time=REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS
-        )
-        assert runner.query.trendsFilter is not None
-        assert runner.query.trendsFilter.display == ChartDisplayType.BOLD_NUMBER
-        assert "trendsFilter" not in stored_query["source"]
-        assert run.call_args.kwargs["execution_mode"] == ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-        assert value == 41
-        assert measured_at == cached_at
-
-    def test_bucket_query_keeps_only_the_trailing_buckets_as_counts(self) -> None:
-        stored_query = _metric()["query"]
-        buckets = list(range(MAX_METRIC_SERIES_POINTS + 6))
-        with patch.object(
-            TrendsQueryRunner,
-            "run",
-            autospec=True,
-            return_value=SimpleNamespace(results=[{"data": buckets, "aggregated_value": 99}]),
-        ) as run:
-            series = _longitudinal_affected_users(stored_query, self.team)
-
-        runner = run.call_args.args[0]
-        assert runner.query.trendsFilter is not None
-        assert runner.query.trendsFilter.display == ChartDisplayType.ACTIONS_BAR
-        assert "trendsFilter" not in stored_query["source"]
-        assert series == [float(point) for point in buckets[-MAX_METRIC_SERIES_POINTS:]]
-
-    def test_trends_runner_propagates_explicit_execution_settings(self) -> None:
-        hogql_settings = HogQLGlobalSettings(max_execution_time=17)
-        runner = TrendsQueryRunner(
-            query=_metric()["query"]["source"],
+        PropertyAccessControl.objects.create(
             team=self.team,
-            workload=Workload.OFFLINE,
-            hogql_settings=hogql_settings,
+            property_definition=property_definition,
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.NONE.value,
         )
-        response = HogQLQueryResponse(results=[], columns=[], timings=[])
-        with (
-            patch.object(runner, "to_queries", return_value=[ast.SelectQuery(select=[])]),
-            patch.object(runner, "build_series_response", return_value=[]),
-            patch(
-                "products.product_analytics.backend.hogql_queries.trends.trends_query_runner.get_response_hogql",
-                return_value=None,
-            ),
-            patch(
-                "products.product_analytics.backend.hogql_queries.trends.trends_query_runner.execute_hogql_query",
-                return_value=response,
-            ) as execute,
-        ):
-            runner.calculate()
+        report = self._report()
 
-        assert execute.call_args.kwargs["workload"] == Workload.OFFLINE
-        assert execute.call_args.kwargs["settings"] == hogql_settings
+        with patch(_MEASURE) as measure:
+            response = self._refresh(report)
+
+        assert response.status_code == status.HTTP_200_OK
+        measure.assert_not_called()
+        assert response.json()["reports"][0]["metrics"][0]["value"] is None
+        assert SignalReport.objects.get(id=report.id).metrics[0]["value"] == 17
+
+    def test_reports_that_are_not_current_are_left_out(self) -> None:
+        archived = self._report(status=SignalReport.Status.SUPPRESSED)
+        current = self._report()
+
+        with patch(_MEASURE, return_value=_measurement(3)):
+            response = self._refresh(archived, current)
+
+        assert [row["id"] for row in response.json()["reports"]] == [str(current.id)]
+
+    def test_a_metric_refreshed_earlier_in_the_call_does_not_block_the_next_one(self) -> None:
+        report = self._report(
+            metrics=[_metric(), _metric(metric_id="occurrences", kind="occurrences", role="supporting")]
+        )
+
+        with patch(_MEASURE, return_value=_measurement(4)):
+            self._refresh(report)
+
+        assert [metric["value"] for metric in SignalReport.objects.get(id=report.id).metrics] == [4.0, 4.0]
+
+
+class TestPersistMetricSnapshot(APIBaseTest):
+    def _report(self) -> SignalReport:
+        return SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="t", summary="s", metrics=[_metric()]
+        )
+
+    def test_concurrent_edit_wins_over_a_measurement_of_the_old_definition(self) -> None:
+        report = self._report()
+        edited = [_metric(event="$pageview")]
+        SignalReport.objects.filter(id=report.id).update(metrics=edited)
+
+        result = _persist_metric_snapshot(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            expected_metrics=[_metric()],
+            metric_id="affected-users",
+            measurement=_measurement(99),
+        )
+
+        assert result is None
+        assert SignalReport.objects.get(id=report.id).metrics == edited
+
+    def test_older_cached_measurement_does_not_replace_a_newer_snapshot(self) -> None:
+        report = self._report()
+
+        result = _persist_metric_snapshot(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            expected_metrics=report.metrics,
+            metric_id="affected-users",
+            measurement=_measurement(99, measured_at=datetime(2026, 8, 29, 11, 0, tzinfo=UTC)),
+        )
+
+        assert result is None
+        assert SignalReport.objects.get(id=report.id).metrics[0]["value"] == 17
+
+
+class TestRefreshSkipsUnreadableSnapshots(APIBaseTest):
+    def test_policy_gate_is_applied_per_metric(self) -> None:
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="t", summary="s", metrics=[_metric()]
+        )
+        policy = ReportMetricAccessPolicy(request=None, team=self.team)
+
+        with patch(_MEASURE) as measure:
+            summary = refresh_report_metric_snapshots(team=self.team, reports=[report], policy=policy)
+
+        measure.assert_not_called()
+        assert (summary.refreshed, summary.skipped, summary.failed) == (0, 1, 0)
 
 
 class TestReportMetricRefreshClickHouse(ClickhouseTestMixin, APIBaseTest):
     def test_whole_window_count_does_not_sum_daily_unique_users(self) -> None:
         _create_person(team_id=self.team.id, distinct_ids=["repeat-user"])
         _create_person(team_id=self.team.id, distinct_ids=["other-user"])
-        _create_event(
-            team=self.team,
-            event="metric-refresh-event",
-            distinct_id="repeat-user",
-            timestamp=timezone.now() - timedelta(days=2),
-        )
-        _create_event(
-            team=self.team,
-            event="metric-refresh-event",
-            distinct_id="repeat-user",
-            timestamp=timezone.now() - timedelta(days=1),
-        )
-        _create_event(
-            team=self.team,
-            event="metric-refresh-event",
-            distinct_id="other-user",
-            timestamp=timezone.now() - timedelta(days=1),
-        )
+        for distinct_id, days_ago in (("repeat-user", 2), ("repeat-user", 1), ("other-user", 1)):
+            _create_event(
+                team=self.team,
+                event="metric-refresh-event",
+                distinct_id=distinct_id,
+                timestamp=timezone.now() - timedelta(days=days_ago),
+            )
         flush_persons_and_events()
 
         query = _metric(event="metric-refresh-event")["query"]
-        value, _ = _whole_window_affected_users(query, self.team)
-        series = _longitudinal_affected_users(query, self.team)
+        value, measured_at = whole_window_value(query, self.team)
+        series = longitudinal_values(query, self.team)
 
         assert value == 2
+        assert measured_at.tzinfo is not None
         assert len(series) == MAX_METRIC_SERIES_POINTS
         assert series[-3:] == [1.0, 2.0, 0.0]
-
-
-class TestReportMetricRefreshSchedule(SimpleTestCase):
-    def test_capacity_leaves_room_for_discovery_and_workflow_overhead(self) -> None:
-        batch_count = (
-            REPORT_METRIC_REFRESH_MAX_REPORTS + REPORT_METRIC_REFRESH_BATCH_SIZE - 1
-        ) // REPORT_METRIC_REFRESH_BATCH_SIZE
-        wave_count = (
-            batch_count + REPORT_METRIC_REFRESH_MAX_CONCURRENT_BATCHES - 1
-        ) // REPORT_METRIC_REFRESH_MAX_CONCURRENT_BATCHES
-
-        assert REPORT_METRIC_REFRESH_MAX_REPORTS == 350
-        assert wave_count == 7
-        assert timedelta(seconds=wave_count * REPORT_METRIC_REFRESH_BATCH_TIMEOUT_SECONDS) + timedelta(
-            minutes=5
-        ) < timedelta(hours=1)
-
-    async def test_schedule_is_registered_and_created_with_bounded_overlap(self) -> None:
-        client = object()
-        create = AsyncMock()
-        with (
-            patch(
-                "products.signals.backend.temporal.report_metric_refresh.schedule.a_schedule_exists",
-                new=AsyncMock(return_value=False),
-            ),
-            patch(
-                "products.signals.backend.temporal.report_metric_refresh.schedule.a_create_schedule",
-                new=create,
-            ),
-        ):
-            await create_signals_report_metric_refresh_schedule(client)  # type: ignore[arg-type]
-
-        await_args = create.await_args
-        assert await_args is not None
-        _, schedule_id, schedule = await_args.args
-        assert schedule_id == SCHEDULE_ID
-        assert schedule.action.workflow == WORKFLOW_NAME
-        assert schedule.action.execution_timeout == timedelta(hours=1)
-        assert schedule.spec.intervals[0].every == timedelta(minutes=REPORT_METRIC_REFRESH_SCHEDULE_MINUTES)
-        assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP
-        assert SignalReportMetricRefreshWorkflow in WORKFLOWS
-        assert collect_report_metric_refresh_page_activity in ACTIVITIES
-        assert refresh_report_metric_snapshots_batch_activity in ACTIVITIES
-        assert create_signals_report_metric_refresh_schedule in temporal_schedules

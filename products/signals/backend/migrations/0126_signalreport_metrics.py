@@ -14,9 +14,4 @@ class Migration(migrations.Migration):
             name="metrics",
             field=models.JSONField(blank=True, db_default=[], default=list),
         ),
-        migrations.AddField(
-            model_name="signalreport",
-            name="metrics_last_refresh_attempt_at",
-            field=models.DateTimeField(blank=True, null=True),
-        ),
     ]

@@ -1634,7 +1634,7 @@ export const SignalsScoutEditReportBody = () => zod
                             .number()
                             .nullish()
                             .describe(
-                                'Latest saved snapshot, initially observed during authoring and optionally replaced by a background refresh. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.'
+                                'Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.'
                             ),
                         value_at: zod.iso
                             .datetime({ offset: true })
@@ -1980,7 +1980,7 @@ export const SignalsScoutEmitReportBody = () => zod
                             .number()
                             .nullish()
                             .describe(
-                                'Latest saved snapshot, initially observed during authoring and optionally replaced by a background refresh. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.'
+                                'Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.'
                             ),
                         value_at: zod.iso
                             .datetime({ offset: true })

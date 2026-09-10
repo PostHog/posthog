@@ -38,6 +38,7 @@ from .models import (
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members
 from .report_metric_access import ReportMetricAccessPolicy
+from .report_metric_refresh import MAX_REPORT_METRIC_REFRESH_REPORTS
 from .report_metrics import (
     MAX_LIVE_METRIC_QUERY_POINTS,
     MAX_METRIC_CAPTION_LENGTH,
@@ -685,8 +686,8 @@ class ReportMetricSerializer(serializers.Serializer):
         required=False,
         default=None,
         help_text=(
-            "Latest saved snapshot, initially observed during authoring and optionally replaced by a "
-            "background refresh. Null means no snapshot is available to this viewer; it never means "
+            "Latest saved snapshot, initially observed during authoring and replaced when a person "
+            "opens the inbox or the report. Null means no snapshot is available to this viewer; it never means "
             "zero. The required live query remains the source of truth."
         ),
     )
@@ -1183,6 +1184,39 @@ class SignalReportListSerializer(SignalReportSerializer):
         help_text=(
             "Snapshot-only impact measurements for inbox rows. Live query definitions and authored "
             "comparisons are available from the report detail endpoint."
+        ),
+    )
+
+
+class SignalReportMetricRefreshRequestSerializer(serializers.Serializer):
+    report_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=MAX_REPORT_METRIC_REFRESH_REPORTS,
+        help_text=(
+            "Reports on screen, in display order. Each report's row metric is refreshed before any "
+            f"report's supporting metrics. At most {MAX_REPORT_METRIC_REFRESH_REPORTS} ids per call."
+        ),
+    )
+
+
+class SignalReportMetricSnapshotsSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Report id.")
+    metrics = ReportMetricListSerializer(
+        many=True,
+        read_only=True,
+        help_text="The report's metrics with their current snapshots, in display order.",
+    )
+
+
+class SignalReportMetricRefreshResponseSerializer(serializers.Serializer):
+    reports = SignalReportMetricSnapshotsSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "One entry per requested report the caller can read, in request order. A metric whose "
+            "snapshot was fresh, whose query failed, or whose budget ran out keeps its previous "
+            "snapshot; merge by metric_id."
         ),
     )
 

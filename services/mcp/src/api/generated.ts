@@ -30978,7 +30978,7 @@ export namespace Schemas {
        * * `supporting` - supporting */
       role?: RoleEnum;
       /**
-         * Latest saved snapshot, initially observed during authoring and optionally replaced by a background refresh. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
+         * Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
          * @nullable
          */
       value?: number | null;
@@ -58852,7 +58852,7 @@ export namespace Schemas {
        * * `supporting` - supporting */
       role?: RoleEnum;
       /**
-         * Latest saved snapshot, initially observed during authoring and optionally replaced by a background refresh. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
+         * Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
          * @nullable
          */
       value?: number | null;
@@ -77075,7 +77075,7 @@ export namespace Schemas {
        * * `supporting` - supporting */
       role?: RoleEnum;
       /**
-         * Latest saved snapshot, initially observed during authoring and optionally replaced by a background refresh. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
+         * Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
          * @nullable
          */
       value?: number | null;
@@ -80127,6 +80127,27 @@ export namespace Schemas {
     export interface SignalReportFeedbackResponse {
       /** Whether the note was forwarded to the report's authoring scout as a steering note. False when the report has no resolvable authoring scout, or the caller lacks scout-steering access. */
       forwarded: boolean;
+    }
+
+    export interface SignalReportMetricRefreshRequest {
+      /**
+         * Reports on screen, in display order. Each report's row metric is refreshed before any report's supporting metrics. At most 20 ids per call.
+         * @minItems 1
+         * @maxItems 20
+         */
+      report_ids: string[];
+    }
+
+    export interface SignalReportMetricSnapshots {
+      /** Report id. */
+      readonly id: string;
+      /** The report's metrics with their current snapshots, in display order. */
+      readonly metrics: readonly ReportMetricList[];
+    }
+
+    export interface SignalReportMetricRefreshResponse {
+      /** One entry per requested report the caller can read, in request order. A metric whose snapshot was fresh, whose query failed, or whose budget ran out keeps its previous snapshot; merge by metric_id. */
+      readonly reports: readonly SignalReportMetricSnapshots[];
     }
 
     export interface SignalReportRefundRequest {

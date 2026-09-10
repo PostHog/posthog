@@ -3,7 +3,7 @@
 A metric is report content, not a copy of analytics data. The stored query remains the source of
 truth, and the inbox derives a total-value query for its live whole-window value plus a time-series
 query for its longitudinal buckets. An optional value is the latest saved fallback snapshot: an
-author can seed it from an observed result, and a background refresh can replace it later. This
+author can seed it from an observed result, and opening the inbox or the report replaces it. This
 keeps inbox reads cheap while a reader opening the report gets fresh data through the normal query
 service and its cache.
 
@@ -175,8 +175,8 @@ class ReportMetric(BaseModel):
     value: float | None = Field(
         default=None,
         description=(
-            "Latest saved snapshot, initially observed during authoring and optionally replaced by a "
-            "background refresh; null when no snapshot is available."
+            "Latest saved snapshot, initially observed during authoring and replaced when a person "
+            "opens the inbox or the report; null when no snapshot is available."
         ),
     )
     value_at: datetime | None = Field(
@@ -288,8 +288,8 @@ class ReportMetric(BaseModel):
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("must include a timezone")
         # The snapshot time is authored, not stamped by the server, so an LLM can emit a wrong year
-        # or a clock-confused date. A future time makes every background refresh look older than the
-        # stored snapshot, so the sweep keeps the stale value until real time catches up. Reject a
+        # or a clock-confused date. A future time makes every later refresh look older than the
+        # stored snapshot, so the stale value would stay until real time catches up. Reject a
         # time past now plus a small clock-skew allowance.
         if value > datetime.now(tz=UTC) + METRIC_VALUE_AT_MAX_CLOCK_SKEW:
             raise ValueError("must not be in the future")

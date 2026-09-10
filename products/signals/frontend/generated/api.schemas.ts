@@ -192,7 +192,7 @@ export interface ReportMetricListApi {
      * * `supporting` - supporting */
     role?: RoleEnumApi
     /**
-     * Latest saved snapshot, initially observed during authoring and optionally replaced by a background refresh. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
+     * Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
      * @nullable
      */
     value?: number | null
@@ -502,7 +502,7 @@ export interface ReportMetricApi {
      * * `supporting` - supporting */
     role?: RoleEnumApi
     /**
-     * Latest saved snapshot, initially observed during authoring and optionally replaced by a background refresh. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
+     * Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
      * @nullable
      */
     value?: number | null
@@ -2230,6 +2230,27 @@ export interface PullRequestCiStatusesResponseApi {
     readonly statuses: readonly PullRequestCiStatusApi[]
 }
 
+export interface SignalReportMetricRefreshRequestApi {
+    /**
+     * Reports on screen, in display order. Each report's row metric is refreshed before any report's supporting metrics. At most 20 ids per call.
+     * @minItems 1
+     * @maxItems 20
+     */
+    report_ids: string[]
+}
+
+export interface SignalReportMetricSnapshotsApi {
+    /** Report id. */
+    readonly id: string
+    /** The report's metrics with their current snapshots, in display order. */
+    readonly metrics: readonly ReportMetricListApi[]
+}
+
+export interface SignalReportMetricRefreshResponseApi {
+    /** One entry per requested report the caller can read, in request order. A metric whose snapshot was fresh, whose query failed, or whose budget ran out keeps its previous snapshot; merge by metric_id. */
+    readonly reports: readonly SignalReportMetricSnapshotsApi[]
+}
+
 export interface SignalReportRefundSummaryResponseApi {
     /** Number of credited-path refunds across the whole organization whose refunded PR run falls in the current billing period. Excluded-path refunds never reach billing usage, so they are deliberately absent. */
     credited_refund_count: number
@@ -3864,7 +3885,7 @@ export interface ReportMetricWriteApi {
      * * `supporting` - supporting */
     role?: RoleEnumApi
     /**
-     * Latest saved snapshot, initially observed during authoring and optionally replaced by a background refresh. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
+     * Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
      * @nullable
      */
     value?: number | null
