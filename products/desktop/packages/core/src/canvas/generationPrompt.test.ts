@@ -31,4 +31,19 @@ describe("buildCanvasGenerationPrompt", () => {
     expect(prompt.includes("requested pattern:")).toBe(hinted);
     expect(prompt).not.toContain("WebOverviewQuery");
   });
+
+  it.each([
+    [true, true],
+    [false, false],
+    [undefined, false],
+  ])(
+    "progressiveFragments=%s tells the agent to build progressively: %s",
+    (progressiveFragments, told) => {
+      const prompt = buildCanvasGenerationPrompt({
+        ...base,
+        progressiveFragments,
+      });
+      expect(prompt.includes("Progressive fragments: enabled")).toBe(told);
+    },
+  );
 });

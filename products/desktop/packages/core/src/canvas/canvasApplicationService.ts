@@ -39,6 +39,9 @@ export interface GenerateCanvasInput {
    * the agent edits the layout and its components instead of authoring a
    * freeform canvas app. */
   canvasKind?: "grid";
+  /** True when the `canvas-progressive-fragments` flag is on for the viewer's
+   * team, so the freeform prompt tells the agent to build with fragments. */
+  progressiveFragments?: boolean;
   /** Backend channel (task channel UUID) that owns the canvas and the task. */
   channelId: string;
   channelName: string;
@@ -189,6 +192,7 @@ export class CanvasApplicationService {
                 channelName: input.channelName,
                 templateId: input.templateId,
                 instruction: input.instruction,
+                progressiveFragments: input.progressiveFragments,
               }),
         // A placement fill is named after its widget — every fill on the same
         // canvas would otherwise share one useless "Generate canvas Home" title.

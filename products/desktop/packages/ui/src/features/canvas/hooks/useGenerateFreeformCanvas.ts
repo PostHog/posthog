@@ -6,11 +6,13 @@ import { CANVAS_APPLICATION_SERVICE } from "@posthog/core/canvas/identifiers";
 import { useService } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
 import type { Adapter, WorkspaceMode } from "@posthog/shared";
+import { CANVAS_PROGRESSIVE_FRAGMENTS_FLAG } from "@posthog/shared";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import { useDashboardMutations } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useFolderInstructions } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
 import { useCanvasGenerationTrackerStore } from "@posthog/ui/features/canvas/stores/canvasGenerationTrackerStore";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { toastError } from "@posthog/ui/features/notifications/errorDetails";
 import { useCreateTask } from "@posthog/ui/features/tasks/useTaskCrudMutations";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -54,6 +56,9 @@ export function useGenerateFreeformCanvas(args: {
   const channelContext = callerOwnsContext
     ? args.channelContext
     : instructions?.content;
+  const progressiveFragments = useFeatureFlag(
+    CANVAS_PROGRESSIVE_FRAGMENTS_FLAG,
+  );
   const [isStarting, setIsStarting] = useState(false);
 
   const generate = useCallback(
@@ -107,6 +112,7 @@ export function useGenerateFreeformCanvas(args: {
             instruction,
             placement: opts.placement,
             canvasKind: opts.canvasKind,
+            progressiveFragments,
             channelId,
             channelName,
             channelContext,
@@ -165,6 +171,7 @@ export function useGenerateFreeformCanvas(args: {
       channelId,
       channelName,
       channelContext,
+      progressiveFragments,
     ],
   );
 

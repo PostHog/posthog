@@ -60,6 +60,13 @@ Key: `canvas-progressive-fragments`, evaluated per team.
 
 - Backend: `build_service.run_canvas_build` passes `progressiveFragments: True` to the builder when the flag is on; any evaluation error counts as off.
 - Desktop: the roll-forward rule and the "N of M fragments ready" build status only apply when the flag is on and `manifest.markers` exists.
+- Desktop: `buildCanvasGenerationPrompt` adds `Progressive fragments: enabled.` to the generation task when the flag is on. The skill builds with fragments when the line is present and never when it is absent. The agent does not choose.
+
+## Local testing
+
+- Create the flag in the PostHog project the dev stack uses and roll it out to 100%.
+- Start the desktop app with `POSTHOG_DESKTOP_SKILLS=local pnpm dev` (or `hogli desktop:dev`). The default `production` source serves the published skills, so an agent does not see skill changes from this checkout until the next skills release.
+- The MCP server serves `services/mcp/schema/generated-tool-definitions.json`, not `tools.yaml`. After a `tools.yaml` change, regenerate the definitions or the agent reads the old tool description.
 
 ## Metrics
 

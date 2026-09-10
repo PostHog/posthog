@@ -24,10 +24,14 @@ tools:
             recent builds with their status (queued/building/ready/failed) and structured diagnostics. A publish queues
             a build; poll this until the build you queued is terminal — `ready` (the live pointer advances) or `failed`
             (fix the error diagnostics and publish again; the last good build stays live). Do not finish a canvas task
-            while its build is still queued or building. Each build carries its `manifest`; in progressive-fragments
-            mode it adds `manifest.fragments` (built fragment chunks), `manifest.pendingFragments` (markers with no
-            fragment yet; publish fragments until it is empty), and `manifest.layoutHash` (equal hashes let the host
-            swap fragments into the open canvas without a reload).
+            while its build is still queued or building. Each build carries its `manifest`. When the team has
+            progressive fragments, the manifest also has `manifest.markers` (every `<CanvasFragment path>` in the
+            layout), `manifest.fragments` (the built fragment chunks, keyed by path), `manifest.pendingFragments`
+            (markers with no fragment file yet; publish fragments until it is empty), and `manifest.layoutHash` (when
+            two builds have the same hash, the host swaps the new fragments into the open canvas without a reload). If
+            `manifest.fragments` is absent after a publish with markers, the team does not have progressive fragments;
+            finish with a single publish. The building-canvases skill, section "Progressive fragments", describes the
+            authoring model and the build order.
         param_overrides:
             id:
                 description: ID of the canvas whose builds to read.
