@@ -81,6 +81,19 @@ export const MCPAnalyticsNeedsSetup: ProductEmptyStateStory = productEmptyStateS
     { mocks: mcpSignalMocks(false) }
 )
 
+export const MCPAnalyticsNeedsSetupNarrow: ProductEmptyStateStory = productEmptyStateStory(
+    mcpAnalyticsEmptyState,
+    'needs-setup',
+    { mocks: mcpSignalMocks(false), containerWidth: 520 }
+)
+
+export const MCPAnalyticsAgentPrompt: ProductEmptyStateStory = {
+    ...MCPAnalyticsNeedsSetup,
+    play: async ({ canvasElement }) => {
+        canvasElement.querySelector<HTMLButtonElement>('[data-attr="mcp-analytics-install-with-agent"]')!.click()
+    },
+}
+
 export const MCPAnalyticsWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
     mcpAnalyticsEmptyState,
     'waiting-for-data',
