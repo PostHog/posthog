@@ -64,7 +64,7 @@ describe('PersonhogPersonsStore', () => {
         expect(sent.setProperties).toEqual({ a: '2', first: 'shadowed' })
         expect(sent.setOnceProperties).toEqual({})
         expect(sent.unsetProperties).toEqual(['gone'])
-        // The changelog is this world's ClickHouse feed: a flush ships
+        // The changelog is this backend's ClickHouse feed: a flush ships
         // segments and publishes nothing.
         expect(results).toEqual([])
     })
@@ -224,11 +224,6 @@ describe('PersonhogPersonsStore', () => {
         const bound = store.forBatch(0)
         const fetched = await bound.fetchForUpdate(1, 'd1')
         expect(fetched?.id).toBe('7')
-    })
-
-    it('deletes have no personhog path and fail loudly', async () => {
-        const bound = store.forBatch(0)
-        await expect(bound.deletePerson(person, 'd1')).rejects.toThrow('no personhog RPC')
     })
 
     it('creation resolves through identity and memoizes every distinct id it mapped', async () => {
@@ -434,34 +429,20 @@ describe('PersonhogPersonsStore', () => {
         expect(results).toEqual([])
     })
 
-    it('has no transactions of its own; the routing store owns them', async () => {
+    it('merges fail loudly until the store merge lands', async () => {
         const bound = store.forBatch(0)
-        await expect(bound.inTransaction('test', () => Promise.resolve('done'))).rejects.toThrow('no personhog RPC')
-    })
-
-    it.each([
-        [
-            'updatePersonForMerge',
-            (b: ReturnType<PersonhogPersonsStore['forBatch']>, p: InternalPerson) =>
-                b.updatePersonForMerge(p, {}, 'd1'),
-        ],
-        [
-            'addDistinctId',
-            (b: ReturnType<PersonhogPersonsStore['forBatch']>, p: InternalPerson) => b.addDistinctId(p, 'd2', 0),
-        ],
-        [
-            'moveDistinctIds',
-            (b: ReturnType<PersonhogPersonsStore['forBatch']>, p: InternalPerson) =>
-                b.moveDistinctIds(p, p, 'd1', undefined, undefined as any),
-        ],
-        [
-            'moveDistinctIdsFromPersons',
-            (b: ReturnType<PersonhogPersonsStore['forBatch']>, p: InternalPerson) =>
-                b.moveDistinctIdsFromPersons([p], p, 'd1', undefined as any),
-        ],
-    ])('%s fails loudly while the leader RPC is pending', async (_method, call) => {
-        const bound = store.forBatch(0)
-        await expect(call(bound, person)).rejects.toThrow(PersonhogPendingRpcError)
+        await expect(
+            bound.mergePersons({
+                teamId: 1,
+                targetDistinctId: 'd1',
+                sources: [{ distinctId: 'anon-1', eventUuid: 'uuid-1' }],
+                eventOps: ops({}),
+                eventUuid: 'op-1',
+                allowIdentifiedSources: false,
+                mergeMode: { type: 'SYNC', batchSize: undefined },
+                createdAtMs: 0,
+            })
+        ).rejects.toThrow(PersonhogPendingRpcError)
     })
 
     it('maps a direct diff update onto the folded RPC', async () => {

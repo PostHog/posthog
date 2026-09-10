@@ -63,6 +63,7 @@ async def test_s3_export_workflow_handles_unexpected_insert_activity_errors(
         batch_export_id=str(s3_compatible_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
+        integration_id=s3_compatible_batch_export.destination.integration_id,
         **s3_compatible_batch_export.destination.config,
     )
 
@@ -126,6 +127,7 @@ async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(
         batch_export_id=str(s3_compatible_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
+        integration_id=s3_compatible_batch_export.destination.integration_id,
         **s3_compatible_batch_export.destination.config,
     )
 
@@ -182,6 +184,7 @@ async def test_s3_export_workflow_handles_cancellation(ateam, s3_compatible_batc
         batch_export_id=str(s3_compatible_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
+        integration_id=s3_compatible_batch_export.destination.integration_id,
         **s3_compatible_batch_export.destination.config,
     )
 
@@ -285,6 +288,7 @@ async def test_s3_export_workflow_with_request_timeouts(
         batch_export_model=batch_export_model,
         batch_export_schema=batch_export_schema,
         interval=interval,
+        integration_id=s3_compatible_batch_export.destination.integration_id,
         **s3_compatible_batch_export.destination.config,
     )
 

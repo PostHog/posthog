@@ -9,6 +9,8 @@ export interface TurnTrailer {
     isLastTurn: boolean
     /** The turn's assistant text, concatenated across its message bubbles. */
     turnText: string
+    /** The turn's gateway trace id — `$ai_trace_id` on its generations and its feedback. */
+    traceId?: string
 }
 
 /**
@@ -33,7 +35,12 @@ export function computeTurnTrailers(threadItems: ThreadItem[]): Map<string, Turn
             if (textParts.length === 0) {
                 continue
             }
-            trailers.set(item.id, { turnIndex, isLastTurn: false, turnText: textParts.join('\n\n') })
+            trailers.set(item.id, {
+                turnIndex,
+                isLastTurn: false,
+                turnText: textParts.join('\n\n'),
+                traceId: item.traceId,
+            })
             lastSeparatorId = item.id
             turnIndex += 1
             textParts = []

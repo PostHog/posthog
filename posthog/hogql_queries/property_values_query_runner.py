@@ -17,7 +17,6 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -26,9 +25,9 @@ from posthog.caching.utils import (
     cache_target_age as _cache_target_age,
 )
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.aggregated_property_values import get_event_property_values_from_aggregated_table
 from posthog.models import PropertyDefinition
 from posthog.models.event.new_events_schema import use_new_events_schema
-from posthog.queries.property_values import get_event_property_values_from_aggregated_table
 from posthog.utils import convert_property_value, flatten, get_instance_region, relative_date_parse
 
 from products.access_control.backend.property_access_control import get_restricted_property_names
@@ -74,11 +73,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
             self._event_query(),
             team=self.team,
             user=self.user,
-            context=HogQLContext(
-                team_id=self.team.pk,
-                user=self.user,
-                use_new_events_schema=self._use_new_events_schema,
-            ),
+            context=self.build_hogql_context(use_new_events_schema=self._use_new_events_schema),
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
@@ -163,7 +158,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
             query_type=query_type,
             team=self.team,
             user=self.user,
-            context=HogQLContext(team_id=self.team.pk, user=self.user),
+            context=self.build_hogql_context(),
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,

@@ -2,11 +2,12 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { logger } from '~/common/utils/logger'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-transport'
-import { CollectedImage } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
 import { ML_IMAGE_SCRUB_OUTPUT, MlImageScrubOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
+
+import { MlMirrorMetrics } from './metrics'
+import { CollectedImage } from './parse-and-anonymize-step'
 
 /**
  * The Rust collector only dedupes within one message, leaving this as the sole thing between a hot
@@ -40,7 +41,7 @@ export function createProduceCollectedImagesStep<
         }
 
         const fresh = images.filter((image) => !producedRefs.has(image.ref))
-        SessionRecordingIngesterMetrics.incrementMlImagesCollected('deduped', images.length - fresh.length)
+        MlMirrorMetrics.incrementMlImagesCollected('deduped', images.length - fresh.length)
         if (fresh.length === 0) {
             return Promise.resolve(ok({ ...input, collectedImages: undefined }))
         }
@@ -50,7 +51,7 @@ export function createProduceCollectedImagesStep<
             producedRefs.add(image.ref)
             bytes += image.bytes.length
         }
-        SessionRecordingIngesterMetrics.incrementMlImagesCollected('queued', fresh.length)
+        MlMirrorMetrics.incrementMlImagesCollected('queued', fresh.length)
         const captureTimestampMs = input.message.timestamp
         const headers =
             captureTimestampMs !== undefined && Number.isSafeInteger(captureTimestampMs) && captureTimestampMs > 0
@@ -69,8 +70,8 @@ export function createProduceCollectedImagesStep<
             )
             .then(() => {
                 // queueMessages resolves on delivery acks, so `produced` counts what actually landed.
-                SessionRecordingIngesterMetrics.incrementMlImagesCollected('produced', refs.length)
-                SessionRecordingIngesterMetrics.incrementMlImageBytesProduced(bytes)
+                MlMirrorMetrics.incrementMlImagesCollected('produced', refs.length)
+                MlMirrorMetrics.incrementMlImageBytesProduced(bytes)
             })
             .catch((error) => {
                 // A dangling ref reads as a placeholder downstream, so a failed produce is logged,
@@ -81,7 +82,7 @@ export function createProduceCollectedImagesStep<
                     producedRefs.delete(ref)
                 }
                 logger.warn('🖼️', 'ml_image_scrub_produce_failed', { count: refs.length, error: String(error) })
-                SessionRecordingIngesterMetrics.incrementMlImagesCollected('produce_failed', refs.length)
+                MlMirrorMetrics.incrementMlImagesCollected('produce_failed', refs.length)
             })
         return Promise.resolve(ok({ ...input, collectedImages: undefined }, [produce]))
     }

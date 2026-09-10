@@ -5,6 +5,8 @@ import {
   SettingsCardRow,
   SettingsSection,
 } from "@posthog/ui/features/settings/components/SettingsCard";
+import { ClaudeSubscriptionSettings } from "@posthog/ui/features/settings/sections/ClaudeSubscriptionSettings";
+import { CodexSubscriptionSettings } from "@posthog/ui/features/settings/sections/CodexSubscriptionSettings";
 import { PermissionsSettings } from "@posthog/ui/features/settings/sections/PermissionsSettings";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
@@ -113,6 +115,7 @@ export function HarnessSettings() {
         description="Configuration that lives with the Claude Code harness; run these commands in a terminal to change it"
       >
         <SettingsCard>
+          <ClaudeSubscriptionSettings />
           <SettingsCardRow
             label="MCP servers"
             description={
@@ -168,6 +171,7 @@ export function HarnessSettings() {
         description="Configuration that lives with the Codex harness"
       >
         <SettingsCard>
+          <CodexSubscriptionSettings />
           <SettingsCardRow
             label="MCP servers"
             description={

@@ -13,6 +13,7 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gladly import (
     CHUNK_SIZE,
     GladlyReportHeaderError,
+    GladlyReportUnavailableError,
     GladlyResumeConfig,
     GladlyRetryableError,
     _base_url,
@@ -681,12 +682,10 @@ class TestGetReportRows:
     @pytest.mark.parametrize(
         "endpoint,body",
         [
-            ("contact_timestamps", '[\n{"timestamp":"2024-03-15T09:00:00.000Z"}\n]\n'),
-            ("contact_timestamps", "<html>\n<body>\nGladly is unavailable\n</body>\n</html>\n"),
             ("contact_timestamps", "Event Type,Contact ID\nCONTACT/STARTED,ct-1\n"),
             ("conversations", "Conversation ID,Status\nconv-1,OPEN\n"),
         ],
-        ids=["json_body", "html_body", "cursor_column_renamed", "primary_key_column_renamed"],
+        ids=["cursor_column_renamed", "primary_key_column_renamed"],
     )
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_a_report_missing_the_columns_it_syncs_on_fails_at_the_source(self, mock_session, endpoint, body):
@@ -695,6 +694,46 @@ class TestGetReportRows:
         manager = _make_manager(GladlyResumeConfig(last_report_window_end="2024-03-15"))
         with pytest.raises(GladlyReportHeaderError, match="missing required columns"):
             list(get_rows("myorg", "agent@x.com", "token", endpoint, mock.MagicMock(), manager))
+
+        assert mock_session.return_value.post.call_count == 1
+
+    @freeze_time("2024-03-15T10:00:00Z")
+    @pytest.mark.parametrize(
+        "body",
+        [
+            "Unexpected error occurred",
+            '[\n{"timestamp":"2024-03-15T09:00:00.000Z"}\n]\n',
+            "<html>\n<body>\nGladly is unavailable\n</body>\n</html>\n",
+        ],
+        ids=["plain_text_error", "json_body", "html_body"],
+    )
+    @mock.patch("time.sleep")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_an_error_body_in_place_of_the_report_is_retried_and_stays_retryable(self, mock_session, _sleep, body):
+        mock_session.return_value.post.side_effect = [_csv_response(body) for _ in range(5)]
+
+        manager = _make_manager(GladlyResumeConfig(last_report_window_end="2024-03-15"))
+        with pytest.raises(GladlyReportUnavailableError, match="Gladly returned no report"):
+            list(get_rows("myorg", "agent@x.com", "token", "contact_timestamps", mock.MagicMock(), manager))
+
+        assert mock_session.return_value.post.call_count == 5
+        manager.save_state.assert_not_called()
+
+    @freeze_time("2024-03-15T10:00:00Z")
+    @mock.patch("time.sleep")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_an_error_body_in_place_of_the_report_recovers_on_the_next_request(self, mock_session, _sleep):
+        mock_session.return_value.post.side_effect = [
+            _csv_response("Unexpected error occurred"),
+            _csv_response("Timestamp,Contact ID\n2024-03-15T09:00:00.000Z,ct-1\n"),
+        ]
+
+        manager = _make_manager(GladlyResumeConfig(last_report_window_end="2024-03-15"))
+        batches = list(get_rows("myorg", "agent@x.com", "token", "contact_timestamps", mock.MagicMock(), manager))
+
+        flat = [row for batch in batches for row in batch]
+        assert [(row["timestamp"], row["contact_id"]) for row in flat] == [("2024-03-15T09:00:00.000Z", "ct-1")]
+        manager.save_state.assert_called_once()
 
     @freeze_time("2024-03-15T10:00:00Z")
     @mock.patch(f"{_MODULE}.make_tracked_session")

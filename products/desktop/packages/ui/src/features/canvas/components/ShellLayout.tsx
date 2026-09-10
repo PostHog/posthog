@@ -8,7 +8,6 @@ import {
   TrashIcon,
   XIcon,
 } from "@phosphor-icons/react";
-import { useHostTRPC } from "@posthog/host-router/react";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -22,6 +21,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
@@ -65,7 +67,7 @@ import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { Flex } from "@radix-ui/themes";
-import { useIsMutating, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Outlet,
   useNavigate,
@@ -74,9 +76,8 @@ import {
 } from "@tanstack/react-router";
 import { type CSSProperties, type ReactNode, useState } from "react";
 
-// Edit toggle + autosave status for a canvas. Source is server-versioned now —
-// version browsing and revert live in the canvas view's own toolbar — so the
-// only autosave surfaced here is the author-context buffer's saveContext.
+// Edit toggle and options menu for a canvas. Source is server-versioned;
+// version browsing and revert live in the canvas view's own toolbar.
 function FreeformEditControls({
   channelId,
   dashboardId,
@@ -145,14 +146,6 @@ function FreeformEditControls({
       });
   };
 
-  // Any in-flight saveContext mutation (the side panel's context editor
-  // commits through it) drives the toolbar's autosave spinner.
-  const trpc = useHostTRPC();
-  const isSavingContext =
-    useIsMutating({
-      mutationKey: trpc.dashboards.saveContext.mutationKey(),
-    }) > 0;
-
   const queryClient = useQueryClient();
   const remountFrame = useCanvasFrameStore((s) => s.remount);
   // Fully remount the mounted canvas iframe: drop the host-side read cache so
@@ -170,14 +163,23 @@ function FreeformEditControls({
   };
 
   return (
-    <Flex align="center" gap="2" className="no-drag">
-      {editing && (
-        // Autosave status — a non-interactive button showing a spinner while a
-        // context save is in flight, "Saved" otherwise.
-        <Button variant="outline" size="sm" disabled loading={isSavingContext}>
-          Saved
-        </Button>
-      )}
+    <div className="no-drag flex items-center gap-2">
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              size="icon-sm"
+              aria-label="Copy link to canvas"
+              onClick={() =>
+                void copyCanvasLink(channelId, dashboardId, "canvas")
+              }
+            >
+              <LinkIcon size={14} />
+            </Button>
+          }
+        />
+        <TooltipContent side="bottom">Copy link to canvas</TooltipContent>
+      </Tooltip>
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
@@ -275,7 +277,7 @@ function FreeformEditControls({
         )}
         {editing ? "Done" : "Edit"}
       </Button>
-    </Flex>
+    </div>
   );
 }
 
@@ -347,12 +349,20 @@ function CanvasBreadcrumb({
 
 export function ShellLayout() {
   const spacesLayout = useChannelsLayout();
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const pathname = useRouterState({
+    select: (s) =>
+      s.location.pathname.startsWith("/spaces/") ? s.location.pathname : "",
+  });
   const selectedCanvasId = useSelectedCanvasId();
-  const params = useParams({ strict: false });
-
-  const channelId = params.channelId;
-  const dashboardId = params.dashboardId;
+  // Select each param on its own so an unrelated route param (a settings
+  // category) changing cannot re-render the shell. `useParams` without a
+  // selector subscribes to the whole param set, which the nearest match carries
+  // for the entire route chain.
+  const channelId = useParams({ strict: false, select: (p) => p.channelId });
+  const dashboardId = useParams({
+    strict: false,
+    select: (p) => p.dashboardId,
+  });
   const { dashboard: selectedCanvas } = useDashboard(selectedCanvasId);
   const toolbarDashboardId = dashboardId ?? selectedCanvasId;
   const toolbarChannelId = channelId ?? selectedCanvas?.channelId;

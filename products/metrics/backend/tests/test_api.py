@@ -22,7 +22,8 @@ from products.access_control.backend.facade.user_access_control import (
     AccessControlLevelResource,
 )
 from products.access_control.backend.models.access_control import AccessControl
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSpikeEvent
+from products.error_tracking.backend.facade.testing import create_issue, create_spike_event
+from products.metrics.backend.facade.contracts import METRICS_FUNDAMENTALS_FEATURE_FLAG
 
 
 def test_metrics_app_is_installed():
@@ -50,15 +51,9 @@ class TestMetricsValuesApi(APIBaseTest):
 
 class TestMetricsErrorSpikesApi(APIBaseTest):
     def test_returns_spikes_from_error_tracking_in_the_window(self) -> None:
-        issue = ErrorTrackingIssue.objects.create(team=self.team, name="Boom")
+        issue_id = create_issue(team_id=self.team.id, name="Boom")
         now = timezone.now()
-        ErrorTrackingSpikeEvent.objects.create(
-            team=self.team,
-            issue=issue,
-            detected_at=now,
-            computed_baseline=1.0,
-            current_bucket_value=10,
-        )
+        create_spike_event(team_id=self.team.id, issue_id=issue_id, detected_at=now)
 
         # The overlay is a staff-only PoC behind its own flag, on top of the
         # `metrics` gate the conftest already enables — turn both on here.
@@ -71,7 +66,7 @@ class TestMetricsErrorSpikesApi(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
         assert len(results) == 1
-        assert results[0]["issue_id"] == str(issue.id)
+        assert results[0]["issue_id"] == str(issue_id)
         assert results[0]["issue_name"] == "Boom"
 
     def test_is_forbidden_when_only_the_metrics_flag_is_enabled(self) -> None:
@@ -125,6 +120,23 @@ class TestMetricsFeatureFlagGate(APIBaseTest):
             patch("products.metrics.backend.presentation.api.team_has_metrics", return_value=True),
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/metrics/has_metrics/")
+
+        assert response.status_code == expected_status
+
+    @parameterized.expand(
+        [
+            ("enabled", True, status.HTTP_400_BAD_REQUEST),
+            ("disabled", False, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_fundamentals_flag_gates_the_explain_action(
+        self, _name: str, fundamentals_enabled: bool, expected_status: int
+    ) -> None:
+        def feature_enabled(flag: str, *args: object, **kwargs: object) -> bool:
+            return fundamentals_enabled if flag == METRICS_FUNDAMENTALS_FEATURE_FLAG else True
+
+        with patch("posthoganalytics.feature_enabled", side_effect=feature_enabled):
+            response = self.client.post(f"/api/projects/{self.team.id}/metrics/explain/", {}, format="json")
 
         assert response.status_code == expected_status
 

@@ -1,5 +1,7 @@
 import { registerNotebookLinkDrag } from 'scenes/notebooks/AddToNotebook/registerNotebookLinkDrag'
 
+import { registerLogsToolRenderers } from 'products/logs/frontend/agentTools/registerLogsToolRenderers'
+
 import { initKea } from '../initKea'
 import { loadPostHogJS } from '../loadPostHogJS'
 
@@ -14,6 +16,8 @@ let appBooted = false
  * Lives outside App.tsx so scenes/App keeps component-only exports and stays a React
  * Fast Refresh boundary; with a mixed-export App.tsx, HMR invalidations cascade into
  * src/index.tsx and force a full page reload on routine edits.
+ * zod is configured in src/index.tsx before this chunk is imported, not here: by the time
+ * this runs, the App graph has already constructed schemas at module scope.
  */
 export function bootApp(): void {
     if (appBooted) {
@@ -27,6 +31,9 @@ export function bootApp(): void {
     // Link resolves its drag-to-notebook behavior through a seam so bundles without
     // notebooks (toolbar, exporter) don't ship them; the app opts in here
     registerNotebookLinkDrag()
+    // A logs tool card must resolve in any thread, including one opened before the lazy Logs
+    // scene has loaded, so the app claims the logs tool names here instead of that scene
+    registerLogsToolRenderers()
 
     const idle =
         typeof window.requestIdleCallback === 'function'

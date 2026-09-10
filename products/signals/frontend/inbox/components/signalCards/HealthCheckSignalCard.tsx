@@ -1,14 +1,10 @@
 import { Fragment } from 'react'
 
-import { LemonTag, Link } from '@posthog/lemon-ui'
-import type { LemonTagType } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
-import type {
-    HealthCheckSignalExtraSeverityEnumApi,
-    HealthCheckSignalExtraApi,
-} from 'products/signals/frontend/generated/api.schemas'
+import type { HealthCheckSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'
@@ -25,33 +21,8 @@ export function isHealthCheckExtra(value: unknown): value is Record<string, unkn
     return 'kind' in extra && 'severity' in extra && 'issue_id' in extra
 }
 
-/** Severity → LemonTag tone for the header right slot. */
-const SEVERITY_TAG_TYPE: Record<HealthCheckSignalExtraSeverityEnumApi, LemonTagType> = {
-    critical: 'danger',
-    warning: 'warning',
-    info: 'muted',
-}
-
-/** Human labels for known health-check kinds. Unknown kinds fall back to a humanized form. */
-const KIND_LABELS: Record<string, string> = {
-    authorized_urls: 'Authorized URLs not set',
-    no_live_events: 'No live events',
-    no_pageleave_events: 'Missing pageleave events',
-    partial_proxy: 'Partial reverse-proxy coverage',
-    reverse_proxy: 'Reverse proxy recommended',
-    scroll_depth: 'Missing scroll-depth data',
-    web_vitals: 'Missing web vitals',
-    sdk_outdated: 'Outdated SDK',
-    materialized_view_failure: 'Materialized view failing',
-    ingestion_warning: 'Ingestion warning',
-}
-
 function capitalize(value: string): string {
     return value.length > 0 ? value.charAt(0).toUpperCase() + value.slice(1) : value
-}
-
-function kindLabel(kind: string): string {
-    return KIND_LABELS[kind] ?? capitalize(kind.replace(/_/g, ' '))
 }
 
 /** Turn a snake_case payload key into a readable label, e.g. `current_version` → `Current version`. */
@@ -179,12 +150,6 @@ function PayloadRenderer({ kind, payload }: { kind: string; payload: Record<stri
 export function HealthCheckSignalCard({ signal }: SignalCardProps): JSX.Element {
     const extra = signal.extra as Record<string, unknown> & HealthCheckSignalExtraApi
 
-    const severityTag = (
-        <LemonTag size="small" type={SEVERITY_TAG_TYPE[extra.severity]}>
-            {capitalize(extra.severity)}
-        </LemonTag>
-    )
-
     const body = signal.content || ''
     const summary = extra.summary || ''
     // Avoid printing the summary twice when content already equals it.
@@ -192,14 +157,8 @@ export function HealthCheckSignalCard({ signal }: SignalCardProps): JSX.Element 
     const markdownText = body || (showSummaryFallback ? summary : '')
 
     return (
-        <SignalCardShell signal={signal} label={extra.title} rightSlot={severityTag}>
+        <SignalCardShell signal={signal} label={extra.title}>
             <div className="flex flex-col gap-2">
-                <div>
-                    <LemonTag size="small" type="muted">
-                        {kindLabel(extra.kind)}
-                    </LemonTag>
-                </div>
-
                 {markdownText && (
                     <LemonMarkdown className="text-sm text-secondary" disableImages>
                         {markdownText}

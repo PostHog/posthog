@@ -730,6 +730,37 @@ class TestMSSQLSourceNonRetryableErrors:
         assert any(pattern in str(exc_info.value) for pattern in non_retryable.keys())
 
 
+class TestMSSQLSourceCatalogKeywords:
+    @pytest.mark.parametrize("term", ["azure", "azure sql", "azure sql database"])
+    def test_azure_sql_names_are_searchable(self, term):
+        # Azure SQL Database connects through this source, and the catalog search only matches a
+        # source's label, name, and keywords — none of which mention Azure without the keywords.
+        config = MSSQLSource().get_source_config
+        searchable = [config.label or "", str(config.name), *(config.keywords or [])]
+
+        assert any(term in text.lower() for text in searchable), term
+
+
+class TestMSSQLSourceRetryableErrors:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # Real pymssql shape: DB-Lib error 20017 carried as (code, bytes) args.
+            pymssql.OperationalError(
+                20017, b"DB-Lib error message 20017, severity 9:\nUnexpected EOF from the server\n"
+            ),
+            # The SQL-Server-message rendering of the same EOF.
+            pymssql.OperationalError(
+                "SQL Server message 20017, severity 9, state 0, procedure b'\\x00', line 0:\n"
+                "b'DB-Lib error message 20017, severity 9:\\nUnexpected EOF from the server\\n'"
+            ),
+        ],
+    )
+    def test_unexpected_eof_is_retryable(self, error):
+        retryable = MSSQLSource().get_retryable_errors()
+        assert any(pattern.lower() in str(error).lower() for pattern in retryable), str(error)
+
+
 class TestMSSQLSourceValidateCredentials:
     @pytest.fixture
     def source(self):

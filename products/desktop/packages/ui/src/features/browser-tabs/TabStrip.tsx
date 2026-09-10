@@ -177,6 +177,12 @@ function SortableTabPill({
   const pill = (
     <div
       ref={ref}
+      onAuxClick={(event) => {
+        if (event.button !== 1) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onClose(tab.id);
+      }}
       className={
         tab.pinned
           ? "no-drag flex shrink-0 items-center"

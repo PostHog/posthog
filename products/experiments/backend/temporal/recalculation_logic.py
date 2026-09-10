@@ -279,9 +279,19 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
             return existing_query_to.isoformat() if existing_query_to is not None else None
 
         # Finish: same first-write-wins guard so a retried mark_completed activity doesn't re-stamp the
-        # completion timestamp (and, by symmetry with mark_started, doesn't reopen a closed run).
+        # completion timestamp (and, by symmetry with mark_started, doesn't reopen a closed run). The status
+        # filter makes an out-of-band terminal write (staleness force-fail, admin action) authoritative even
+        # when its completed_at is still NULL: the force-fail leaves completed_at unset and its workflow
+        # cancel is best-effort, so without the filter a surviving workflow would overwrite the tombstone.
         won = (
-            ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id, completed_at__isnull=True).update(
+            ExperimentMetricsRecalculation.objects.filter(
+                id=update.recalculation_id,
+                completed_at__isnull=True,
+                status__in=[
+                    ExperimentMetricsRecalculation.Status.PENDING,
+                    ExperimentMetricsRecalculation.Status.IN_PROGRESS,
+                ],
+            ).update(
                 completed_at=timezone.now(),
                 status=update.status or ExperimentMetricsRecalculation.Status.COMPLETED,
                 # The run is terminal, so no retry can be pending. Sweeps entries orphaned by a hard-killed
@@ -294,6 +304,20 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
         # mark_completed doesn't double-count.
         if won:
             _capture_results_refresh_completed(update)
+        else:
+            existing_finish_state = (
+                ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id)
+                .values_list("status", "completed_at")
+                .first()
+            )
+            # completed_at set means a retried activity lost the normal dedupe race — silence. completed_at
+            # NULL means the run was force-failed out-of-band while this workflow was still executing.
+            if existing_finish_state is not None and existing_finish_state[1] is None:
+                logger.warning(
+                    "mark_completed_rejected_run_terminal",
+                    recalculation_id=update.recalculation_id,
+                    status=existing_finish_state[0],
+                )
         return None
 
 
@@ -664,7 +688,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 query=ExperimentQuery(experiment_id=experiment_id, metric=build_metric(metric_dict)),
                 team=experiment.team,
                 as_of=query_to_dt,
-                workload=Workload.OFFLINE,
+                workload=Workload.ONLINE,
                 # Userless background recompute. Warehouse access is enforced when the metric is authored,
                 # so resolve warehouse tables here instead of failing closed.
                 bypass_warehouse_access_control=True,
@@ -822,14 +846,17 @@ def _calculate_experiment_metric_for_recalculation_sync(
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
             error_type = classify_experiment_query_error(e)
             is_permanent = error_type in NON_RETRYABLE_ERROR_TYPES or isinstance(e, ValueError)
-            capture_exception(
-                e,
-                additional_properties={
-                    "experiment_id": experiment_id,
-                    "metric_uuid": metric_uuid,
-                    "recalculation_id": recalculation_id,
-                },
-            )
+            # validation_error = the user's metric config is broken (e.g. HogQL referencing a
+            # column outside an aggregate) — a stored failure, not a platform error to track.
+            if error_type != "validation_error":
+                capture_exception(
+                    e,
+                    additional_properties={
+                        "experiment_id": experiment_id,
+                        "metric_uuid": metric_uuid,
+                        "recalculation_id": recalculation_id,
+                    },
+                )
             if is_final_attempt or is_permanent:
                 _store_result(
                     experiment_id=experiment_id,

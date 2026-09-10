@@ -69,7 +69,7 @@ class ErrorTrackingIssue(UUIDTModel):
         HIGH = "high", "High"
         CRITICAL = "critical", "Critical"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     state_updated_at = models.DateTimeField(null=True, blank=True)
     status = models.TextField(choices=Status, default=Status.ACTIVE, null=False)
@@ -91,25 +91,31 @@ class ErrorTrackingIssue(UUIDTModel):
 
     def merge(
         self, issue_ids: Sequence[str | UUID], expected_fingerprint_issue_ids: dict[str, UUID] | None = None
-    ) -> ErrorTrackingIssueMergeResult:
+    ) -> "tuple[ErrorTrackingIssueMergeResult, list[UUID]]":
+        """Merge source issues into this issue.
+
+        Returns the outcome plus the source issue ids that were actually merged:
+        requested sources that already disappeared are dropped by the lock step,
+        so callers must not report the requested list as merged.
+        """
         team_id = self.team_id
         target_issue_id = self.id
         source_issue_ids = _normalize_source_issue_ids(issue_ids=issue_ids, target_issue_id=target_issue_id)
         if not source_issue_ids:
-            return ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES
+            return ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES, []
 
         with transaction.atomic():
             existing_source_issue_ids = _lock_merge_issues(
                 team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=source_issue_ids
             )
             if existing_source_issue_ids is None:
-                return ErrorTrackingIssueMergeResult.STALE_ISSUES
+                return ErrorTrackingIssueMergeResult.STALE_ISSUES, []
             if not existing_source_issue_ids:
-                return ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES
+                return ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES, []
             if expected_fingerprint_issue_ids is not None and not _lock_expected_fingerprint_issue_ids(
                 team_id=team_id, expected_fingerprint_issue_ids=expected_fingerprint_issue_ids
             ):
-                return ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS
+                return ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS, []
 
             locked_source_fingerprints = list(
                 ErrorTrackingIssueFingerprintV2.objects.select_for_update()
@@ -141,7 +147,7 @@ class ErrorTrackingIssue(UUIDTModel):
             _sync_error_tracking_issue_changes_on_commit(
                 team_id=team_id, issue_ids=[target_issue_id], overrides=overrides
             )
-            return ErrorTrackingIssueMergeResult.MERGED
+            return ErrorTrackingIssueMergeResult.MERGED, existing_source_issue_ids
 
     def split(self, fingerprints: list[dict]) -> list["ErrorTrackingIssue"]:
         team_id = self.team_id
@@ -184,10 +190,7 @@ class ErrorTrackingExternalReference(UUIDTModel):
         related_name="external_issues",
         related_query_name="external_issue",
     )
-    integration = models.ForeignKey(
-        Integration,
-        on_delete=models.CASCADE,
-    )
+    integration = models.ForeignKey(Integration, on_delete=models.CASCADE, related_name="+")
     # DEPRECATED: provider can be fetched through the integration model
     provider = deprecate_field(models.TextField(null=False, blank=False))
     # DEPRECATED: ids should be placed inside the external_context json field
@@ -205,10 +208,7 @@ class ErrorTrackingIssueCohort(UUIDTModel):
         on_delete=models.CASCADE,
         related_name="cohorts",
     )
-    cohort = models.ForeignKey(
-        "cohorts.Cohort",
-        on_delete=models.CASCADE,
-    )
+    cohort = models.ForeignKey("cohorts.Cohort", on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -219,11 +219,11 @@ class ErrorTrackingIssueCohort(UUIDTModel):
 
 class ErrorTrackingIssueAssignment(UUIDTModel):
     issue = models.OneToOneField(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="assignment")
-    team = models.ForeignKey("posthog.Team", null=True, on_delete=models.CASCADE, db_index=False)
-    user = models.ForeignKey("posthog.User", null=True, on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", null=True, on_delete=models.CASCADE, db_index=False, related_name="+")
+    user = models.ForeignKey("posthog.User", null=True, on_delete=models.CASCADE, related_name="+")
     # DEPRECATED: issues can only be assigned to users or roles
     user_group = deprecate_field(models.ForeignKey("posthog.UserGroup", null=True, on_delete=models.CASCADE))
-    role = models.ForeignKey("ee.Role", null=True, on_delete=models.CASCADE)
+    role = models.ForeignKey("ee.Role", null=True, on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -234,7 +234,7 @@ class ErrorTrackingIssueAssignment(UUIDTModel):
 
 
 class ErrorTrackingIssueFingerprintV2(UUIDTModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="fingerprints")
     fingerprint = models.TextField(null=False, blank=False)
     # current version of the id, used to sync with ClickHouse and collapse rows correctly for overrides ClickHouse table
@@ -328,7 +328,7 @@ def _sync_error_tracking_issue_changes_on_commit(
 
 
 class ErrorTrackingRelease(UUIDTModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     # On upload, users can provide a hash of some key identifiers, e.g. "git repo, commit, branch"
     # or similar, which we guarantee to be unique. If a user doesn't provide a hash_id, we use the
     # id of the model - TODO - should this instead by a hash of the project and version?
@@ -358,10 +358,19 @@ class ErrorTrackingRelease(UUIDTModel):
         db_table = "posthog_errortrackingrelease"
 
 
+def symbol_set_cleanup_bucket_expression() -> models.Func:
+    return models.Func(
+        models.Func(models.F("id"), function="uuid_send", output_field=models.BinaryField()),
+        models.Value(15),
+        function="get_byte",
+        output_field=models.IntegerField(),
+    )
+
+
 class ErrorTrackingSymbolSet(UUIDTModel):
     # Derived from the symbol set reference
     ref = models.TextField(null=False, blank=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     # How we stored this symbol set, and where to look for it
     # These are null if we failed to find a symbol set for a given reference. We store a
@@ -378,8 +387,10 @@ class ErrorTrackingSymbolSet(UUIDTModel):
     # with one
     release = models.ForeignKey(ErrorTrackingRelease, null=True, on_delete=models.CASCADE)
 
-    # When a symbol set is loaded, last_used is set, so we can track how often
-    # symbol sets are used, and cleanup ones not used for a long time
+    # Retention deletes a symbol set once last_used falls outside its window. Two paths write it:
+    # symbolication, when it loads the set, and a bulk upload, for every chunk id in the request.
+    # The upload must write it because event release mode derives chunk ids from content, so one
+    # row can serve many releases without symbolication ever touching it.
     last_used = models.DateTimeField(null=True, blank=True)
 
     def delete(self, *args, **kwargs):
@@ -398,10 +409,13 @@ class ErrorTrackingSymbolSet(UUIDTModel):
         # No (team_id, ref) index here on purpose: `unique_ref_per_team` below already
         # provides one on the same columns, so a second is pure write and storage cost.
         indexes = [
-            # Composite covers the cleanup filter's two OR branches: `last_used < cutoff`
-            # (leading column) and `last_used IS NULL AND created_at < cutoff` (NULL group
-            # then created_at range), so batch cleanup avoids a full PK-ordered scan.
-            models.Index(fields=["last_used", "created_at"], name="et_symset_used_created_idx"),
+            models.Index(
+                symbol_set_cleanup_bucket_expression(),
+                models.F("last_used"),
+                models.F("created_at"),
+                models.F("id"),
+                name="et_symset_bucket_cleanup_idx",
+            ),
         ]
 
         constraints = [
@@ -411,11 +425,11 @@ class ErrorTrackingSymbolSet(UUIDTModel):
 
 
 class ErrorTrackingAssignmentRule(UUIDTModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    user = models.ForeignKey("posthog.User", null=True, on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    user = models.ForeignKey("posthog.User", null=True, on_delete=models.CASCADE, related_name="+")
     # DEPRECATED: issues can only be assigned to users or roles
     user_group = deprecate_field(models.ForeignKey("posthog.UserGroup", null=True, on_delete=models.CASCADE))
-    role = models.ForeignKey("ee.Role", null=True, on_delete=models.CASCADE)
+    role = models.ForeignKey("ee.Role", null=True, on_delete=models.CASCADE, related_name="+")
     order_key = models.IntegerField(null=False, blank=False)
     bytecode = models.JSONField(null=False, blank=False)  # The bytecode of the rule
     filters = models.JSONField(null=False, blank=False)  # The json object describing the filter rule
@@ -438,7 +452,7 @@ class ErrorTrackingAssignmentRule(UUIDTModel):
 
 
 class ErrorTrackingSeverityRule(TeamScopedRootMixin, UUIDTModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     filters = models.JSONField(null=False, blank=False)
     bytecode = models.JSONField(null=False, blank=False)
     severity = models.TextField(choices=ErrorTrackingIssue.Severity)
@@ -460,7 +474,7 @@ class ErrorTrackingSeverityRule(TeamScopedRootMixin, UUIDTModel):
 # This means "custom issues" can still be merged and otherwise handled as you'd expect, just that
 # the set of events that end up in them will be different from the default grouping rules.
 class ErrorTrackingGroupingRule(UUIDTModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     bytecode = models.JSONField(null=False, blank=False)  # The bytecode of the rule
     filters = models.JSONField(null=False, blank=False)  # The json object describing the filter rule
     created_at = models.DateTimeField(auto_now_add=True)
@@ -474,10 +488,10 @@ class ErrorTrackingGroupingRule(UUIDTModel):
     # We allow grouping rules to also auto-assign, and if they do, assignment rules are ignored
     # in favour of the assignment of the grouping rule. Notably this differs from assignment rules
     # in so far as we permit all of these to be null
-    user = models.ForeignKey("posthog.User", null=True, on_delete=models.CASCADE)
+    user = models.ForeignKey("posthog.User", null=True, on_delete=models.CASCADE, related_name="+")
     # DEPRECATED: issues can only be assigned to users or roles
     user_group = deprecate_field(models.ForeignKey("posthog.UserGroup", null=True, on_delete=models.CASCADE))
-    role = models.ForeignKey("ee.Role", null=True, on_delete=models.CASCADE)
+    role = models.ForeignKey("ee.Role", null=True, on_delete=models.CASCADE, related_name="+")
 
     # Users will probably find it convenient to be able to add a short description to grouping rules
     description = models.TextField(null=True)
@@ -495,7 +509,7 @@ class ErrorTrackingGroupingRule(UUIDTModel):
 
 
 class ErrorTrackingSuppressionRule(UUIDTModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     filters = models.JSONField(null=False, blank=False)  # The json object describing the filter rule
     bytecode = models.JSONField(null=True, blank=True)
     disabled_data = models.JSONField(null=True, blank=True)
@@ -526,7 +540,7 @@ class ErrorTrackingBypassRule(UUIDTModel):
     # affect suppression, which runs earlier.
     # db_constraint=False keeps the create lock-free on posthog_team (a hot table); team scoping
     # is enforced at the ORM layer and Cymbal reads by team_id via raw SQL.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     filters = models.JSONField(null=False, blank=False)  # The json object describing the filter rule
     bytecode = models.JSONField(null=True, blank=True)
     disabled_data = models.JSONField(null=True, blank=True)
@@ -556,7 +570,7 @@ class ErrorTrackingAutoCaptureControls(UUIDTModel):
     class Library(models.TextChoices):
         WEB = "web"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     library = models.CharField(max_length=24, choices=Library, null=False, blank=False, default=Library.WEB)
 
     match_type = models.CharField(max_length=24, choices=MatchType, null=False, blank=False, default=MatchType.ALL)
@@ -590,7 +604,7 @@ class ErrorTrackingStackFrame(UUIDTModel):
     raw_id = models.TextField(null=False, blank=False)
     # Raw frames could be resolved into multiple frames after demangling because of compilation process
     part = models.IntegerField(null=False, default=0)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     symbol_set = models.ForeignKey("ErrorTrackingSymbolSet", on_delete=models.SET_NULL, null=True)
     contents = models.JSONField(null=False, blank=False)
@@ -599,7 +613,11 @@ class ErrorTrackingStackFrame(UUIDTModel):
     context = models.JSONField(null=True, blank=True)
 
     class Meta:
-        indexes = []
+        indexes = [
+            # Recent-frames-per-team scans, such as the source maps recommendation. Without
+            # created_at in the index, a 24h window has to visit every frame the team ever stored.
+            models.Index(fields=["team", "created_at"], name="et_frame_team_created_at_idx"),
+        ]
 
         constraints = [
             models.UniqueConstraint(fields=["team_id", "raw_id", "part"], name="unique_team_id_raw_id_part"),
@@ -616,7 +634,7 @@ class ErrorTrackingGroup(UUIDTModel):
         RESOLVED = "resolved", "Resolved"
         PENDING_RELEASE = "pending_release", "Pending release"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     fingerprint: ArrayField = ArrayField(models.TextField(null=False, blank=False), null=False, blank=False)
     merged_fingerprints: ArrayField = ArrayField(
@@ -626,12 +644,7 @@ class ErrorTrackingGroup(UUIDTModel):
         default=list,
     )
     status = models.CharField(max_length=40, choices=Status, default=Status.ACTIVE, null=False)
-    assignee = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-    )
+    assignee = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     class Meta:
         db_table = "posthog_errortrackinggroup"
@@ -639,7 +652,7 @@ class ErrorTrackingGroup(UUIDTModel):
 
 # DEPRECATED: Use ErrorTrackingIssueFingerprintV2 instead
 class ErrorTrackingIssueFingerprint(models.Model):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_index=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_index=False, related_name="+")
     issue = models.ForeignKey(ErrorTrackingGroup, on_delete=models.CASCADE)
     fingerprint = models.TextField(null=False, blank=False)
     # current version of the id, used to sync with ClickHouse and collapse rows correctly for overrides ClickHouse table
@@ -822,7 +835,7 @@ class ErrorTrackingSettings(models.Model):
 
 
 class ErrorTrackingSpikeEvent(UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="spike_events")
     detected_at = models.DateTimeField()
     computed_baseline = models.FloatField()
@@ -860,4 +873,116 @@ class ErrorTrackingRecommendation(UUIDTModel):
         db_table = "posthog_errortrackingrecommendation"
         constraints = [
             models.UniqueConstraint(fields=["team", "type"], name="unique_error_tracking_recommendation_per_team_type"),
+        ]
+
+
+class ErrorTrackingAlert(TeamScopedRootMixin, UUIDTModel):
+    """Alert configuration for issue lifecycle notifications.
+
+    Triggers are opt-in thread openers: they decide which lifecycle transitions start
+    a notification thread for an issue. Once a thread exists, every later lifecycle
+    update for that issue is delivered into it as a reply without further trigger or
+    filter evaluation, so new reply kinds are enabled for existing alerts with no
+    migration (see ErrorTrackingAlertThread).
+    """
+
+    class Trigger(models.TextChoices):
+        ISSUE_CREATED = "issue_created", "Issue created"
+        ISSUE_REOPENED = "issue_reopened", "Issue reopened"
+        ISSUE_SPIKING = "issue_spiking", "Issue spiking"
+        ISSUE_ASSIGNED = "issue_assigned", "Issue assigned"
+
+    # db_constraint=False keeps creates lock-free on hot tables (posthog_team / posthog_user);
+    # team scoping is enforced at the ORM layer via TeamScopedRootMixin.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    name = models.TextField()
+    enabled = models.BooleanField(default=True)
+    triggers = models.JSONField(default=list)  # list of Trigger values
+    # Same property-filter shape hog functions store, with the compiled HogQL bytecode
+    # embedded under "bytecode" (see posthog.cdp.filters.compile_filters_bytecode).
+    filters = models.JSONField(default=dict, blank=True)
+    # Minimum seconds between thread-opening notifications per (alert, issue).
+    # Replies into an existing thread are never throttled. 0 disables the throttle.
+    throttle_seconds = models.PositiveIntegerField(default=0)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        null=True,
+        blank=True,
+        db_constraint=False,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingalert"
+        indexes = [
+            models.Index(fields=["team", "enabled"], name="idx_et_alert_team_enabled"),
+        ]
+
+
+# nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
+def error_tracking_alert_channel_type_choices() -> list[tuple[str, str]]:
+    # Callable choices: adding a channel later must not generate an AlterField migration.
+    return [(str(value), str(label)) for value, label in ErrorTrackingAlertDestination.ChannelType.choices]
+
+
+class ErrorTrackingAlertDestination(TeamScopedRootMixin, UUIDTModel):
+    """One delivery target of an alert.
+
+    The alert's triggers and filters are evaluated once per lifecycle transition and
+    the outcome fans out to every destination, so per-destination state (threads,
+    delivery results) hangs off this row rather than the alert.
+    """
+
+    class ChannelType(models.TextChoices):
+        # Additional channels (email, in-app, webhook) are planned; only rows with
+        # currently supported channel types are ever created through the API.
+        SLACK = "slack", "Slack"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    alert = models.ForeignKey(ErrorTrackingAlert, on_delete=models.CASCADE, related_name="destinations")
+    channel_type = models.TextField(choices=error_tracking_alert_channel_type_choices)
+    integration = models.ForeignKey(Integration, on_delete=models.SET_NULL, related_name="+", null=True, blank=True)
+    # Channel-specific delivery settings, e.g. {"channel": "C0123", "channel_name": "#alerts"} for Slack
+    config = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingalertdestination"
+
+
+class ErrorTrackingAlertThread(TeamScopedRootMixin, UUIDTModel):
+    """Delivery state for one (alert, issue, destination) conversation.
+
+    Maps an issue to the externally posted notification (e.g. a Slack message) so
+    lifecycle updates can be delivered as replies to the original message instead
+    of new fire-and-forget notifications. The unique constraint is the concurrency
+    primitive: concurrent deliveries race on the insert and the loser reuses the
+    winner's thread.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    alert = models.ForeignKey(ErrorTrackingAlert, on_delete=models.CASCADE, related_name="threads")
+    issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="alert_threads")
+    destination = models.ForeignKey(ErrorTrackingAlertDestination, on_delete=models.CASCADE, related_name="threads")
+    # External message reference, e.g. {"channel": "C0123", "ts": "1234.5678"} for Slack
+    external_ref = models.JSONField(default=dict, blank=True)
+    # The root message's headline. It is the thread's identity: status transitions
+    # edit the root in place but never change the headline.
+    root_headline = models.TextField(blank=True, default="")
+    # UUIDs of recently delivered lifecycle notifications (newest last, capped by the
+    # delivery activity) so Temporal retries don't duplicate notifications.
+    delivered_notification_ids = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingalertthread"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["alert", "issue", "destination"], name="unique_error_tracking_alert_thread"
+            ),
         ]

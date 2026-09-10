@@ -1,15 +1,17 @@
 from typing import Any
 
 from django.db import transaction
+from django.db.models import Value
+from django.db.models.functions import Length, Replace
 
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
 
-from ..marketplace.packaging import DEFAULT_BUNDLE_SKILLS, MAX_BUNDLE_SKILLS
+from ..marketplace.packaging import DEFAULT_BUNDLE_SKILLS, MAX_BUNDLE_SKILLS, SPEC_DESCRIPTION_MAX_LENGTH
 from ..models.skills import LLMSkill, LLMSkillFile, category_for_skill_name
 from .community_publish_services import (
     DISPLAY_NAME_PATTERN,
@@ -190,6 +192,51 @@ class LLMSkillListQuerySerializer(serializers.Serializer):
     )
 
 
+class LLMSkillSearchQuerySerializer(serializers.Serializer):
+    query = serializers.CharField(
+        min_length=1,
+        max_length=200,
+        trim_whitespace=True,
+        help_text="Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.",
+    )
+
+
+class LLMSkillSearchMatchSerializer(serializers.Serializer):
+    matched_field = serializers.ChoiceField(
+        choices=["name", "description", "body", "file_path", "file_content"],
+        help_text="Skill field that matched the search query.",
+    )
+    path = serializers.CharField(
+        required=False,
+        help_text="Skill-relative file path for body or bundled-file matches. Omitted for name and description matches.",
+    )
+    line = serializers.IntegerField(
+        min_value=1,
+        required=False,
+        help_text="One-based line containing the match when the result came from a body or bundled file.",
+    )
+    excerpt = serializers.CharField(help_text="Short excerpt showing why this skill matched.")
+
+
+class LLMSkillSearchResultSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Unique skill name.")
+    description = serializers.CharField(help_text="What this skill does and when to use it.")
+    matches = LLMSkillSearchMatchSerializer(
+        many=True,
+        help_text="Up to two locations that matched the search query, ordered by field relevance.",
+    )
+
+
+@extend_schema_serializer(many=False)
+class LLMSkillSearchResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="Number of matching skills returned, capped at 10.")
+    results = LLMSkillSearchResultSerializer(many=True, help_text="Matching ordinary skills in relevance order.")
+
+
+class LLMSkillSearchErrorSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Explanation of why the skill search could not complete.")
+
+
 class LLMSkillResolveQuerySerializer(LLMSkillFetchQuerySerializer):
     version_id = serializers.UUIDField(
         required=False,
@@ -231,9 +278,12 @@ class LLMSkillFileSerializer(serializers.ModelSerializer):
 
 
 class LLMSkillFileManifestSerializer(serializers.ModelSerializer):
+    line_count = serializers.IntegerField(help_text="Number of lines in the file content.")
+    char_count = serializers.IntegerField(help_text="Number of characters in the file content.")
+
     class Meta:
         model = LLMSkillFile
-        fields = ["path", "content_type"]
+        fields = ["path", "content_type", "line_count", "char_count"]
 
 
 class LLMSkillFileInputSerializer(serializers.Serializer):
@@ -326,7 +376,7 @@ class LLMSkillPublishSerializer(serializers.Serializer):
         ),
     )
     description = serializers.CharField(
-        max_length=4096,
+        max_length=SPEC_DESCRIPTION_MAX_LENGTH,
         required=False,
         help_text="Updated description for the new version.",
     )
@@ -460,7 +510,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         "Empty for scout sandbox fetches of skills that haven't opted into the report channel.",
     )
     files = serializers.SerializerMethodField(
-        help_text="Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/.",
+        help_text="Bundled files manifest. Each entry carries path, content_type, and line/char counts — no content; fetch content via /llm_skills/name/{name}/files/{path}/.",
     )
     outline = serializers.SerializerMethodField(
         help_text="Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents.",
@@ -526,7 +576,13 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "name": {
                 "help_text": "Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters."
             },
-            "description": {"help_text": "What this skill does and when to use it. Max 4096 characters."},
+            # No max_length here: this base serves read responses, and legacy rows can hold up to the
+            # 4096 column limit, above the 1024 spec cap. Deriving max_length from the model keeps the
+            # read schema honest about what the server returns. The 1024 write cap lives on the write
+            # serializers (LLMSkillCreateSerializer and LLMSkillPublishSerializer).
+            "description": {
+                "help_text": "What this skill does and when to use it.",
+            },
             "body": {"help_text": "The SKILL.md instruction content (markdown)."},
             "license": {"help_text": "License name or reference to a bundled license file."},
             "compatibility": {
@@ -575,7 +631,12 @@ class LLMSkillSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(LLMSkillFileManifestSerializer(many=True))
     def get_files(self, instance: LLMSkill) -> list[dict[str, Any]]:
-        return [dict(row) for row in LLMSkillFile.objects.filter(skill=instance).values("path", "content_type")]
+        # Counts are computed in the database so the manifest never fetches file contents.
+        annotated = LLMSkillFile.objects.filter(skill=instance).annotate(
+            char_count=Length("content"),
+            line_count=Length("content") - Length(Replace("content", Value("\n"))) + 1,
+        )
+        return [dict(row) for row in annotated.values("path", "content_type", "line_count", "char_count")]
 
     @extend_schema_field(LLMSkillOutlineEntrySerializer(many=True))
     def get_outline(self, instance: LLMSkill) -> list[dict[str, Any]]:
@@ -626,8 +687,10 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             return attrs
 
         if name is not None and self.instance.name != name:
+            # Renaming moves every version row and the owner rows together, which this path can't
+            # do — the dedicated rename endpoint owns it.
             raise serializers.ValidationError(
-                {"name": "Skill name cannot be changed after creation."},
+                {"name": "Use the rename endpoint to change a skill's name."},
                 code="immutable",
             )
 
@@ -637,6 +700,12 @@ class LLMSkillSerializer(serializers.ModelSerializer):
 class LLMSkillCreateSerializer(LLMSkillSerializer):
     """Create serializer — accepts bundled files and owners as write-only input on POST."""
 
+    # The write cap the base intentionally omits: new descriptions must clear the 1024 spec limit
+    # that community publish and export enforce.
+    description = serializers.CharField(
+        max_length=SPEC_DESCRIPTION_MAX_LENGTH,
+        help_text="What this skill does and when to use it. Max 1024 characters.",
+    )
     files = LLMSkillFileInputSerializer(  # type: ignore[assignment]
         many=True,
         required=False,
@@ -737,6 +806,17 @@ class LLMSkillDuplicateSerializer(serializers.Serializer):
     new_name = serializers.CharField(
         max_length=64,
         help_text="Name for the duplicated skill. Must be unique.",
+    )
+
+    def validate_new_name(self, value: str) -> str:
+        return validate_skill_name_value(value)
+
+
+class LLMSkillRenameSerializer(serializers.Serializer):
+    new_name = serializers.CharField(
+        max_length=MAX_SKILL_NAME_LENGTH,
+        help_text="New name for the skill. Must be unique in the project, and must not start with "
+        "'signals-scout-' or 'review-hog-'.",
     )
 
     def validate_new_name(self, value: str) -> str:

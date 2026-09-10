@@ -63,6 +63,7 @@ export const taskMetadata = sqliteTable("task_metadata", {
   archivedTitle: text(),
   archivedTaskCreatedAt: text(),
   archivedRepository: text(),
+  serverArchiveScope: text(),
   piSessionFile: text(),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
@@ -133,7 +134,9 @@ export const suspensions = sqliteTable("suspensions", {
 export const authSessions = sqliteTable("auth_sessions", {
   id: integer().primaryKey(),
   refreshTokenEncrypted: text().notNull(),
-  cloudRegion: text({ enum: ["us", "eu", "dev"] }).notNull(),
+  cloudRegion: text({
+    enum: ["us", "eu", "dev", "dev-cloud", "custom"],
+  }).notNull(),
   selectedProjectId: integer(),
   scopeVersion: integer().notNull(),
   createdAt: createdAt(),
@@ -174,7 +177,9 @@ export const authPreferences = sqliteTable(
   "auth_preferences",
   {
     accountKey: text().notNull(),
-    cloudRegion: text({ enum: ["us", "eu", "dev"] }).notNull(),
+    cloudRegion: text({
+      enum: ["us", "eu", "dev", "dev-cloud", "custom"],
+    }).notNull(),
     lastSelectedProjectId: integer(),
     lastSelectedOrgId: text(),
     createdAt: createdAt(),
@@ -192,7 +197,9 @@ export const authOrgProjectPreferences = sqliteTable(
   "auth_org_project_preferences",
   {
     accountKey: text().notNull(),
-    cloudRegion: text({ enum: ["us", "eu", "dev"] }).notNull(),
+    cloudRegion: text({
+      enum: ["us", "eu", "dev", "dev-cloud", "custom"],
+    }).notNull(),
     orgId: text().notNull(),
     lastSelectedProjectId: integer().notNull(),
     createdAt: createdAt(),

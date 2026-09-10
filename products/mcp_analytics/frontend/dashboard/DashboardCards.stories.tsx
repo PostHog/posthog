@@ -154,7 +154,9 @@ export const KeyMetrics: Story = {
                 intentClusterCount={metric(6, 0, [], 'up')}
                 kpisLoading={false}
                 usersLoading={false}
+                showIntentClusters
                 theme={buildTheme()}
+                interval="day"
                 incompleteTail={false}
             />
         </div>
@@ -170,7 +172,9 @@ export const KeyMetricsInProgressBucket: Story = {
                 intentClusterCount={metric(6, 0, [], 'up')}
                 kpisLoading={false}
                 usersLoading={false}
+                showIntentClusters
                 theme={buildTheme()}
+                interval="day"
                 incompleteTail
             />
         </div>
