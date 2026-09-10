@@ -38,7 +38,7 @@ MAX_METRIC_TITLE_LENGTH = 200
 MAX_METRIC_CAPTION_LENGTH = 500
 MAX_METRIC_UNIT_LENGTH = 40
 # Trailing longitudinal buckets saved next to the value snapshot so an inbox row can draw the trend
-# without running the query. Two weeks of daily buckets is enough shape for a row-sized bar strip.
+# without running the query. Two weeks of daily buckets is enough shape for a row-sized bar or line strip.
 MAX_METRIC_SERIES_POINTS = 14
 # `value_at` is authored content, not a server timestamp, so allow a small clock-skew margin before
 # treating a snapshot time as an impossible future one.
