@@ -2289,20 +2289,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             else:
                                 slo.tag(execution_path="cache_miss", cache_hit=False)
 
-                            # Cached from the fresh run that produced these results, so the numbers
-                            # describe that run rather than this one, which touched no ClickHouse.
+                            # The measurements belong to the run that wrote the entry, but the mode
+                            # does not: an insight entry outlives a flag rollback by days, so re-read
+                            # the flag rather than serving the mode the entry was stamped with.
                             cached_query_scan = getattr(results, "query_scan", None)
                             if cached_query_scan is not None:
-                                # The entry carries the mode the flag gave the run that wrote it, and
-                                # an insight entry lives for days. Re-read the flag so turning it off,
-                                # or moving it to another mode, reaches a hit rather than waiting for
-                                # the entry to recompute. The measurements stay as they were taken.
                                 current_scan_flag = get_query_scan_flag(self.team)
                                 if current_scan_flag is None:
-                                    # setattr, like the getattr above: not every response class declares the field.
+                                    # Not every response class declares the field.
                                     setattr(results, "query_scan", None)  # noqa: B010
                                 else:
                                     cached_query_scan.mode = QueryScanMode(current_scan_flag.mode)
+
                             query_executed_props = {
                                 "insight_id": insight_id,
                                 "dashboard_id": dashboard_id,
@@ -2401,8 +2399,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
             self.modifiers.useMaterializedViews = True
 
-        # Collect what ClickHouse reads only for a team the query scan flag is on for. Without the
-        # scope, `sync_execute` records nothing, so an unflagged team pays for none of this.
+        # Without a scope `sync_execute` records nothing, so an unflagged team pays for none of this.
         query_scan_flag = get_query_scan_flag(self.team)
         query_stats_context: AbstractContextManager[QueryStats | None] = (
             query_stats_scope() if query_scan_flag is not None else nullcontext(None)
@@ -2535,7 +2532,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
                 "query_duration_ms": query_duration_ms,
                 "has_error": has_error,
-                # ClickHouse's own numbers, next to the runner's wall clock above.
                 "clickhouse_rows_read": query_stats.rows_read if query_stats else None,
                 "clickhouse_duration_ms": round(query_stats.duration_ms) if query_stats else None,
             }

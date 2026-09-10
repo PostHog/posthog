@@ -208,8 +208,6 @@ class TestQueryRunner(BaseTest):
         ]
     )
     def test_query_scan_summary_attached_only_for_a_flagged_team(self, _name, flag):
-        # With the flag off no stats scope is installed, so `record` from the ClickHouse client is a
-        # no-op and the response must not grow the field.
         TestQueryRunner = self.setup_test_query_runner_class()
 
         def calculate_with_clickhouse_stats(_self):
@@ -234,10 +232,6 @@ class TestQueryRunner(BaseTest):
             assert response.query_scan.duration_ms == 34
 
     def test_query_scan_summary_survives_the_cache_round_trip(self):
-        # The cache path dumps the response and re-validates the dict as a CachedResponse. A field
-        # whose Python name differs from its wire name, as an aliased `from` would, fails that hop
-        # after the cache was already written. Only `range` reaches the alias, so the summary here
-        # is fully populated rather than the three keys the runner writes today.
         TestQueryRunner = self.setup_test_query_runner_class()
         summary = QueryScanSummary(
             mode="show",
@@ -285,9 +279,6 @@ class TestQueryRunner(BaseTest):
         ]
     )
     def test_cache_hit_serves_the_current_query_scan_mode(self, _name, flag_at_write, flag_at_read, expected_mode):
-        # A cached entry holds the mode the flag gave the run that wrote it, and an insight entry
-        # outlives a rollback by days, so the hit has to re-read the flag. Turning the flag on is the
-        # one direction that waits for a recompute: the entry carries no measurements to re-stamp.
         TestQueryRunner = self.setup_test_query_runner_class()
 
         def calculate_with_clickhouse_stats(_self):
@@ -312,7 +303,6 @@ class TestQueryRunner(BaseTest):
         else:
             assert response.query_scan is not None
             assert response.query_scan.mode == expected_mode
-            # The numbers describe the run that wrote the entry, so a mode change leaves them alone.
             assert response.query_scan.rows_read == 12
             assert response.query_scan.duration_ms == 34
 

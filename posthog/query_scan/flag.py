@@ -64,7 +64,7 @@ def get_query_scan_flag(team: Team) -> QueryScanFlag | None:
 
 
 def _evaluate(team: Team) -> QueryScanFlag | None:
-    """Read the variant and its payload from the flag in one call. Never raises: any failure reads as off.
+    """Never raises: any failure reads as off.
 
     Local evaluation sees only the properties passed here, so the flag's conditions must be on the
     project id.

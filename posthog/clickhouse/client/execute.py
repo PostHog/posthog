@@ -248,12 +248,11 @@ def _chargeable_query_info(client: Any, query_info_before: Any) -> Optional[Any]
 def _query_stats_summary(client: Any, query_info_before: Any) -> Optional[QuerySummary]:
     """What the execution that just ran on `client` read, or None when the client reports nothing.
 
-    The HTTP client has no `last_query` and reports its own summary instead. The native driver
-    clears `last_query` when it disconnects after a server-side error, so a query the server killed
-    is read back from the stash `ClickHouseClient` keeps. The identity check against
-    `query_info_before` keeps a pooled client's previous query out of the totals, the same guard
-    metering uses, because the driver only creates a new query info once the connection is
-    established.
+    The HTTP client has no `last_query` and reports its own summary instead. A query the server
+    killed is read back from the stash `ClickHouseClient` keeps, because the disconnect that
+    follows the error clears `last_query`. The driver creates a new query info only once the
+    connection is established, so the identity check against `query_info_before` keeps a pooled
+    client's previous query out of the totals, the same guard metering uses.
     """
     if not hasattr(client, "last_query"):
         return getattr(client, "last_query_summary", None)
@@ -272,7 +271,7 @@ def _query_stats_summary(client: Any, query_info_before: Any) -> Optional[QueryS
 
 
 def _record_query_stats(client: Any, query_info_before: Any, start_time: float) -> None:
-    """Add what this execution read to the active query stats scope, for the query scan warnings.
+    """Add what this execution read to the active query stats scope.
 
     Runs after a failure too: a query the server killed reports its progress before it dies, and
     that read cost the same as a successful one. Never raises, because the numbers are advisory and

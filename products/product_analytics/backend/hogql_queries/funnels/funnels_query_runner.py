@@ -343,7 +343,6 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
                 if query_tags is not None:
                     query_tagging.update_tags(query_tags)
                 # The query scan accumulator is another ContextVar the thread does not inherit.
-                # Without it the response under-reports what ClickHouse read for this funnel.
                 with query_stats.use(stats):
                     results[index] = tasks[index](timings)
             except Exception as exc:  # noqa: BLE001

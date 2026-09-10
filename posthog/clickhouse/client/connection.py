@@ -191,7 +191,7 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
 
 @frozen
 class QuerySummary:
-    """What one execution read, for a client that does not carry the driver's ``last_query``."""
+    """What one execution read, in the shape the native and the HTTP client both report into."""
 
     rows: int = 0
     bytes: int = 0
@@ -201,11 +201,10 @@ class QuerySummary:
 class ClickHouseClient(SyncClient):
     """Driver client that keeps the query info of a query the server stopped.
 
-    ``Client.execute`` runs inside ``disconnect_on_error``, so any exception disconnects the client,
-    and the disconnect clears ``last_query``. ClickHouse reports the progress of a query it kills
-    before it kills it, and that read cost the same as a successful one, so the cleared query info
-    is kept here for the caller to collect. Metering keeps reading ``last_query`` and never sees
-    the stash, so a killed query stays unmetered.
+    Any exception disconnects the client, and the disconnect clears ``last_query``. A killed query
+    reports its progress before it dies, and that read cost the same as a successful one, so the
+    cleared query info is stashed here. Metering keeps reading ``last_query``, so it never sees
+    the stash and a killed query stays unmetered.
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -230,8 +229,7 @@ class ClickHouseClient(SyncClient):
 class ProxyClient:
     def __init__(self, client: "HttpClient"):
         self._client = client
-        # The HTTP client has no last_query, so it reports what it read here instead. Metering
-        # reads last_query, which this client does not set, and stays unchanged.
+        # The HTTP client has no last_query, so it reports what it read here instead.
         self.last_query_summary: QuerySummary | None = None
 
     def execute(
@@ -444,8 +442,8 @@ def default_client(host=settings.CLICKHOUSE_HOST):
 class ClickHouseChPool(ChPool):
     """ChPool whose connections are ClickHouseClient rather than the driver's plain Client.
 
-    ``ChPool._connect`` builds the client class it imported and takes no override, so the method is
-    repeated here with the subclass and the same bookkeeping.
+    ``ChPool._connect`` hardcodes the client class, so the method is repeated here with the
+    subclass and the same bookkeeping.
     """
 
     def _connect(self, key: str | None = None) -> ClickHouseClient:

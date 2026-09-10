@@ -1,19 +1,10 @@
-"""Request-scoped accumulator for what ClickHouse read while serving one query response.
+"""Request-scoped totals for what ClickHouse read while serving one query response.
 
-``sync_execute`` records the driver's progress for every execution inside the active scope, and the
-query runner reads the totals to build the response's ``query_scan`` summary. One response can run
-several ClickHouse queries (a trends runner runs one per series), so the totals are sums.
-
-Nesting works the way ``posthog.hogql.warehouse_warnings`` does: an inner scope yields the outer
-accumulator and does not reset it, so a runner that calls another runner contributes to the totals
-the outermost scope reports.
-
-The query runner installs the scope only for a team whose query scan flag is on. With no scope
-``record`` does nothing, so a team with the flag off pays nothing.
-
-A new thread starts with an empty context, so a runner that fans its series out over raw threads
-takes the accumulator with ``get_active`` and installs it in the worker with ``use``. Without that
-hand-off the worker records nothing and the response under-reports what ClickHouse read.
+One response can run several ClickHouse queries, so the totals are sums, and an inner scope yields
+the outer accumulator rather than starting its own. A thread begins with an empty context, so a
+runner that fans its queries out over raw threads hands the accumulator over with ``get_active``
+and ``use``. Without a scope ``record`` does nothing, which is how a team with the query scan flag
+off pays nothing.
 """
 
 from __future__ import annotations
@@ -74,7 +65,7 @@ def get_active() -> QueryStats | None:
 
 @contextlib.contextmanager
 def use(stats: QueryStats | None) -> Iterator[None]:
-    """Install an accumulator taken from another thread. Does nothing when there is none."""
+    """Install an accumulator in a thread that did not inherit it. Does nothing when there is none."""
     if stats is None:
         yield
         return

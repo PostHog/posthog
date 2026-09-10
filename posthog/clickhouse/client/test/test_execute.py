@@ -118,10 +118,7 @@ def _fake_query_info(rows: int, elapsed_ns: int) -> SimpleNamespace:
 
 
 class _FakeNativeClient(ClickHouseClient):
-    # The driver's own last_query handling without a server behind it: last_query holds this query
-    # only once the connection is established, and any failure disconnects the client, which clears
-    # last_query. Nothing here connects, so the client stays offline and disconnect is a no-op on
-    # the socket.
+    # Nothing here connects, so disconnect() only clears last_query.
     def __init__(self, query_info: SimpleNamespace, fails: str | None, last_query: SimpleNamespace | None) -> None:
         super().__init__(host="localhost")
         self.last_query = last_query
@@ -153,17 +150,13 @@ def _proxy_client() -> ProxyClient:
     "make_client,raises,expected",
     [
         (_native_client, False, (7, 70, 3.0)),
-        # A query the server killed already cost the read it reports, so it counts too. The driver
-        # clears last_query on the way out, so this only works off what the client stashed.
         (lambda: _native_client(fails="kill"), True, (7, 70, 3.0)),
-        # Connecting failed, so the pooled client still holds the previous query's progress and the
-        # stash holds it too. Counting it would charge this query with another query's rows.
+        # Counting the previous query's progress would charge this query with another query's rows.
         (
             lambda: _native_client(fails="connect", previous_query_info=_fake_query_info(rows=99, elapsed_ns=1)),
             True,
             (0, 0, 0.0),
         ),
-        # The HTTP client has no last_query at all and reports its own summary instead.
         (_proxy_client, False, (7, 70, 3.0)),
     ],
     ids=["ok", "killed_by_the_server", "connect_failed", "http_client"],
