@@ -521,6 +521,31 @@ class TestSchedulerClaimLifecycle(TestCase):
         )
         self.assertEqual(self._global_in_flight(), 1)
 
+    def test_recovery_can_confirm_an_expired_reserved_claim(self) -> None:
+        recovery_time = self.now + timedelta(minutes=6)
+
+        expired = list_expired_scheduler_claims(
+            scheduler=SCHEDULER,
+            region=REGION,
+            limit=1,
+            now=recovery_time,
+        )
+
+        self.assertEqual([claim.status for claim in expired], [TemporalSchedulerClaim.Status.RESERVED])
+        self.assertTrue(
+            confirm_scheduler_claim(
+                self.reservation.claim_id,
+                self.reservation.claim_token,
+                lease_duration=timedelta(minutes=15),
+                now=recovery_time,
+            )
+        )
+
+        claim = TemporalSchedulerClaim.objects.get(id=self.reservation.claim_id)
+        self.assertEqual(claim.claim_token, self.reservation.claim_token)
+        self.assertEqual(claim.status, TemporalSchedulerClaim.Status.CONFIRMED)
+        self.assertEqual(self._global_in_flight(), 1)
+
     def test_prune_removes_only_old_inactive_claims(self) -> None:
         self.assertTrue(
             confirm_scheduler_claim(
