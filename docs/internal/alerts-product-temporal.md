@@ -35,13 +35,48 @@ docker exec posthog-temporal-admin-tools-1 \
 The empty `--input '{}'` becomes the empty `AlertsProductInputs`.
 Watch the evaluation run and its delivery child in the Temporal UI at <http://localhost:8081>.
 
-Both workflows accept an empty `AlertsProductInputs` dataclass and run an empty activity with no I/O.
-Each activity has a 10-second start-to-close timeout, a 30-second schedule-to-close timeout, and at most three attempts.
+Both workflows accept an empty `AlertsProductInputs` dataclass.
+Evaluation runs a Postgres connectivity probe; delivery runs an empty activity with no I/O.
+Each activity has a 10-second start-to-close timeout and a 30-second schedule-to-close timeout.
+Evaluation has one attempt; delivery retains at most three attempts.
 Evaluation starts one delivery child on the delivery queue and waits for confirmation that it started, without waiting for completion.
 The child ID includes the evaluation run ID, so repeated runs of the same evaluation workflow ID start different children.
 `ParentClosePolicy.ABANDON` lets delivery continue after evaluation closes.
 Delivery has a one-minute execution timeout for the noop.
 Real notification delivery guarantees remain undecided.
+
+## Postgres connectivity probe
+
+Each evaluation activity issues one explicit `SELECT 1` and checks for `(1,)` through Django's `default` main writer connection.
+It inherits runtime credentials and connection/pooler settings without overrides, new aliases, or a separate pool.
+It does not use replicas, persons services, or application tables.
+One probe per tick means one intended activity attempt, not exactly-once SQL execution.
+Connection setup and transaction control can issue additional statements.
+
+The probe uses `execute_with_timeout(1000, database="default")` for a one-second transaction-local statement timeout.
+The transaction commits on success and rolls back on failure, so the timeout does not persist on pooled connections.
+Connection acquisition, SQL, and force-close cleanup run in the same executor thread, outside the default thread-sensitive executor.
+`close_db_connections` closes initialized connections without a cleanup health-check query after failure.
+
+Django `OperationalError` and `InterfaceError` become a sanitized `AlertsProductPostgresProbeFailure` activity failure.
+Evaluation starts delivery after that failure or an activity start-to-close/schedule-to-close timeout.
+Cancellation and unrelated errors propagate without starting delivery.
+This handoff requires the parent and its worker to remain available; termination before child startup is not covered.
+
+A successful evaluation workflow does not prove that the database probe succeeded.
+Activity success/failure logs and attempt duration remain separate from delivery outcomes; #97445 owns lifecycle telemetry.
+Activity duration includes executor wait, connection setup, transaction work, and cleanup, not just SQL execution.
+On activity timeout, the replay-safe workflow log records an unknown database outcome and continuation to delivery, without a completed query duration.
+A late activity completion does not replace that timeout observation.
+
+The SQL timeout does not cover connection acquisition or pooler waiting.
+Temporal's activity bounds limit the workflow's wait, but timeout or cancellation cannot kill a running database thread or guarantee SQL has stopped.
+Cleanup runs when that thread finishes; this probe does not change connection defaults or add a watchdog.
+
+Before production rollout, deployment owners must verify the runtime database identity and main writer route in dev using the deployment's credentials.
+Verify a successful probe, statement timeout and transaction reset through the configured pooler, and delivery continuation after failure or timeout.
+`SELECT 1` alone does not verify the intended database identity, application grants, schema, or write readiness.
+These tests do not replace deployment verification.
 
 This registration does not create schedules or deploy workers.
 Schedule registration will set the evaluation workflow's 50-second execution timeout separately.
