@@ -2850,6 +2850,31 @@ class TestOrphanedForeignKeyPolicy:
         monkeypatch.setattr(OrphanedForeignKeyPolicy, "_tables_adopted_elsewhere", lambda _s, _a: set())
         return self.policy.check_migration(migration)
 
+    def test_a_removal_carried_by_run_sql_is_seen(self, monkeypatch):
+        state = self._state(owner=models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True))
+        migration = MagicMock()
+        migration.app_label = "posthog"
+        migration.name = "0001_test"
+        migration.operations = [
+            migrations.RunSQL(
+                sql="SELECT 1",
+                state_operations=[migrations.RemoveField(model_name="child", name="owner")],
+            )
+        ]
+        monkeypatch.setattr(OrphanedForeignKeyPolicy, "_state_before", lambda _s, _m: state)
+        monkeypatch.setattr(OrphanedForeignKeyPolicy, "_tables_adopted_elsewhere", lambda _s, _a: set())
+
+        violations = self.policy.check_migration(migration)
+
+        assert len(violations) == 1
+
+    def test_a_many_to_many_field_is_not_flagged(self, monkeypatch):
+        state = self._state(owner=models.ManyToManyField("posthog.Team"))
+
+        violations = self._check(state, [], monkeypatch)
+
+        assert violations == []
+
     def test_a_hot_parent_blocks(self, monkeypatch):
         state = self._state(owner=models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True))
 

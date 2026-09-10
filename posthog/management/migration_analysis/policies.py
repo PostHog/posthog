@@ -748,11 +748,11 @@ class OrphanedForeignKeyPolicy(MigrationPolicy):
             if model_state is None:
                 continue
             table = self._table_of(model_state, migration.app_label, model_name)
-            if table in adopted:
-                continue  # The model moved to another app, which still tracks the relation.
             for field, column, target in self._constrained_foreign_keys(state, model_state, field_name):
                 if raw_drop or (table, column) in dropped:
                     continue
+                if (table, column) in adopted:
+                    continue  # The model moved to another app, which still declares this relation.
                 violations.append(self._violation(model_name, field, table, column, target))
         return violations
 
@@ -764,8 +764,8 @@ class OrphanedForeignKeyPolicy(MigrationPolicy):
         """
         removals: list[tuple[str, Optional[str]]] = []
         for op in migration.operations or []:
-            if op.__class__.__name__ != "SeparateDatabaseAndState":
-                continue
+            # RunSQL takes state_operations as well, so keying on SeparateDatabaseAndState
+            # alone would miss a retirement written in that shape.
             for state_op in getattr(op, "state_operations", []) or []:
                 name = state_op.__class__.__name__
                 if name == "DeleteModel":
@@ -822,18 +822,17 @@ class OrphanedForeignKeyPolicy(MigrationPolicy):
         except Exception:
             pass
         try:
-            parents = list(loader.graph.node_map[node].parents)
-            return loader.project_state(parents)
+            return loader.project_state([parent.key for parent in loader.graph.node_map[node].parents])
         except Exception:
             # A migration the graph cannot place is not this policy's problem to report.
             return None
 
-    def _tables_adopted_elsewhere(self, app_label: str) -> set[str]:
-        """Tables that a model in another app tracks once every migration has applied.
+    def _tables_adopted_elsewhere(self, app_label: str) -> set[tuple[str, str]]:
+        """(table, column) pairs that a model in another app still tracks at the graph leaves.
 
         Moving a model between apps deletes it from the source app's state and creates it in
-        the destination's, against the same db_table. The relation survives, so the source
-        app's DeleteModel orphans nothing.
+        the destination's, against the same db_table. Only the relations the destination
+        actually declares survive, so the match is per column rather than per table.
         """
         loader = _disk_loader()
         if loader is None:
@@ -842,11 +841,16 @@ class OrphanedForeignKeyPolicy(MigrationPolicy):
             final = loader.project_state()
         except Exception:
             return set()
-        return {
-            self._table_of(ms, owner_app, model_name)
-            for (owner_app, model_name), ms in final.models.items()
-            if owner_app != app_label
-        }
+        adopted = set()
+        for (owner_app, model_name), ms in final.models.items():
+            if owner_app == app_label:
+                continue
+            table = self._table_of(ms, owner_app, model_name)
+            for name, field in ms.fields.items():
+                if getattr(field, "remote_field", None) is None:
+                    continue
+                adopted.add((table, getattr(field, "db_column", None) or f"{name}_id"))
+        return adopted
 
     def _table_of(self, model_state, app_label: str, model_name: str) -> str:
         return model_state.options.get("db_table") or f"{app_label}_{model_name}"
@@ -857,7 +861,7 @@ class OrphanedForeignKeyPolicy(MigrationPolicy):
             if field_name is not None and name != field_name:
                 continue
             remote = getattr(field, "remote_field", None)
-            if remote is None:
+            if remote is None or getattr(field, "many_to_many", False):
                 continue
             column = getattr(field, "db_column", None) or f"{name}_id"
             if not getattr(field, "db_constraint", True) and not self._added_by_helper(model_state, column):
