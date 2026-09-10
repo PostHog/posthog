@@ -298,6 +298,14 @@ class TestSchedulerClaimLifecycle(TestCase):
                 now=self.now,
             )
         )
+        self.assertFalse(
+            confirm_scheduler_claim(
+                self.reservation.claim_id,
+                wrong_token,
+                lease_duration=timedelta(minutes=10),
+                now=self.now,
+            )
+        )
         self.assertTrue(
             renew_scheduler_claim(
                 self.reservation.claim_id,
@@ -321,7 +329,6 @@ class TestSchedulerClaimLifecycle(TestCase):
                 now=self.now,
             )
         )
-
         self.assertTrue(
             renew_scheduler_claim(
                 self.reservation.claim_id,
@@ -333,6 +340,35 @@ class TestSchedulerClaimLifecycle(TestCase):
 
         claim = TemporalSchedulerClaim.objects.get(id=self.reservation.claim_id)
         self.assertEqual(claim.lease_expires_at, self.now + timedelta(minutes=20))
+
+    def test_repeated_confirmation_does_not_shorten_a_renewed_lease(self) -> None:
+        self.assertTrue(
+            confirm_scheduler_claim(
+                self.reservation.claim_id,
+                self.reservation.claim_token,
+                lease_duration=timedelta(minutes=10),
+                now=self.now,
+            )
+        )
+        self.assertTrue(
+            renew_scheduler_claim(
+                self.reservation.claim_id,
+                self.reservation.claim_token,
+                lease_duration=timedelta(minutes=60),
+                now=self.now,
+            )
+        )
+        self.assertTrue(
+            confirm_scheduler_claim(
+                self.reservation.claim_id,
+                self.reservation.claim_token,
+                lease_duration=timedelta(minutes=10),
+                now=self.now,
+            )
+        )
+
+        claim = TemporalSchedulerClaim.objects.get(id=self.reservation.claim_id)
+        self.assertEqual(claim.lease_expires_at, self.now + timedelta(minutes=60))
 
     def test_unconfirmed_claim_cannot_be_completed(self) -> None:
         self.assertFalse(
