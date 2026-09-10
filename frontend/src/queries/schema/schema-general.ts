@@ -3478,6 +3478,8 @@ export interface MCPToolTopUsersQuery extends DataNode<MCPToolTopUsersQueryRespo
     /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
     toolName: string
     dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolTopUsersQueryResponse = CachedQueryResponse<MCPToolTopUsersQueryResponse>
@@ -3506,6 +3508,8 @@ export interface MCPToolFailuresQuery extends DataNode<MCPToolFailuresQueryRespo
     /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
     toolName: string
     dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolFailuresQueryResponse = CachedQueryResponse<MCPToolFailuresQueryResponse>
@@ -3540,6 +3544,8 @@ export interface MCPToolFailureOccurrencesQuery extends DataNode<MCPToolFailureO
     /** When set, only events with this HTTP status match; when unset, only events without a status match. */
     errorStatus?: string
     dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolFailureOccurrencesQueryResponse = CachedQueryResponse<MCPToolFailureOccurrencesQueryResponse>
@@ -3567,6 +3573,8 @@ export interface MCPToolStatsQuery extends DataNode<MCPToolStatsQueryResponse> {
     /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
     toolName: string
     dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolStatsQueryResponse = CachedQueryResponse<MCPToolStatsQueryResponse>
@@ -3595,6 +3603,8 @@ export interface MCPToolDailyStatsQuery extends DataNode<MCPToolDailyStatsQueryR
     /** Bucket granularity for the series. The frontend passes getDefaultInterval so a sub-day window
      * buckets by hour/minute instead of collapsing to a single day point. Defaults to day. */
     interval?: IntervalType
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolDailyStatsQueryResponse = CachedQueryResponse<MCPToolDailyStatsQueryResponse>
@@ -3636,6 +3646,8 @@ export interface MCPToolQualityRowsQueryResponse extends AnalyticsQueryResponseB
 export interface MCPToolQualityRowsQuery extends DataNode<MCPToolQualityRowsQueryResponse> {
     kind: NodeKind.MCPToolQualityRowsQuery
     dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
     /** Restrict to these $mcp_tool_category values; empty or omitted means all categories. */
     categories?: string[]
     /** Case-insensitive substring search on the effective tool name. */
@@ -3670,6 +3682,8 @@ export interface MCPToolQualityDailyStatsQueryResponse extends AnalyticsQueryRes
 export interface MCPToolQualityDailyStatsQuery extends DataNode<MCPToolQualityDailyStatsQueryResponse> {
     kind: NodeKind.MCPToolQualityDailyStatsQuery
     dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
     /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
     interval?: IntervalType
     /** Restrict to these $mcp_tool_category values; empty or omitted means all categories. */
@@ -3694,6 +3708,8 @@ export interface MCPToolCategoryCountsQueryResponse extends AnalyticsQueryRespon
 export interface MCPToolCategoryCountsQuery extends DataNode<MCPToolCategoryCountsQueryResponse> {
     kind: NodeKind.MCPToolCategoryCountsQuery
     dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolCategoryCountsQueryResponse = CachedQueryResponse<MCPToolCategoryCountsQueryResponse>
@@ -3711,6 +3727,8 @@ export interface MCPToolCategoriesQueryResponse extends AnalyticsQueryResponseBa
 export interface MCPToolCategoriesQuery extends DataNode<MCPToolCategoriesQueryResponse> {
     kind: NodeKind.MCPToolCategoriesQuery
     dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolCategoriesQueryResponse = CachedQueryResponse<MCPToolCategoriesQueryResponse>
@@ -3753,6 +3771,8 @@ export interface MCPToolDescriptionsQuery extends DataNode<MCPToolDescriptionsQu
     /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
     toolName: string
     dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolDescriptionsQueryResponse = CachedQueryResponse<MCPToolDescriptionsQueryResponse>
@@ -3777,6 +3797,8 @@ export interface MCPToolSampleIntentsQuery extends DataNode<MCPToolSampleIntents
     /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
     toolName: string
     dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolSampleIntentsQueryResponse = CachedQueryResponse<MCPToolSampleIntentsQueryResponse>
@@ -3799,6 +3821,8 @@ export interface MCPToolNeighborsQuery extends DataNode<MCPToolNeighborsQueryRes
     /** Whether to count tools called immediately before or after the target tool. */
     neighborDirection: 'before' | 'after'
     dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
 }
 
 export type CachedMCPToolNeighborsQueryResponse = CachedQueryResponse<MCPToolNeighborsQueryResponse>
