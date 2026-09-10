@@ -312,6 +312,13 @@ class SignalReport(UUIDModel):
     # ID de-duplication would not. Null for reports that never notified or predate the field.
     inbox_notified_at = models.DateTimeField(null=True, blank=True)
 
+    # The emit key of the scout `emit_report` call that authored this report, unique per team. A
+    # report emission can take minutes, so the caller can time out at a proxy while the request keeps
+    # running here; the key is what makes the retry that follows return this report instead of
+    # authoring a second one. Null for pipeline reports and for every report authored before the
+    # column existed.
+    scout_idempotency_key = models.CharField(max_length=255, null=True, blank=True)
+
     # Video segment clustering fields
     cluster_centroid = deprecate_field(
         ArrayField(
@@ -337,6 +344,16 @@ class SignalReport(UUIDModel):
                 fields=["team", "first_visible_at"],
                 condition=models.Q(first_visible_at__isnull=False),
                 name="signals_report_first_visible",
+            ),
+        ]
+        constraints = [
+            # Partial, so the column stays free for every report that carries no key. This is the
+            # barrier itself, not a lookup aid: two emits racing on one key both reach the insert,
+            # and Postgres is what lets exactly one of them through.
+            models.UniqueConstraint(
+                fields=["team", "scout_idempotency_key"],
+                condition=models.Q(scout_idempotency_key__isnull=False),
+                name="signals_report_scout_idem_key",
             ),
         ]
 
