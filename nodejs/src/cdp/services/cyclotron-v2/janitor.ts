@@ -184,6 +184,13 @@ export class CyclotronV2Janitor {
         // expired watchers draining even while cyclotron cleanup is failing.
         await this.sweepExpiredConversionWatchers()
 
+        // Sample the gauges before the cleanup stages, not after. Those stages issue
+        // unguarded writes against cyclotron_jobs, and a failure there (a statement
+        // timeout, lock pressure) rejects out of runOnce. Sampled last, the gauges
+        // would then freeze at their previous value on exactly the ticks where the
+        // queue is in trouble, and an alert on them would read a stale healthy number.
+        const depths = await this.measureQueueDepths()
+
         const deletedCounts = await this.cleanupTerminalJobs()
         const deleted = Object.values(deletedCounts).reduce((a, b) => a + b, 0)
 
@@ -197,7 +204,6 @@ export class CyclotronV2Janitor {
             : await this.failPoisonPills()
 
         const stalled = await this.resetStalledJobs()
-        const depths = await this.measureQueueDepths()
 
         janitorRunCounter.inc()
 
