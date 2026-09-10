@@ -9,7 +9,8 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { isInsightVizNode, isRetentionQuery } from '~/queries/utils'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { hogql, isInsightVizNode, isRetentionQuery } from '~/queries/utils'
 
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
@@ -33,7 +34,9 @@ export const TaxonomicBreakdownPopover = ({
     // allEventNames resolves action series through actionsModel, which the shared insight logic does not mount
     useMountedLogic(actionsModel)
     const { insightProps } = useValues(insightLogic)
-    const { allEventNames, query, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
+    const { allEventNames, query, hasDataWarehouseSeries, dataWarehouseSeriesTableNames } = useValues(
+        insightVizDataLogic(insightProps)
+    )
     const { databaseLoading } = useValues(databaseTableListLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { includeSessions, taxonomicBreakdownType } = useValues(taxonomicBreakdownFilterLogic)
@@ -43,7 +46,10 @@ export const TaxonomicBreakdownPopover = ({
 
     let taxonomicGroupTypes: TaxonomicFilterGroupType[]
     if (hasDataWarehouseSeries) {
-        taxonomicGroupTypes = [TaxonomicFilterGroupType.DataWarehouseProperties]
+        taxonomicGroupTypes = [
+            TaxonomicFilterGroupType.DataWarehouseProperties,
+            TaxonomicFilterGroupType.HogQLExpression,
+        ]
     } else if (taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers) {
         taxonomicGroupTypes = [TaxonomicFilterGroupType.CohortsWithAllUsers]
     } else if (isRetentionQuery(query) || (isInsightVizNode(query) && isRetentionQuery(query.source))) {
@@ -103,6 +109,16 @@ export const TaxonomicBreakdownPopover = ({
                     }}
                     eventNames={allEventNames}
                     taxonomicGroupTypes={taxonomicGroupTypes}
+                    metadataSource={
+                        // Without this the SQL expression editor validates against the events table
+                        // and marks every warehouse column as unknown.
+                        dataWarehouseSeriesTableNames.length === 1
+                            ? {
+                                  kind: NodeKind.HogQLQuery,
+                                  query: hogql`SELECT * FROM ${hogql.identifier(dataWarehouseSeriesTableNames[0])}`,
+                              }
+                            : undefined
+                    }
                     schemaColumns={currentDataWarehouseSchemaColumns}
                     schemaColumnsLoading={hasDataWarehouseSeries && databaseLoading}
                 />
