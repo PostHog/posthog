@@ -229,6 +229,51 @@ describe('PropertyValue', () => {
         })
     })
 
+    it('keeps a typed comma when only a searched value contains one', async () => {
+        useMocks({
+            get: {
+                '/api/event/values': ({ request }) => ({
+                    results: new URL(request.url).searchParams.get('value')
+                        ? [{ name: 'Zenith, Inc.' }]
+                        : [{ name: 'Acme' }, { name: 'Initech' }],
+                    refreshing: false,
+                }),
+            },
+        })
+
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="name"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                />
+            </Provider>
+        )
+
+        const user = userEvent.setup()
+        const input = screen.getByRole('textbox')
+        await user.click(input)
+        await user.type(input, 'Zenith')
+
+        // the comma value is outside the first page of results, so wait for the search to return it
+        await waitFor(
+            () => {
+                expect(screen.getByText('Zenith, Inc.')).toBeInTheDocument()
+            },
+            { timeout: 3000 }
+        )
+
+        await user.keyboard(', Inc.{Enter}')
+
+        await waitFor(() => {
+            expect(onSet).toHaveBeenLastCalledWith(['Zenith, Inc.'])
+        })
+    })
+
     it('still splits typed input at a comma when no suggested value contains one', async () => {
         const onSet = jest.fn()
         render(

@@ -143,6 +143,10 @@ export function PropertyValue({
         set: Set<string>
         orderedKeys: string[]
     }>({ set: new Set(), orderedKeys: [] })
+    // the first response is capped, so a value with a comma can appear only once the user searches
+    // for it. Remember that we saw one for as long as the property stays selected, so comma entry
+    // does not switch off again when the next search returns values without one.
+    const [sawValueContainingComma, setSawValueContainingComma] = useState(false)
     const currentSearchInput = useRef<string>('')
 
     const hasStaticValues = !!staticValues
@@ -230,9 +234,21 @@ export function PropertyValue({
         }
     }, [propertyOptions?.status, propertyOptions?.values, propertyOptions?.searchInput])
 
+    // watch every response, including a search response, for a value that holds a comma
+    useEffect(() => {
+        if (
+            !hasStaticValues &&
+            propertyOptions?.status === 'loaded' &&
+            propertyOptions?.values?.some((v) => toString(v.name).includes(','))
+        ) {
+            setSawValueContainingComma(true)
+        }
+    }, [propertyOptions?.status, propertyOptions?.values, hasStaticValues])
+
     // reset initial suggested values when propertyKey changes
     useEffect(() => {
         setInitialSuggestedValues({ set: new Set(), orderedKeys: [] })
+        setSawValueContainingComma(false)
     }, [propertyKey])
 
     // show suggested values first, then any other available options that aren't in the suggested list
@@ -277,14 +293,10 @@ export function PropertyValue({
         () => new Set(displayOptions.map((option) => toString(option.name))),
         [displayOptions]
     )
-    // Read the accumulated suggestions rather than the live options, because a search response
-    // replaces the options and would turn comma-separated entry back on part-way through typing.
-    const someValueContainsComma = useMemo(
-        () =>
-            (staticValues ?? []).some((option) => toString(option.name).includes(',')) ||
-            initialSuggestedValues.orderedKeys.some((key) => key.includes(',')),
-        [staticValues, initialSuggestedValues]
-    )
+    // Read the remembered result rather than the live options, because a search response replaces
+    // the options and would turn comma-separated entry back on part-way through typing.
+    const someValueContainsComma =
+        (staticValues ?? []).some((option) => toString(option.name).includes(',')) || sawValueContainingComma
 
     const onSearchTextChange = (newInput: string): void => {
         const trimmedInput = newInput.trim()
