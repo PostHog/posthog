@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 6 enabled ops
+ * PostHog API - MCP 8 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -2644,6 +2644,58 @@ export const AlertsDestroyParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+/**
+ * Send this alert to a Slack channel as well as by email. The workspace must already be connected to the project. The returned IDs identify the destination.
+ */
+export const AlertsDestinationsCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this alert configuration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const alertsDestinationsCreateBodyTypeDefault = `slack`
+
+export const AlertsDestinationsCreateBody = () => zod.object({
+    type: zod
+        .enum(['slack'])
+        .describe('\* `slack` - slack')
+        .default(alertsDestinationsCreateBodyTypeDefault)
+        .describe('Destination type. Slack is the only type this endpoint creates.\n\n\* `slack` - slack'),
+    slack_workspace_id: zod
+        .number()
+        .describe('Integration ID of the Slack workspace to post in. List them with the integrations endpoint.'),
+    slack_channel_id: zod.string().describe('Slack channel ID to post in, for example C0123456789.'),
+    slack_channel_name: zod
+        .string()
+        .optional()
+        .describe('Channel name shown on the destination, for example product-alerts.'),
+})
+
+/**
+ * Stop sending this alert to a destination. The alert keeps its email recipients.
+ */
+export const AlertsDestinationsDeleteCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this alert configuration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const alertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 100
+
+export const AlertsDestinationsDeleteCreateBody = () => zod.object({
+    hog_function_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(alertsDestinationsDeleteCreateBodyHogFunctionIdsMax)
+        .describe('Destination IDs to delete, as returned when the destination was created.'),
 })
 
 /**

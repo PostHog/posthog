@@ -12,6 +12,7 @@ import type {
     AccountApi,
     AccountNotebookApi,
     AccountNotesListParams,
+    AccountPresenceViewerApi,
     AccountRelationshipApi,
     AccountRelationshipDefinitionApi,
     AccountRelationshipDefinitionsListParams,
@@ -34,6 +35,7 @@ import type {
     AnnouncementApi,
     AnnouncementChannelApi,
     AnnouncementsListParams,
+    CalendarSyncBackfillApi,
     CalendarSyncStatusApi,
     CalendarSyncTriggerApi,
     CalendarSyncTriggerResponseApi,
@@ -797,6 +799,21 @@ export const accountsMeetingsList = async (
     })
 }
 
+export const getAccountsPresenceCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${id}/presence/`
+}
+
+export const accountsPresenceCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AccountPresenceViewerApi[]> => {
+    return apiMutator<AccountPresenceViewerApi[]>(getAccountsPresenceCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getAccountsSummariesListUrl = (projectId: string, id: string, params?: AccountsSummariesListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -988,6 +1005,27 @@ export const calendarSyncList = async (projectId: string, options?: RequestInit)
     return apiMutator<CalendarSyncStatusApi[]>(getCalendarSyncListUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCalendarSyncBackfillCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/calendar_sync/backfill/`
+}
+
+/**
+ * Start an admin-only Gmail and Google Calendar backfill for an inclusive UTC date range.
+ * @summary Backfill a connected Google account
+ */
+export const calendarSyncBackfillCreate = async (
+    projectId: string,
+    calendarSyncBackfillApi: CalendarSyncBackfillApi,
+    options?: RequestInit
+): Promise<CalendarSyncTriggerResponseApi> => {
+    return apiMutator<CalendarSyncTriggerResponseApi>(getCalendarSyncBackfillCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(calendarSyncBackfillApi),
     })
 }
 

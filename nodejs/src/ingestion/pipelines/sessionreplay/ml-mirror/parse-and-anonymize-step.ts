@@ -272,6 +272,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             // Events live in `preSerialized` — consumers use its lines + per-event metadata.
             eventsByWindowId: {},
             preSerialized: {
+                windowId: meta.windowId,
                 lines: result.lines!,
                 events: meta.events,
                 consoleLogCount: meta.consoleLogCount,

@@ -35,7 +35,6 @@ DOCKER_COMPOSE = ["docker", "compose", "-f", "docker-compose.dev.yml"]
 DB_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 PRODUCT_DB_ROUTING_PATH = Path("products/db_routing.yaml")
 APP_LABEL_RE = re.compile(r"^[a-z][a-z0-9_]*$")
-SQUASH_SCHEMA_ADDONS_NAME_RE = re.compile(r".*_squash_.*_schema_addons$")
 
 T = TypeVar("T")
 
@@ -205,35 +204,6 @@ def _psql_write(target_db: str, sql: str) -> None:
     )
 
 
-def _psql_rows(target_db: str, sql: str) -> list[list[str]]:
-    """Run a query against target_db and return its rows as lists of column values."""
-    result = subprocess.run(
-        [
-            *DOCKER_COMPOSE,
-            "exec",
-            "-T",
-            "db",
-            "psql",
-            "-At",
-            "-F",
-            "\t",
-            "-v",
-            "ON_ERROR_STOP=1",
-            "-U",
-            "posthog",
-            target_db,
-            "-c",
-            sql,
-        ],
-        cwd=REPO_ROOT,
-        env=os.environ.copy(),
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return [line.split("\t") for line in result.stdout.splitlines() if line]
-
-
 def _product_routed_app_labels() -> list[str]:
     """App labels whose tables live in their own database, per products/db_routing.yaml."""
     config_path = _resolve_repo_path(PRODUCT_DB_ROUTING_PATH)
@@ -244,81 +214,27 @@ def _product_routed_app_labels() -> list[str]:
     return sorted(label for label in labels if APP_LABEL_RE.fullmatch(label))
 
 
-@dataclass(frozen=True, kw_only=True)
-class MigrationRecord:
-    """One row of django_migrations."""
+def _forget_product_app_migrations(target_db: str) -> None:
+    """Drop the dump's claim that product-routed apps are migrated in this database.
 
-    app: str
-    name: str
-
-
-def migrations_to_forget(
-    recorded: Iterable[MigrationRecord], product_app_labels: Iterable[str]
-) -> tuple[MigrationRecord, ...]:
-    """Pick the dump's migration records this database cannot honor.
-
-    The dump is taken from a CI database that routes product apps elsewhere, so `migrate` skipped
+    The dump is taken from a CI database that routes those apps elsewhere, so `migrate` skipped
     every operation in their migrations there while Django recorded them as applied anyway (it
     records whatever the router decides). Restored verbatim, that leaves a database asserting
     stamphog and visual_review are migrated without a single one of their tables — and an
     environment that configures no product database then applies their NEXT migration for real
-    and dies on the missing table. Forgetting the rows lets each consumer apply them under its own
+    and dies on the missing table. Clearing the rows lets each consumer replay them under its own
     routing: a no-op where the app is routed away, real tables where it isn't.
 
-    The squash schema-addons migrations go with them. Each one depends on the leaf squash of every
-    squashed app, the product-routed apps included, so a database that keeps an addons row while
-    its dependency row is gone fails Django's consistency check before `migrate` does anything.
-    Re-applying one is cheap: its operations probe the schema and skip what is already there.
-
-    Everything an app records after its addons migration depends on that addons migration, so it
-    fails the same check for the same reason and has to be forgotten too. The repo keeps one
-    migration line per app, so a name that sorts after the addons migration is a descendant of it.
-
-    Nothing is re-recorded here. The caller's own `migrate` applies every forgotten migration
-    against the restored schema, which is the only pass that sees this database's routing.
-    """
-    routed = set(product_app_labels)
-    by_app: dict[str, list[str]] = {}
-    for record in recorded:
-        by_app.setdefault(record.app, []).append(record.name)
-
-    forget: list[MigrationRecord] = []
-    for app, recorded_names in sorted(by_app.items()):
-        names = sorted(recorded_names)
-        if app in routed:
-            forget.extend(MigrationRecord(app=app, name=name) for name in names)
-            continue
-        addons = next((name for name in names if SQUASH_SCHEMA_ADDONS_NAME_RE.fullmatch(name)), None)
-        if addons is None:
-            continue
-        forget.extend(MigrationRecord(app=app, name=name) for name in names if name >= addons)
-
-    return tuple(forget)
-
-
-def _sql_string(value: str) -> str:
-    escaped = value.replace("'", "''")
-    return f"'{escaped}'"
-
-
-def _forget_product_app_migrations(target_db: str) -> None:
-    """Drop the dump's migration records this database cannot honor.
-
-    See `migrations_to_forget` for what goes and why.
+    Only these rows go. Every other row stays, so the caller's `migrate` never re-applies schema
+    the dump already holds. That holds as long as no migration outside a routed app depends on
+    one inside it; `posthog/test/repo_invariants/test_migration_dependencies_share_a_database.py`
+    keeps it that way.
     """
     app_labels = _product_routed_app_labels()
     if not app_labels:
         return
-    recorded = [
-        MigrationRecord(app=row[0], name=row[1])
-        for row in _psql_rows(target_db, "SELECT app, name FROM django_migrations;")
-    ]
-    forget = migrations_to_forget(recorded, app_labels)
-    if not forget:
-        return
-
-    pairs = ", ".join(f"({_sql_string(r.app)}, {_sql_string(r.name)})" for r in forget)
-    _psql_write(target_db, f"DELETE FROM django_migrations WHERE (app, name) IN ({pairs});")
+    in_list = ", ".join(f"'{label}'" for label in app_labels)
+    _psql_write(target_db, f"DELETE FROM django_migrations WHERE app IN ({in_list});")
 
 
 def restore_schema_dump(
