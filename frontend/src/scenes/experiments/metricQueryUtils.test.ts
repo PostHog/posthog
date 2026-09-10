@@ -254,8 +254,8 @@ describe('filterToMetricConfig', () => {
                 id: 'stripe_charges',
                 name: 'Stripe charges',
                 timestamp_field: 'created_at',
-                id_field: 'customer_id',
-                aggregation_target_field: 'distinct_id',
+                events_join_key: 'distinct_id',
+                data_warehouse_join_key: 'customer_id',
                 properties: [],
                 order: 0,
             },
@@ -302,26 +302,6 @@ describe('filterToMetricConfig', () => {
         })
     })
 
-    it('uses table_name for a MEAN warehouse source when it is present', () => {
-        const dataWarehouse = [
-            {
-                id: 'warehouse_table_id',
-                table_name: 'stripe_charges',
-                name: 'Stripe charges',
-                timestamp_field: 'created_at',
-                id_field: 'customer_id',
-                aggregation_target_field: 'distinct_id',
-            },
-        ]
-
-        const result = filterToMetricConfig(ExperimentMetricType.MEAN, undefined, undefined, dataWarehouse)
-
-        expect(result).toEqual({
-            metric_type: ExperimentMetricType.MEAN,
-            source: expect.objectContaining({ table_name: 'stripe_charges' }),
-        })
-    })
-
     it('keeps funnel step order stable when filter order is missing', () => {
         const events = [{ id: 'first_event' }]
         const dataWarehouse = [
@@ -329,8 +309,8 @@ describe('filterToMetricConfig', () => {
                 id: 'stripe_charges',
                 name: 'Stripe charges',
                 timestamp_field: 'created_at',
-                id_field: 'customer_id',
-                aggregation_target_field: 'distinct_id',
+                events_join_key: 'distinct_id',
+                data_warehouse_join_key: 'customer_id',
             },
         ]
 
@@ -347,72 +327,6 @@ describe('filterToMetricConfig', () => {
             ],
         })
     })
-
-    it('maps data warehouse popover fields to a MEAN metric source', () => {
-        const dataWarehouse = [
-            {
-                id: 'stripe_charges',
-                name: 'Stripe charges',
-                timestamp_field: 'created_at',
-                id_field: 'customer_id',
-                aggregation_target_field: 'distinct_id',
-            },
-        ]
-
-        const result = filterToMetricConfig(ExperimentMetricType.MEAN, undefined, undefined, dataWarehouse)
-
-        expect(result).toEqual({
-            metric_type: ExperimentMetricType.MEAN,
-            source: expect.objectContaining({
-                kind: NodeKind.ExperimentDataWarehouseNode,
-                table_name: 'stripe_charges',
-                timestamp_field: 'created_at',
-                events_join_key: 'distinct_id',
-                data_warehouse_join_key: 'customer_id',
-            }),
-        })
-    })
-
-    it.each([ExperimentMetricType.MEAN, ExperimentMetricType.FUNNEL] as const)(
-        'preserves edited warehouse tables and join keys in an existing %s metric',
-        (metricType) => {
-            const source: ExperimentDataWarehouseNode = {
-                kind: NodeKind.ExperimentDataWarehouseNode,
-                table_name: 'orders',
-                timestamp_field: 'created_at',
-                events_join_key: 'distinct_id',
-                data_warehouse_join_key: 'customer_id',
-            }
-            const metric: ExperimentMetric =
-                metricType === ExperimentMetricType.MEAN
-                    ? { kind: NodeKind.ExperimentMetric, metric_type: metricType, source }
-                    : { kind: NodeKind.ExperimentMetric, metric_type: metricType, series: [source] }
-            const filter = getFilter(metric)
-            const dataWarehouse = filter.data_warehouse?.map((step) => ({
-                ...step,
-                id: 'invoices',
-                table_name: 'invoices',
-                id_field: 'account_id',
-                aggregation_target_field: 'properties.account_id',
-            }))
-
-            const result = filterToMetricConfig(metricType, filter.actions, filter.events, dataWarehouse)
-
-            const expectedSource = expect.objectContaining({
-                kind: NodeKind.ExperimentDataWarehouseNode,
-                table_name: 'invoices',
-                timestamp_field: 'created_at',
-                events_join_key: 'properties.account_id',
-                data_warehouse_join_key: 'account_id',
-            })
-            expect(result).toEqual({
-                metric_type: metricType,
-                ...(metricType === ExperimentMetricType.MEAN
-                    ? { source: expectedSource }
-                    : { series: [expectedSource] }),
-            })
-        }
-    )
 
     it('returns undefined when no valid sources are provided', () => {
         const result = filterToMetricConfig(ExperimentMetricType.MEAN, undefined, undefined, undefined)

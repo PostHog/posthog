@@ -27,8 +27,8 @@ jest.mock('scenes/insights/filters/ActionFilter/ActionFilter', () => ({
                             id: 'stripe_charges',
                             name: 'Stripe charges',
                             timestamp_field: 'created_at',
-                            id_field: 'customer_id',
-                            aggregation_target_field: 'distinct_id',
+                            data_warehouse_join_key: 'customer_id',
+                            events_join_key: 'distinct_id',
                             order: 0,
                         },
                     ],
@@ -59,7 +59,7 @@ describe('ExperimentMetricForm', () => {
         )
 
         const selectStep = screen.getByTestId('select-data-warehouse-step')
-        expect(selectStep.textContent).toBe('timestamp_field,id_field,aggregation_target_field')
+        expect(selectStep.textContent).toBe('timestamp_field,data_warehouse_join_key,events_join_key')
 
         await userEvent.click(selectStep)
 
