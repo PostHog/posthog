@@ -43,6 +43,7 @@ And only ever forget keys you wrote: `scout-scratchpad-forget` deletes by exact 
 | `reviewer:`   | A resolved owner (bare lowercase GitHub login), keyed `reviewer:<domain>:<area>`, so the next run sets `suggested_reviewers` without re-resolving.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 Format: `<prefix>:<domain>:<entity>` — e.g. `pattern:error_tracking:baseline`, `noise:logs:rabbitmq-deploy-window`, `dedupe:csp_violations:a1b2c3d4`.
+**Never put a date in a key.** Key off the stable identity of the thing and keep the dates in the content, so a re-confirming run updates one row rather than adding another the next run won't match.
 The self-driving implementation run writes here too, under `pattern:impl:<repository>:<area>`, recording what it worked out about that repository while acting on a report.
 Each canonical specialist has its own `<domain>` label (`error_tracking`, `logs`, `llm_analytics`, `experiments`, `feature-flags`, `session-replay`, `web-analytics`, `pipelines`, `health`, …) — not a closed set.
 A new scout introduces its own domain label and reuses the prefixes; match the label a surface's existing entries already use.
@@ -63,14 +64,14 @@ A new scout introduces its own domain label and reuses the prefixes; match the l
 Good entries are **future-run actionable** — the next scout reads them and changes behavior:
 
 ```text
-key:     dedupe:error_tracking:019de34e-2026-05-01
+key:     dedupe:error_tracking:019de34e
 content: "2026-05-01: surfaced UndefinedTable on access_control_propertyaccesscontrol
          (issue 019de34e...) — 434 users hit it 11:31-13:22 UTC, then stopped. If a future
          run sees this issue still firing, escalate; if quiet since 13:22, treat as
          already-surfaced."
 ```
 
-Why it works: dated, names the entity id, gives a clear conditional ("still firing → escalate; quiet → skip"), bounded by a precise time anchor, and the key prefix makes it findable.
+Why it works: the key is the bare entity id and the dates live in the content, so re-confirming rewrites this same row instead of minting a second one the gate can't match. It names the entity id, gives a clear conditional ("still firing → escalate; quiet → skip"), bounded by a precise time anchor, and the key prefix makes it findable.
 Bad entry: key `note-1`, content "we have errors today, FYI" — no actionability, no entity, no condition, uncategorized key the next run can't find or act on.
 
 Give your scout 2–3 worked example entries scoped to its surface so each run matches the format instead of inventing its own.
