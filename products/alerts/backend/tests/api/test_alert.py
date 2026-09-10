@@ -2,7 +2,7 @@ from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 
@@ -1199,7 +1199,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             ("monthly", "monthly", "2026-04-01T09:35:00+00:00"),
         ]
     )
-    @freeze_time("2026-03-18T09:30:00Z")
+    @time_machine.travel("2026-03-18T09:30:00Z", tick=False)
     def test_create_alert_with_schedule_start_time(
         self, _name: str, calculation_interval: str, expected_next_check_at: str
     ) -> None:
@@ -1239,7 +1239,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             ("monthly", "monthly"),
         ]
     )
-    @freeze_time("2026-03-18T09:00:00Z")
+    @time_machine.travel("2026-03-18T09:00:00Z", tick=False)
     def test_patch_schedule_start_time_keeps_the_current_next_check(
         self, _name: str, calculation_interval: str
     ) -> None:
@@ -1275,7 +1275,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.json()["schedule_start_time"] == "08:35"
         assert datetime.fromisoformat(response.json()["next_check_at"].replace("Z", "+00:00")) == scheduled_check
 
-    @freeze_time("2026-03-18T09:00:00Z")
+    @time_machine.travel("2026-03-18T09:00:00Z", tick=False)
     def test_patch_schedule_start_time_with_schedule_restriction_keeps_the_current_next_check(self) -> None:
         alert = self.client.post(
             f"/api/projects/{self.team.id}/alerts",
@@ -1351,7 +1351,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "name": "snap next",
             "calculation_interval": "hourly",
         }
-        with freeze_time("2026-04-06T14:00:00Z"):
+        with time_machine.travel("2026-04-06T14:00:00Z", tick=False):
             alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request, format="json").json()
             AlertConfiguration.objects.filter(pk=alert["id"]).update(
                 next_check_at=datetime(2026, 4, 6, 15, 30, tzinfo=UTC),
