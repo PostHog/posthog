@@ -10,7 +10,6 @@ import {
   EmptyMedia,
   EmptyTitle,
   MenuLabel,
-  Spinner,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { SignalReport } from "@posthog/shared/types";
@@ -32,6 +31,8 @@ import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMa
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { track } from "@posthog/ui/shell/analytics";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import {
@@ -198,9 +199,7 @@ export function ActivityFeedList({
           className="sidebar-autocomplete-tree scroll-mask-8 !max-h-none !p-1.5 min-h-0 flex-1 overflow-y-auto"
         >
           {isLoading && feedItems.length === 0 ? (
-            <div className="flex justify-center py-10">
-              <Spinner />
-            </div>
+            <LoadingState className="py-10" />
           ) : searchedFeedItems.length === 0 ? (
             <Empty className="border-0 py-8">
               <EmptyHeader>

@@ -169,6 +169,22 @@ describe('logs utils', () => {
                 undefined,
                 null,
             ],
+            [
+                // Without an own-property check these resolve to the Object.prototype member,
+                // which is truthy and would be returned as though the attribute held it.
+                'a configured key naming an Object.prototype member resolves nothing',
+                ['constructor'],
+                { $session_id: 'builtin' },
+                undefined,
+                'builtin',
+            ],
+            [
+                'an Object.prototype member name resolves nothing when no convention key is present',
+                ['valueOf'],
+                { 'http.method': 'GET' },
+                undefined,
+                null,
+            ],
         ])('%s', (_, configuredKeys, attributes, resourceAttributes, expected) => {
             expect(
                 getSessionIdFromLogAttributes(

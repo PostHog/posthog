@@ -287,9 +287,31 @@ def clear_channel_repositories_on_github_integration_delete(
     if instance.kind != Integration.IntegrationKind.GITHUB:
         return
 
+    affected = list(
+        Channel.objects.for_team(instance.team_id)
+        .filter(github_integration_id=instance.id)
+        .values_list("id", "repositories")
+    )
     Channel.objects.for_team(instance.team_id).filter(github_integration_id=instance.id).update(
         github_integration=None,
         repositories=[],
+    )
+    if not affected:
+        return
+    # One aggregate row, not one per Space: this path can touch every Space bound to the
+    # integration, and the question it answers is "repos went to zero here", not which.
+    from products.tasks.backend.repository_config_analytics import capture_repository_config_changed
+
+    capture_repository_config_changed(
+        team=instance.team,
+        user_id=None,
+        subject="space",
+        trigger="github_integration_disconnected",
+        previous_repositories=[repo for _, repositories in affected for repo in (repositories or [])],
+        repositories=[],
+        previous_integration_id=instance.id,
+        integration_id=None,
+        affected_space_count=len(affected),
     )
 
 
@@ -357,8 +379,10 @@ class Task(DeletedMetaFields, models.Model):
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False, related_name="+"
+    )
     task_number = models.IntegerField(null=True, blank=True)
     title = models.CharField(max_length=255)
     title_manually_set = models.BooleanField(default=False)
@@ -380,6 +404,7 @@ class Task(DeletedMetaFields, models.Model):
         blank=True,
         limit_choices_to={"kind": "github"},
         help_text="GitHub integration for this task",
+        related_name="+",
     )
     # Keep the selected personal installation as a preference for deterministic
     # authorship when a user has multiple GitHub installations. SET_NULL on
@@ -392,6 +417,7 @@ class Task(DeletedMetaFields, models.Model):
         db_index=False,
         limit_choices_to={"kind": "github"},
         help_text="User-scoped GitHub integration used for user-authored task runs",
+        related_name="+",
     )
 
     repository = models.CharField(
@@ -613,6 +639,8 @@ class Task(DeletedMetaFields, models.Model):
             }
             if self.origin_key:
                 all_properties["origin_key"] = self.origin_key
+            if self.channel_id:
+                all_properties["channel_id"] = str(self.channel_id)
             if properties:
                 all_properties.update(properties)
             (capture_fn or posthoganalytics.capture)(
@@ -751,6 +779,8 @@ class Task(DeletedMetaFields, models.Model):
             state: dict = {} if task.runtime == Task.Runtime.PI else {"mode": mode}
             if extra_state:
                 state.update({k: v for k, v in extra_state.items() if k != "mode"})
+            if state.get("claude_model_access") == "own-subscription":
+                state["claude_subscription_user_id"] = acting_user_id or task.created_by_id
             state.setdefault("repositories", task.repositories or ([task.repository] if task.repository else []))
             # A workflow task's later runs must keep the connector allowlist selected by the workflow.
             if task.origin_product == Task.OriginProduct.WORKFLOW and "config_snapshot" not in state:
@@ -923,6 +953,7 @@ class Task(DeletedMetaFields, models.Model):
         hog_flow_id: uuid.UUID | None = None,
         origin_key: str | None = None,
         ai_stage: str | None = None,
+        ai_agent_name: str | None = None,
         sandbox_environment_id: str | None = None,
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
@@ -1119,6 +1150,11 @@ class Task(DeletedMetaFields, models.Model):
         if ai_stage:
             extra_state["ai_stage"] = ai_stage
 
+        # The team-scoped name of the agent this run executes. `ai_stage` is a fleet-wide tag with
+        # bounded cardinality, so callers that run team-authored agents cannot name them there.
+        if ai_agent_name:
+            extra_state["ai_agent_name"] = ai_agent_name
+
         if initial_permission_mode:
             extra_state["initial_permission_mode"] = initial_permission_mode
 
@@ -1269,6 +1305,7 @@ class Task(DeletedMetaFields, models.Model):
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
         ai_stage: str | None = None,
+        ai_agent_name: str | None = None,
         wizard_config: dict | None = None,
         wizard_head_branch: str | None = None,
         self_driving_head_branch: str | None = None,
@@ -1316,6 +1353,7 @@ class Task(DeletedMetaFields, models.Model):
             sandbox_timeout_seconds=sandbox_timeout_seconds,
             inactivity_timeout_seconds=inactivity_timeout_seconds,
             ai_stage=ai_stage,
+            ai_agent_name=ai_agent_name,
             wizard_config=wizard_config,
             wizard_head_branch=wizard_head_branch,
             self_driving_head_branch=self_driving_head_branch,
@@ -2110,7 +2148,7 @@ class TaskRun(models.Model):
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     # Copy of the parent task's origin_product, populated on creation and never changed.
     # It lets the per-minute monitoring gauges group by origin_product without joining
     # posthog_task on every run row. See `collect_task_run_state_metrics`.
@@ -3095,7 +3133,9 @@ class TaskWorkflowDispatch(TeamScopedRootMixin):
         DEAD = "dead", "dead"
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False)
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
     task_run = models.ForeignKey(TaskRun, on_delete=models.CASCADE, related_name="workflow_dispatches", db_index=False)
     workflow_id = models.CharField(max_length=512)
     dispatch_kind = models.CharField(max_length=16, choices=Kind.choices)
@@ -3412,7 +3452,7 @@ class SandboxSnapshot(UUIDModel):
     integration = models.ForeignKey(
         Integration,
         on_delete=models.SET_NULL,
-        related_name="snapshots",
+        related_name="+",
         null=True,
         blank=True,
     )
@@ -3517,8 +3557,8 @@ class SandboxEnvironment(UUIDModel):
         FULL = "full", "Full"
         CUSTOM = "custom", "Custom"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     name = models.CharField(max_length=255)
 
@@ -3743,10 +3783,7 @@ class SandboxCustomImage(TeamScopedRootMixin):
 
 class DesktopBetaTermsAcceptance(models.Model):
     organization = models.OneToOneField(
-        "posthog.Organization",
-        on_delete=models.CASCADE,
-        primary_key=True,
-        db_constraint=False,
+        "posthog.Organization", on_delete=models.CASCADE, primary_key=True, db_constraint=False, related_name="+"
     )
     accepted_by_user_id = models.BigIntegerField()
     accepted_at = models.DateTimeField(auto_now_add=True)

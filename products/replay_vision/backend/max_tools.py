@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from rest_framework.exceptions import Throttled
 
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.event_usage import EventSource
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -1080,7 +1081,13 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
                 "sampling_rate": sampling_rate,
                 "enabled": enabled,
             },
-            context={"get_team": lambda: self._team, "user": self._user},
+            # No HTTP request here, so the surface can't be derived from one. Declared instead, or
+            # the creation-flow comparison counts a scanner Max made as one nobody can account for.
+            context={
+                "get_team": lambda: self._team,
+                "user": self._user,
+                "event_source": EventSource.POSTHOG_AI,
+            },
         )
         if not serializer.is_valid():
             return _first_error(serializer.errors), {"error": "invalid_config"}

@@ -13,13 +13,16 @@ import { join } from "node:path";
 import { initOtelTransport } from "@main/utils/otel-log-transport";
 import type ElectronLog from "electron-log";
 import log from "electron-log/main";
+import { isTestChannelBuild } from "./build-channel";
 import { isDevBuild } from "./env";
 
 const isDev = process.env.NODE_ENV === "development" || isDevBuild();
 const LOG_DIR = join(
   os.homedir(),
   ".posthog-code",
-  isDev ? "logs-dev" : "logs",
+  // A test build can run beside a release build, so its logs need their own
+  // directory or the two writers would rotate the same file.
+  isDev ? "logs-dev" : isTestChannelBuild() ? "logs-test" : "logs",
 );
 const LOG_FILE = "main.log";
 const NETWORK_LOG_FILE = "network.log";
