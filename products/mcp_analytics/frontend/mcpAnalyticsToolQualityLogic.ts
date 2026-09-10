@@ -184,7 +184,7 @@ export interface mcpAnalyticsToolQualityLogicActions {
     setPropertyFilters: (properties: import('~/types').AnyPropertyFilter[]) => {
         properties: import('~/types').AnyPropertyFilter[]
     } // mcpAnalyticsFiltersLogic
-    loadAvailableCategories: () => any
+    loadAvailableCategories: (_: void) => void
     loadAvailableCategoriesFailure: (
         error: string,
         errorObject?: any
@@ -194,12 +194,12 @@ export interface mcpAnalyticsToolQualityLogicActions {
     }
     loadAvailableCategoriesSuccess: (
         availableCategories: string[],
-        payload?: any
+        payload?: void
     ) => {
         availableCategories: string[]
-        payload?: any
+        payload?: void
     }
-    loadCategoryCounts: () => any
+    loadCategoryCounts: (_: void) => void
     loadCategoryCountsFailure: (
         error: string,
         errorObject?: any
@@ -209,10 +209,10 @@ export interface mcpAnalyticsToolQualityLogicActions {
     }
     loadCategoryCountsSuccess: (
         categoryCounts: CategoryCount[],
-        payload?: any
+        payload?: void
     ) => {
         categoryCounts: CategoryCount[]
-        payload?: any
+        payload?: void
     }
     loadDailyStats: (_: void) => void
     loadDailyStatsFailure: (
@@ -376,7 +376,10 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
         availableCategories: [
             [] as string[],
             {
-                loadAvailableCategories: async (): Promise<string[]> => {
+                // Guarded with breakpoint: the shared filters can now change while this is in flight, and
+                // without it a stale response from before the change could resolve last and overwrite the
+                // scope selector with categories that no longer match the current filters.
+                loadAvailableCategories: async (_: void, breakpoint): Promise<string[]> => {
                     // Fixed 30-day window so the scope selector lists every category regardless of the tab's
                     // date filter, though the shared property filters and test-account switch still narrow it.
                     const response = (await api.query({
@@ -384,6 +387,7 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                         dateRange: { date_from: '-30d' },
                         ...values.sharedQueryFilters,
                     })) as { results?: MCPToolCategoryItem[] }
+                    breakpoint()
                     return (response.results ?? []).map((r) => r.category).filter(Boolean)
                 },
             },
@@ -391,12 +395,15 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
         categoryCounts: [
             [] as CategoryCount[],
             {
-                loadCategoryCounts: async (): Promise<CategoryCount[]> => {
+                // Guarded with breakpoint for the same reason as loadAvailableCategories: this now
+                // reloads on filter changes too, so a stale in-flight response must not win the race.
+                loadCategoryCounts: async (_: void, breakpoint): Promise<CategoryCount[]> => {
                     const response = (await api.query({
                         kind: NodeKind.MCPToolCategoryCountsQuery,
                         dateRange: { date_from: values.dateFilter.dateFrom, date_to: values.dateFilter.dateTo },
                         ...values.sharedQueryFilters,
                     })) as { results?: MCPToolCategoryCountItem[] }
+                    breakpoint()
                     return (response.results ?? []).map((r) => ({ category: r.category, calls: r.calls }))
                 },
             },
