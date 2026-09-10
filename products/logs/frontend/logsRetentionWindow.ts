@@ -12,7 +12,7 @@ export const LOGS_RETENTION_DATE_FORMAT = 'YYYY-MM-DD'
 
 export interface LogsRetentionWindow {
     retentionDays: number
-    /** Oldest timestamp the environment default still keeps. */
+    /** Midnight opening the oldest day the environment default still keeps. */
     start: dayjs.Dayjs
     /** True when the whole requested range sits before `start`, so no part of it can return logs. */
     coversWholeRange: boolean
@@ -23,8 +23,13 @@ export function resolveLogsRetentionDays(logsSettings: LogsSettings | null | und
     return typeof days === 'number' && days > 0 ? days : DEFAULT_LOGS_RETENTION_DAYS
 }
 
+/**
+ * Rounded down to midnight, because deletion drops whole day partitions: the logs of the cutoff day
+ * survive until that day ends. It also keeps the cutoff on the day boundary the messages print, so a
+ * range that starts on the cutoff day is never reported as older than the window.
+ */
 export function logsRetentionWindowStart(retentionDays: number, timezone: string): dayjs.Dayjs {
-    return dayjs().tz(timezone).subtract(retentionDays, 'days')
+    return dayjs().tz(timezone).subtract(retentionDays, 'days').startOf('day')
 }
 
 /**

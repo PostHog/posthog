@@ -7,6 +7,8 @@ import { DEFAULT_LOGS_RETENTION_DAYS, logsRangeBeyondRetention, resolveLogsReten
 
 // Ranges are written relative to now, so no case expires as the real clock moves.
 const daysAgo = (days: number): string => dayjs().subtract(days, 'days').toISOString()
+const startOfDayDaysAgo = (days: number, minutesEarlier = 0): string =>
+    dayjs().subtract(days, 'days').startOf('day').subtract(minutesEarlier, 'minutes').toISOString()
 
 describe('logsRetentionWindow', () => {
     it.each<[string, LogsSettings | null | undefined, number]>([
@@ -27,6 +29,9 @@ describe('logsRetentionWindow', () => {
         // The report's case: raising retention to 30 days stops warning about a 20-day range.
         ['a 20-day range on the 30-day tier', { date_from: '-20d', date_to: null }, 30, null],
         ['a 20-day range on the 14-day tier', { date_from: '-20d', date_to: null }, 14, false],
+        // Deletion drops whole day partitions, so the cutoff day itself still holds logs.
+        ['a start at midnight on the cutoff day', { date_from: startOfDayDaysAgo(14), date_to: null }, 14, null],
+        ['a start one minute before that midnight', { date_from: startOfDayDaysAgo(14, 1), date_to: null }, 14, false],
         ['an absolute range wholly before the window', { date_from: daysAgo(60), date_to: daysAgo(40) }, 14, true],
         ['an absolute range straddling the window', { date_from: daysAgo(60), date_to: daysAgo(2) }, 14, false],
         // The query runner defaults a missing start to a window inside every retention tier.
