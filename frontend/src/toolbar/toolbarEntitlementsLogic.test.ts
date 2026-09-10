@@ -12,6 +12,7 @@ import {
     toolbarEntitlementsLogic,
     toolbarFeatureGateStatus,
 } from '~/toolbar/toolbarEntitlementsLogic'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { AvailableFeature } from '~/types'
 
@@ -70,7 +71,9 @@ describe('toolbarEntitlementsLogic', () => {
         expect(logic.values.isEntitled(AvailableFeature.TOOLBAR_HEATMAPS)).toBe(false)
     })
 
-    it.each([403, 500])('denies access when the endpoint returns %s', async (status) => {
+    it.each([403, 500])('denies access and reports the failure when the endpoint returns %s', async (status) => {
+        const capture = jest.spyOn(toolbarPosthogJS, 'capture')
+        const warn = jest.spyOn(toolbarLogger, 'warn')
         useMocks({
             get: {
                 '/api/user/toolbar_entitlements': () => [status, {}],
@@ -84,6 +87,12 @@ describe('toolbarEntitlementsLogic', () => {
             .toMatchValues({ entitlements: null })
 
         expect(logic.values.isEntitled(AvailableFeature.TOOLBAR_HEATMAPS)).toBe(false)
+        expect(capture).toHaveBeenCalledWith(
+            'toolbar api request',
+            expect.objectContaining({ pathname: '/api/user/toolbar_entitlements', status })
+        )
+        expect(warn).toHaveBeenCalledWith('entitlements', expect.any(String), expect.objectContaining({ status }))
+        jest.restoreAllMocks()
     })
 
     it('keeps an open heatmap disabled until access is confirmed and disables it after access is lost', async () => {
