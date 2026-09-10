@@ -87,6 +87,7 @@ jobs:
                       # edit leaves the lockfile untouched.
                       build_inputs:
                         - .github/workflows/container-images-ci.yml
+                        - .github/workflows/container-images-label-ci.yml
                         - .github/actions/build-n-cache-image/**
                         - .dockerignore
                         - pnpm-lock.yaml

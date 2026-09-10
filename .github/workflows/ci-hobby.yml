@@ -29,7 +29,7 @@ concurrency:
                     && contains(fromJSON('["hobby-preview", "no-depot-docker-cache"]'), github.event.label.name))
                 || (github.event.action == 'unlabeled' && github.event.label.name == 'hobby-preview')
             )
-            && format('ignored-label-{0}', github.run_id)
+            && format('ignored-label-{0}', github.event.label.name)
             || github.head_ref || github.ref
         }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
