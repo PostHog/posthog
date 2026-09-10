@@ -637,7 +637,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         forecastSimulationResult: [
             null as ForecastSimulateResponseApi | null,
             {
-                simulateForecast: async (): Promise<ForecastSimulateResponseApi | null> => {
+                simulateForecast: async (_, breakpoint): Promise<ForecastSimulateResponseApi | null> => {
                     const forecastConfig = values.alertForm.forecast_config
                     if (!forecastConfig || !props.insightId || !values.currentTeamId) {
                         lemonToast.error('Simulation is not available yet. Try again in a moment.')
@@ -661,21 +661,27 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         )
                     // An edit during the request already cleared the preview, so a late answer must
                     // neither put old forecast data back next to the new settings nor report a
-                    // failure about settings the user has since changed.
+                    // failure about settings the user has since changed. A close and reopen needs a
+                    // separate guard, because the editor keys on the alert, so both sessions answer
+                    // to these same action types. Only the breakpoint kea bumps on unmount tells
+                    // them apart, which is why it runs outside the snapshot check below.
+                    let response: ForecastSimulateResponseApi
                     try {
-                        const response = await alertsSimulateForecastCreate(String(values.currentTeamId), {
+                        response = await alertsSimulateForecastCreate(String(values.currentTeamId), {
                             insight: props.insightId,
                             forecast_config: forecastConfig as unknown as ForecastConfigApi,
                             series_index: isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0,
                             date_from: dateFrom,
                         })
-                        return settledInputs() === requestedInputs ? response : null
                     } catch (error) {
                         if (settledInputs() !== requestedInputs) {
                             return null
                         }
+                        breakpoint()
                         throw error
                     }
+                    breakpoint()
+                    return settledInputs() === requestedInputs ? response : null
                 },
             },
         ],

@@ -827,6 +827,39 @@ describe('alertFormLogic', () => {
             expect(logic.values.forecastSimulationResult).toBeNull()
         })
 
+        // Closing the editor unmounts the logic, and reopening the same alert rebuilds it on the
+        // same key, so both sessions answer to these action types. A run the closed session started
+        // must not draw a chart the reopened one never asked for.
+        it('drops a run that settles after the editor closed and reopened', async () => {
+            const mockResponse = {
+                data: [1, 2, 3],
+                dates: ['2026-01-01', '2026-01-02', '2026-01-03'],
+                interval: 'day',
+                forecast_dates: ['2026-01-04'],
+                forecast_yhat: [4],
+                forecast_lower: [3],
+                forecast_upper: [5],
+                target_projection: null,
+            }
+            let deliverResponse: (value: unknown) => void = () => {}
+            ;(alertsSimulateForecastCreate as jest.Mock).mockReturnValueOnce(
+                new Promise((resolve) => {
+                    deliverResponse = resolve
+                })
+            )
+            const logic = mountForecastForm()
+            logic.actions.simulateForecast()
+            logic.unmount()
+
+            const reopened = mountForecastForm()
+            deliverResponse(mockResponse)
+
+            await expectLogic(reopened).toFinishAllListeners()
+
+            expect(reopened.values.forecastSimulationResult).toBeNull()
+            expect(captureSpy).not.toHaveBeenCalledWith('alert simulation run', expect.anything())
+        })
+
         // The run never receives the threshold, and ForecastPreview redraws the goal lines and the
         // crossing marker from the bounds in the form, so tuning a bound must not force another fit.
         it('keeps the result when a threshold bound changes', async () => {
