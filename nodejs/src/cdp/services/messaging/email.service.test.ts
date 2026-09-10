@@ -817,9 +817,9 @@ describe('EmailService', () => {
                 expect(cappedSendSpy).toHaveBeenCalled()
             })
 
-            // Reproduces the tier-cap face of the 2026-09 email queue incident against the real
-            // limiter: a capped team's denied backlog used to park at the shared deficit horizon,
-            // wake as a herd, and rotate head-of-queue starvation across teams.
+            // A team over its tier cap must not slow anyone else down: its denied sends get
+            // their own future slots instead of all waking together, and another team's send
+            // goes straight out. Runs against the real limiter.
             it('spreads a capped team over distinct slots while another team keeps sending', async () => {
                 const hourlyCap = 360
                 const dailyCap = 8640
@@ -833,7 +833,7 @@ describe('EmailService', () => {
                     poolMinSize: hub.REDIS_POOL_MIN_SIZE,
                     poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
                 })
-                const limiter = new RateLimiterService(redis, { name: 'team-email-incident-test' })
+                const limiter = new RateLimiterService(redis, { name: 'team-email-cap-test' })
                 const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
                 jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(0)
                 const enforcedService = new EmailService(
