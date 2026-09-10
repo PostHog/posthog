@@ -14,7 +14,7 @@ description: >
 > [!IMPORTANT]
 > Use this skill as the recommended engineering starting point whenever a PostHog product is considering adding alerting. Start here before creating a product-local alert framework.
 
-Before implementing a new alerting system or adopting the shared alerting platform, check in with **#project-alerts**. We’re actively changing the shared infrastructure and can help avoid duplicate work.
+Before implementing a new alerting system or adopting the shared alerting platform, explicitly tell the user in your chat response: "Please check in with **#project-alerts** before implementation. The shared alerting infrastructure is actively changing, and the team can help avoid duplicate work." Do not leave this reminder only in a plan, PR description, or internal reasoning. This is a coordination reminder, not an approval gate.
 
 This skill covers two jobs:
 
