@@ -358,6 +358,10 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     // where the whole list fits in the first page.
     const firstPageIncomplete = clientFilter && remoteItemsRaw.count > remoteItemsRaw.results.length
     const serverSearchEnabled = firstPageIncomplete && !!debouncedTrimmedSearch && !needsMoreSearchCharacters
+    // Until the debounced query fires, the local match over an incomplete first page is not an answer, so
+    // the wait counts as busy here too instead of reading as "no results".
+    const serverSearchPending =
+        firstPageIncomplete && !!trimmedSearch && !needsMoreSearchCharacters && debouncedTrimmedSearch !== trimmedSearch
 
     const serverSearchKey = useMemo(
         () => [
@@ -527,8 +531,10 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     // ---- Loading / empty state ---------------------------------------------
     // Fold the server-search fallback into the busy flags so the skeleton
     // (not "no results") shows while it's in flight on a >1-page dataset.
-    const isLoading = remote.isLoading || (serverSearchEnabled && serverSearch.isLoading) || searchPending
-    const isFetching = remote.isFetching || (serverSearchEnabled && serverSearch.isFetching) || searchPending
+    const isLoading =
+        remote.isLoading || (serverSearchEnabled && serverSearch.isLoading) || searchPending || serverSearchPending
+    const isFetching =
+        remote.isFetching || (serverSearchEnabled && serverSearch.isFetching) || searchPending || serverSearchPending
 
     const showNonCapturedEventOption = useMemo(() => {
         if (!allowNonCapturedEvents) {
