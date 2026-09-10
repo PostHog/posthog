@@ -9,7 +9,7 @@ import {
     processResultsForSurveyQuestions,
     surveyLogic,
 } from 'scenes/surveys/surveyLogic'
-import { OpenEndedColumnMap } from 'scenes/surveys/utils'
+import { OpenEndedColumnMap, SURVEY_RESPONSE_CONTEXT_COLUMNS } from 'scenes/surveys/utils'
 
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -1328,6 +1328,49 @@ describe('survey filters', () => {
         expect(query).toContain('argMaxIf(')
         expect(query).not.toContain('HAVING countIf(is_completed_event) > 0')
     })
+
+    it.each([...SURVEY_RESPONSE_CONTEXT_COLUMNS])(
+        'selects the $key respondent context column only when it is turned on',
+        async ({ key }) => {
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+            }).toDispatchActions(['loadSurveySuccess'])
+
+            const queryFor = (): string => {
+                const source = logic.values.dataTableQuery?.source
+                if (!source) {
+                    throw new Error('dataTableQuery was not built')
+                }
+                return (source as { query: string }).query
+            }
+            // The table keys each column off its alias, so the alias has to match the column key.
+            // Deriving it here rather than reading `expression` keeps a typo in that string visible.
+            const aliasFor = (columnKey: string): string => `${columnKey} AS ${columnKey}`
+
+            expect(queryFor()).not.toContain(aliasFor(key))
+            expect(queryFor()).not.toContain('$current_url')
+
+            await expectLogic(logic, () => {
+                logic.actions.setResponseContextColumn(key, true)
+            }).toDispatchActions(['setResponseContextColumn'])
+
+            const query = queryFor()
+            expect(query).toContain(aliasFor(key))
+            for (const other of SURVEY_RESPONSE_CONTEXT_COLUMNS.filter((column) => column.key !== key)) {
+                expect(query).not.toContain(aliasFor(other.key))
+            }
+            // The row actions column has to stay rightmost, so context columns go before it.
+            expect(query.indexOf(aliasFor(key))).toBeLessThan(query.indexOf('uuid AS actions'))
+            // Only the current URL column makes the subquery read a property.
+            expect(query.includes('$current_url')).toBe(key === 'current_url')
+
+            await expectLogic(logic, () => {
+                logic.actions.setResponseContextColumn(key, false)
+            }).toDispatchActions(['setResponseContextColumn'])
+            expect(queryFor()).not.toContain(aliasFor(key))
+            expect(queryFor()).not.toContain('$current_url')
+        }
+    )
 
     it('keeps question text out of the generated HogQL', async () => {
         // Regression for the "Unexpected character U+00E9" crash on the Survey Results tab: a question

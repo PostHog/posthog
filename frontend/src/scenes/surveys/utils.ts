@@ -745,7 +745,10 @@ function buildMergedSubmissionsSubquery(
     survey: Survey,
     filters: SurveyQueryFilters,
     questions: QuestionWithIndex[],
-    { includeRespondentMetadata = false }: { includeRespondentMetadata?: boolean } = {}
+    {
+        includeRespondentMetadata = false,
+        includeCurrentUrl = false,
+    }: { includeRespondentMetadata?: boolean; includeCurrentUrl?: boolean } = {}
 ): string {
     const completedEventExpr = `event = '${SurveyEventName.SENT}' AND ${buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_COMPLETED, 'false')}`
 
@@ -761,6 +764,10 @@ function buildMergedSubmissionsSubquery(
                   'person.properties AS person_properties',
               ]
             : []),
+        // No caller selects `current_url` unless the user turns its column on. An unconditional
+        // read costs every responses query a property read and an argMax. The other metadata
+        // columns above always reach a caller, so they stay unconditional.
+        ...(includeCurrentUrl ? ['properties.`$current_url` AS current_url'] : []),
         `${completedEventExpr} AS is_completed_event`,
         'event',
         ...questions.map(({ question, index }) => `${getSurveyResponse(question, index)} AS ${rawAnswerAlias(index)}`),
@@ -783,6 +790,7 @@ function buildMergedSubmissionsSubquery(
                   'argMax(event, tuple(timestamp, event_uuid)) AS latest_event',
               ]
             : []),
+        ...(includeCurrentUrl ? ['argMax(current_url, tuple(timestamp, event_uuid)) AS current_url'] : []),
         ...questions.map(({ question, index }) => {
             const raw = rawAnswerAlias(index)
             return `argMaxIf(${raw}, tuple(timestamp, event_uuid), ${buildAnswerPresenceExpr(raw, question)}) AS ${mergedAnswerAlias(index)}`
@@ -891,9 +899,28 @@ export function transformSurveyResponseRows(rows: DataTableRow[], survey: Pick<S
     })
 }
 
-export function buildSurveyResponsesQuery(survey: Survey, filters: SurveyQueryFilters): string {
+/**
+ * Optional respondent context columns for the responses table. The table selects only the ones
+ * the user turned on, so the export carries the same columns the table shows.
+ */
+export const SURVEY_RESPONSE_CONTEXT_COLUMNS = [
+    { key: 'person_id', label: 'Person ID', expression: 'person_id AS person_id' },
+    { key: 'session_id', label: 'Session ID', expression: 'session_id AS session_id' },
+    { key: 'current_url', label: 'Current URL', expression: 'current_url AS current_url' },
+] as const
+
+export type SurveyResponseContextColumn = (typeof SURVEY_RESPONSE_CONTEXT_COLUMNS)[number]['key']
+
+export function buildSurveyResponsesQuery(
+    survey: Survey,
+    filters: SurveyQueryFilters,
+    contextColumns: SurveyResponseContextColumn[] = []
+): string {
     const questions = getAnswerableQuestions(survey)
-    const merged = buildMergedSubmissionsSubquery(survey, filters, questions, { includeRespondentMetadata: true })
+    const merged = buildMergedSubmissionsSubquery(survey, filters, questions, {
+        includeRespondentMetadata: true,
+        includeCurrentUrl: contextColumns.includes('current_url'),
+    })
     const answers = survey.questions.map((question, index) =>
         question.type !== SurveyQuestionType.Link ? mergedAnswerAlias(index) : 'NULL'
     )
@@ -906,6 +933,10 @@ export function buildSurveyResponsesQuery(survey: Survey, filters: SurveyQueryFi
         'outcome AS status',
         'submitted_at AS timestamp',
         'distinct_id AS respondent',
+        ...SURVEY_RESPONSE_CONTEXT_COLUMNS.filter((column) => contextColumns.includes(column.key)).map(
+            (column) => column.expression
+        ),
+        // Last, so the row actions stay in the rightmost column.
         'uuid AS actions',
     ]
     return `SELECT ${columns.join(',\n')} FROM (${merged}) ORDER BY submitted_at DESC`

@@ -22,6 +22,7 @@ import {
 } from '~/types'
 
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
+import { SURVEY_RESPONSE_CONTEXT_COLUMNS, type SurveyResponseContextColumn } from './utils'
 
 const MOCK_BASIC_SURVEY: Survey = {
     id: '0187c279-bcae-0000-34f5-4f121921f005',
@@ -292,21 +293,124 @@ const MOCK_SURVEY_AGGREGATE_RESULTS = {
     ],
 }
 
-// Rows from the base-stats query: [event_name, total_count, unique_persons, first_seen, last_seen].
+// Rows from the base-stats query: [event_name, total_count, unique_persons, first_seen, last_seen, outcome_counts].
 const MOCK_SURVEY_BASE_STATS = {
-    columns: ['event_name', 'total_count', 'unique_persons', 'first_seen', 'last_seen'],
+    columns: ['event_name', 'total_count', 'unique_persons', 'first_seen', 'last_seen', 'outcome_counts'],
     types: [
         ['event_name', 'String'],
         ['total_count', 'UInt64'],
         ['unique_persons', 'UInt64'],
         ['first_seen', "Nullable(DateTime64(6, 'UTC'))"],
         ['last_seen', "Nullable(DateTime64(6, 'UTC'))"],
+        ['outcome_counts', 'Tuple(UInt64, UInt64, UInt64)'],
     ],
     results: [
-        [SurveyEventName.SHOWN, 120, 110, '2023-05-02T10:00:00Z', '2023-06-20T10:00:00Z'],
-        [SurveyEventName.SENT, 75, 70, '2023-05-02T11:00:00Z', '2023-06-20T09:00:00Z'],
-        [SurveyEventName.DISMISSED, 18, 17, '2023-05-03T10:00:00Z', '2023-06-19T10:00:00Z'],
+        // Only the sent row carries real outcome counts; the query hardcodes zeros for the others.
+        [SurveyEventName.SHOWN, 120, 110, '2023-05-02T10:00:00Z', '2023-06-20T10:00:00Z', [0, 0, 0]],
+        [SurveyEventName.SENT, 75, 70, '2023-05-02T11:00:00Z', '2023-06-20T09:00:00Z', [60, 9, 6]],
+        [SurveyEventName.DISMISSED, 18, 17, '2023-05-03T10:00:00Z', '2023-06-19T10:00:00Z', [0, 0, 0]],
     ],
+}
+
+// Rows from the responses table query. The first column is the `response` tuple the table unpacks:
+// [uuid, distinct_id, submitted_at, person_id, person_properties, event_properties, outcome, answers, latest_event].
+const MOCK_SURVEY_RESPONSE_ROWS = {
+    columns: ['response', 'answer_0', 'answer_1', 'answer_2', 'status', 'timestamp', 'respondent', 'actions'],
+    hasMore: false,
+    results: [
+        [
+            [
+                '0187c279-bcae-0000-34f5-4f121921fa01',
+                'respondent-a',
+                '2023-06-20T09:00:00Z',
+                '0187c279-bcae-0000-34f5-4f121921fb01',
+                '{"email":"casey@example.com"}',
+                '{"$current_url":"https://example.com/pricing","$session_id":"0187c279-bcae-0000-34f5-4f121921fc01"}',
+                'completed',
+                ['10', 'Dashboards', ['I found a better product']],
+                SurveyEventName.SENT,
+            ],
+            '10',
+            'Dashboards',
+            'I found a better product',
+            'completed',
+            '2023-06-20T09:00:00Z',
+            'respondent-a',
+            '0187c279-bcae-0000-34f5-4f121921fa01',
+        ],
+        [
+            [
+                '0187c279-bcae-0000-34f5-4f121921fa02',
+                'respondent-b',
+                '2023-06-19T14:30:00Z',
+                '0187c279-bcae-0000-34f5-4f121921fb02',
+                '{}',
+                '{"$current_url":"https://example.com/settings","$session_id":"0187c279-bcae-0000-34f5-4f121921fc02"}',
+                'abandoned',
+                ['7', null, []],
+                SurveyEventName.SENT,
+            ],
+            '7',
+            null,
+            '',
+            'abandoned',
+            '2023-06-19T14:30:00Z',
+            'respondent-b',
+            '0187c279-bcae-0000-34f5-4f121921fa02',
+        ],
+    ],
+}
+
+// Respondent context column values, in the same row order as MOCK_SURVEY_RESPONSE_ROWS.
+const MOCK_SURVEY_RESPONSE_CONTEXT: Record<SurveyResponseContextColumn, string[]> = {
+    person_id: ['0187c279-bcae-0000-34f5-4f121921fb01', '0187c279-bcae-0000-34f5-4f121921fb02'],
+    session_id: ['0187c279-bcae-0000-34f5-4f121921fc01', '0187c279-bcae-0000-34f5-4f121921fc02'],
+    current_url: ['https://example.com/pricing', 'https://example.com/settings'],
+}
+
+/**
+ * A HogQL data table reads its columns from the response, so a fixed column list would leave the
+ * Columns control with no visible effect. This answers with the columns the SELECT asked for.
+ */
+function responseRowsFor(sql: string): Record<string, unknown> {
+    const chosen = SURVEY_RESPONSE_CONTEXT_COLUMNS.filter(({ expression }) => sql.includes(expression))
+    if (chosen.length === 0) {
+        return MOCK_SURVEY_RESPONSE_ROWS
+    }
+    const { columns, results } = MOCK_SURVEY_RESPONSE_ROWS
+    return {
+        ...MOCK_SURVEY_RESPONSE_ROWS,
+        // The actions column stays rightmost, matching the generated query.
+        columns: [...columns.slice(0, -1), ...chosen.map(({ key }) => key), 'actions'],
+        results: results.map((row, index) => [
+            ...row.slice(0, -1),
+            ...chosen.map(({ key }) => MOCK_SURVEY_RESPONSE_CONTEXT[key][index]),
+            row[row.length - 1],
+        ]),
+    }
+}
+
+interface SurveyQueryRequestBody {
+    kind?: string
+    query?: { tags?: { name?: string }; query?: string }
+}
+
+/**
+ * Both the meta and the SurveyResults story mock the query endpoint, and whichever handler MSW
+ * resolves first wins. Sharing one resolver keeps the results tab loading either way.
+ */
+function resolveSurveyResultsQuery(body: SurveyQueryRequestBody): Record<string, unknown> | null {
+    switch (body?.query?.tags?.name) {
+        case 'survey_results_aggregate':
+            return MOCK_SURVEY_AGGREGATE_RESULTS
+        case 'survey_base_stats':
+            return MOCK_SURVEY_BASE_STATS
+        case 'survey_dismissed_sent_overlap':
+            return { results: [[60]] }
+        case 'survey_responses':
+            return responseRowsFor(String(body.query?.query ?? ''))
+    }
+    return null
 }
 
 const meta: Meta = {
@@ -347,6 +451,10 @@ const meta: Meta = {
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
                     const body = (await request.json()) as any
+                    const surveyResults = resolveSurveyResultsQuery(body)
+                    if (surveyResults) {
+                        return [200, surveyResults]
+                    }
                     if (body.kind == 'EventsQuery') {
                         return [200, MOCK_SURVEY_RESULTS]
                     }
@@ -568,20 +676,8 @@ export const SurveyResults: Story = {
                 '/api/environments/:team_id/hog_functions/': { count: 0, results: [], next: null },
             },
             post: {
-                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = (await request.json()) as any
-                    const sql: string = body?.query?.query ?? ''
-                    if (body?.query?.tags?.name === 'survey_results_aggregate') {
-                        return MOCK_SURVEY_AGGREGATE_RESULTS
-                    }
-                    if (sql.includes('BASE STATS')) {
-                        return MOCK_SURVEY_BASE_STATS
-                    }
-                    if (sql.includes('DISMISSED AND SENT COUNT')) {
-                        return { results: [[60]] }
-                    }
-                    return { results: [] }
-                },
+                '/api/environments/:team_id/query/:kind/': async ({ request }) =>
+                    resolveSurveyResultsQuery((await request.json()) as SurveyQueryRequestBody) ?? { results: [] },
             },
         }),
     ],
