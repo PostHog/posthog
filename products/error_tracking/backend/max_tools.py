@@ -27,7 +27,7 @@ from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserExc
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolRetryableError, MaxToolTransientError
 
 from .prompts import (
     ERROR_TRACKING_FILTER_INITIAL_PROMPT,
@@ -319,7 +319,7 @@ class SearchErrorTrackingIssuesTool(MaxTool):
             utc_now = timezone.now().astimezone(UTC)
             executor = AssistantQueryExecutor(self._team, utc_now, user=self._user)
             query_results = await executor.aexecute_query(query)
-        except MaxToolRetryableError:
+        except (MaxToolRetryableError, MaxToolTransientError):
             raise
         except Exception as e:
             capture_exception(e)

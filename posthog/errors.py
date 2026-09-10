@@ -10,6 +10,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.exceptions import (
     ClickHouseAtCapacity,
+    ClickHouseBytesLimitExceeded,
     ClickHouseClusterMemoryLimitExceeded,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
@@ -229,6 +230,7 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
     if isinstance(
         e,
         (
+            ClickHouseBytesLimitExceeded,
             ClickHouseQueryTimeOut,
             ClickHouseQueryMemoryLimitExceeded,
             ClickHouseEstimatedQueryExecutionTimeTooLong,

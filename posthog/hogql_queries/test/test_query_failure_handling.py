@@ -13,7 +13,7 @@ from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.execute import KillSwitchLevel
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.errors import wrap_clickhouse_query_error
+from posthog.errors import QueryErrorCategory, classify_query_error, wrap_clickhouse_query_error
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseBytesLimitExceeded,
@@ -126,6 +126,7 @@ class TestQueryFailureHandling(SimpleTestCase):
         assert isinstance(error, ClickHouseBytesLimitExceeded)
         assert error.status_code == 400
         assert error.get_codes() == ["too_many_bytes"]
+        assert classify_query_error(error) is QueryErrorCategory.QUERY_PERFORMANCE_ERROR
         assert "was not run again" in str(error.detail)
 
     def test_build_failure_exception_first_failure_wording(self):
