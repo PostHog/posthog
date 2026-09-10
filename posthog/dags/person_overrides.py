@@ -8,7 +8,12 @@ import pydantic
 from clickhouse_driver import Client
 
 from posthog import settings
-from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, MutationWaiter
+from posthog.clickhouse.cluster import (
+    AlterTableMutationRunner,
+    ClickhouseCluster,
+    MutationWaiter,
+    wait_for_mutations_on_shards,
+)
 from posthog.dags.common import JobOwners
 from posthog.dags.common.overrides_manager import OverridesSnapshotDictionary, OverridesSnapshotTable
 from posthog.dags.common.staged_dictionary import (
@@ -17,16 +22,18 @@ from posthog.dags.common.staged_dictionary import (
     load_and_verify_on_every_cluster,
 )
 from posthog.dataclasses import frozen
-from posthog.models.deletion_targets import (
-    EVENTS_JSON,
-    FLAG_EVALUATIONS,
-    PERSONAL_DATA_TARGETS,
-    placement_for,
-    sweep_clusters,
-)
-from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
-from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE
+from posthog.models.deletion_targets import EVENTS_TARGETS, FLAG_EVALUATIONS, resolve_placements, sweep_clusters
+from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
+
+# Every table the squash rewrites person_id on. sharded_flag_evaluations is not an events table,
+# but it stamps rows with the same person_id, and a person deletion matches the deleted person's
+# uuid against that column. A row a merge left on the absorbed person therefore matches nothing and
+# survives until its partition ages out, so the squash has to move it too.
+#
+# Deliberately not PERSONAL_DATA_TARGETS: registering a table for deletion should not silently make
+# it a squash target as well.
+SQUASH_TARGETS = (*EVENTS_TARGETS, FLAG_EVALUATIONS)
 
 
 def _squash_clusters(cluster: ClickhouseCluster) -> list[ClickhouseCluster]:
@@ -34,7 +41,7 @@ def _squash_clusters(cluster: ClickhouseCluster) -> list[ClickhouseCluster]:
 
     The rewrite joins the snapshot dictionary, so the dictionary has to exist on each of them.
     """
-    return sweep_clusters(cluster, PERSONAL_DATA_TARGETS)
+    return sweep_clusters(cluster, SQUASH_TARGETS)
 
 
 @dataclass
@@ -46,11 +53,13 @@ class PersonOverridesSnapshotTable(OverridesSnapshotTable):
         return f"person_distinct_id_overrides_snapshot_{self.id.hex}"
 
     def create(self, client: Client) -> None:
-        client.execute(f"""
+        client.execute(
+            f"""
             CREATE TABLE IF NOT EXISTS {self.qualified_name} (team_id Int64, distinct_id String, person_id UUID, version Int64)
             ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/{self.qualified_name}', '{{replica}}-{{shard}}', version)
             ORDER BY (team_id, distinct_id)
-            """)
+            """
+        )
 
     def populate(self, client: Client, timestamp: str, limit: int | None = None) -> None:
         # NOTE: this is theoretically subject to replication lag and accuracy of this result is not a guarantee
@@ -127,10 +136,12 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
         )
 
     def get_checksum(self, client: Client):
-        results = client.execute(f"""
+        results = client.execute(
+            f"""
              SELECT groupBitXor(row_checksum) AS table_checksum
              FROM (SELECT cityHash64(*) AS row_checksum FROM {self.qualified_name} ORDER BY team_id, distinct_id)
-             """)
+             """
+        )
         [[checksum]] = results
         return checksum
 
@@ -144,22 +155,10 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
             "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id))"
         }
 
-    @property
-    def events_json_update_mutation_runner(self) -> AlterTableMutationRunner:
-        """The same person_id squash applied to the native-JSON events table — both tables must be
-        rewritten or person_id diverges between them while they coexist."""
+    def update_mutation_runner_for(self, table: str) -> AlterTableMutationRunner:
+        """The person_id squash applied to one squash target's storage table."""
         return AlterTableMutationRunner(
-            table=EVENTS_JSON_DATA_TABLE,
-            commands=self.update_commands,
-            parameters={"name": self.qualified_name},
-        )
-
-    @property
-    def flag_evaluations_update_mutation_runner(self) -> AlterTableMutationRunner:
-        """The same person_id squash applied to the flag_evaluations table — both tables must be
-        rewritten or person_id diverges between them while they coexist."""
-        return AlterTableMutationRunner(
-            table=FLAG_EVALUATIONS_DATA_TABLE,
+            table=table,
             commands=self.update_commands,
             parameters={"name": self.qualified_name},
         )
@@ -302,19 +301,24 @@ def run_person_id_update_mutations(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> PersonOverridesSnapshotDictionary:
-    dictionary.update_mutation_runner.run_on_shards(cluster)
+    """Rewrite person_id on every squash target, each on the cluster whose shards carry it.
 
-    # sharded_events_json may be stored on another cluster, whose shards only its own handle
-    # enumerates. Skipping it would leave those rows on a person_id this run just squashed away,
-    # and the overrides that record the correct one are deleted immediately after.
-    placement = placement_for(cluster, EVENTS_JSON)
-    if placement is not None:
-        dictionary.events_json_update_mutation_runner.run_on_shards(placement.cluster)
+    A target's storage table can sit on a cluster whose shards only its own handle enumerates, so
+    the dispatch follows the resolved placement rather than the handle in hand. Skipping one would
+    leave its rows on a person_id this run squashed away, and the overrides that record the correct
+    one are deleted in the very next op.
 
-    flag_evaluations_placement = placement_for(cluster, FLAG_EVALUATIONS)
-    if flag_evaluations_placement is not None:
-        dictionary.flag_evaluations_update_mutation_runner.run_on_shards(flag_evaluations_placement.cluster)
+    Every mutation is enqueued before any of them is waited on. They run on separate tables, so
+    waiting on each in turn would cost the sum of their durations instead of the longest one. The
+    op still returns only once all of them are complete, which is what the overrides delete needs.
+    """
+    enqueued = []
+    for placement in resolve_placements(cluster, SQUASH_TARGETS):
+        runner = dictionary.update_mutation_runner_for(placement.target.data_table)
+        enqueued.append((placement.cluster, runner.enqueue_on_shards(placement.cluster)))
 
+    for handle, shard_mutations in enqueued:
+        wait_for_mutations_on_shards(handle, shard_mutations)
     return dictionary
 
 
