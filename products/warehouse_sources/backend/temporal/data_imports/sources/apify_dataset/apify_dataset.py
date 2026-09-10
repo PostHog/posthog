@@ -1,7 +1,8 @@
-import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import quote
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset.settings import (
     APIFY_BASE_URL,
@@ -32,7 +33,7 @@ PAGE_SIZE = 1000
 APIFY_TOTAL_HEADER = "X-Apify-Pagination-Total"
 
 
-@dataclasses.dataclass
+@frozen
 class ApifyResumeConfig:
     # Absolute offset of the next row to fetch. Dataset items are append-only and returned in stable
     # storage order, and the platform lists are sorted ascending by a creation timestamp, so an
