@@ -1,5 +1,6 @@
 """Temporal workflow for logs alert checking — two-phase fan-out."""
 
+import json
 import asyncio
 from itertools import batched
 
@@ -49,13 +50,18 @@ class LogsAlertCheckWorkflow(PostHogWorkflow):
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> CheckAlertsInput:
-        return CheckAlertsInput()
+        if not inputs:
+            return CheckAlertsInput()
+        return CheckAlertsInput(**json.loads(inputs[0]))
 
     @temporalio.workflow.run
     async def run(self, input: CheckAlertsInput) -> CheckAlertsOutput:
         discovery: DiscoverCohortsOutput = await workflow.execute_activity(
             discover_cohorts_activity,
-            DiscoverCohortsInput(),
+            DiscoverCohortsInput(
+                max_alerts_per_run=input.max_alerts_per_run,
+                region=input.region,
+            ),
             start_to_close_timeout=ACTIVITY_TIMEOUT,
             retry_policy=ACTIVITY_RETRY_POLICY,
         )

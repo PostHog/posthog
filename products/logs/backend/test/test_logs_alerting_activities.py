@@ -6,6 +6,7 @@ import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
+import pytest
 import unittest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, NonAtomicBaseTest
@@ -2044,6 +2045,70 @@ class TestCohortManifest(unittest.TestCase):
 
 class TestDiscoverCohortsActivity(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
+
+    @freeze_time("2026-05-05T10:00:00Z")
+    def test_bounds_discovery_and_selects_fairly_across_teams(self):
+        from posthog.models import Team
+
+        from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
+
+        noisy_team = self.team
+        quiet_team = Team.objects.create(organization=self.organization, name="Quiet team")
+        for index in range(10):
+            LogsAlertConfiguration.objects.create(
+                team=noisy_team,
+                name=f"noisy-{index}",
+                filters={"serviceNames": [f"noisy-{index}"]},
+                enabled=True,
+                next_check_at=datetime(2026, 5, 5, 8, 0, tzinfo=UTC) + timedelta(seconds=index),
+            )
+        quiet_alert = LogsAlertConfiguration.objects.create(
+            team=quiet_team,
+            name="quiet",
+            filters={"serviceNames": ["quiet"]},
+            enabled=True,
+            next_check_at=datetime(2026, 5, 5, 9, 0, tzinfo=UTC),
+        )
+
+        result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput(max_alerts_per_run=2, region="test")))
+
+        discovered = [(manifest.team_id, alert_id) for manifest in result.manifests for alert_id in manifest.alert_ids]
+        assert len(discovered) == 2
+        assert {team_id for team_id, _ in discovered} == {noisy_team.id, quiet_team.id}
+        assert str(quiet_alert.id) in {alert_id for _, alert_id in discovered}
+        assert result.due_items_lower_bound == 3
+
+    @freeze_time("2026-05-05T10:00:00Z")
+    def test_rotates_the_team_cursor_between_bounded_runs(self):
+        from posthog.models import Team
+
+        from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
+
+        teams = [
+            self.team,
+            Team.objects.create(organization=self.organization, name="Second team"),
+            Team.objects.create(organization=self.organization, name="Third team"),
+        ]
+        for team in teams:
+            LogsAlertConfiguration.objects.create(
+                team=team,
+                name=f"alert-{team.id}",
+                filters={"serviceNames": [f"service-{team.id}"]},
+                enabled=True,
+                next_check_at=datetime(2026, 5, 5, 9, 0, tzinfo=UTC),
+            )
+
+        inputs = DiscoverCohortsInput(max_alerts_per_run=1, region="test")
+        first = asyncio.run(discover_cohorts_activity(inputs))
+        second = asyncio.run(discover_cohorts_activity(inputs))
+
+        assert first.manifests[0].team_id != second.manifests[0].team_id
+
+    def test_rejects_discovery_limits_outside_the_code_owned_boundary(self):
+        from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
+
+        with pytest.raises(ValueError, match="max_alerts_per_run must be between"):
+            asyncio.run(discover_cohorts_activity(DiscoverCohortsInput(max_alerts_per_run=1_001, region="test")))
 
     @freeze_time("2026-05-05T23:00:00Z")
     def test_skips_alert_with_invalid_quiet_hours_and_discovers_healthy_alerts(self):

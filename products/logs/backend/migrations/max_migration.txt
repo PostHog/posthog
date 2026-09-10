@@ -1,1 +1,1 @@
-0025_alter_logsalertconfiguration_team_and_more
+0026_logs_alert_due_schedule_indexes

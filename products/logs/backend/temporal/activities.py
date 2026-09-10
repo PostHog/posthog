@@ -1,6 +1,7 @@
 """Temporal activities for logs alerting."""
 
 import gc
+import math
 import time
 import asyncio
 import contextlib
@@ -11,7 +12,8 @@ from datetime import UTC, datetime, timedelta
 from itertools import batched
 from uuid import UUID
 
-from django.db import transaction
+from django.db import connection, transaction
+from django.db.models import F
 from django.db.utils import IntegrityError
 
 import structlog
@@ -23,9 +25,12 @@ from posthog.schema import PropertyGroupFilter
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
 from posthog.models import Team
+from posthog.models.temporal_scheduler import TemporalSchedulerState
 from posthog.slo.context import SloHandle, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.scheduler.metrics import DEFAULT_SCHEDULER_METRICS, record_scheduler_metrics_safely
+from posthog.temporal.scheduler.payload import select_items_within_temporal_payload
 
 from products.alerts.backend.delivery_slo import alert_delivery_slo
 from products.alerts.backend.destinations import (
@@ -70,8 +75,10 @@ from products.logs.backend.alert_utils import (
 from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.constants import (
+    DEFAULT_MAX_ALERTS_PER_RUN,
     EMIT_SIGNAL_CONCURRENCY,
     MAX_ALERT_COHORT_SIZE,
+    MAX_ALERTS_PER_RUN,
     MAX_COHORTS_PER_BATCH,
     MAX_CONCURRENT_COHORTS_PER_BATCH,
     NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
@@ -97,6 +104,8 @@ from products.logs.backend.temporal.metrics import (
 )
 
 logger = structlog.get_logger(__name__)
+
+_LOGS_ALERTS_SCHEDULER_NAME = "logs_alerts"
 
 
 def _log_metric_failure(label: str, e: BaseException, **context: object) -> None:
@@ -175,7 +184,8 @@ def _derive_breaches(
 
 @dataclasses.dataclass(frozen=True)
 class CheckAlertsInput:
-    pass
+    max_alerts_per_run: int = DEFAULT_MAX_ALERTS_PER_RUN
+    region: str = "local"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -319,7 +329,8 @@ class CheckAlertsOutput:
 
 @dataclasses.dataclass(frozen=True)
 class DiscoverCohortsInput:
-    pass
+    max_alerts_per_run: int = DEFAULT_MAX_ALERTS_PER_RUN
+    region: str = "local"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -328,6 +339,9 @@ class DiscoverCohortsOutput:
     # Recorded in workflow history so replays chunk identically even if the env
     # var changes between runs.
     batch_size: int
+    # Bounded lower bound: max_alerts_per_run + 1 means more work was deferred.
+    due_items_lower_bound: int = 0
+    oldest_due_at_iso: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -367,13 +381,165 @@ async def discover_cohorts_activity(input: DiscoverCohortsInput) -> DiscoverCoho
     full `select_related('team')` would OOM. Team objects are loaded later, only
     inside `evaluate_cohort_batch_activity`, scoped to a small batch.
     """
-    return await database_sync_to_async_pool(_discover_cohorts_sync)()
+    if not 1 <= input.max_alerts_per_run <= MAX_ALERTS_PER_RUN:
+        raise ValueError(f"max_alerts_per_run must be between 1 and {MAX_ALERTS_PER_RUN}")
+    if not input.region.strip() or len(input.region) > 32:
+        raise ValueError("region must contain between 1 and 32 characters")
+
+    discovered = await database_sync_to_async_pool(_discover_cohorts_sync)(input)
+    selection = await select_items_within_temporal_payload(
+        discovered.manifests,
+        build_payload=lambda manifests: dataclasses.replace(discovered, manifests=list(manifests)),
+        max_items=input.max_alerts_per_run,
+    )
+    result = dataclasses.replace(discovered, manifests=list(selection.items))
+
+    record_scheduler_metrics_safely(
+        lambda: DEFAULT_SCHEDULER_METRICS.observe_payload(
+            _LOGS_ALERTS_SCHEDULER_NAME,
+            input.region,
+            "discovery",
+            selection.encoded_size_bytes,
+        )
+    )
+    oldest_age_seconds = 0.0
+    if result.oldest_due_at_iso is not None:
+        oldest_age_seconds = max(
+            0.0, (datetime.now(UTC) - datetime.fromisoformat(result.oldest_due_at_iso)).total_seconds()
+        )
+    record_scheduler_metrics_safely(
+        lambda: DEFAULT_SCHEDULER_METRICS.set_backlog(
+            _LOGS_ALERTS_SCHEDULER_NAME,
+            input.region,
+            result.due_items_lower_bound,
+            oldest_age_seconds,
+        )
+    )
+    await logger.ainfo(
+        "logs_alerts.scheduler_discovery",
+        selected_alerts=sum(len(manifest.alert_ids) for manifest in result.manifests),
+        due_items_lower_bound=result.due_items_lower_bound,
+        payload_bytes=selection.encoded_size_bytes,
+        limited_by=selection.limited_by,
+        region=input.region,
+    )
+    return result
 
 
-def _discover_cohorts_sync() -> DiscoverCohortsOutput:
+def _discover_cohorts_sync(input: DiscoverCohortsInput | None = None) -> DiscoverCohortsOutput:
+    input = input or DiscoverCohortsInput()
     now = datetime.now(UTC)
-    rows = list(
-        _due_alerts_qs(now).values(
+    due_alerts = _due_alerts_qs(now)
+    oldest_due_at = (
+        due_alerts.filter(next_check_at__isnull=False)
+        .order_by(F("next_check_at").asc(nulls_first=True), "id")
+        .values_list("next_check_at", flat=True)
+        .first()
+    )
+
+    with transaction.atomic():
+        state, _ = TemporalSchedulerState.objects.get_or_create(
+            scheduler=_LOGS_ALERTS_SCHEDULER_NAME,
+            region=input.region,
+        )
+        state = TemporalSchedulerState.objects.select_for_update().get(pk=state.pk)
+        try:
+            team_cursor = int(state.discovery_cursor or 0)
+        except ValueError:
+            team_cursor = 0
+
+        teams_after_cursor = list(
+            due_alerts.filter(team_id__gt=team_cursor)
+            .order_by("team_id")
+            .values_list("team_id", flat=True)
+            .distinct()[: input.max_alerts_per_run + 1]
+        )
+        selected_team_ids = teams_after_cursor[: input.max_alerts_per_run]
+        deferred_teams = len(teams_after_cursor) > input.max_alerts_per_run
+        remaining_team_slots = input.max_alerts_per_run - len(selected_team_ids)
+        if remaining_team_slots:
+            teams_before_cursor = list(
+                due_alerts.filter(team_id__lte=team_cursor)
+                .order_by("team_id")
+                .values_list("team_id", flat=True)
+                .distinct()[: remaining_team_slots + 1]
+            )
+            selected_team_ids.extend(teams_before_cursor[:remaining_team_slots])
+            deferred_teams = deferred_teams or len(teams_before_cursor) > remaining_team_slots
+
+        if not selected_team_ids:
+            return DiscoverCohortsOutput(
+                manifests=[],
+                batch_size=MAX_COHORTS_PER_BATCH,
+                oldest_due_at_iso=oldest_due_at.isoformat() if oldest_due_at else None,
+            )
+
+        candidate_limit = input.max_alerts_per_run + 1
+        candidates_per_team = math.ceil(candidate_limit / len(selected_team_ids))
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                WITH selected_teams(team_id, team_order) AS (
+                    SELECT * FROM unnest(%s::bigint[]) WITH ORDINALITY
+                ),
+                bounded_candidates AS (
+                    SELECT
+                        selected_teams.team_id,
+                        selected_teams.team_order,
+                        candidate.id,
+                        candidate.next_check_at
+                    FROM selected_teams
+                    CROSS JOIN LATERAL (
+                        SELECT alert.id, alert.next_check_at
+                        FROM logs_logsalertconfiguration AS alert
+                        WHERE alert.team_id = selected_teams.team_id
+                          AND alert.enabled = TRUE
+                          AND (alert.next_check_at <= %s OR alert.next_check_at IS NULL)
+                          AND alert.state <> %s
+                          AND (
+                              alert.state <> %s
+                              OR alert.snooze_until IS NULL
+                              OR alert.snooze_until <= %s
+                          )
+                        ORDER BY alert.next_check_at ASC NULLS FIRST, alert.id
+                        LIMIT %s
+                    ) AS candidate
+                ),
+                ranked_candidates AS (
+                    SELECT
+                        id,
+                        next_check_at,
+                        team_order,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY team_id
+                            ORDER BY next_check_at ASC NULLS FIRST, id
+                        ) AS team_rank
+                    FROM bounded_candidates
+                )
+                SELECT id
+                FROM ranked_candidates
+                ORDER BY team_rank, next_check_at ASC NULLS FIRST, team_order, id
+                LIMIT %s
+                """,
+                [
+                    selected_team_ids,
+                    now,
+                    LogsAlertConfiguration.State.BROKEN,
+                    LogsAlertConfiguration.State.SNOOZED,
+                    now,
+                    candidates_per_team,
+                    candidate_limit,
+                ],
+            )
+            bounded_candidate_ids = [row[0] for row in cursor.fetchall()]
+
+        state.discovery_cursor = str(selected_team_ids[-1])
+        state.save(update_fields=["discovery_cursor", "updated_at"])
+
+    candidate_ids = bounded_candidate_ids[: input.max_alerts_per_run]
+    rows_by_id = {
+        row["id"]: row
+        for row in due_alerts.filter(id__in=candidate_ids).values(
             "id",
             "team_id",
             "window_minutes",
@@ -383,7 +549,8 @@ def _discover_cohorts_sync() -> DiscoverCohortsOutput:
             "next_check_at",
             "schedule_restriction",
         )
-    )
+    }
+    rows = [rows_by_id[alert_id] for alert_id in candidate_ids if alert_id in rows_by_id]
     rescheduled_alert_ids = _reschedule_due_alerts_in_quiet_hours(rows, now)
     rows = [row for row in rows if row["id"] not in rescheduled_alert_ids]
 
@@ -417,7 +584,15 @@ def _discover_cohorts_sync() -> DiscoverCohortsOutput:
     # Read MAX_COHORTS_PER_BATCH inside the activity, not in workflow code:
     # module-level env reads are non-deterministic on replay because Temporal's
     # sandbox re-imports the workflow module each time.
-    return DiscoverCohortsOutput(manifests=manifests, batch_size=MAX_COHORTS_PER_BATCH)
+    due_items_lower_bound = len(bounded_candidate_ids)
+    if deferred_teams:
+        due_items_lower_bound = max(due_items_lower_bound, candidate_limit)
+    return DiscoverCohortsOutput(
+        manifests=manifests,
+        batch_size=MAX_COHORTS_PER_BATCH,
+        due_items_lower_bound=due_items_lower_bound,
+        oldest_due_at_iso=oldest_due_at.isoformat() if oldest_due_at else None,
+    )
 
 
 def _reschedule_due_alerts_in_quiet_hours(rows: Sequence[dict], now: datetime) -> set[UUID]:

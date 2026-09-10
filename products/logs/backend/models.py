@@ -262,6 +262,16 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
                 fields=["team_id", "next_check_at", "enabled"],
                 name="logs_alert_scheduler_idx",
             ),
+            models.Index(
+                fields=["team", "next_check_at", "id"],
+                name="logs_alert_team_due_sched",
+                condition=models.Q(enabled=True),
+            ),
+            models.Index(
+                fields=["next_check_at", "id"],
+                name="logs_alert_due_schedule",
+                condition=models.Q(enabled=True),
+            ),
         ]
 
     def __str__(self) -> str:

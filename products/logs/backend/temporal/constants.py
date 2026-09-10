@@ -9,6 +9,8 @@ WORKFLOW_NAME = "logs-alert-check"
 # Schedule
 SCHEDULE_ID = "logs-alert-check-schedule"
 SCHEDULE_CRON = "* * * * *"
+DEFAULT_MAX_ALERTS_PER_RUN = 300
+MAX_ALERTS_PER_RUN = 1_000
 
 # Activity
 ACTIVITY_TIMEOUT = timedelta(minutes=5)
