@@ -11,6 +11,7 @@ from django.db import connection, connections, transaction
 from rest_framework import status
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.presentation.views.external_data_source import lock_source_for_schema_sync
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 
 LOCK_TIMEOUT_SECONDS = 10
@@ -42,6 +43,13 @@ class TestRefreshSchemasSourceLock(NonAtomicAPIBaseTest):
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(name="table_a", supports_incremental=False, supports_append=False)
         ]
+
+    def _effective_lock_timeout(self) -> str:
+        with connection.cursor() as cursor:
+            cursor.execute("SHOW lock_timeout")
+            row = cursor.fetchone()
+        assert row is not None
+        return row[0]
 
     def _hold(self, take_lock: Callable[[], None]) -> None:
         try:
@@ -98,3 +106,14 @@ class TestRefreshSchemasSourceLock(NonAtomicAPIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT
         assert "Wait for it to finish" in response.json()["detail"]
         assert not ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=self.source.pk).exists()
+
+    def test_lock_source_for_schema_sync_leaves_the_rest_of_the_transaction_uncapped(self) -> None:
+        # The cap is SET LOCAL, so leaving it in place would apply it to the schema and table writes
+        # the caller runs next — a lock wait there raises a bare OperationalError, not a 409.
+        session_default = self._effective_lock_timeout()
+
+        with transaction.atomic():
+            lock_source_for_schema_sync(self.source.pk)
+            after_acquiring = self._effective_lock_timeout()
+
+        assert after_acquiring == session_default

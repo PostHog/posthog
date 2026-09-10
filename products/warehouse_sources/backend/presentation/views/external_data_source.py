@@ -711,6 +711,13 @@ def _refresh_name_substitutions(
 SOURCE_LOCK_TIMEOUT_MS = 3000
 
 
+def _set_lock_timeout(value: str) -> None:
+    # set_config(..., is_local=True) is SET LOCAL, but takes the value as a bind parameter, so a
+    # restored value ("0", "30s", ...) does not have to be quoted by hand.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT set_config('lock_timeout', %s, true)", [value])
+
+
 def lock_source_for_schema_sync(source_pk: uuid.UUID) -> None:
     """Serialize schema reconciliation on one source. Call inside `transaction.atomic()`.
 
@@ -720,9 +727,17 @@ def lock_source_for_schema_sync(source_pk: uuid.UUID) -> None:
     A writer of the source row itself, such as a competing refresh, an update or a delete, still
     conflicts. The transaction-local `lock_timeout` bounds that wait, so the caller answers 409 rather
     than sitting until the statement timeout kills the request.
+
+    SET LOCAL lasts for the whole transaction, so the cap goes back to its previous value once the
+    lock is held. The caller then reconciles schema and table rows under the lock behavior it would
+    have had anyway: a wait on one of those rows raises a bare OperationalError, not the 409 this
+    bound is for.
     """
     with connection.cursor() as cursor:
-        cursor.execute("SELECT set_config('lock_timeout', %s, true)", [f"{SOURCE_LOCK_TIMEOUT_MS}ms"])
+        cursor.execute("SHOW lock_timeout")
+        row = cursor.fetchone()
+    previous_lock_timeout = row[0] if row else None
+    _set_lock_timeout(f"{SOURCE_LOCK_TIMEOUT_MS}ms")
     try:
         ExternalDataSource._base_manager.filter(pk=source_pk).select_for_update(no_key=True).get()
     except DjangoOperationalError as e:
@@ -731,6 +746,10 @@ def lock_source_for_schema_sync(source_pk: uuid.UUID) -> None:
         raise Conflict(
             "Another operation is already changing this source's schemas. Wait for it to finish, then try again."
         ) from e
+    # Only reached with the lock held. A lock error leaves the transaction aborted, where restore SQL
+    # would fail anyway, and the rollback undoes SET LOCAL with it.
+    if previous_lock_timeout:
+        _set_lock_timeout(previous_lock_timeout)
 
 
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
