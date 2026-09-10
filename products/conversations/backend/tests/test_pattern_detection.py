@@ -12,6 +12,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models import Team
+from posthog.models.comment import Comment
 
 from products.conversations.backend.models import (
     Ticket,
@@ -118,6 +119,21 @@ class TestRunDetection(BaseTest):
     def _burst(self, subject: str, *, requesters: int, tickets: int, team: Team | None = None) -> list[Ticket]:
         return [self._ticket(subject, f"user{i}@company{i % requesters}.example", team=team) for i in range(tickets)]
 
+    def _chat_ticket(self, message: str, *, slack_user_id: str) -> Ticket:
+        # Slack and Teams store no email and an empty distinct id when the platform withholds one,
+        # so the sender is only knowable from the first comment.
+        self._number += 1
+        ticket = Ticket.objects.create(team=self.team, ticket_number=self._number, channel_source="slack")
+        Ticket.objects.filter(id=ticket.id).update(created_at=self.now - timedelta(minutes=5))
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content=message,
+            item_context={"author_type": "customer", "is_private": False, "slack_user_id": slack_user_id},
+        )
+        return ticket
+
     @parameterized.expand(
         [
             ("one_requester_many_tickets", 1, 10, 0),
@@ -183,6 +199,20 @@ class TestRunDetection(BaseTest):
         outcome = run_detection(self.team, now=self.now)
 
         assert outcome.opened == ()
+
+    @parameterized.expand(
+        [
+            ("unidentified_senders", ["", "", "", "", "", ""], 0),
+            ("distinct_platform_users", ["U1", "U2", "U3", "U4", "U5"], 1),
+        ]
+    )
+    def test_chat_tickets_count_requesters_by_platform_user(self, _name, slack_user_ids, expected_patterns):
+        for slack_user_id in slack_user_ids:
+            self._chat_ticket("Cannot login to the dashboard", slack_user_id=slack_user_id)
+
+        outcome = run_detection(self.team, now=self.now)
+
+        assert len(outcome.opened) == expected_patterns
 
     @parameterized.expand([("zero", "0"), ("negative", "-5")])
     def test_command_rejects_a_backtest_that_is_not_a_positive_day_count(self, _name, days):

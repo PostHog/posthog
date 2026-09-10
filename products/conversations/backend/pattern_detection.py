@@ -99,7 +99,7 @@ class PatternSettings:
 @frozen
 class TicketText:
     ticket_id: UUID
-    requester: str
+    requester: str | None
     text: str
     created_at: datetime
 
@@ -156,7 +156,14 @@ def topics_for(text: str) -> set[str]:
     return {t for t in topics if len(t) <= MAX_TOPIC_LENGTH}
 
 
-def resolve_requester(ticket: Ticket) -> str:
+def resolve_requester(ticket: Ticket, *, platform_requester: str = "") -> str | None:
+    """Who raised the ticket, or None when nothing on it identifies a person.
+
+    None never counts toward the requester guard. Keying an unidentified ticket by its own id
+    would make every one of them a new requester, so one person opening several threads would
+    clear the bar the detector rests on. Slack and Teams reach this: both store an empty
+    distinct id and no email when the platform does not give one.
+    """
     if ticket.organization_id:
         return f"org:{ticket.organization_id}"
     email = (ticket.email_from or (ticket.anonymous_traits or {}).get("email") or "").strip().lower()
@@ -165,7 +172,7 @@ def resolve_requester(ticket: Ticket) -> str:
         return f"email:{email}" if domain in FREE_MAIL_DOMAINS else f"domain:{domain}"
     if ticket.distinct_id:
         return f"distinct:{ticket.distinct_id}"
-    return f"ticket:{ticket.id}"
+    return platform_requester or None
 
 
 def load_ticket_texts(team: Team, *, since: datetime, until: datetime) -> list[TicketText]:
@@ -183,6 +190,7 @@ def load_ticket_texts(team: Team, *, since: datetime, until: datetime) -> list[T
         return []
     needs_comment = [t for t in tickets if not (t.email_subject or "").strip()]
     first_customer_message: dict[str, str] = {}
+    platform_requesters: dict[str, str] = {}
     if needs_comment:
         comments = (
             Comment.objects.filter(
@@ -198,15 +206,25 @@ def load_ticket_texts(team: Team, *, since: datetime, until: datetime) -> list[T
         for item_id, content, item_context in comments:
             if item_id in first_customer_message or not content:
                 continue
-            if (item_context or {}).get("author_type", "customer") == "customer":
+            context = item_context or {}
+            if context.get("author_type", "customer") == "customer":
                 first_customer_message[item_id] = content
+                # The chat channels carry no email on the ticket, so the sender's platform id is
+                # the only stable thing separating one person from a room full of them.
+                if context.get("slack_user_id"):
+                    platform_requesters[item_id] = f"slack:{context['slack_user_id']}"
+                elif context.get("teams_user_id"):
+                    platform_requesters[item_id] = f"teams:{context['teams_user_id']}"
     texts: list[TicketText] = []
     for ticket in tickets:
         text = (ticket.email_subject or "").strip() or first_customer_message.get(str(ticket.id), "")
         if text:
             texts.append(
                 TicketText(
-                    ticket_id=ticket.id, requester=resolve_requester(ticket), text=text, created_at=ticket.created_at
+                    ticket_id=ticket.id,
+                    requester=resolve_requester(ticket, platform_requester=platform_requesters.get(str(ticket.id), "")),
+                    text=text,
+                    created_at=ticket.created_at,
                 )
             )
     return texts
@@ -242,7 +260,7 @@ def find_candidates(
     for topic, items in by_topic.items():
         if len(items) < settings.min_tickets:
             continue
-        requesters = {i.requester for i in items}
+        requesters = {i.requester for i in items if i.requester is not None}
         if len(requesters) < required_requesters(settings, baselines.get(topic), len(items)):
             continue
         qualifying.append(
