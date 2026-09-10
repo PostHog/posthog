@@ -1,6 +1,10 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { combineUrl, router } from 'kea-router'
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+import type { CaptureOptions } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -13,7 +17,20 @@ import { OriginProduct, Task, TaskRun, TaskRunStatus } from 'products/posthog_ai
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { inboxSceneLogic, mergeSignalRuns } from './inboxSceneLogic'
-import { SignalScoutRunSummary } from './types'
+import { reportListLogic, sectionListLogicProps } from './logics/reportListLogic'
+import { SignalReport, SignalScoutRunSummary } from './types'
+
+function openedCalls(spy: jest.SpyInstance): any[][] {
+    return spy.mock.calls.filter((call) => call[0] === 'Inbox report opened')
+}
+
+function openedEvents(spy: jest.SpyInstance): Record<string, any>[] {
+    return openedCalls(spy).map((call) => call[1] as Record<string, any>)
+}
+
+function waitForOpenRankRetry(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, 400))
+}
 
 function scoutRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRunSummary {
     return {
@@ -119,6 +136,8 @@ describe('inboxSceneLogic routing', () => {
                 '/api/projects/:team_id/signals/scout/configs/': [],
             },
         })
+        // The list-visited flag lives in session storage, so it outlives a test.
+        window.sessionStorage.clear()
         initKeaTests()
         featureFlagLogic.mount()
     })
@@ -254,6 +273,145 @@ describe('inboxSceneLogic routing', () => {
             },
         ])
         expect(openMethod).toBe(expectedMethod)
+    })
+
+    // A reload, a new tab, and a bundle update each start a fresh logic. Switching project is a
+    // same-tab page load as well, and it keeps session storage, so the marker is per project.
+    it.each([
+        { where: 'the same project', team: MOCK_DEFAULT_TEAM, expected: 'click' },
+        {
+            where: 'another project',
+            team: { ...MOCK_DEFAULT_TEAM, id: MOCK_DEFAULT_TEAM.id + 1 },
+            expected: 'deeplink',
+        },
+    ])('a report URL loaded fresh in $where after the list was visited reads $expected', async ({ team, expected }) => {
+        mountWithRedesign(true)
+        router.actions.push(urls.inbox('reports'))
+        logic.unmount()
+
+        initKeaTests(true, team)
+        featureFlagLogic.mount()
+        mountWithRedesign(true)
+
+        let openMethod: string | undefined
+        await expectLogic(logic, () => router.actions.push(urls.inboxReport('reports', 'r1'))).toDispatchActions([
+            (action: any) => {
+                if (action.type !== logic.actionTypes.setSelectedReportId) {
+                    return false
+                }
+                openMethod = action.payload.openMethod
+                return true
+            },
+        ])
+        expect(openMethod).toBe(expected)
+    })
+
+    // A rank read at open time is null on a cold load, and joins to no impression row. The event is
+    // then captured after the wait, so it also has to carry the moment the report opened: a scroll
+    // or an action taken during the wait would otherwise read earlier than the open.
+    it('holds `Inbox report opened` until the list answers, then reports the rank and the open time', async () => {
+        const report = { id: 'r1', title: 'Crash on login' } as SignalReport
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/': {
+                    results: [report],
+                    count: 1,
+                    next: null,
+                    previous: null,
+                },
+            },
+        })
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        mountWithRedesign(false)
+        const listLogic = reportListLogic(sectionListLogicProps('needs-decision'))
+        listLogic.mount()
+        listLogic.actions.loadReports()
+
+        logic.actions.setSelectedReportId('r1')
+        const beforeOpen = Date.now()
+        logic.actions.loadSelectedReportSuccess(report)
+        const afterOpen = Date.now()
+        expect(openedEvents(captureSpy)).toHaveLength(0)
+
+        await waitForOpenRankRetry()
+
+        expect(openedEvents(captureSpy)[0]).toMatchObject({ rank: 1, list_size: 1 })
+        const stampedAt = (openedCalls(captureSpy)[0][2] as CaptureOptions | undefined)?.timestamp?.getTime()
+        expect(stampedAt).toBeGreaterThanOrEqual(beforeOpen)
+        expect(stampedAt).toBeLessThanOrEqual(afterOpen)
+        captureSpy.mockRestore()
+        listLogic.unmount()
+    })
+
+    // The flat list merges every selected state, so a state that answers late can add rows that sort
+    // above the report. Ranking on the first state to answer records a rank that is too small, and
+    // the impression side (which waits for all of them) then records a different one.
+    it('under the flat list the rank waits for the slower state, not the first one to answer', async () => {
+        const opened = { id: 'r1', title: 'Crash on login', priority: 'P2' } as SignalReport
+        const higher = { id: 'r2', title: 'Checkout times out', priority: 'P0' } as SignalReport
+        let releaseMonitoring = (): void => {}
+        const monitoringAnswered = new Promise<void>((resolve) => {
+            releaseMonitoring = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/': async ({ request }) => {
+                    // Only the monitoring state filters on an open implementation PR.
+                    if (new URL(request.url).searchParams.get('has_implementation_pr') === 'true') {
+                        await monitoringAnswered
+                        return [200, { results: [higher], count: 1, next: null, previous: null }]
+                    }
+                    return [200, { results: [opened], count: 1, next: null, previous: null }]
+                },
+            },
+        })
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        mountWithRedesign(true)
+        const needsDecision = reportListLogic(sectionListLogicProps('needs-decision'))
+        const monitoring = reportListLogic(sectionListLogicProps('monitoring'))
+        needsDecision.mount()
+        monitoring.mount()
+        needsDecision.actions.loadReports()
+        monitoring.actions.loadReports()
+
+        logic.actions.setSelectedReportId('r1')
+        logic.actions.loadSelectedReportSuccess(opened)
+
+        await waitForOpenRankRetry()
+        expect(needsDecision.values.reports).toHaveLength(1)
+        expect(openedEvents(captureSpy)).toHaveLength(0)
+
+        releaseMonitoring()
+        await waitForOpenRankRetry()
+
+        expect(openedEvents(captureSpy)[0]).toMatchObject({ rank: 2, list_size: 2 })
+        captureSpy.mockRestore()
+        needsDecision.unmount()
+        monitoring.unmount()
+    })
+
+    // posthog-js drains its batch queue from its own `pagehide` handler, which is registered before
+    // this scene's. An open left to normal batching is enqueued after that drain and never leaves.
+    it('a page unload while an open is still waiting sends the open instantly, ahead of the close', () => {
+        const report = { id: 'r1', title: 'Crash on login' } as SignalReport
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        mountWithRedesign(true)
+
+        // No list is mounted, so the rank never resolves and the open stays pending.
+        logic.actions.setSelectedReportId('r1')
+        logic.actions.loadSelectedReportSuccess(report)
+        expect(openedEvents(captureSpy)).toHaveLength(0)
+
+        window.dispatchEvent(new Event('pagehide'))
+
+        const inboxCalls = captureSpy.mock.calls.filter(([name]) =>
+            ['Inbox report opened', 'Inbox report closed'].includes(name as string)
+        )
+        expect(inboxCalls.map(([name]) => name)).toEqual(['Inbox report opened', 'Inbox report closed'])
+        // The open also carries its own `timestamp`, so match the option that bypasses the queue.
+        expect(inboxCalls[0][2]).toMatchObject({ send_instantly: true })
+        expect(inboxCalls[1][2]).toEqual({ send_instantly: true })
+        captureSpy.mockRestore()
     })
 
     it('stops the runs poll when opening another surface closes the panel', () => {
