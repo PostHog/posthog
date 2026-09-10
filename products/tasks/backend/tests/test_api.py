@@ -9546,6 +9546,28 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         self.assertIsNotNone(events[0]["id"])
         self.assertEqual(events[1]["data"]["notification"]["method"], "_posthog/console")
 
+    def test_stream_hides_a_workflow_summary(self):
+        owner = self.create_organization_user("workflow-owner")
+        task = self.create_task("Workflow task", created_by=owner)
+        task.origin_product = Task.OriginProduct.WORKFLOW
+        task.save(update_fields=["origin_product"])
+        run = TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"task_summary": "Private workflow context"},
+        )
+        run.publish_stream_state_event()
+        self._mark_stream_complete(run)
+
+        response = self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        events = self._collect_sse_events(response)
+        state_events = [event["data"] for event in events if event["data"].get("type") == "task_run_state"]
+        self.assertTrue(state_events)
+        self.assertTrue(all(event["task_summary"] is None for event in state_events))
+
     def test_stream_resumes_from_last_event_id(self):
         task = self.create_task()
         run = task.create_run()

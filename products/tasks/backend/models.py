@@ -2933,6 +2933,8 @@ class TaskRun(models.Model):
         notify_task_run_failed(self)
 
     def build_stream_state_event(self) -> dict[str, Any]:
+        # Workflow tasks are team-readable, but their summaries can contain private trigger context.
+        stream_task_summary = self.task_summary if self.task.origin_product != Task.OriginProduct.WORKFLOW else None
         return {
             "type": "task_run_state",
             "run_id": str(self.id),
@@ -2940,7 +2942,7 @@ class TaskRun(models.Model):
             "status": self.status,
             "stage": self.stage,
             "output": self.output,
-            "task_summary": self.task_summary,
+            "task_summary": stream_task_summary,
             "branch": self.branch,
             "error_message": self.error_message,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
