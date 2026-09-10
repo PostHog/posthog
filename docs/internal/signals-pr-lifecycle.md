@@ -132,7 +132,7 @@ The web detail view discards superseded checks and comments responses, including
 failures, after PR selection changes. Only current requests can set errors or
 advance the checks retry counter; selection survives virtual PR ID replacement.
 
-Schema changes run transactionally in `0126_report_work_pull_requests`;
-`0127_report_work_pull_request_indexes` builds the two artefact indexes concurrently.
+Schema changes run transactionally in `0127_report_work_pull_requests`;
+`0128_report_work_pull_request_indexes` builds the two artefact indexes concurrently.
 The index operations safely skip existing valid indexes, including local databases
 that already applied the earlier combined version of migration 0126.

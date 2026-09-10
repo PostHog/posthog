@@ -10,7 +10,7 @@ import posthog.uuidt
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1347_drop_activitylog_detail_jsonb_ops_gin"),
-        ("signals", "0125_signalreport_scout_idem_key_index"),
+        ("signals", "0126_signalteamconfig_issue_tracking_config_and_more"),
         ("tasks", "0121_squash_2026_09_07_finalize_fks"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]

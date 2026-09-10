@@ -73,6 +73,7 @@ class KlaviyoValuesReportConfig:
     # Campaign and flow reports require a conversion metric on every request; form and segment
     # reports do not accept one, so their requests must omit it and skip the /metrics lookup.
     requires_conversion_metric: bool = True
+    list_all_ids_path: Optional[str] = None
 
     def __post_init__(self) -> None:
         # Klaviyo requires a timeframe and accepts only one form of it, so a config that sets both
@@ -592,10 +593,12 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
             timeframe_key=VALUES_REPORT_TIMEFRAME_KEY,
             group_by=["form_id"],
             requires_conversion_metric=False,
+            list_all_ids_path="/forms",
         ),
         description=(
             "Klaviyo's own signup-form performance statistics per form over the last 365 days, "
-            "replaced in full on every sync"
+            "replaced in full on every sync. A form with no activity in the window is listed with "
+            "zero counts and no submit rate."
         ),
     ),
     "segment_values_reports": KlaviyoEndpointConfig(

@@ -1,5 +1,5 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.apps import apps
 from django.test import SimpleTestCase
@@ -344,6 +344,26 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert assignment.actor_task_id == task.id
         assert assignment.actor_agent is None
         assert response.json()["assignee"]["task_id"] == str(task.id)
+
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        pr_urls = ["https://github.com/example/app/pull/1", "https://github.com/example/app/pull/2"]
+        with patch("products.signals.backend.receivers.link_report_tracker_issues.delay") as link_tracker:
+            with self.captureOnCommitCallbacks(execute=True):
+                TaskRun.objects.create(
+                    team=self.team,
+                    task=task,
+                    status=TaskRun.Status.COMPLETED,
+                    output={"pr_url": pr_urls[0], "pr_urls": pr_urls},
+                )
+                link_tracker.assert_not_called()
+            assert link_tracker.call_args_list == [
+                call(team_id=self.team.id, task_id=str(task.id), pr_url=url) for url in pr_urls
+            ]
+        assert set(
+            SignalReportArtefact.objects.filter(report=report, type="pull_request").values_list(
+                "pull_request__url", flat=True
+            )
+        ) == set(pr_urls)
 
     @patch("products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository")
     def test_connected_pull_request_details_are_fetched(self, mock_first_for_repository):

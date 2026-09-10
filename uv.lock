@@ -2462,18 +2462,6 @@ wheels = [
 ]
 
 [[package]]
-name = "freezegun"
-version = "1.5.5"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "python-dateutil" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/95/dd/23e2f4e357f8fd3bdff613c1fe4466d21bfb00a6177f238079b17f7b1c84/freezegun-1.5.5.tar.gz", hash = "sha256:ac7742a6cc6c25a2c35e9292dfd554b897b517d2dec26891a2e8debf205cb94a", size = 35914, upload-time = "2025-08-09T10:39:08.338Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/5e/2e/b41d8a1a917d6581fc27a35d05561037b048e47df50f27f8ac9c7e27a710/freezegun-1.5.5-py3-none-any.whl", hash = "sha256:cd557f4a75cf074e84bc374249b9dd491eaeacd61376b9eb3c423282211619d2", size = 19266, upload-time = "2025-08-09T10:39:06.636Z" },
-]
-
-[[package]]
 name = "frozenlist"
 version = "1.6.2"
 source = { registry = "https://pypi.org/simple" }
@@ -5757,7 +5745,6 @@ dev = [
     { name = "faker" },
     { name = "fakeredis", extra = ["lua"] },
     { name = "flameprof" },
-    { name = "freezegun" },
     { name = "grpcio-tools" },
     { name = "hogli" },
     { name = "hypothesis" },
@@ -5797,6 +5784,7 @@ dev = [
     { name = "syrupy" },
     { name = "tach" },
     { name = "testcontainers", extra = ["mysql"] },
+    { name = "time-machine" },
     { name = "ty" },
     { name = "types-aioboto3", extra = ["s3"] },
     { name = "types-aiobotocore" },
@@ -6039,7 +6027,6 @@ dev = [
     { name = "faker", specifier = "==17.5.0" },
     { name = "fakeredis", extras = ["lua"], specifier = "==2.23.3" },
     { name = "flameprof", specifier = "~=0.4" },
-    { name = "freezegun", specifier = "==1.5.5" },
     { name = "grpcio-tools", specifier = "~=1.71.0" },
     { name = "hogli", editable = "tools/hogli" },
     { name = "hypothesis", specifier = "~=6.151.9" },
@@ -6079,6 +6066,7 @@ dev = [
     { name = "syrupy", specifier = "~=4.9.1" },
     { name = "tach", specifier = "~=0.34" },
     { name = "testcontainers", extras = ["mysql"], specifier = "~=4.14" },
+    { name = "time-machine", specifier = "==3.5.0" },
     { name = "ty", specifier = "==0.0.74" },
     { name = "types-aioboto3", extras = ["s3"], specifier = "~=14.3.0" },
     { name = "types-aiobotocore", specifier = "~=2.22.0" },
@@ -8284,6 +8272,22 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/f2/bb/4513da71cac187383541facd0291c4572b03ec23c561de5811781bbd988f/tiktoken-0.9.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:cc156cb314119a8bb9748257a2eaebd5cc0753b6cb491d26694ed42fc7cb3139", size = 1195649, upload-time = "2025-02-14T06:02:43Z" },
     { url = "https://files.pythonhosted.org/packages/fa/5c/74e4c137530dd8504e97e3a41729b1103a4ac29036cbfd3250b11fd29451/tiktoken-0.9.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:cd69372e8c9dd761f0ab873112aba55a0e3e506332dd9f7522ca466e817b1b7a", size = 1258465, upload-time = "2025-02-14T06:02:45.046Z" },
     { url = "https://files.pythonhosted.org/packages/de/a8/8f499c179ec900783ffe133e9aab10044481679bb9aad78436d239eee716/tiktoken-0.9.0-cp313-cp313-win_amd64.whl", hash = "sha256:5ea0edb6f83dc56d794723286215918c1cde03712cbbafa0348b33448faf5b95", size = 894669, upload-time = "2025-02-14T06:02:47.341Z" },
+]
+
+[[package]]
+name = "time-machine"
+version = "3.5.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e3/1a/d9c82e780ac6c41102d50b30c3fb3c25a3b8dd46f807147462d1f4429171/time_machine-3.5.0.tar.gz", hash = "sha256:bc193985b43f15394cfded976efaf9068c3078a2135f42f81c874ba684720eae", size = 25692, upload-time = "2026-08-25T00:18:32.594Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8a/dc/61669d9a3c95291de10486d36b24ca8af50dce17e8d624f9887208f484d1/time_machine-3.5.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:f01f0e0fa67ea501c4ea3bf5983234612fb5036ac32ddab092b09ead37715c7c", size = 25707, upload-time = "2026-08-25T00:17:49.791Z" },
+    { url = "https://files.pythonhosted.org/packages/2c/a4/3f5a4286768dff89e2de8c9ebcb8765962f2ce00196865954f48132435ea/time_machine-3.5.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:479abe218c4bc03e1acd1914f095a2351ca658db17e69e56b194f5fe2337b216", size = 25878, upload-time = "2026-08-25T00:17:50.881Z" },
+    { url = "https://files.pythonhosted.org/packages/b3/ee/1cf35afb752519cd38a1aaf74617cde56c8417a6d235d26c9a650c74138f/time_machine-3.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl", hash = "sha256:a625e2fd1e3b0dcc1479f559866a068a8c48c3ebe7a2c2093daef8e924ff1a7e", size = 57713, upload-time = "2026-08-25T00:17:52.036Z" },
+    { url = "https://files.pythonhosted.org/packages/67/57/d9e3a30cad31fbbe17b81971984ae83121cf968e7583e36b8cf92f31e534/time_machine-3.5.0-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:1c5624a6c3256182aaf1d15defcff782d6b0a12c8b2554191981bb59fe00954a", size = 58443, upload-time = "2026-08-25T00:17:53.074Z" },
+    { url = "https://files.pythonhosted.org/packages/63/37/82035b221f3bd657f8ca1eb3e28a5a7865338d35331ccc06a0569b87c39a/time_machine-3.5.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:27a2a399d500f03fafe185b4313d372098901bb66b839abf9fb1b981ffb85f44", size = 57122, upload-time = "2026-08-25T00:17:54.116Z" },
+    { url = "https://files.pythonhosted.org/packages/93/ae/196922dd5af6b0b4ef650c02343f1276e4be5d98b2f83dfada5f79047cab/time_machine-3.5.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:e5e0c69a871a6a03daf491421590671652fd299803c218a37af9551c15dc3e68", size = 56842, upload-time = "2026-08-25T00:17:55.219Z" },
+    { url = "https://files.pythonhosted.org/packages/ad/d2/e6e055de97a1b4137bce620a44bd696c95d85f7621959e80e4a6a68c8265/time_machine-3.5.0-cp313-cp313-win_amd64.whl", hash = "sha256:e31e50fc71059e9669da03fcf84a7431c1b731203e27625e4852e35a72bfd16e", size = 27753, upload-time = "2026-08-25T00:17:56.275Z" },
+    { url = "https://files.pythonhosted.org/packages/66/74/1fd21def4e95506209b1a10d756d3ca038828347730d4eaef2609d3813dc/time_machine-3.5.0-cp313-cp313-win_arm64.whl", hash = "sha256:ca4a49ef0c28bb8a31e6cb9ff4b6a392e515b8642b07f561369d5023e820c583", size = 26987, upload-time = "2026-08-25T00:17:57.225Z" },
 ]
 
 [[package]]
