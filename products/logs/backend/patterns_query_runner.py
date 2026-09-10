@@ -132,11 +132,14 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         # inconclusive local evaluation therefore means "off", which is body mining as before.
         # `group_properties` carries the organization id so an org-level rollout still resolves locally.
         team_id = str(self.team.pk)
+        person_properties = {"team_id": team_id, "region": get_instance_region() or "DEV"}
+        if self.user:
+            person_properties["email"] = self.user.email
         return bool(
             posthoganalytics.feature_enabled(
                 "logs_patterns_query_v2",
-                team_id,
-                person_properties={"team_id": team_id, "region": get_instance_region() or "DEV"},
+                str(self.user.distinct_id) if self.user else team_id,
+                person_properties=person_properties,
                 groups={"organization": str(self.team.organization_id)},
                 group_properties={"organization": {"id": str(self.team.organization_id)}},
                 only_evaluate_locally=True,

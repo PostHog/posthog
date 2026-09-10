@@ -1726,7 +1726,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         query = self._filtered_logs_query(query_data)
 
-        runner = PatternsQueryRunner(team=self.team, query=query)
+        runner = PatternsQueryRunner(
+            team=self.team, query=query, user=request.user if isinstance(request.user, User) else None
+        )
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             analytics_props=get_request_analytics_properties(request),

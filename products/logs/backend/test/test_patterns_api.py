@@ -3,7 +3,7 @@ import json
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -21,9 +21,9 @@ class TestPatternsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, expected_status)
         return response.json() if expected_status == status.HTTP_200_OK else response
 
-    @parameterized.expand([(False, 10), (True, 10), (True, 2)])
+    @parameterized.expand([(False, 10), (True, 10), (True, 2), (None, 10)])
     @time_machine.travel("2026-06-23T13:00:00Z", tick=False)
-    def test_patterns_endpoint_returns_mined_patterns(self, stored_patterns: bool, max_examples: int) -> None:
+    def test_patterns_endpoint_returns_mined_patterns(self, stored_patterns: bool | None, max_examples: int) -> None:
         self._insert(
             [
                 {
@@ -39,7 +39,7 @@ class TestPatternsAPI(ClickhouseTestMixin, APIBaseTest):
         )
 
         with (
-            patch("posthoganalytics.feature_enabled", return_value=stored_patterns),
+            patch("posthoganalytics.feature_enabled", return_value=stored_patterns) as feature_enabled,
             patch.dict(os.environ, {"LOGS_PATTERNS_MAX_EXAMPLES": str(max_examples)}),
         ):
             body = self._request(
@@ -49,6 +49,15 @@ class TestPatternsAPI(ClickhouseTestMixin, APIBaseTest):
                 }
             )
 
+        feature_enabled.assert_any_call(
+            "logs_patterns_query_v2",
+            str(self.user.distinct_id),
+            person_properties={"email": self.user.email, "team_id": str(self.team.pk), "region": ANY},
+            groups={"organization": str(self.team.organization_id)},
+            group_properties={"organization": {"id": str(self.team.organization_id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
         assert body["scanned_count"] == 3
         assert body["total_count"] == 3
         assert body["sampled"] is False

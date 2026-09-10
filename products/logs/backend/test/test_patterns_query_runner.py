@@ -83,7 +83,7 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert patterns["Archive job <ID> queued"]["match_patterns"] == ["Archive job <ID> queued"]
         assert patterns["Archive job <ID> queued"]["pattern_version"] == 5
 
-    @freeze_time(_FROZEN_NOW)
+    @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_stored_examples_do_not_repeat_a_body(self) -> None:
         self._insert(
             [
