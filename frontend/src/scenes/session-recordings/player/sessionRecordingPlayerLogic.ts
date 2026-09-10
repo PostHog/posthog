@@ -1111,7 +1111,8 @@ export interface sessionRecordingPlayerLogicMeta {
         hasLateFullSnapshot: (leadingUnplayableMs: number) => boolean
         unrenderableWindowSpans: (
             sessionPlayerData: SessionPlayerData,
-            seekRenderability: (timestamp: number) => SeekRenderability
+            seekRenderability: (timestamp: number) => SeekRenderability,
+            leadingUnplayableMs: number
         ) => UnplayableSpan[]
         unrenderableWindowMs: (unrenderableWindowSpans: UnplayableSpan[]) => number
         hasUnrenderableWindow: (unrenderableWindowMs: number) => boolean
@@ -1927,15 +1928,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         // Spans of a window that opened without ever sending its initial DOM. rrweb draws its own
         // cursor from the incremental mouse events, so the viewer sees a pointer moving over a blank
-        // document. `leadingUnplayableMs` owns the recording's first window, which the player clamps
-        // past; these are the later windows, where nothing clamps and nothing explains the blank frame.
+        // document. `leadingUnplayableMs` owns the stretch the player clamps past, so these are the
+        // spans after it, where nothing clamps and nothing explains the blank frame.
         // One check per window is enough: once a window has a FullSnapshot, rrweb keeps its DOM for
         // every later segment of that window.
         unrenderableWindowSpans: [
-            (s) => [s.sessionPlayerData, s.seekRenderability],
+            (s) => [s.sessionPlayerData, s.seekRenderability, s.leadingUnplayableMs],
             (
                 sessionPlayerData: SessionPlayerData,
-                seekRenderability: (timestamp: number) => SeekRenderability
+                seekRenderability: (timestamp: number) => SeekRenderability,
+                leadingUnplayableMs: number
             ): UnplayableSpan[] => {
                 const lastEndByWindow = new Map<number, number>()
                 for (const segment of sessionPlayerData.segments) {
@@ -1945,6 +1947,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
 
                 const firstWindowSegment = sessionPlayerData.segments.find((segment) => segment.kind === 'window')
+                // Where the leading span hands over. Its recovery point can be another window's
+                // FullSnapshot, so the first window can go blank again after it and still needs a span.
+                const leadingRecoveryTimestamp = (sessionPlayerData.start?.valueOf() ?? 0) + leadingUnplayableMs
                 const spans: UnplayableSpan[] = []
                 const checkedWindows = new Set<number>()
                 for (const segment of sessionPlayerData.segments) {
@@ -1952,8 +1957,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         continue
                     }
                     const windowId = segment.windowId
-                    // the recording's first window is the leading span's territory
-                    if (windowId === firstWindowSegment?.windowId || checkedWindows.has(windowId)) {
+                    if (
+                        windowId === firstWindowSegment?.windowId &&
+                        segment.startTimestamp < leadingRecoveryTimestamp
+                    ) {
+                        continue
+                    }
+                    if (checkedWindows.has(windowId)) {
                         continue
                     }
                     if (segment.endTimestamp <= segment.startTimestamp) {

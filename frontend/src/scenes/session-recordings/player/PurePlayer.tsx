@@ -408,9 +408,9 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                                     {humanFriendlyDuration(unrenderableWindowMs / 1000, {
                                                         maxUnits: 2,
                                                     })}{' '}
-                                                    of this recording can't be played. Another browser window opened
-                                                    without sending a screen snapshot, so the player stays blank while
-                                                    that window is on screen.{' '}
+                                                    of this recording can't be played. A browser window opened without
+                                                    sending a screen snapshot, so the player stays blank while that
+                                                    window is on screen.{' '}
                                                 </>
                                             ) : null}
                                             <Link to="https://posthog.com/docs/session-replay/troubleshooting">

@@ -160,7 +160,7 @@ export function Seekbar(): JSX.Element {
                                   key={span.startTimestamp}
                                   title={`${humanFriendlyDuration((span.endTimestamp - span.startTimestamp) / 1000, {
                                       maxUnits: 2,
-                                  })} can't be played. Another browser window opened without sending a screen snapshot.`}
+                                  })} can't be played. A browser window opened without sending a screen snapshot.`}
                                   placement="top"
                               >
                                   <div

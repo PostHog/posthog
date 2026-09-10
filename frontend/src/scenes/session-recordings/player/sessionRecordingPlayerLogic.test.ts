@@ -601,6 +601,13 @@ describe('sessionRecordingPlayerLogic', () => {
         // an ACTIVE first-window event, so the segmenter splits a real window-1 segment before it
         const w1move = (timestamp: number): RecordingSnapshot =>
             makeSnapshot(timestamp, EventType.IncrementalSnapshot, 1, { source: IncrementalSource.MouseMove })
+        const w1moves = (fromTimestamp: number, toTimestamp: number): RecordingSnapshot[] => {
+            const moves: RecordingSnapshot[] = []
+            for (let timestamp = fromTimestamp; timestamp <= toTimestamp; timestamp += 5000) {
+                moves.push(w1move(timestamp))
+            }
+            return moves
+        }
 
         // one-minute-per-source blob fixtures matching the store test helpers
         const makeBlobSources = (
@@ -1079,6 +1086,22 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.hasUnrenderableWindow).toBe(expectedHasUnrenderable)
             // the leading span selector still owns the recording's first window
             expect(logic.values.leadingUnplayableMs).toBe(0)
+        })
+
+        it('reports the first window when it goes blank again after the leading span', () => {
+            // window 1 never sends a full snapshot, so the leading span recovers on window 2's
+            // instead, and playback back in window 1 has nothing to clamp to
+            seedRecording(
+                [w1move(START), w2fs(START + 5000), ...w2moves(START + 10000, START + 55000)],
+                w1moves(START + 61000, START + 91000)
+            )
+
+            expect(logic.values.leadingUnplayableMs).toBe(5000)
+            expect(logic.values.hasLateFullSnapshot).toBe(false)
+            expect(logic.values.unrenderableWindowSpans).toEqual([
+                { startTimestamp: START + 61000, endTimestamp: START + 91000 },
+            ])
+            expect(logic.values.hasUnrenderableWindow).toBe(true)
         })
 
         it('holds the unrenderable-window warning back while earlier data is still loading', () => {
