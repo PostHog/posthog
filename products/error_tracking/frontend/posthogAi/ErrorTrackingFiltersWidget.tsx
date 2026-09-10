@@ -14,18 +14,18 @@ import {
     MaxErrorTrackingSearchResponse,
 } from '~/queries/schema/schema-assistant-error-tracking'
 
-import { issueFiltersLogic } from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'
+import { MessageTemplate } from 'products/posthog_ai/frontend/api/tools'
+
+import { issueFiltersLogic } from '../components/IssueFilters/issueFiltersLogic'
 import {
     ErrorTrackingQueryOrderBy,
     ErrorTrackingQueryOrderDirection,
     ErrorTrackingQueryStatus,
     issueQueryOptionsLogic,
-} from 'products/error_tracking/frontend/components/IssueQueryOptions/issueQueryOptionsLogic'
-import { ERROR_TRACKING_SCENE_LOGIC_KEY } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/errorTrackingSceneLogic'
-
-import { MessageTemplate } from '../../../messages/MessageTemplate'
+} from '../components/IssueQueryOptions/issueQueryOptionsLogic'
+import { ErrorTrackingIssueCard } from '../ErrorTrackingIssueCard'
+import { ERROR_TRACKING_SCENE_LOGIC_KEY } from '../scenes/ErrorTrackingScene/errorTrackingSceneLogic'
 import { ErrorTrackingFiltersSummary } from './ErrorTrackingFiltersSummary'
-import { ErrorTrackingIssueCard } from './ErrorTrackingIssueCard'
 import { MaxErrorTrackingWidgetLogicProps, maxErrorTrackingWidgetLogic } from './maxErrorTrackingWidgetLogic'
 
 export function ErrorTrackingFiltersWidget({

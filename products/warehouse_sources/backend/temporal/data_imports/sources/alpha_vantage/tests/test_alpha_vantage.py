@@ -7,10 +7,15 @@ import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vantage.alpha_vantage import (
+    LISTING_CHUNK_SIZE,
+    LISTING_STATES,
     AlphaVantageAPIError,
     AlphaVantageRetryableError,
     _fetch,
+    _fetch_csv,
+    _listing_status_rows,
     _normalize_key,
+    _parse_corporate_action,
     _parse_earnings,
     _parse_overview,
     _parse_quote,
@@ -38,6 +43,12 @@ def _response(*, body: Any = None, status: int = 200, ok: bool = True) -> MagicM
     # Real requests responses expose the full URL (apikey included) on `response.url`.
     response.url = "https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=IBM&apikey=supersecret"
     response.json.return_value = body if body is not None else {}
+    return response
+
+
+def _text_response(text: str, *, status: int = 200, ok: bool = True) -> MagicMock:
+    response = _response(status=status, ok=ok)
+    response.text = text
     return response
 
 
@@ -105,6 +116,86 @@ class TestAlphaVantage:
 
     def test_parse_time_series_empty(self) -> None:
         assert list(_parse_time_series({"Meta Data": {}}, "IBM")) == []
+
+    def test_parse_time_series_normalizes_the_adjusted_columns(self) -> None:
+        # TIME_SERIES_DAILY_ADJUSTED rides the same parser but carries three extra ordinal-prefixed
+        # columns, so the adjusted fields must land as their own snake_case columns.
+        body = {
+            "Meta Data": {},
+            "Time Series (Daily)": {
+                "2024-01-05": {
+                    "1. open": "1",
+                    "4. close": "1.5",
+                    "5. adjusted close": "1.4",
+                    "6. volume": "100",
+                    "7. dividend amount": "0.0",
+                    "8. split coefficient": "1.0",
+                }
+            },
+        }
+        assert list(_parse_time_series(body, "IBM")) == [
+            {
+                "symbol": "IBM",
+                "date": "2024-01-05",
+                "open": "1",
+                "close": "1.5",
+                "adjusted_close": "1.4",
+                "volume": "100",
+                "dividend_amount": "0.0",
+                "split_coefficient": "1.0",
+            }
+        ]
+
+    def test_parse_corporate_action_injects_symbol_and_nulls_placeholders(self) -> None:
+        # Old dividends carry the literal string "None" for the dates that were never recorded, which
+        # would otherwise land as text in a date column.
+        body = {
+            "symbol": "IBM",
+            "data": [
+                {
+                    "ex_dividend_date": "2026-08-10",
+                    "declaration_date": "2026-07-22",
+                    "record_date": "2026-08-10",
+                    "payment_date": "2026-09-10",
+                    "amount": "1.69",
+                },
+                {
+                    "ex_dividend_date": "1999-02-08",
+                    "declaration_date": "None",
+                    "record_date": "None",
+                    "payment_date": "None",
+                    "amount": "0.22",
+                },
+            ],
+        }
+        assert list(_parse_corporate_action(body, "IBM")) == [
+            {
+                "symbol": "IBM",
+                "ex_dividend_date": "2026-08-10",
+                "declaration_date": "2026-07-22",
+                "record_date": "2026-08-10",
+                "payment_date": "2026-09-10",
+                "amount": "1.69",
+            },
+            {
+                "symbol": "IBM",
+                "ex_dividend_date": "1999-02-08",
+                "declaration_date": None,
+                "record_date": None,
+                "payment_date": None,
+                "amount": "0.22",
+            },
+        ]
+
+    def test_parse_corporate_action_handles_splits_shape(self) -> None:
+        body = {"symbol": "IBM", "data": [{"effective_date": "2021-11-04", "split_factor": "1.0460"}]}
+        assert list(_parse_corporate_action(body, "IBM")) == [
+            {"symbol": "IBM", "effective_date": "2021-11-04", "split_factor": "1.0460"}
+        ]
+
+    @parameterized.expand([("missing_data", {"symbol": "IBM"}), ("not_a_list", {"symbol": "IBM", "data": {}})])
+    def test_parse_corporate_action_empty(self, _name: str, body: dict) -> None:
+        assert list(_parse_corporate_action(body, "IBM")) == []
 
     def test_parse_quote_injects_symbol_and_snake_cases(self) -> None:
         body = {
@@ -251,6 +342,79 @@ class TestAlphaVantage:
         with patch(f"{MODULE}.make_tracked_session", return_value=_session_returning(responses)):
             with pytest.raises(AlphaVantageAPIError):
                 _collect_rows(get_rows("KEY", ["IBM"], "global_quote", MagicMock()))
+
+    def test_fetch_csv_returns_the_csv_body(self) -> None:
+        session = _session_returning([_text_response("symbol,status\nIBM,Active\n")])
+        assert _fetch_csv(session, {"function": "LISTING_STATUS"}) == "symbol,status\nIBM,Active\n"
+
+    def test_fetch_csv_returns_none_for_an_empty_json_body(self) -> None:
+        # A key that is not entitled to a state gets `{}` back instead of a CSV body.
+        session = _session_returning([_text_response("{}")])
+        assert _fetch_csv(session, {"function": "LISTING_STATUS"}) is None
+
+    def test_fetch_csv_information_envelope_is_permanent(self) -> None:
+        session = _session_returning([_text_response('{"Information": "daily limit reached"}')])
+        with pytest.raises(AlphaVantageAPIError) as exc:
+            _fetch_csv(session, {"function": "LISTING_STATUS"})
+        assert "rate_limit_or_premium" in str(exc.value)
+
+    def test_fetch_csv_note_envelope_is_retryable(self) -> None:
+        session = _session_returning([_text_response('{"Note": "call frequency limit"}')] * 5)
+        with patch("time.sleep"), pytest.raises(AlphaVantageRetryableError):
+            _fetch_csv(session, {"function": "LISTING_STATUS"})
+        assert session.get.call_count == 5
+
+    def test_listing_status_rows_covers_both_states_and_nulls_placeholders(self) -> None:
+        active = "symbol,name,exchange,assetType,ipoDate,delistingDate,status\nIBM,IBM Corp,NYSE,Stock,1962-01-02,null,Active\n"
+        delisted = "symbol,name,exchange,assetType,ipoDate,delistingDate,status\nOLD,Old Co,NYSE,Stock,1998-01-02,2014-07-10,Delisted\n"
+        session = _session_returning([_text_response(active), _text_response(delisted)])
+        rows = _collect_rows(_listing_status_rows(session, "KEY", MagicMock()))
+        assert [session.get.call_args_list[i].kwargs["params"]["state"] for i in range(2)] == ["active", "delisted"]
+        assert rows == [
+            {
+                "symbol": "IBM",
+                "name": "IBM Corp",
+                "exchange": "NYSE",
+                "assetType": "Stock",
+                "ipoDate": "1962-01-02",
+                # The vendor writes "null" rather than leaving the cell empty.
+                "delistingDate": None,
+                "status": "Active",
+            },
+            {
+                "symbol": "OLD",
+                "name": "Old Co",
+                "exchange": "NYSE",
+                "assetType": "Stock",
+                "ipoDate": "1998-01-02",
+                "delistingDate": "2014-07-10",
+                "status": "Delisted",
+            },
+        ]
+
+    def test_listing_status_rows_skips_a_state_with_no_csv(self) -> None:
+        active = "symbol,status\nIBM,Active\n"
+        session = _session_returning([_text_response(active), _text_response("{}")])
+        logger = MagicMock()
+        rows = _collect_rows(_listing_status_rows(session, "KEY", logger))
+        assert [r["symbol"] for r in rows] == ["IBM"]
+        logger.warning.assert_called_once()
+
+    def test_listing_status_rows_chunks_large_listings(self) -> None:
+        header = "symbol,status\n"
+        body = header + "".join(f"SYM{i},Active\n" for i in range(LISTING_CHUNK_SIZE + 1))
+        session = _session_returning([_text_response(body), _text_response("{}")])
+        batches = list(_listing_status_rows(session, "KEY", MagicMock()))
+        assert [len(batch) for batch in batches] == [LISTING_CHUNK_SIZE, 1]
+
+    def test_get_rows_does_not_fan_out_the_listing_over_symbols(self) -> None:
+        # LISTING_STATUS covers the whole market, so the request count must not scale with the symbols.
+        responses = [_text_response("symbol,status\nIBM,Active\n"), _text_response("{}")]
+        session = _session_returning(responses)
+        with patch(f"{MODULE}.make_tracked_session", return_value=session):
+            rows = _collect_rows(get_rows("KEY", ["IBM", "AAPL", "MSFT"], "listing_status", MagicMock()))
+        assert session.get.call_count == len(LISTING_STATES)
+        assert rows == [{"symbol": "IBM", "status": "Active"}]
 
     @parameterized.expand(
         [

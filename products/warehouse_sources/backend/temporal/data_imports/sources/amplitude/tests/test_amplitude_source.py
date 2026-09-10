@@ -8,7 +8,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.
     ANNOTATIONS_ENDPOINT,
     COHORTS_ENDPOINT,
     ENDPOINTS,
+    EVENT_CATEGORIES_ENDPOINT,
+    EVENT_PROPERTIES_ENDPOINT,
+    EVENT_TYPES_ENDPOINT,
     EVENTS_ENDPOINT,
+    USER_PROPERTIES_ENDPOINT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.source import AmplitudeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -17,7 +21,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     AmplitudeSourceConfig,
 )
 
-FULL_REFRESH_ENDPOINTS = [COHORTS_ENDPOINT, ANNOTATIONS_ENDPOINT]
+FULL_REFRESH_ENDPOINTS = [
+    COHORTS_ENDPOINT,
+    ANNOTATIONS_ENDPOINT,
+    EVENT_TYPES_ENDPOINT,
+    EVENT_PROPERTIES_ENDPOINT,
+    USER_PROPERTIES_ENDPOINT,
+    EVENT_CATEGORIES_ENDPOINT,
+]
 
 
 class TestAmplitudeSource:
