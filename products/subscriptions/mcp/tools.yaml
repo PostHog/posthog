@@ -211,6 +211,9 @@ tools:
     subscriptions-proactive-options-list:
         operation: subscriptions_proactive_options_list
         enabled: false
+    subscriptions-pulse-history-list:
+        operation: subscriptions_pulse_history_list
+        enabled: false
     subscriptions-retrieve:
         operation: subscriptions_retrieve
         enabled: true
