@@ -48,10 +48,12 @@ When a log body is a JSON object, PostHog looks up these keys in order and uses 
 
 If no key matches, the pattern is built from the object's set of top-level key names instead, so records with the same shape group together.
 
-An empty list turns message extraction off. Every JSON body then groups by its key set.
+An empty list turns message extraction off. Every JSON body then groups by its key set. A project without a logs configuration uses the default keys instead.
 
 This setting changes only how patterns are derived. The stored log body is never changed.
 
 ## Propagation
 
-A change reaches log ingestion within a few minutes. Records ingested in that window keep the patterns derived from the previous configuration.
+Ingestion caches pattern message keys for 30 seconds per consumer. Changes apply to newly ingested records when the cache refreshes; stored patterns are not recalculated. The existing pattern-ingestion rollout must be enabled for the project.
+
+If a configuration lookup fails, ingestion keeps the last successfully loaded keys, or the default keys if none have been loaded. It waits 30 seconds before retrying. Logs continue to ingest during the failure.
