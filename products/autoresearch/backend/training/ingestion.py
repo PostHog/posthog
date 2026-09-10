@@ -38,17 +38,32 @@ def handle_task_run_completed(task_run: Any) -> None:
     the run itself via the complete tool, in which case the run is no longer RUNNING by
     the time this fires and we no-op.
     """
-    training_run_id = (task_run.state or {}).get("autoresearch_training_run_id")
+    state = task_run.state if isinstance(task_run.state, dict) else {}
+    training_run_id = state.get("autoresearch_training_run_id")
     if not training_run_id:
         return
 
     try:
-        training_run = AutoresearchTrainingRun.objects.select_related("pipeline__team").get(id=training_run_id)
+        training_run = (
+            AutoresearchTrainingRun.objects.for_team(task_run.team_id)
+            .select_related("pipeline__team")
+            .get(id=training_run_id)
+        )
     except AutoresearchTrainingRun.DoesNotExist:
         logger.warning(
             "autoresearch_training_run_not_found",
             task_run_id=str(task_run.id),
             training_run_id=training_run_id,
+        )
+        return
+
+    # The state marker is client-writable; task_run_id is stamped server-side at dispatch.
+    if training_run.task_run_id != task_run.id:
+        logger.warning(
+            "autoresearch_training_run_task_run_mismatch",
+            task_run_id=str(task_run.id),
+            training_run_id=training_run_id,
+            bound_task_run_id=str(training_run.task_run_id),
         )
         return
 
@@ -96,7 +111,7 @@ def _mark_failed(training_run: AutoresearchTrainingRun, error: str) -> None:
         # The status was read before the agent's own complete request may have committed.
         # Re-read under the same lock completion takes, so a run that promoted a champion in
         # that window is not flipped to FAILED (which would also revert its pipeline to draft).
-        locked = AutoresearchTrainingRun.objects.select_for_update().select_related("pipeline").get(pk=training_run.pk)
+        locked = AutoresearchTrainingRun.objects.select_for_update().get(pk=training_run.pk)
         if locked.status != AutoresearchTrainingRun.Status.RUNNING:
             logger.info(
                 "autoresearch_training_failure_skipped_after_completion",
@@ -114,10 +129,12 @@ def _apply_failure(training_run: AutoresearchTrainingRun, error: str) -> None:
     training_run.save(update_fields=["status", "completed_at", "error"])
     # If this was the inaugural run, the pipeline is sitting in BOOTSTRAPPING with no
     # champion behind it — drop it back to DRAFT so it doesn't look "live" after a failure.
-    pipeline = training_run.pipeline
-    if pipeline.status == AutoresearchPipeline.Status.BOOTSTRAPPING:
-        pipeline.status = AutoresearchPipeline.Status.DRAFT
-        pipeline.save(update_fields=["status", "updated_at"])
+    # Conditional: a sibling run may have taken the pipeline live since this row was read.
+    AutoresearchPipeline.objects.filter(
+        pk=training_run.pipeline_id,
+        team_id=training_run.team_id,
+        status=AutoresearchPipeline.Status.BOOTSTRAPPING,
+    ).update(status=AutoresearchPipeline.Status.DRAFT, updated_at=django_timezone.now())
     logger.warning(
         "autoresearch_training_failed",
         training_run_id=str(training_run.pk),

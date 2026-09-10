@@ -1,3 +1,5 @@
+from uuid import UUID, uuid4
+
 from posthog.test.base import BaseTest
 
 from django.utils import timezone as django_timezone
@@ -13,22 +15,22 @@ from products.autoresearch.backend.models import (
 from products.autoresearch.backend.testing import TeamScopedTestMixin
 from products.autoresearch.backend.training.ingestion import handle_task_run_completed
 
-
-def _task_run(status: str = "completed", state: dict | None = None):
-    """Build a minimal mock TaskRun-like object."""
-
-    class FakeTaskRun:
-        pass
-
-    tr = FakeTaskRun()
-    tr.id = "00000000-0000-0000-0000-000000000001"  # type: ignore[attr-defined]
-    tr.status = status  # type: ignore[attr-defined]
-    tr.state = state or {}  # type: ignore[attr-defined]
-    tr.error_message = None  # type: ignore[attr-defined]
-    return tr
+_TASK_RUN_ID = UUID("00000000-0000-0000-0000-000000000001")
 
 
 class TestHandleTaskRunCompleted(TeamScopedTestMixin, BaseTest):
+    def _task_run(self, state, status: str = "completed"):
+        class FakeTaskRun:
+            pass
+
+        tr = FakeTaskRun()
+        tr.id = _TASK_RUN_ID  # type: ignore[attr-defined]
+        tr.team_id = self.team.id  # type: ignore[attr-defined]
+        tr.status = status  # type: ignore[attr-defined]
+        tr.state = state  # type: ignore[attr-defined]
+        tr.error_message = None  # type: ignore[attr-defined]
+        return tr
+
     def _make_pipeline(self, **kwargs) -> AutoresearchPipeline:
         defaults = {
             "team": self.team,
@@ -48,6 +50,7 @@ class TestHandleTaskRunCompleted(TeamScopedTestMixin, BaseTest):
             "status": AutoresearchTrainingRun.Status.RUNNING,
             "iteration_budget": 10,
             "started_at": django_timezone.now(),
+            "task_run_id": _TASK_RUN_ID,
         }
         defaults.update(kwargs)
         return AutoresearchTrainingRun.objects.create(**defaults)
@@ -65,20 +68,32 @@ class TestHandleTaskRunCompleted(TeamScopedTestMixin, BaseTest):
             agent_description="test",
         )
 
-    def test_skips_run_without_training_run_id(self) -> None:
-        handle_task_run_completed(_task_run(state={}))
+    @parameterized.expand([({},), ([{"autoresearch_training_run_id": "x"}],), ("running",), (None,)])
+    def test_skips_run_without_a_training_run_marker(self, state) -> None:
+        handle_task_run_completed(self._task_run(state))
         assert AutoresearchTrainingRun.objects.count() == 0
 
     def test_skips_unknown_training_run_id(self) -> None:
         # A stale/unknown id must not raise.
         handle_task_run_completed(
-            _task_run(state={"autoresearch_training_run_id": "00000000-0000-0000-0000-0000000000ff"})
+            self._task_run(state={"autoresearch_training_run_id": "00000000-0000-0000-0000-0000000000ff"})
         )
+
+    @parameterized.expand([("unbound", None), ("another_task_run", uuid4())])
+    def test_ignores_a_marker_naming_a_run_this_task_does_not_own(self, _name: str, task_run_id) -> None:
+        pipeline = self._make_pipeline()
+        training_run = self._make_training_run(pipeline, task_run_id=task_run_id)
+        tr = self._task_run(status="failed", state={"autoresearch_training_run_id": str(training_run.id)})
+
+        handle_task_run_completed(tr)
+
+        training_run.refresh_from_db()
+        assert training_run.status == AutoresearchTrainingRun.Status.RUNNING
 
     def test_marks_failed_on_failed_task_run(self) -> None:
         pipeline = self._make_pipeline()
         training_run = self._make_training_run(pipeline)
-        tr = _task_run(status="failed", state={"autoresearch_training_run_id": str(training_run.id)})
+        tr = self._task_run(status="failed", state={"autoresearch_training_run_id": str(training_run.id)})
         tr.error_message = "sandbox crashed"
 
         handle_task_run_completed(tr)
@@ -91,7 +106,7 @@ class TestHandleTaskRunCompleted(TeamScopedTestMixin, BaseTest):
         pipeline = self._make_pipeline()
         training_run = self._make_training_run(pipeline, status=AutoresearchTrainingRun.Status.COMPLETED)
         self._record_iteration(training_run)
-        handle_task_run_completed(_task_run(state={"autoresearch_training_run_id": str(training_run.id)}))
+        handle_task_run_completed(self._task_run(state={"autoresearch_training_run_id": str(training_run.id)}))
         # No new champion materialized — the run was already finalized by the agent.
         assert AutoresearchModel.objects.filter(pipeline=pipeline).count() == 0
 
@@ -101,7 +116,7 @@ class TestHandleTaskRunCompleted(TeamScopedTestMixin, BaseTest):
         self._record_iteration(training_run, number=0, status="discarded", holdout=0.6)
         self._record_iteration(training_run, number=1, status="kept", holdout=0.82)
 
-        handle_task_run_completed(_task_run(state={"autoresearch_training_run_id": str(training_run.id)}))
+        handle_task_run_completed(self._task_run(state={"autoresearch_training_run_id": str(training_run.id)}))
 
         training_run.refresh_from_db()
         assert training_run.status == AutoresearchTrainingRun.Status.COMPLETED
@@ -117,7 +132,7 @@ class TestHandleTaskRunCompleted(TeamScopedTestMixin, BaseTest):
         training_run = self._make_training_run(pipeline)
         self._record_iteration(training_run, number=0, status="kept", holdout=0.82)
 
-        handle_task_run_completed(_task_run(state={"autoresearch_training_run_id": str(training_run.id)}))
+        handle_task_run_completed(self._task_run(state={"autoresearch_training_run_id": str(training_run.id)}))
 
         AutoresearchModel.objects.get(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
         pipeline.refresh_from_db()
@@ -127,7 +142,7 @@ class TestHandleTaskRunCompleted(TeamScopedTestMixin, BaseTest):
         pipeline = self._make_pipeline()
         training_run = self._make_training_run(pipeline)
 
-        handle_task_run_completed(_task_run(state={"autoresearch_training_run_id": str(training_run.id)}))
+        handle_task_run_completed(self._task_run(state={"autoresearch_training_run_id": str(training_run.id)}))
 
         training_run.refresh_from_db()
         assert training_run.status == AutoresearchTrainingRun.Status.FAILED
@@ -139,7 +154,7 @@ class TestHandleTaskRunCompleted(TeamScopedTestMixin, BaseTest):
         training_run = self._make_training_run(pipeline)
         self._record_iteration(training_run, number=0, status="kept", holdout=0.82)
 
-        handle_task_run_completed(_task_run(state={"autoresearch_training_run_id": str(training_run.id)}))
+        handle_task_run_completed(self._task_run(state={"autoresearch_training_run_id": str(training_run.id)}))
 
         AutoresearchModel.objects.get(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
         pipeline.refresh_from_db()
@@ -155,7 +170,7 @@ class TestHandleTaskRunCompleted(TeamScopedTestMixin, BaseTest):
     def test_failed_run_reverts_only_bootstrapping(self, start_status: str, expected_status: str) -> None:
         pipeline = self._make_pipeline(status=start_status)
         training_run = self._make_training_run(pipeline)
-        tr = _task_run(status="failed", state={"autoresearch_training_run_id": str(training_run.id)})
+        tr = self._task_run(status="failed", state={"autoresearch_training_run_id": str(training_run.id)})
 
         handle_task_run_completed(tr)
 

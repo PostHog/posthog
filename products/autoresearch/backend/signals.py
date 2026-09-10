@@ -36,7 +36,10 @@ def on_task_run_saved(sender: Any, instance: Any, created: bool, **kwargs: Any) 
     }:
         return
 
-    training_run_id = (instance.state or {}).get("autoresearch_training_run_id")
+    # TaskRun.state is client-writable JSON: a non-dict would raise outside the try below,
+    # rolling back the caller's terminal-status transaction.
+    state = instance.state if isinstance(instance.state, dict) else {}
+    training_run_id = state.get("autoresearch_training_run_id")
     if not training_run_id:
         return
 
