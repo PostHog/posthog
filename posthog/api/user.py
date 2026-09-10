@@ -1188,6 +1188,7 @@ class UserViewSet(
                     user,
                     trusted_password=trusted_password,
                     trusted_passkey_id=trusted_passkey_id,
+                    preserve_second_factors=trusted_password or trusted_passkey_id is not None,
                 )
                 user.is_email_verified = True
                 user.save(update_fields=["is_email_verified"])
@@ -1195,6 +1196,7 @@ class UserViewSet(
                 request.session.pop(SIGNUP_EMAIL_PROOF_SESSION_KEY, None)
             if not trusted_password and trusted_passkey_id is None:
                 revoke_other_sessions(user, keep_session_key=None)
+                return Response({"success": True, "requires_login": True})
         else:
             user.is_email_verified = True
             user.save(update_fields=["is_email_verified"])

@@ -14,6 +14,7 @@ def reconcile_email_claim_credentials(
     trusted_password: bool = False,
     trusted_passkey_id: str | None = None,
     trusted_social_auth_id: int | None = None,
+    preserve_second_factors: bool = False,
 ) -> None:
     """Keep only credentials proved by the flow that claimed the user's email address."""
     update_fields: list[str] = []
@@ -39,13 +40,12 @@ def reconcile_email_claim_credentials(
         social_auth = social_auth.exclude(id=trusted_social_auth_id)
     social_auth.delete()
 
-    has_trusted_credential = trusted_password or trusted_passkey_exists or trusted_social_auth_id is not None
-    if not has_trusted_credential:
-        PersonalAPIKey.objects.filter(user=user).delete()
-        OAuthGrant.objects.filter(user=user).delete()
-        OAuthIDToken.objects.filter(user=user).delete()
-        OAuthRefreshToken.objects.filter(user=user).delete()
-        OAuthAccessToken.objects.filter(user=user).delete()
+    PersonalAPIKey.objects.filter(user=user).delete()
+    OAuthGrant.objects.filter(user=user).delete()
+    OAuthIDToken.objects.filter(user=user).delete()
+    OAuthRefreshToken.objects.filter(user=user).delete()
+    OAuthAccessToken.objects.filter(user=user).delete()
+    if not preserve_second_factors:
         TOTPDevice.objects.filter(user=user).delete()
         StaticDevice.objects.filter(user=user).delete()
 

@@ -1385,9 +1385,7 @@ class WebauthnBackend(BaseBackend):
 
             # Find the credential
             credential = (
-                WebauthnCredential.objects.filter(credential_id=credential_id_bytes, verified=True)
-                .select_related("user")
-                .first()
+                WebauthnCredential.objects.filter(credential_id=credential_id_bytes).select_related("user").first()
             )
 
             if not credential:
@@ -1395,6 +1393,11 @@ class WebauthnBackend(BaseBackend):
                 return None
 
             user = credential.user
+            from posthog.api.email_verification import email_verification_pending  # noqa: PLC0415
+
+            if not credential.verified and not email_verification_pending(user):
+                structlog_logger.warning("webauthn_login_credential_not_verified", credential_id=credential_id)
+                return None
             # Check if user is active
             if not user.is_active:
                 structlog_logger.warning("webauthn_login_user_inactive", user_id=user.pk)

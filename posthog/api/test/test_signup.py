@@ -2052,6 +2052,7 @@ class TestPasskeySignupAPI(APIBaseTest):
 
         response = self.client.post("/api/users/verify_email/", {"uuid": user.uuid, "code": code})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["requires_login"])
 
         user.refresh_from_db()
         self.assertTrue(user.is_email_verified)
