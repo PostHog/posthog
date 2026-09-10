@@ -12,10 +12,12 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotationsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
+import { integer } from '~/queries/schema/type-utils'
 import {
     AnnotationScope,
     AnnotationType,
     AnyPropertyFilter,
+    DashboardTileBasicType,
     DashboardType,
     DatedAnnotationType,
     InsightLogicProps,
@@ -48,6 +50,28 @@ export function getGroupingUnit(intervalUnit: IntervalType): IntervalType {
 
 export function determineAnnotationsDateGroup(date: Dayjs, intervalUnit: IntervalType): string {
     return date.startOf(getGroupingUnit(intervalUnit)).format('YYYY-MM-DD HH:mm:ssZZ')
+}
+
+export interface AnnotationInsightContext {
+    insightNumericId: QueryBasedInsightModel['id'] | 'new'
+    dashboardId: DashboardType['id'] | undefined
+    dashboardTiles: DashboardTileBasicType[] | null | undefined
+}
+
+export function annotationAppliesToInsight(
+    annotation: AnnotationType,
+    { insightNumericId, dashboardId, dashboardTiles }: AnnotationInsightContext
+): boolean {
+    return (
+        (annotation.scope !== AnnotationScope.Insight || annotation.dashboard_item === insightNumericId) &&
+        (annotation.scope !== AnnotationScope.Dashboard ||
+            annotation.dashboard_item === insightNumericId ||
+            !!(dashboardId
+                ? // on dashboard page, only show annotations if scoped to this dashboard
+                  annotation.dashboard_id === dashboardId
+                : // on insight page, show annotation if insight is on any dashboard which this annotation is scoped to
+                  dashboardTiles?.find(({ dashboard_id }) => dashboard_id === annotation.dashboard_id)))
+    )
 }
 
 function hasPersonPropertyFiltersOrBreakdown(
@@ -85,6 +109,7 @@ export interface annotationsOverlayLogicValues {
     breakdownFilter: BreakdownFilter | null | undefined // insightVizDataLogic
     interval: IntervalType | null | undefined // insightVizDataLogic
     properties: PropertyGroupFilter | AnyPropertyFilter[] | null | undefined // insightVizDataLogic
+    visibleAnnotationIds: integer[] | null | undefined // insightVizDataLogic
     timezone: string // teamLogic
     activeDate: Dayjs | null
     annotationBadgeDataIndices: Array<{
@@ -160,7 +185,8 @@ export interface annotationsOverlayLogicMeta {
             dashboardId: number | undefined,
             savedInsight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
             properties: PropertyGroupFilter | AnyPropertyFilter[] | null | undefined,
-            breakdownFilter: BreakdownFilter | null | undefined
+            breakdownFilter: BreakdownFilter | null | undefined,
+            visibleAnnotationIds: integer[] | null | undefined
         ) => DatedAnnotationType[]
         groupedAnnotations: (
             relevantAnnotations: DatedAnnotationType[],
@@ -195,7 +221,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             insightLogic,
             ['insightId', 'savedInsight'],
             insightVizDataLogic,
-            ['interval', 'properties', 'breakdownFilter'],
+            ['interval', 'properties', 'breakdownFilter', 'visibleAnnotationIds'],
             annotationsModel,
             ['annotations', 'annotationsLoading'],
             teamLogic,
@@ -290,6 +316,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 s.savedInsight,
                 s.properties,
                 s.breakdownFilter,
+                s.visibleAnnotationIds,
             ],
             (
                 annotations: AnnotationType[],
@@ -302,7 +329,8 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                     QueryBasedInsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>>
                 >,
                 properties: PropertyGroupFilter | AnyPropertyFilter[] | null | undefined,
-                breakdownFilter: BreakdownFilter | null | undefined
+                breakdownFilter: BreakdownFilter | null | undefined,
+                visibleAnnotationIds: integer[] | null | undefined
             ) => {
                 // This assumes that there are no more annotations in the project than AnnotationsViewSet
                 // pagination class's default_limit of 100. As of June 2023, this is not true on Cloud US,
@@ -312,20 +340,15 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 const filteredAnnotations = dateRange
                     ? annotations.filter(
                           (annotation: AnnotationType) =>
-                              (annotation.scope !== AnnotationScope.Insight ||
-                                  annotation.dashboard_item === insightNumericId) &&
-                              (annotation.scope !== AnnotationScope.Dashboard ||
-                                  annotation.dashboard_item === insightNumericId ||
-                                  (dashboardId
-                                      ? // on dashboard page, only show annotations if scoped to this dashboard
-                                        annotation.dashboard_id === dashboardId
-                                      : // on insight page, show annotation if insight is on any dashboard which this annotation is scoped to
-                                        savedInsight?.dashboard_tiles?.find(
-                                            ({ dashboard_id }) => dashboard_id === annotation.dashboard_id
-                                        ))) &&
+                              annotationAppliesToInsight(annotation, {
+                                  insightNumericId,
+                                  dashboardId,
+                                  dashboardTiles: savedInsight?.dashboard_tiles,
+                              }) &&
                               annotation.date_marker &&
                               annotation.date_marker >= dateRange[0] &&
-                              annotation.date_marker < dateRange[1]
+                              annotation.date_marker < dateRange[1] &&
+                              (!visibleAnnotationIds?.length || visibleAnnotationIds.includes(annotation.id))
                       )
                     : []
 

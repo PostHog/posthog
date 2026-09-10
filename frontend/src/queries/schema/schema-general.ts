@@ -1751,6 +1751,9 @@ export type TrendsFilter = {
     hideWeekends?: boolean
     /** @default true */
     showAnnotations?: boolean
+    /** Render only these annotations on the chart, by annotation ID. Unset or empty renders every
+     * annotation in the chart's date range. Has no effect when `showAnnotations` is false. */
+    visibleAnnotationIds?: integer[]
     /** Show the period-over-period change pill on the Metric display.
      * @default true */
     metricShowChange?: boolean
@@ -1809,6 +1812,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'excludeBoxPlotOutliers',
     'hideWeekends',
     'showAnnotations',
+    'visibleAnnotationIds',
     'metricShowChange',
     'metricChangeIncreaseColor',
     'metricChangeDecreaseColor',
@@ -2022,6 +2026,9 @@ export type FunnelsFilter = {
      * @default true
      */
     showAnnotations?: boolean
+    /** Render only these annotations on the chart, by annotation ID. Unset or empty renders every
+     * annotation in the chart's date range. Has no effect when `showAnnotations` is false. */
+    visibleAnnotationIds?: integer[]
     /**
      * Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent
      * tail of the trend isn't dragged down by entrants who still have time to convert.

@@ -34,6 +34,7 @@ import { ShowTrendLinesFilter } from 'scenes/insights/EditorFilters/ShowTrendLin
 import { SliceNamesFilter } from 'scenes/insights/EditorFilters/SliceNamesFilter'
 import { StackBreakdownFilter } from 'scenes/insights/EditorFilters/StackBreakdownFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
+import { VisibleAnnotationsFilter } from 'scenes/insights/EditorFilters/VisibleAnnotationsFilter'
 import { YAxisRangeFilter } from 'scenes/insights/EditorFilters/YAxisRangeFilter'
 import { RetentionCohortLabelStartIndexPicker } from 'scenes/insights/filters/RetentionCohortLabelStartIndexPicker'
 import { RetentionDashboardDisplayPicker } from 'scenes/insights/filters/RetentionDashboardDisplayPicker'
@@ -234,6 +235,7 @@ export const DisplayOptions = {
     TrendLines: { label: () => <ShowTrendLinesFilter /> },
     HideIncompleteFunnelPeriods: { label: () => <HideIncompleteConversionWindowPeriodsFilter /> },
     Annotations: { label: () => <ShowAnnotationsFilter /> },
+    VisibleAnnotations: { label: () => <VisibleAnnotationsFilter /> },
     ResultCustomizationBy: { label: () => <ResultCustomizationByPicker /> },
     Unit: { label: () => <UnitPicker /> },
     Scale: { label: () => <ScalePicker /> },

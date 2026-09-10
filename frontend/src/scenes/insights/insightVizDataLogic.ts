@@ -60,6 +60,7 @@ import {
     TrendsQuery,
     VizSpecificOptions,
 } from '~/queries/schema/schema-general'
+import { integer } from '~/queries/schema/type-utils'
 import {
     filterForQuery,
     filterKeyForQuery,
@@ -83,6 +84,7 @@ import {
     getShowPercentagesOnSeries,
     getShowPercentStackView,
     getShowValuesOnSeries,
+    getVisibleAnnotationIds,
     getYAxisScaleType,
     isActionsNode,
     isAnyDataWarehouseNode,
@@ -261,6 +263,7 @@ export interface insightVizDataLogicValues {
     shouldShowSessionAnalysisWarning: boolean
     showAlertThresholdLines: boolean | null | undefined
     showAnnotations: boolean | null | undefined
+    visibleAnnotationIds: integer[] | null | undefined
     showLabelOnSeries: boolean | null | undefined
     showLegend: boolean | null | undefined
     showMultipleYAxes: boolean | null | undefined
@@ -857,6 +860,19 @@ export interface insightVizDataLogicMeta {
                 | WebStatsTableQuery
                 | null
         ) => boolean | null | undefined
+        visibleAnnotationIds: (
+            querySource:
+                | FunnelsQuery
+                | LifecycleQuery
+                | PathsQuery
+                | PathsV2Query
+                | RetentionQuery
+                | StickinessQuery
+                | TrendsQuery
+                | WebOverviewQuery
+                | WebStatsTableQuery
+                | null
+        ) => integer[] | null | undefined
         showLegend: (
             querySource:
                 | FunnelsQuery
@@ -1818,6 +1834,21 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     | import('~/queries/schema/schema-general').WebOverviewQuery
                     | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? getShowAnnotations(q) : null),
+        ],
+        visibleAnnotationIds: [
+            (s) => [s.querySource],
+            (
+                q:
+                    | FunnelsQuery
+                    | LifecycleQuery
+                    | RetentionQuery
+                    | StickinessQuery
+                    | TrendsQuery
+                    | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
+            ) => (q ? getVisibleAnnotationIds(q) : null),
         ],
         showLegend: [
             (s) => [s.querySource],

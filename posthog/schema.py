@@ -8409,6 +8409,14 @@ class TrendsFilter(BaseModel):
             " single bar instead of rendering one bar per breakdown value."
         ),
     )
+    visibleAnnotationIds: list[int] | None = Field(
+        default=None,
+        description=(
+            "Render only these annotations on the chart, by annotation ID. Unset or"
+            " empty renders every annotation in the chart's date range. Has no effect"
+            " when `showAnnotations` is false."
+        ),
+    )
     xAxisLabel: str | None = Field(default=None, description="Custom label rendered under the X axis.")
     yAxisLabel: str | None = Field(default=None, description="Custom label rendered alongside the Y axis.")
     yAxisMax: float | None = Field(
@@ -28406,6 +28414,14 @@ class FunnelsFilter(BaseModel):
     )
     showValuesOnSeries: bool | None = False
     useUdf: bool | None = None
+    visibleAnnotationIds: list[int] | None = Field(
+        default=None,
+        description=(
+            "Render only these annotations on the chart, by annotation ID. Unset or"
+            " empty renders every annotation in the chart's date range. Has no effect"
+            " when `showAnnotations` is false."
+        ),
+    )
 
 
 class InsightFilter(

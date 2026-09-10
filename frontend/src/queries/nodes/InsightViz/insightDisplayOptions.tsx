@@ -42,6 +42,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         yAxisScaleType,
         showMultipleYAxes,
         showAnnotations,
+        visibleAnnotationIds,
         isNonTimeSeriesDisplay,
         interval,
         usesInChartLegend,
@@ -163,6 +164,9 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         }
         if (showAnnotationsConfig) {
             displayItems.push(DisplayOptions.Annotations)
+            if (showAnnotations !== false) {
+                displayItems.push(DisplayOptions.VisibleAnnotations)
+            }
         }
         if (useQuillLegendOptions) {
             displayItems.push(DisplayOptions.LegendOptions)
@@ -269,6 +273,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.yAxisLabel) ? 1 : 0) +
         (showMultipleYAxes ? 1 : 0) +
         (showAnnotationsConfig && showAnnotations === false ? 1 : 0) +
+        (showAnnotationsConfig && showAnnotations !== false && !!visibleAnnotationIds?.length ? 1 : 0) +
         (isMetric && trendsFilter?.metricShowChange === false ? 1 : 0) +
         (isMetric && trendsFilter?.metricColorByDirection ? 1 : 0) +
         (isMetric && !!trendsFilter?.metricSummary && trendsFilter.metricSummary !== 'total' ? 1 : 0)

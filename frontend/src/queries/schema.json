@@ -28461,6 +28461,13 @@
                 },
                 "useUdf": {
                     "type": "boolean"
+                },
+                "visibleAnnotationIds": {
+                    "description": "Render only these annotations on the chart, by annotation ID. Unset or empty renders every annotation in the chart's date range. Has no effect when `showAnnotations` is false.",
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
                 }
             },
             "type": "object"
@@ -54719,6 +54726,13 @@
                     "default": false,
                     "description": "On the horizontal bar-value chart, stack a series' breakdown values into a single bar instead of rendering one bar per breakdown value.",
                     "type": "boolean"
+                },
+                "visibleAnnotationIds": {
+                    "description": "Render only these annotations on the chart, by annotation ID. Unset or empty renders every annotation in the chart's date range. Has no effect when `showAnnotations` is false.",
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
                 },
                 "xAxisLabel": {
                     "description": "Custom label rendered under the X axis.",
