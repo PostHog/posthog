@@ -32,7 +32,10 @@ export interface SignalReviewerUserInfo {
 }
 
 export interface EnrichedReviewer {
-    github_login: string
+    /** Null for a reviewer with no linked GitHub account — they are identified by `user` instead. */
+    github_login: string | null
+    /** Null on entries written before reviewers carried one; `user` still resolves from the login. */
+    user_uuid?: string | null
     github_name: string | null
     relevant_commits: RelevantCommit[]
     user: SignalReviewerUserInfo | null

@@ -1,10 +1,10 @@
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     Description,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
 interface CanvasPostHogCapabilities {
@@ -103,7 +103,7 @@ export function canvasActivityDescriber(logItem: ActivityLogItem, asNotification
         return { description: null }
     }
 
-    const actor = <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
+    const actor = <ActivityLogUserName logItem={logItem} />
     const canvasName = <strong>{logItem.detail.name || 'Untitled canvas'}</strong>
 
     if (logItem.activity === 'published') {
