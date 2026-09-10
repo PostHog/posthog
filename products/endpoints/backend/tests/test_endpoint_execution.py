@@ -214,7 +214,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 side_effect=APIQueriesBudgetExceeded(wait=120),
             ),
             mock.patch("products.endpoints.backend.logic.execution.ENDPOINT_EXECUTION_TOTAL") as mock_counter,
-            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal"),
+            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal") as mock_signal,
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
@@ -222,6 +223,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         mock_counter.labels.assert_not_called()
+        mock_signal.assert_not_called()
+        mock_capture.assert_not_called()
 
     def test_hogql_endpoint_executes_with_variable_override(self):
         endpoint = create_endpoint_with_version(

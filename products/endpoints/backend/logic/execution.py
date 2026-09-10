@@ -123,9 +123,13 @@ _QUERY_PERFORMANCE_ERRORS: dict[type[Exception], tuple[str, str]] = {
     ),
 }
 
-# Cost guardrails + transient capacity: customer problems, not faults. Skipped from capture and
-# re-raised past the materialized/ducklake inline fallback.
-_QUERY_GUARDRAIL_ERRORS: tuple[type[Exception], ...] = (*_QUERY_PERFORMANCE_ERRORS, ClickHouseAtCapacity)
+# Cost guardrails, budget refusals and transient capacity: customer problems, not faults. Skipped
+# from capture and re-raised past the materialized/ducklake inline fallback.
+_QUERY_GUARDRAIL_ERRORS: tuple[type[Exception], ...] = (
+    *_QUERY_PERFORMANCE_ERRORS,
+    ClickHouseAtCapacity,
+    APIQueriesBudgetExceeded,
+)
 
 
 def _is_query_guardrail_error(error: BaseException) -> bool:
@@ -572,7 +576,9 @@ class EndpointExecutionService(PydanticModelMixin):
                         limit=limit,
                         offset=offset,
                     )
-                except ConcurrencyLimitExceeded:
+                except (ConcurrencyLimitExceeded, APIQueriesBudgetExceeded):
+                    # A refusal is not a broken table. The inline path meets the same limiter
+                    # with the same balance, so falling back cannot succeed.
                     raise
                 except Exception:
                     # Already logged/captured/signaled inside the materialized path. Re-run
