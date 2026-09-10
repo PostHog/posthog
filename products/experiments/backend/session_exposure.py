@@ -24,7 +24,7 @@ from django.db.models.functions import Coalesce
 
 from posthog.hogql import ast
 
-from posthog.models import EventProperty
+from posthog.models import EventDefinition, EventProperty
 from posthog.models.team.team import Team
 
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -172,15 +172,18 @@ def resolve_session_exposure(team: Team, experiment: Experiment, *, event_names:
 
 
 def exposure_event_unseen(exposure: SessionExposure) -> bool:
-    """True when the project holds no `EventProperty` row for the exposure event at all, so nothing
-    is known about it yet.
+    """True when ingestion has never seen the exposure event, so nothing is known about it yet.
 
     Distinct from `never_linked`, which means the event is known and has never carried a session id.
-    Taxonomy writes a row per (event, property) pair it ingests, so an event captured only
-    server-side has rows for its other properties and just never one for `$session_id`, which is
-    what separates the two states. A project running its first experiment after the
-    $experiment_exposure rollout has no rows for that event until ingestion catches up, and reads
-    as permanently server-side without this.
+    Ingestion claims an event definition's `last_seen_at` the first time it sees the event, and a
+    definition declared before any capture carries a null one, so that column is what separates an
+    event that has arrived from one only named. A project running its first experiment after the
+    $experiment_exposure rollout has no definition for that event until ingestion catches up, and
+    reads as permanently server-side without this.
+
+    Not `EventProperty`: it indexes which properties appear on which event rather than recording the
+    event, and ingestion drops `$feature/<key>` rows on purpose, so a custom exposure event captured
+    with only the variant property it requires leaves no row at all.
 
     Its own query, and its own function rather than a field on the resolution above, so only the
     in-session availability verdict pays for it. A session-linked event is known by definition, so
@@ -189,9 +192,13 @@ def exposure_event_unseen(exposure: SessionExposure) -> bool:
     if exposure.exposure_event is None or exposure.exposure_event not in exposure.never_linked:
         return False
     return not (
-        EventProperty.objects.alias(
+        EventDefinition.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
         )
-        .filter(effective_project_id=exposure.team.project_id, event=exposure.exposure_event)
+        .filter(
+            effective_project_id=exposure.team.project_id,
+            name=exposure.exposure_event,
+            last_seen_at__isnull=False,
+        )
         .exists()
     )

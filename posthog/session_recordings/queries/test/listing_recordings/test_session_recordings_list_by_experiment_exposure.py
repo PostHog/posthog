@@ -17,7 +17,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.hogql_queries.paginators import HogQLCursorPaginator
-from posthog.models import EventProperty, User
+from posthog.models import EventDefinition, EventProperty, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -549,7 +549,7 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
         # person was enrolled there, so the query is refused rather than answering over a wider set
         # of sessions than "exposed in session" names. No evidence scan runs at all.
         experiment = self._create_experiment()
-        EventProperty.objects.create(team=self.team, event="$feature_flag_called", property="$browser")
+        EventDefinition.objects.create(team=self.team, name="$feature_flag_called", last_seen_at=BASE_TIME)
 
         with self.assertRaises(ValidationError):
             filter_recordings_by(
@@ -568,9 +568,10 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
                 }
             }
         )
-        # Observed, but never with a session id: without this row the event reads as one nothing is
-        # known about yet, which refuses for a different reason than the one this test names.
-        EventProperty.objects.create(team=self.team, event="backend_exposure", property="$browser")
+        # Observed, but never with a session id: without a `last_seen_at` the event reads as one
+        # nothing is known about yet, which refuses for a different reason than the one this test
+        # names.
+        EventDefinition.objects.create(team=self.team, name="backend_exposure", last_seen_at=BASE_TIME)
 
         with self.assertRaises(ValidationError):
             filter_recordings_by(
