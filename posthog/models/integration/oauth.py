@@ -380,7 +380,7 @@ class OauthIntegration:
                 token_info_config_fields=["hub_id", "hub_domain", "user", "user_id", "scopes"],
                 client_id=settings.HUBSPOT_APP_CLIENT_ID,
                 client_secret=settings.HUBSPOT_APP_CLIENT_SECRET,
-                scope="tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read crm.objects.companies.write",
+                scope="tickets sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read",
                 additional_authorize_params={
                     # NOTE: these scopes are only available on certain hubspot plans and as such are optional.
                     # crm.objects.leads.read is Sales Hub Pro+/Enterprise only — requesting it as a
@@ -388,11 +388,17 @@ class OauthIntegration:
                     # The owners/commerce/product scopes are the same story: the data warehouse
                     # source offers those tables, but the objects only exist on portals with the
                     # matching hub, so they stay optional and their tables start deselected.
+                    # The contacts/companies write scopes are optional for a different reason: only
+                    # the CDP destinations write to HubSpot, the warehouse source only reads. As
+                    # mandatory scopes they failed authorization outright on portals that restrict
+                    # write access, blocking read-only ingestion for a permission it never needed.
+                    # A destination missing one surfaces it from its own `requiredScopes` instead.
                     "optional_scope": (
                         "analytics.behavioral_events.send behavioral_events.event_definitions.read_write "
                         "crm.objects.leads.read crm.objects.owners.read crm.objects.line_items.read "
                         "crm.objects.products.read crm.objects.invoices.read crm.objects.orders.read "
-                        "crm.objects.subscriptions.read crm.objects.commercepayments.read"
+                        "crm.objects.subscriptions.read crm.objects.commercepayments.read "
+                        "crm.objects.contacts.write crm.objects.companies.write"
                     )
                 },
                 id_path="hub_id",

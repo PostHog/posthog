@@ -128,6 +128,19 @@ class TestOauthIntegrationModel(BaseTest):
             assert "code_challenge" not in url
             assert cache.get("oauth_pkce_verifier/no_pkce_state_token") is None
 
+    def test_hubspot_authorize_url_requests_write_scopes_as_optional(self):
+        # Only the CDP destinations write to HubSpot; the warehouse source reads. Requesting the
+        # write scopes as mandatory failed authorization outright on portals that restrict write
+        # access, so read-only ingestion could not be set up at all.
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("hubspot", token="state_token", next="/projects/test")
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+
+            assert not [scope for scope in params["scope"].split(" ") if scope.endswith(".write")]
+            assert {"crm.objects.contacts.write", "crm.objects.companies.write"} <= set(
+                params["optional_scope"].split(" ")
+            )
+
     def test_authorize_url_with_additional_authorize_params(self):
         with self.settings(**self.mock_settings):
             url = OauthIntegration.authorize_url("google-ads", token="state_token", next="/projects/test")
