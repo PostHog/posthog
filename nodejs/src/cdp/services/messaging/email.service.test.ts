@@ -508,6 +508,9 @@ describe('EmailService', () => {
                 // wake earlier and the token is not there yet, so the send gets denied again
                 // and goes to the back of the line.
                 ['exactly at the reserved slot', 5000, true, 5000, 5000],
+                // Sub-second slots too: flooring them to 1s would push the wake off its
+                // slot and collide it with the slot behind.
+                ['exactly at a sub-second reserved slot', 500, true, 500, 500],
                 // Past the horizon there are no slots left and everyone gets the same "come
                 // back in an hour", so those wakes get spread out (1x-2x) instead.
                 [

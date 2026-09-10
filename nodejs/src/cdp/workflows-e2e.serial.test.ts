@@ -2642,6 +2642,12 @@ describe('Workflows E2E (email queue)', () => {
 
         hub = await createHub()
         hub.CDP_CYCLOTRON_BATCH_DELAY_MS = 50
+        // Without a Valkey host the SES rate limiter pool is null and every sending
+        // limit in this block is silently disabled. Point it at the local test Redis.
+        hub.SES_RATE_LIMITER_VALKEY_HOST = hub.CDP_REDIS_HOST || '127.0.0.1'
+        if (hub.CDP_REDIS_PORT) {
+            hub.SES_RATE_LIMITER_VALKEY_PORT = hub.CDP_REDIS_PORT
+        }
 
         // `.invalid` domains are NXDOMAIN, everything else resolves as deliverable.
         const nxdomain = () => Promise.reject(Object.assign(new Error('queryMx ENOTFOUND'), { code: 'ENOTFOUND' }))

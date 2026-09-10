@@ -110,10 +110,11 @@ function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
     return Math.floor(baseMs * (1 + Math.random()))
 }
 
-// Bounds for the cap retry delay (tier caps and the per-workflow limit). The floor keeps
-// second-scale refills from churning the queue. The ceiling bounds how stale the computed
-// wake time can get: capacity can appear earlier than computed (a limit raise, or an idle
-// bucket expiring back to full capacity), and a parked job only notices when it wakes.
+// Bounds for the non-reserved cap retry delays (fallbacks and horizon overflow; a
+// reserved slot is parked on exactly). The floor keeps second-scale refills from
+// churning the queue. The ceiling bounds how stale the computed wake time can get:
+// capacity can appear earlier than computed (a limit raise, or an idle bucket
+// expiring back to full capacity), and a parked job only notices when it wakes.
 const CAP_RETRY_MIN_MS = 1_000
 const CAP_RETRY_MAX_MS = 60 * 60 * 1_000
 
@@ -145,14 +146,14 @@ function pickReservedRetryDelayMs(retryAfterMs: number | null, refillPerSecond: 
     if (retryAfterMs === null) {
         return pickTokenBucketRetryDelayMs(refillPerSecond)
     }
-    const parkMs = Math.max(retryAfterMs, CAP_RETRY_MIN_MS)
     // A reserved slot is the caller's own, exactly one token interval behind the slot
-    // in front. Park on it as-is. Waking any earlier means the token is not there yet
-    // (the bucket banks no surplus), the send gets denied again, and it goes to the
-    // back of the line.
+    // in front. Park on it as-is, with no floor: waking off the slot in either
+    // direction means the token is not there (the bucket banks no surplus), the send
+    // gets denied again, and it goes to the back of the line.
     if (reserved) {
-        return parkMs
+        return retryAfterMs
     }
+    const parkMs = Math.max(retryAfterMs, CAP_RETRY_MIN_MS)
     // Past the horizon nothing is reserved: every overflow caller got this same wake
     // time back. Spread them over the next horizon so they do not arrive as one herd
     // asking for tokens that will not be there.
