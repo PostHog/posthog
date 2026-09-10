@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import MagicMock
 
 from django.conf import settings
@@ -2925,3 +2926,18 @@ class TestOrphanedForeignKeyPolicy:
         violations = self._check(state, [], monkeypatch)
 
         assert violations == []
+
+    @pytest.mark.parametrize(
+        "sql,expected",
+        [
+            ("ALTER TABLE posthog_child DROP CONSTRAINT posthog_child_owner_id_fk;", 0),
+            ("-- this migration must not DROP CONSTRAINT anything\nSELECT 1;", 1),
+            ("/* a later migration will DROP CONSTRAINT this */ SELECT 1;", 1),
+        ],
+    )
+    def test_only_an_executed_constraint_drop_suppresses(self, sql, expected, monkeypatch):
+        state = self._state(owner=models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True))
+
+        violations = self._check(state, [migrations.RunSQL(sql=sql)], monkeypatch)
+
+        assert len(violations) == expected
