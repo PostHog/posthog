@@ -21,7 +21,7 @@ from posthog.schema import DataWarehouseManagedViewsetKind
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, SerializedField, serialize_fields
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, ViewDepthExceededError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
 from posthog.hogql.printer import prepare_and_print_ast
@@ -1055,6 +1055,8 @@ class DataWarehouseSavedQuerySerializer(
                         view.set_columns(columns)
 
                     view.external_tables = view.get_s3_tables(database=self.context["database"])
+                except ViewDepthExceededError as e:
+                    raise serializers.ValidationError(str(e))
                 except RecursionError:
                     raise serializers.ValidationError("Model contains a cycle")
                 except Exception as e:

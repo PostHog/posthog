@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from datetime import UTC, date, datetime
 from typing import Any, ClassVar, Optional, cast
 from uuid import UUID
@@ -15,7 +16,7 @@ from posthog.schema import HogQLQueryModifiers
 
 import posthog.hogql.resolver_utils as resolver_utils
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, MAX_VIEW_DEPTH
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import (
@@ -30,7 +31,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, ViewDepthExceededError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
@@ -38,6 +39,8 @@ from posthog.hogql.resolver import ResolutionError, resolve_types
 from posthog.hogql.resolver_utils import extract_base_table_types, lookup_field_by_name
 from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clone_expr
+
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 
 class TestResolver(BaseTest):
@@ -2172,3 +2175,33 @@ class TestResolver(BaseTest):
         # so the canonical-form guard must not reject their queries
         expr = self._select("SELECT event FROM events WHERE person_id = 'not-a-uuid'")
         resolve_types(expr, self.context, dialect="postgres")
+
+    def test_view_that_selects_from_itself_raises_instead_of_recursing(self):
+        # Without a depth bound the resolver inlines the view until Python raises RecursionError,
+        # which reaches API callers as a 500 rather than a query error they can act on.
+        DataWarehouseSavedQuery.objects.create(team=self.team, name="loop", query={"query": "select event from loop"})
+
+        with pytest.raises(ViewDepthExceededError):
+            self._print_hogql("select * from loop")
+
+    def test_sibling_views_in_one_from_do_not_count_toward_view_depth(self):
+        # Every view here sits one level deep. Counting each one against the bound would reject a
+        # valid query and point the person at a cycle that is not in it.
+        for index in range(MAX_VIEW_DEPTH + 1):
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name=f"sibling_{index}", query={"query": "select 1 as one"}
+            )
+
+        tables = ", ".join(f"sibling_{index}" for index in range(MAX_VIEW_DEPTH + 1))
+        self._print_hogql(f"select 1 from {tables}")
+
+    @parameterized.expand([("at_the_limit", MAX_VIEW_DEPTH, False), ("past_the_limit", MAX_VIEW_DEPTH + 1, True)])
+    def test_view_depth_bound_measures_nesting(self, _name, chain_length: int, exceeds: bool):
+        DataWarehouseSavedQuery.objects.create(team=self.team, name="chain_0", query={"query": "select 1 as one"})
+        for index in range(1, chain_length):
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name=f"chain_{index}", query={"query": f"select one from chain_{index - 1}"}
+            )
+
+        with pytest.raises(ViewDepthExceededError) if exceeds else nullcontext():
+            self._print_hogql(f"select one from chain_{chain_length - 1}")
