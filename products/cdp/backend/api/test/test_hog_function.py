@@ -2203,6 +2203,24 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "value": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
             }
 
+    def test_test_invocation_drops_the_concurrency_guard(self):
+        with patch(
+            "products.cdp.backend.api.hog_function.create_hog_invocation_test"
+        ) as mock_create_hog_invocation_test:
+            mock_create_hog_invocation_test.return_value = MagicMock(status_code=200, json=lambda: {"status": "ok"})
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/new/invocations/",
+                data={"configuration": {**EXAMPLE_FULL, "base_updated_at": "2026-01-01T00:00:00Z"}},
+            )
+
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+            payload = mock_create_hog_invocation_test.call_args_list[0].kwargs["payload"]
+            assert "base_updated_at" not in payload["configuration"]
+            # The worker call posts this with `json=`, so the payload has to survive an encode.
+            json.dumps(payload)
+
     @parameterized.expand(
         [
             ("errors_list", {"errors": ["Missing event"]}, ["Missing event"]),

@@ -1217,6 +1217,10 @@ class HogFunctionViewSet(
         configuration = serializer.validated_data["configuration"]
         # Remove the team from the config
         configuration.pop("team")
+        # `base_updated_at` is an update-only concurrency guard, so a test run has nothing to race
+        # on. It also validates into a `datetime`, which `requests.post(json=...)` cannot
+        # serialize, so keeping it would 500 the request before it left Django.
+        configuration.pop("base_updated_at", None)
 
         res = create_hog_invocation_test(
             team_id=self.team_id,
