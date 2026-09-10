@@ -102,6 +102,7 @@ logger = structlog.get_logger(__name__)
             "model": {"type": "string"},
             "runtime_adapter": {"type": "string"},
             "reasoning_effort": {"type": "string"},
+            "service_tier": {"type": "string"},
             "network_access": {"type": "string"},
             "write_scopes": {"type": "array", "items": {"type": "string"}},
             "triggered_by": {"type": "string"},
