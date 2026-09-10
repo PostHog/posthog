@@ -7,6 +7,7 @@ import { LemonButton, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import {
     FEATURE_PREVIEW_SELF_HOSTED_DISABLED_REASON,
     areClientFeatureFlagsHonored,
@@ -31,14 +32,42 @@ export function FeaturePreviewSceneGate({
     children: React.ReactNode
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    // Set once the user opts in from the gate. The browser evaluates the flag as on the moment
+    // enrollment is stored locally, while the API keeps denying until the enrollment person
+    // property is ingested - mounting the scene in that window is what showed "Detect status
+    // failed" until a reload. Hold the gate on an enabling state; the setup-detection poll
+    // inside the scene answers once the server has caught up.
+    const [justEnrolled, setJustEnrolled] = useState(false)
+    useEffect(() => {
+        if (!justEnrolled) {
+            return
+        }
+        // Ingestion normally catches up within seconds, and a reload settles it either way.
+        // Cap the wait so a slow pipeline can never lock the user on the enabling state.
+        const timeout = setTimeout(() => setJustEnrolled(false), ENROLLMENT_SETTLE_TIMEOUT_MS)
+        return () => clearTimeout(timeout)
+    }, [justEnrolled])
     const isEnabled = featureFlags[config.flag as keyof typeof featureFlags]
-    if (isEnabled) {
+    if (isEnabled && !justEnrolled) {
         return <>{children}</>
     }
-    return <FeaturePreviewGateContent config={config} />
+    return (
+        <FeaturePreviewGateContent config={config} justEnrolled={justEnrolled} onEnroll={() => setJustEnrolled(true)} />
+    )
 }
 
-function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfig }): JSX.Element {
+/** Upper bound on the "turning it on" state after opt-in; see FeaturePreviewSceneGate. */
+const ENROLLMENT_SETTLE_TIMEOUT_MS = 15000
+
+function FeaturePreviewGateContent({
+    config,
+    justEnrolled,
+    onEnroll,
+}: {
+    config: FeaturePreviewGateConfig
+    justEnrolled: boolean
+    onEnroll: () => void
+}): JSX.Element {
     const { earlyAccessFeatures } = useValues(featurePreviewsLogic)
     const { loadEarlyAccessFeatures, updateEarlyAccessFeatureEnrollment } = useActions(featurePreviewsLogic)
     const { activeSceneId } = useValues(sceneLogic)
@@ -53,6 +82,30 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
     const sceneIdForHeader = config.sceneId ?? activeSceneId
     const sceneConfig = sceneIdForHeader ? sceneConfigurations[sceneIdForHeader] : undefined
     const flagsHonored = areClientFeatureFlagsHonored(preflight)
+
+    // The user just opted in: the flag is on locally but the API still 403s until ingestion
+    // catches up. Hold here instead of mounting a scene whose every request fails.
+    if (justEnrolled) {
+        return (
+            <SceneContent>
+                {sceneConfig?.name && (
+                    <SceneTitleSection
+                        name={sceneConfig.name}
+                        description={sceneConfig.description}
+                        resourceType={{ type: sceneConfig.iconType || 'default' }}
+                    />
+                )}
+                <div
+                    className="flex items-center gap-2 text-secondary"
+                    data-attr="feature-preview-enabling"
+                    role="status"
+                >
+                    <Spinner className="text-lg" />
+                    <span>Turning the feature preview on. This takes a few seconds.</span>
+                </div>
+            </SceneContent>
+        )
+    }
 
     // Concept ("Coming Soon") features never enable their flag, so the enrollment toggle is a
     // dead end there. When the feature carries a waitlist survey, collect an email instead.
@@ -103,9 +156,12 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
                             <LemonSwitch
                                 checked={feature.enabled}
                                 disabledReason={!flagsHonored && FEATURE_PREVIEW_SELF_HOSTED_DISABLED_REASON}
-                                onChange={(checked) =>
+                                onChange={(checked) => {
                                     updateEarlyAccessFeatureEnrollment(feature.flagKey, checked, feature.stage)
-                                }
+                                    if (checked) {
+                                        onEnroll()
+                                    }
+                                }}
                                 id="feature-preview-gate-switch"
                             />
                             <span className="font-semibold">Enable feature preview</span>

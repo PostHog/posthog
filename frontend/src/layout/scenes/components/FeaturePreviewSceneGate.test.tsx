@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useActions, useMountedLogic, useValues } from 'kea'
 
@@ -66,7 +66,12 @@ const mockedUseActions = useActions as jest.Mock
 const mockedUseMountedLogic = useMountedLogic as jest.Mock
 
 const mockLoadEarlyAccessFeatures = jest.fn()
-const mockUpdateEarlyAccessFeatureEnrollment = jest.fn()
+// Mirrors posthog-js: enrollment takes effect locally the moment it is stored, so the
+// enriched feature flips to enabled and the scene gate re-renders on the same render pass.
+const mockUpdateEarlyAccessFeatureEnrollment = jest.fn((flagKey: string, enabled: boolean) => {
+    enrolledFlags = enabled ? [...enrolledFlags, flagKey] : enrolledFlags.filter((key) => key !== flagKey)
+})
+let enrolledFlags: string[] = []
 const mockSubmitConceptSurvey = jest.fn()
 const mockAddProductIntentForCrossSell = jest.fn()
 const mockOpenSupportForm = jest.fn()
@@ -126,7 +131,13 @@ function setupMocks({
 
     mockedUseValues.mockImplementation((logic: unknown) => {
         if (isFeaturePreviewsLogicRef(logic)) {
-            return { earlyAccessFeatures, waitlistSurveysEnabled, conceptSurveySubmissions }
+            return {
+                earlyAccessFeatures: earlyAccessFeatures.map((feature) =>
+                    enrolledFlags.includes(feature.flagKey) ? { ...feature, enabled: true } : feature
+                ),
+                waitlistSurveysEnabled,
+                conceptSurveySubmissions,
+            }
         }
         if (isSceneLogicRef(logic)) {
             return { activeSceneId }
@@ -159,6 +170,7 @@ function setupMocks({
 describe('FeaturePreviewSceneGate', () => {
     beforeEach(() => {
         jest.clearAllMocks()
+        enrolledFlags = []
         setupMocks()
     })
 
@@ -173,6 +185,21 @@ describe('FeaturePreviewSceneGate', () => {
             render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
 
             expect(screen.getByTestId('scene-content-rendered')).toBeInTheDocument()
+            expect(screen.queryByTestId('product-introduction')).not.toBeInTheDocument()
+        })
+
+        test('after opting in, holds on an enabling state instead of mounting a scene whose API still 403s', () => {
+            // The browser evaluates the flag on the moment enrollment is stored locally, while the
+            // API keeps denying until the enrollment person property is ingested. Mounting the
+            // scene in that window is what showed "Detect status failed" until a reload.
+            setupMocks({ earlyAccessFeatures: [{ flagKey: BASE_CONFIG.flag, enabled: false, stage: 'alpha' }] })
+
+            render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
+            fireEvent.click(screen.getByRole('switch'))
+
+            expect(screen.getByTestId('feature-preview-enabling')).toBeInTheDocument()
+            expect(screen.getByText(/turning the feature preview on/i)).toBeInTheDocument()
+            expect(screen.queryByTestId('scene-content-rendered')).not.toBeInTheDocument()
             expect(screen.queryByTestId('product-introduction')).not.toBeInTheDocument()
         })
 
