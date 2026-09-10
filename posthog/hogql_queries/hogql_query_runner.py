@@ -100,15 +100,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             # Keep their cached results apart during a rolling deploy.
             payload["hogql_modifier_precedence"] = "runner"
 
-        # Both activity-log guards print into the query, so a cache lookup returns before either runs.
-        # `requires_fresh_calculation` below keeps a stored result from being served in every mode that may
-        # calculate. CACHE_ONLY_NEVER_CALCULATE is the mode it cannot reach: that one returns a stored
-        # result however stale it is, so the key carries what the guards depend on.
-        system_table_feature_flags = get_system_table_feature_flag_states(
-            self.team,
-            self.user,
-            {name.removeprefix("system.") for name in self._queried_table_names},
-        )
+        system_table_feature_flags = get_system_table_feature_flag_states(self.team, self.user)
         if system_table_feature_flags:
             payload["system_table_feature_flags"] = system_table_feature_flags
 

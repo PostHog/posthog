@@ -4406,15 +4406,24 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("disabled", False, False),
-            ("enabled", True, True),
+            ("disabled", False, OrganizationMembership.Level.MEMBER, False),
+            ("enabled", True, OrganizationMembership.Level.MEMBER, True),
+            ("disabled_admin", False, OrganizationMembership.Level.ADMIN, False),
+            ("enabled_admin", True, OrganizationMembership.Level.ADMIN, True),
         ]
     )
     @patch("posthog.permissions.posthog_feature_flag_enabled")
     def test_feature_flag_gated_system_table_visibility(
-        self, _name: str, enabled: bool, expected_visible: bool, feature_flag_enabled: Mock
+        self,
+        _name: str,
+        enabled: bool,
+        level: "OrganizationMembership.Level",
+        expected_visible: bool,
+        feature_flag_enabled: Mock,
     ) -> None:
         feature_flag_enabled.return_value = enabled
+        self.organization_membership.level = level
+        self.organization_membership.save()
 
         database = Database.create_for(team=self.team, user=self.user)
 
@@ -4538,5 +4547,6 @@ class TestCreateForPosthogTables(BaseTest):
         system_table_names = database.get_system_table_names()
         assert "system.feature_flags" not in system_table_names
         assert "system.activity_logs" not in system_table_names
+        assert "system.customer_tasks" not in system_table_names
         with pytest.raises(TableAccessDeniedError):
             database.get_table("system.activity_logs")

@@ -606,7 +606,6 @@ def _system_table_required_feature_flags() -> Mapping[str, str]:
 def get_system_table_feature_flag_states(
     team: Team,
     user: Optional[User | SyntheticUser | SharedLinkUser],
-    table_names: Collection[str],
 ) -> dict[str, bool]:
     required_feature_flags = _system_table_required_feature_flags()
     if not required_feature_flags:
@@ -619,17 +618,16 @@ def get_system_table_feature_flag_states(
     )
 
     if not isinstance(user, User):
-        return {name: False for name in table_names if name in required_feature_flags}
+        return dict.fromkeys(required_feature_flags, False)
 
     return {
         name: posthog_feature_flag_enabled(
-            required_feature_flags[name],
+            feature_flag,
             str(user.distinct_id),
             organization_id=team.organization_id,
             team_id=team.id,
         )
-        for name in table_names
-        if name in required_feature_flags
+        for name, feature_flag in required_feature_flags.items()
     }
 
 
@@ -668,11 +666,7 @@ def _compute_system_table_access_decision(
     # have cannot be granted by a role.
     unentitled = _unentitled_system_tables(team)
     disabled_by_feature_flag = {
-        name
-        for name, enabled in get_system_table_feature_flag_states(
-            team, user, _system_table_required_feature_flags()
-        ).items()
-        if not enabled
+        name for name, enabled in get_system_table_feature_flag_states(team, user).items() if not enabled
     }
 
     # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for shared link / team token).

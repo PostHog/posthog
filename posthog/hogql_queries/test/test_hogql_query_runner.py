@@ -29,6 +29,7 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.utils import UUIDT
 
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
 from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
@@ -101,16 +102,21 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.modifiers.sessionTableVersion == SessionTableVersion.V1
         assert runner.get_cache_payload()["hogql_modifier_precedence"] == "runner"
 
-    def test_customer_tasks_feature_flag_partitions_cache(self):
-        query = HogQLQuery(query="select * from system.customer_tasks")
+    def test_customer_tasks_feature_flag_partitions_saved_view_cache(self):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="customer_tasks_view",
+            query={"kind": "HogQLQuery", "query": "select * from system.customer_tasks"},
+        )
+        query = HogQLQuery(query="select * from customer_tasks_view")
 
         with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
-            enabled_runner = self._create_runner(query)
+            enabled_runner = HogQLQueryRunner(team=self.team, query=query, user=self.user)
             enabled_cache_key = enabled_runner.get_cache_key()
             assert enabled_runner.get_cache_payload()["system_table_feature_flags"] == {"customer_tasks": True}
 
         with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=False):
-            disabled_runner = self._create_runner(query)
+            disabled_runner = HogQLQueryRunner(team=self.team, query=query, user=self.user)
             disabled_cache_key = disabled_runner.get_cache_key()
             assert disabled_runner.get_cache_payload()["system_table_feature_flags"] == {"customer_tasks": False}
 

@@ -229,7 +229,7 @@ The cache key is derived from `get_cache_payload()`:
 
 - `QueryRunner.get_cache_payload()` adds named property restriction records, including the group type index, when the user has property restrictions.
 - `AnalyticsQueryRunner.get_cache_payload()` adds `restricted_resources` (denied scopes) and `restricted_objects` (denied object IDs per scope) for levels 1 and 2.
-- `HogQLQueryRunner.get_cache_payload()` adds the state of feature flags required by named system tables.
+- `HogQLQueryRunner.get_cache_payload()` adds the state of feature flags required by all registered system tables.
 
 Two things keep cache hit rates high:
 
