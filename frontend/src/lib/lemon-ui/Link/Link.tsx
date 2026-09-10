@@ -46,8 +46,6 @@ export type LinkPrimitiveProps = Pick<
 }
 
 export type LinkProps = LinkPrimitiveProps & {
-    /** If true, docs links will not be opened in the docs panel */
-    disableDocsPanel?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
     /**
@@ -92,6 +90,19 @@ const isPostHogDomain = (url: string): boolean => {
 
 const isDirectLink = (url: string): boolean => {
     return /^(mailto:|https?:\/\/|:\/\/)/.test(url)
+}
+
+const isPostHogComDocs = (url: string): url is PostHogComDocsURL => {
+    return /^https:\/\/(www\.)?posthog\.com\/docs/.test(url)
+}
+
+// Docs links default to a new tab, so that reading the docs does not replace the app in the
+// current tab. An explicit `target` overrides this, for example `"_self"` to stay in the tab.
+function resolveTarget(to: LinkPrimitiveProps['to'], target: string | undefined): string | undefined {
+    if (target) {
+        return target
+    }
+    return typeof to === 'string' && isPostHogComDocs(to) ? '_blank' : undefined
 }
 
 /** Resolve a `to` target into a concrete href string. */
@@ -144,6 +155,7 @@ export const LinkPrimitive: React.FC<LinkPrimitiveProps & React.RefAttributes<HT
         ref
     ) => {
         const externalLink = isExternalLink(to)
+        const resolvedTarget = resolveTarget(to, target)
         const { elementProps: draggableProps } = useLinkDrag(typeof to === 'string' ? to : undefined)
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
@@ -159,7 +171,7 @@ export const LinkPrimitive: React.FC<LinkPrimitiveProps & React.RefAttributes<HT
                 return
             }
 
-            if (!target && to && !externalLink && !disableClientSideRouting && !shouldForcePageLoad(to)) {
+            if (!resolvedTarget && to && !externalLink && !disableClientSideRouting && !shouldForcePageLoad(to)) {
                 event.preventDefault()
                 if (to && to !== '#' && !preventClick) {
                     if (Array.isArray(to)) {
@@ -198,8 +210,8 @@ export const LinkPrimitive: React.FC<LinkPrimitiveProps & React.RefAttributes<HT
                 onClick={onClick}
                 onAuxClick={onAuxClick}
                 href={href}
-                target={target}
-                rel={target === '_blank' ? rel : undefined}
+                target={resolvedTarget}
+                rel={resolvedTarget === '_blank' ? rel : undefined}
                 role={role}
                 tabIndex={tabIndex}
                 {...props}
@@ -230,7 +242,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             target,
             subtle,
             disableClientSideRouting,
-            disableDocsPanel: _disableDocsPanel,
             preventClick = false,
             onClick: onClickRaw,
             onAuxClick,
@@ -251,6 +262,8 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         ref
     ) => {
         const href = resolveHref(to, disableClientSideRouting)
+        // Only drives the icon below. `LinkPrimitive` owns the resolution that drives navigation.
+        const resolvedTarget = resolveTarget(to, target)
 
         const elementClasses = buttonProps
             ? buttonPrimitiveVariants(buttonProps)
@@ -275,7 +288,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 {targetBlankIcon &&
                     (href?.startsWith('mailto:') ? (
                         <IconSend />
-                    ) : target === '_blank' ? (
+                    ) : resolvedTarget === '_blank' ? (
                         <IconExternal className={buttonProps ? 'size-3' : ''} />
                     ) : null)}
             </LinkPrimitive>
