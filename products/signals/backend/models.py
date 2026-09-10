@@ -323,9 +323,6 @@ class SignalReport(UUIDModel):
     )
     cluster_centroid_updated_at = deprecate_field(models.DateTimeField(blank=True, null=True))
     # Deprecated - unused
-    conversation = deprecate_field(
-        models.ForeignKey("posthog_ai.Conversation", null=True, blank=True, on_delete=models.SET_NULL)
-    )
     relevant_user_count = deprecate_field(models.IntegerField(blank=True, null=True))
 
     class Meta:
