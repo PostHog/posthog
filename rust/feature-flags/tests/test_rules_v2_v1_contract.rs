@@ -56,7 +56,9 @@ const UNSUPPORTED_CASE_IDS: &[&str] = &[
 ];
 
 /// A dependency target absent from the fixture definitions maps to an id no fixture flag
-/// uses, which is how a deleted target reaches the evaluator in production.
+/// uses, so the target is missing from the flag list entirely. That is the only way the
+/// evaluator reports `missing_dependency`: a deleted target that another flag references
+/// stays in the cached list and pre-seeds as false.
 const MISSING_DEPENDENCY_ID: i64 = 0;
 
 #[test]
@@ -185,6 +187,9 @@ async fn run_hash_corpus(db: &TestContext, team_id: i32) -> HashSet<String> {
 
         // Rollout, holdout, and variant checks run through the evaluator so the comparison
         // and the boundary accumulation are the production ones, not a copy kept here.
+        // Production hashes `<flag key>.`, so the flag key is the prefix minus its dot. The
+        // holdout vector's `holdout-` prefix has no dot: `get_holdout_hash` always hashes
+        // that literal, so the flag key never reaches it.
         let key = prefix.strip_suffix('.').unwrap_or(prefix);
         let (context, group_type_mapping, aggregation) = match vector["identifier_source"]
             .get("json_group_key")
@@ -262,7 +267,7 @@ async fn run_hash_corpus(db: &TestContext, team_id: i32) -> HashSet<String> {
             continue; // white-box row, listed in UNSUPPORTED_CASE_IDS
         };
         let v1_input = str_field(parity, "v1_input");
-        let v1_hash = calculate_hash(v1_input, "", "").unwrap();
+        let v1_hash = hash_of_input(v1_input);
         let v2_hash = calculate_hash(
             str_field(v2, "prefix"),
             str_field(v2, "identifier"),
@@ -294,7 +299,7 @@ async fn run_v1_corpus(db: &TestContext, team_id: i32) -> HashSet<String> {
         for evidence in case["hash_evidence"].as_array().into_iter().flatten() {
             assert_hash01(
                 id,
-                calculate_hash(str_field(evidence, "input"), "", "").unwrap(),
+                hash_of_input(str_field(evidence, "input")),
                 &evidence["hash01"],
             );
         }
@@ -621,6 +626,11 @@ async fn evaluate(
         .expect("evaluation must not fail")
 }
 
+/// Hashes a corpus row that supplies the whole concatenated input instead of its parts.
+fn hash_of_input(input: &str) -> f64 {
+    calculate_hash(input, "", "").unwrap()
+}
+
 fn assert_hash01(id: &str, actual: f64, expected: &Value) {
     let expected: f64 = expected
         .as_str()
@@ -690,5 +700,5 @@ fn collect_files(root: &Path, dir: &Path, out: &mut BTreeSet<String>) {
 fn str_field<'a>(value: &'a Value, field: &str) -> &'a str {
     value[field]
         .as_str()
-        .unwrap_or_else(|| panic!("corpus field {field} must be a string"))
+        .unwrap_or_else(|| panic!("corpus field {field} must be a string in {value}"))
 }
