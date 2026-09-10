@@ -5,7 +5,7 @@ import asyncio
 import hashlib
 from datetime import timedelta
 from itertools import batched
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from django.conf import settings
 
@@ -33,6 +33,7 @@ from posthog.temporal.ai_observability.eval_reports.constants import (
     CHECK_COUNT_TRIGGERED_REPORTS_WORKFLOW_NAME,
     COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT,
     COUNT_TRIGGER_CHECK_BATCH_SIZE,
+    COUNT_TRIGGER_CHECK_SCHEDULE_TO_CLOSE_TIMEOUT,
     COUNT_TRIGGER_MAX_CONCURRENT_CHECKS,
     DELIVER_ACTIVITY_TIMEOUT,
     DELIVER_HEARTBEAT_TIMEOUT,
@@ -79,25 +80,63 @@ class _DueReportCandidates(NamedTuple):
     occurrence_keys: dict[str, str]
 
 
+class _IncrementalCursorAck(NamedTuple):
+    region: str
+    cursor_before: str
+    team_by_report_id: dict[str, int]
+
+
+class _CountCheckWindowResult(NamedTuple):
+    due_report_ids: list[str]
+    occurrence_keys: dict[str, str]
+    failures: list[tuple[str, str]]
+    skipped_counts: dict[str, int]
+
+
 def _collect_count_triggered_output(
     output: CheckCountTriggeredEvalReportOutput,
     due_report_ids: list[str],
     occurrence_keys: dict[str, str],
     skipped_counts: dict[str, int],
-    *,
-    window_due_report_ids: list[str] | None = None,
-    window_occurrence_keys: dict[str, str] | None = None,
 ) -> None:
     if output.due:
         due_report_ids.append(output.report_id)
-        if window_due_report_ids is not None:
-            window_due_report_ids.append(output.report_id)
         if output.occurrence_key is not None:
             occurrence_keys[output.report_id] = output.occurrence_key
-            if window_occurrence_keys is not None:
-                window_occurrence_keys[output.report_id] = output.occurrence_key
     elif output.skipped_reason is not None:
         skipped_counts[output.skipped_reason] = skipped_counts.get(output.skipped_reason, 0) + 1
+
+
+async def _check_count_triggered_window(
+    window: list[list[str]],
+    activity_schedule_to_close_timeout: timedelta | None,
+) -> _CountCheckWindowResult:
+    activity_options: dict[str, Any] = {
+        "start_to_close_timeout": COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT,
+        "retry_policy": FETCH_RETRY_POLICY,
+    }
+    if activity_schedule_to_close_timeout is not None:
+        activity_options["schedule_to_close_timeout"] = activity_schedule_to_close_timeout
+    tasks = [
+        temporalio.workflow.execute_activity(
+            check_count_triggered_eval_reports_activity,
+            CheckCountTriggeredEvalReportsBatchInput(report_ids=group),
+            **activity_options,
+        )
+        for group in window
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    due_report_ids: list[str] = []
+    occurrence_keys: dict[str, str] = {}
+    failures: list[tuple[str, str]] = []
+    skipped_counts: dict[str, int] = {}
+    for group, group_result in zip(window, results):
+        if isinstance(group_result, BaseException):
+            failures.extend((report_id, f"{type(group_result).__name__}: {group_result}") for report_id in group)
+            continue
+        for output in group_result.results:
+            _collect_count_triggered_output(output, due_report_ids, occurrence_keys, skipped_counts)
+    return _CountCheckWindowResult(due_report_ids, occurrence_keys, failures, skipped_counts)
 
 
 @temporalio.workflow.defn(name=SCHEDULE_ALL_EVAL_REPORTS_WORKFLOW_NAME)
@@ -159,11 +198,28 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
         # report_id_groups as None and keep their per-report command sequence.
         uses_batched_checks = result.report_id_groups is not None
         windowed_dispatch = False
+        activity_schedule_to_close_timeout: timedelta | None = None
+        incremental_ack: _IncrementalCursorAck | None = None
         if uses_batched_checks:
             windowed_dispatch = temporalio.workflow.patched("eval-report-count-windowed-dispatch-2026-09")
+            if temporalio.workflow.patched("eval-report-count-bounded-check-window-2026-09"):
+                activity_schedule_to_close_timeout = COUNT_TRIGGER_CHECK_SCHEDULE_TO_CLOSE_TIMEOUT
+            if (
+                windowed_dispatch
+                and result.cursor_before is not None
+                and result.team_by_report_id is not None
+                and temporalio.workflow.patched("eval-report-count-incremental-cursor-ack-2026-09")
+            ):
+                incremental_ack = _IncrementalCursorAck(
+                    region=inputs.region,
+                    cursor_before=result.cursor_before,
+                    team_by_report_id=result.team_by_report_id,
+                )
             due_reports = await _check_count_triggered_eval_report_candidates_batched(
                 result.report_id_groups or [],
                 dispatch_due_reports=windowed_dispatch,
+                activity_schedule_to_close_timeout=activity_schedule_to_close_timeout,
+                incremental_ack=incremental_ack,
             )
         else:
             due_reports = await _check_count_triggered_eval_report_candidates(result.report_ids)
@@ -177,7 +233,8 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
                 occurrence_keys=due_reports.occurrence_keys,
             )
 
-        await _ack_eval_report_cursors(result, "count_triggered", inputs.region)
+        if incremental_ack is None:
+            await _ack_eval_report_cursors(result, "count_triggered", inputs.region)
 
 
 async def _check_count_triggered_eval_report_candidates(report_ids: list[str]) -> _DueReportCandidates:
@@ -235,6 +292,8 @@ async def _check_count_triggered_eval_report_candidates_batched(
     report_id_groups: list[list[str]],
     *,
     dispatch_due_reports: bool = False,
+    activity_schedule_to_close_timeout: timedelta | None = None,
+    incremental_ack: _IncrementalCursorAck | None = None,
 ) -> _DueReportCandidates:
     due_report_ids: list[str] = []
     occurrence_keys: dict[str, str] = {}
@@ -244,6 +303,7 @@ async def _check_count_triggered_eval_report_candidates_batched(
         "daily_cap": 0,
         "not_deliverable": 0,
     }
+    checked_report_count = 0
 
     # Each group holds one team's reports capped at COUNT_TRIGGER_QUERY_WIDTH, so one
     # activity runs one count query under its own timeout and Temporal retry policy, and
@@ -251,45 +311,41 @@ async def _check_count_triggered_eval_report_candidates_batched(
     # COUNT_TRIGGER_MAX_CONCURRENT_CHECKS count queries in flight — the legacy path's ceiling.
     for index in range(0, len(report_id_groups), COUNT_TRIGGER_MAX_CONCURRENT_CHECKS):
         window = report_id_groups[index : index + COUNT_TRIGGER_MAX_CONCURRENT_CHECKS]
-        window_due_report_ids: list[str] = []
-        window_occurrence_keys: dict[str, str] = {}
-        tasks = [
-            temporalio.workflow.execute_activity(
-                check_count_triggered_eval_reports_activity,
-                CheckCountTriggeredEvalReportsBatchInput(report_ids=group),
-                start_to_close_timeout=COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT,
-                retry_policy=FETCH_RETRY_POLICY,
-            )
-            for group in window
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        for group, group_result in zip(window, results):
-            if isinstance(group_result, BaseException):
-                # A group's activity exhausted its retries — attribute every report in it so
-                # the failure is visible, while other groups still contribute their results.
-                for report_id in group:
-                    failed.append((report_id, f"{type(group_result).__name__}: {group_result}"))
-                continue
-            for output in group_result.results:
-                _collect_count_triggered_output(
-                    output,
-                    due_report_ids,
-                    occurrence_keys,
-                    skipped_counts,
-                    window_due_report_ids=window_due_report_ids,
-                    window_occurrence_keys=window_occurrence_keys,
-                )
+        window_report_ids = [report_id for group in window for report_id in group]
+        checked_report_count += len(window_report_ids)
+        window_result = await _check_count_triggered_window(window, activity_schedule_to_close_timeout)
+        due_report_ids.extend(window_result.due_report_ids)
+        occurrence_keys.update(window_result.occurrence_keys)
+        failed.extend(window_result.failures)
+        for reason, count in window_result.skipped_counts.items():
+            skipped_counts[reason] = skipped_counts.get(reason, 0) + count
 
         # Start reports as each bounded check window completes. If the coordinator later
-        # reaches its execution timeout, results from earlier windows are still delivered;
-        # the unacknowledged discovery cursor makes the unfinished page safe to retry.
-        if dispatch_due_reports and window_due_report_ids:
+        # reaches its execution timeout, earlier windows retain their acknowledged progress
+        # while the unfinished window remains safe to retry.
+        if dispatch_due_reports and window_result.due_report_ids:
             await _dispatch_report_workflows(
                 "count_triggered_eval_report",
                 "eval-report-count",
-                window_due_report_ids,
+                window_result.due_report_ids,
                 patch_id="eval-report-count-coordinator-fire-and-forget-2026-09",
-                occurrence_keys=window_occurrence_keys,
+                occurrence_keys=window_result.occurrence_keys,
+            )
+
+        # Commit progress only after every check in the window has settled and every due
+        # child start has been accepted. Failed groups advance too: they re-enter after the
+        # fair ring wraps instead of pinning every later report behind a poison prefix.
+        if incremental_ack is not None:
+            advanced = await _ack_eval_report_ids(
+                window_report_ids,
+                "count_triggered",
+                incremental_ack.region,
+                incremental_ack.cursor_before,
+            )
+            if not advanced:
+                break
+            incremental_ack = incremental_ack._replace(
+                cursor_before=str(incremental_ack.team_by_report_id[window_report_ids[-1]])
             )
 
     if failed:
@@ -302,7 +358,7 @@ async def _check_count_triggered_eval_report_candidates_batched(
         "llma_eval_reports_coordinator_count_triggered_poll",
         extra={
             "reports_found": len(due_report_ids),
-            "total_checked": sum(len(group) for group in report_id_groups),
+            "total_checked": checked_report_count,
             "skipped_cooldown": skipped_counts["cooldown"],
             "skipped_daily_cap": skipped_counts["daily_cap"],
             "skipped_not_deliverable": skipped_counts["not_deliverable"],
@@ -442,13 +498,27 @@ async def _ack_eval_report_cursors(
     if result.cursor_before is None or not result.report_ids:
         return
 
+    await _ack_eval_report_ids(
+        result.report_ids,
+        trigger_type,
+        region,
+        result.cursor_before,
+    )
+
+
+async def _ack_eval_report_ids(
+    report_ids: list[str],
+    trigger_type: str,
+    region: str,
+    cursor_before: str,
+) -> bool:
     advanced = await temporalio.workflow.execute_activity(
         ack_eval_report_cursors_activity,
         AckEvalReportCursorsInput(
             trigger_type=trigger_type,
             region=region,
-            cursor_before=result.cursor_before,
-            report_ids=result.report_ids,
+            cursor_before=cursor_before,
+            report_ids=report_ids,
         ),
         start_to_close_timeout=UPDATE_SCHEDULE_ACTIVITY_TIMEOUT,
         retry_policy=UPDATE_SCHEDULE_RETRY_POLICY,
@@ -456,8 +526,9 @@ async def _ack_eval_report_cursors(
     if not advanced:
         temporalio.workflow.logger.warning(
             "eval_report_coordinator.cursor_acknowledgement_conflict",
-            extra={"trigger_type": trigger_type, "reports_count": len(result.report_ids)},
+            extra={"trigger_type": trigger_type, "reports_count": len(report_ids)},
         )
+    return advanced
 
 
 def _log_legacy_fan_out_failures(kind: str, report_ids: list[str], results: list) -> None:

@@ -24,6 +24,7 @@ from posthog.temporal.ai_observability.eval_reports.activities import (
 from posthog.temporal.ai_observability.eval_reports.constants import (
     CHECK_COUNT_TRIGGERED_REPORTS_WORKFLOW_NAME,
     COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT,
+    COUNT_TRIGGER_CHECK_SCHEDULE_TO_CLOSE_TIMEOUT,
     COUNT_TRIGGER_MAX_CONCURRENT_CHECKS,
     FETCH_ACTIVITY_TIMEOUT,
     FETCH_RETRY_POLICY,
@@ -54,6 +55,7 @@ from posthog.temporal.ai_observability.eval_reports.workflow import (
     _check_count_triggered_eval_report_candidates,
     _check_count_triggered_eval_report_candidates_batched,
     _DueReportCandidates,
+    _IncrementalCursorAck,
     _report_workflow_id,
     _start_report_workflow,
     _start_report_workflows,
@@ -216,15 +218,28 @@ async def test_count_coordinator_acknowledges_cursor_after_due_child_starts() ->
                 report_ids=["report-a"],
                 report_id_groups=[["report-a"]],
                 cursor_before="41",
+                team_by_report_id={"report-a": 42},
             )
         if activity is ack_eval_report_cursors_activity:
             events.append("ack")
             return True
         raise AssertionError(f"unexpected activity: {activity}")
 
-    async def fake_check_candidates(_groups, *, dispatch_due_reports):
+    async def fake_check_candidates(
+        _groups,
+        *,
+        dispatch_due_reports,
+        activity_schedule_to_close_timeout,
+        incremental_ack,
+    ):
         events.append("check")
         assert dispatch_due_reports is True
+        assert activity_schedule_to_close_timeout == COUNT_TRIGGER_CHECK_SCHEDULE_TO_CLOSE_TIMEOUT
+        assert incremental_ack == _IncrementalCursorAck(
+            region="eu",
+            cursor_before="41",
+            team_by_report_id={"report-a": 42},
+        )
         events.append("start")
         return _DueReportCandidates(["report-a"], {"report-a": "count-window"})
 
@@ -244,7 +259,7 @@ async def test_count_coordinator_acknowledges_cursor_after_due_child_starts() ->
     ):
         await CheckCountTriggeredReportsWorkflow().run(CheckCountTriggeredReportsWorkflowInputs(region="eu"))
 
-    assert events == ["check", "start", "ack"]
+    assert events == ["check", "start"]
 
 
 @pytest.mark.asyncio
@@ -933,3 +948,140 @@ async def test_batched_count_check_dispatches_each_completed_window() -> None:
         {"due-a": "window-due-a"},
         {"due-b": "window-due-b"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_batched_count_check_acknowledges_each_window_before_checking_the_next() -> None:
+    events: list[str] = []
+    acknowledged_inputs: list[AckEvalReportCursorsInput] = []
+
+    async def fake_execute_activity(activity, inputs, **kwargs):
+        if activity is check_count_triggered_eval_reports_activity:
+            events.append(f"check:{inputs.report_ids[0]}")
+            assert kwargs["schedule_to_close_timeout"] == COUNT_TRIGGER_CHECK_SCHEDULE_TO_CLOSE_TIMEOUT
+            return CheckCountTriggeredEvalReportsBatchOutput(
+                results=[
+                    CheckCountTriggeredEvalReportOutput(
+                        report_id=inputs.report_ids[0],
+                        due=True,
+                        occurrence_key=f"window-{inputs.report_ids[0]}",
+                    )
+                ]
+            )
+        if activity is ack_eval_report_cursors_activity:
+            events.append(f"ack:{inputs.report_ids[0]}")
+            acknowledged_inputs.append(inputs)
+            return True
+        raise AssertionError(f"unexpected activity: {activity}")
+
+    async def fake_dispatch(_kind, _prefix, report_ids, **_kwargs):
+        events.append(f"dispatch:{report_ids[0]}")
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
+            new=fake_execute_activity,
+        ),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.COUNT_TRIGGER_MAX_CONCURRENT_CHECKS", 1),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow._dispatch_report_workflows",
+            new=fake_dispatch,
+        ),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.record_coordinator_reports_found"),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.logger"),
+    ):
+        await _check_count_triggered_eval_report_candidates_batched(
+            [["due-a"], ["due-b"]],
+            dispatch_due_reports=True,
+            activity_schedule_to_close_timeout=COUNT_TRIGGER_CHECK_SCHEDULE_TO_CLOSE_TIMEOUT,
+            incremental_ack=_IncrementalCursorAck(
+                region="eu",
+                cursor_before="41",
+                team_by_report_id={"due-a": 42, "due-b": 43},
+            ),
+        )
+
+    assert events == [
+        "check:due-a",
+        "dispatch:due-a",
+        "ack:due-a",
+        "check:due-b",
+        "dispatch:due-b",
+        "ack:due-b",
+    ]
+    assert [inputs.cursor_before for inputs in acknowledged_inputs] == ["41", "42"]
+
+
+@pytest.mark.asyncio
+async def test_batched_count_check_advances_past_a_failed_window() -> None:
+    events: list[str] = []
+
+    async def fake_execute_activity(activity, inputs, **_kwargs):
+        if activity is check_count_triggered_eval_reports_activity:
+            report_id = inputs.report_ids[0]
+            events.append(f"check:{report_id}")
+            if report_id == "poisoned":
+                raise RuntimeError("clickhouse at capacity")
+            return CheckCountTriggeredEvalReportsBatchOutput(
+                results=[CheckCountTriggeredEvalReportOutput(report_id=report_id, due=False)]
+            )
+        if activity is ack_eval_report_cursors_activity:
+            events.append(f"ack:{inputs.report_ids[0]}")
+            return True
+        raise AssertionError(f"unexpected activity: {activity}")
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
+            new=fake_execute_activity,
+        ),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.COUNT_TRIGGER_MAX_CONCURRENT_CHECKS", 1),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.record_coordinator_reports_found"),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.logger"),
+    ):
+        await _check_count_triggered_eval_report_candidates_batched(
+            [["poisoned"], ["healthy"]],
+            incremental_ack=_IncrementalCursorAck(
+                region="eu",
+                cursor_before="41",
+                team_by_report_id={"poisoned": 42, "healthy": 43},
+            ),
+        )
+
+    assert events == ["check:poisoned", "ack:poisoned", "check:healthy", "ack:healthy"]
+
+
+@pytest.mark.asyncio
+async def test_batched_count_check_stops_after_cursor_acknowledgement_conflict() -> None:
+    events: list[str] = []
+
+    async def fake_execute_activity(activity, inputs, **_kwargs):
+        if activity is check_count_triggered_eval_reports_activity:
+            events.append(f"check:{inputs.report_ids[0]}")
+            return CheckCountTriggeredEvalReportsBatchOutput(
+                results=[CheckCountTriggeredEvalReportOutput(report_id=inputs.report_ids[0], due=False)]
+            )
+        if activity is ack_eval_report_cursors_activity:
+            events.append(f"ack:{inputs.report_ids[0]}")
+            return False
+        raise AssertionError(f"unexpected activity: {activity}")
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
+            new=fake_execute_activity,
+        ),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.COUNT_TRIGGER_MAX_CONCURRENT_CHECKS", 1),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.record_coordinator_reports_found"),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.logger"),
+    ):
+        await _check_count_triggered_eval_report_candidates_batched(
+            [["stale-page"], ["must-not-run"]],
+            incremental_ack=_IncrementalCursorAck(
+                region="eu",
+                cursor_before="41",
+                team_by_report_id={"stale-page": 42, "must-not-run": 43},
+            ),
+        )
+
+    assert events == ["check:stale-page", "ack:stale-page"]

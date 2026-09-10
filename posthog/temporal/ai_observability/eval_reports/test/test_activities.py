@@ -5,6 +5,7 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import MagicMock, Mock, patch
 
+from django.db import connection
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -680,19 +681,33 @@ class TestCountTriggeredReportChecks(BaseTest):
             .order_by()
         )
 
-        page = _fetch_eval_report_candidate_page(
-            reports,
-            scheduler="test_eval_reports_bounded_refill",
-            region="test",
-            max_reports_per_run=5,
-            candidate_sql=_COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
-            rotate_item_cursor=True,
-        )
+        candidate_team_ids: list[list[int]] = []
+        candidate_offsets: list[int] = []
+
+        def capture_candidate_queries(execute, sql, params, many, context):
+            if "WITH selected_teams AS" in sql:
+                candidate_team_ids.append([int(team_id) for team_id in params[0]])
+                candidate_offsets.append(int(params[-2]))
+            return execute(sql, params, many, context)
+
+        with connection.execute_wrapper(capture_candidate_queries):
+            page = _fetch_eval_report_candidate_page(
+                reports,
+                scheduler="test_eval_reports_bounded_refill",
+                region="test",
+                max_reports_per_run=5,
+                candidate_sql=_COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
+                rotate_item_cursor=True,
+            )
 
         selected_ids = {report_id for report_id, _team_id in page.rows}
         self.assertEqual(len(page.rows), 5)
         self.assertTrue({str(report.id) for report in quiet_reports}.issubset(selected_ids))
         self.assertEqual(page.items_lower_bound, 6)
+        self.assertEqual(len(candidate_team_ids), 2)
+        self.assertEqual(len(candidate_team_ids[0]), 4)
+        self.assertEqual(candidate_team_ids[1], [self.team.id])
+        self.assertEqual(candidate_offsets[1], 2)
 
     def test_bounded_candidate_page_rotates_the_tenant_cursor(self):
         other_team = Team.objects.create(organization=self.organization, name="other")

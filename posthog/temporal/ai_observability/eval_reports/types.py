@@ -68,6 +68,7 @@ class FetchDueEvalReportsOutput:
     # the workflow then keeps the legacy per-report path.
     report_id_groups: list[list[str]] | None = None
     report_occurrence_keys: dict[str, str] | None = None
+    team_by_report_id: dict[str, int] | None = None
     due_items_lower_bound: int = 0
     oldest_due_at_iso: str | None = None
     payload_bytes: int = 0

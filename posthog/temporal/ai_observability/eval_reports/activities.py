@@ -115,6 +115,7 @@ _SCHEDULED_REPORT_CANDIDATE_SQL = f"""
               AND {_REPORTABLE_EVALUATION_SQL}
             ORDER BY team_rank
             LIMIT %s
+            OFFSET %s
         ) AS candidate
     )
     SELECT id, team_id, next_delivery_date
@@ -156,6 +157,7 @@ _COUNT_TRIGGERED_REPORT_CANDIDATE_SQL = f"""
               AND {_REPORTABLE_EVALUATION_SQL}
             ORDER BY team_rank
             LIMIT %s
+            OFFSET %s
         ) AS candidate
     )
     SELECT id, team_id, NULL::timestamptz AS occurrence_at
@@ -352,6 +354,7 @@ async def fetch_count_triggered_eval_report_candidates_activity(
     return FetchDueEvalReportsOutput(
         report_ids=report_ids,
         report_id_groups=report_id_groups,
+        team_by_report_id=dict(selection.items),
         due_items_lower_bound=candidates.items_lower_bound,
         payload_bytes=selection.encoded_size_bytes,
         limited_by=limited_by,
@@ -400,6 +403,7 @@ def _count_triggered_payload(
     return FetchDueEvalReportsOutput(
         report_ids=[report_id for report_id, _team_id in rows],
         report_id_groups=_group_count_triggered_report_rows(rows),
+        team_by_report_id=dict(rows),
         due_items_lower_bound=items_lower_bound,
         cursor_before=cursor_before,
     )
@@ -458,33 +462,39 @@ def _fetch_eval_report_candidate_page(
         )
         bounded_rows: list[tuple[str, int]] = []
         occurrence_keys: dict[str, str] = {}
+        teams_to_fetch = selected_team_ids
+        candidates_to_skip_per_team = 0
         for _round in range(_MAX_DISCOVERY_REFILL_ROUNDS):
+            remaining_candidate_slots = candidate_limit - len(bounded_rows)
             query_params: list[Any] = [
-                selected_team_ids,
-                *([item_cursors[team_id] for team_id in selected_team_ids] if rotate_item_cursor else []),
+                teams_to_fetch,
+                *([item_cursors[team_id] for team_id in teams_to_fetch] if rotate_item_cursor else []),
                 *(candidate_sql_params or []),
                 candidates_per_team,
-                candidate_limit,
+                candidates_to_skip_per_team,
+                remaining_candidate_slots,
             ]
             with connection.cursor() as cursor:
                 cursor.execute(candidate_sql, query_params)
                 raw_rows = cursor.fetchall()
-                bounded_rows = [(str(report_id), int(team_id)) for report_id, team_id, _occurrence_at in raw_rows]
-                occurrence_keys = {
-                    str(report_id): occurrence_at.isoformat()
-                    for report_id, _team_id, occurrence_at in raw_rows
-                    if occurrence_at is not None
-                }
+                round_rows = [(str(report_id), int(team_id)) for report_id, team_id, _occurrence_at in raw_rows]
+                bounded_rows.extend(round_rows)
+                occurrence_keys.update(
+                    {
+                        str(report_id): occurrence_at.isoformat()
+                        for report_id, _team_id, occurrence_at in raw_rows
+                        if occurrence_at is not None
+                    }
+                )
 
-            if len(bounded_rows) >= candidate_limit:
+            if len(bounded_rows) >= candidate_limit or not round_rows:
                 break
-            rows_per_team = Counter(team_id for _report_id, team_id in bounded_rows)
-            if not any(count >= candidates_per_team for count in rows_per_team.values()):
+            rows_per_team = Counter(team_id for _report_id, team_id in round_rows)
+            teams_to_fetch = [team_id for team_id in teams_to_fetch if rows_per_team[team_id] == candidates_per_team]
+            if not teams_to_fetch:
                 break
-            next_limit = min(candidate_limit, candidates_per_team * 2)
-            if next_limit == candidates_per_team:
-                break
-            candidates_per_team = next_limit
+            candidates_to_skip_per_team += candidates_per_team
+            candidates_per_team = max(1, math.ceil((candidate_limit - len(bounded_rows)) / len(teams_to_fetch)))
 
     deferred_candidates = len(bounded_rows) > max_reports_per_run
     selected_rows = bounded_rows[:max_reports_per_run]

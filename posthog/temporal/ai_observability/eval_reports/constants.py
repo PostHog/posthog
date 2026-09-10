@@ -23,10 +23,7 @@ WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
 # cursors, so it never needs the full hour. Staying below the hourly interval means a stalled run
 # cannot make ScheduleOverlapPolicy.SKIP drop the next hourly trigger.
 SCHEDULED_COORDINATOR_EXECUTION_TIMEOUT = timedelta(minutes=55)
-# The count-trigger coordinator runs its check windows inline, so a saturated page can take longer
-# than the 5-minute interval. This bound stays above the interval to let a full page finish, which
-# means a stalled run can still make SKIP drop later triggers.
-COUNT_TRIGGER_COORDINATOR_EXECUTION_TIMEOUT = timedelta(hours=2)
+COUNT_TRIGGERED_COORDINATOR_EXECUTION_TIMEOUT = timedelta(minutes=4)
 
 # Activity timeouts
 FETCH_ACTIVITY_TIMEOUT = timedelta(seconds=60)
@@ -42,6 +39,10 @@ COUNT_TRIGGER_QUERY_WIDTH = 20
 COUNT_TRIGGER_MAX_CONCURRENT_CHECKS = 5
 REPORT_START_BATCH_SIZE = 100
 COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT = timedelta(seconds=120)
+# Bound the full queue + retry lifetime of one count-check window below the coordinator's
+# four-minute budget. A poisoned group is acknowledged after this window, so the next poll
+# resumes after it instead of replaying the same prefix indefinitely.
+COUNT_TRIGGER_CHECK_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(minutes=3)
 # Per-attempt ClickHouse budget. A too-slow count query fails with a catchable
 # ClickHouseQueryTimeOut the activity can split-and-retry, unlike a Temporal activity
 # timeout, which kills the split midway and replays the same sequence on every retry.
