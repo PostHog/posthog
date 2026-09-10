@@ -8,14 +8,24 @@ on:
         types: [opened, synchronize, labeled, unlabeled]
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # A skipped label run must not cancel or replace a queued build for this branch.
+    group: >-
+        ${{ github.workflow }}-${{
+            contains(fromJSON('["labeled", "unlabeled"]'), github.event.action)
+            && !contains(fromJSON('["hobby-preview", "no-depot-docker-cache"]'), github.event.label.name)
+            && format('ignored-label-{0}', github.run_id)
+            || github.head_ref || github.ref
+        }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog'
+        if: >-
+            github.repository == 'PostHog/posthog'
+            && (!contains(fromJSON('["labeled", "unlabeled"]'), github.event.action)
+                || contains(fromJSON('["hobby-preview", "no-depot-docker-cache"]'), github.event.label.name))
         name: Determine need to run Docker checks
         permissions:
             contents: read
@@ -125,7 +135,14 @@ jobs:
 
     posthog_build:
         needs: changes
-        name: Build Docker image
+        # A skipped required context would hide the real build's failure from branch protection and Hobby.
+        name: >-
+            ${{
+                contains(fromJSON('["labeled", "unlabeled"]'), github.event.action)
+                && !contains(fromJSON('["hobby-preview", "no-depot-docker-cache"]'), github.event.label.name)
+                && 'Ignore unrelated image label'
+                || 'Build Docker image'
+            }}
         # run these on 4, if they're RAM constrained the FE build will fail randomly in Docker build
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30

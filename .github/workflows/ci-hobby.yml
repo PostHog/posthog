@@ -20,7 +20,14 @@ on:
         types: [opened, synchronize, labeled, unlabeled]
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # Keep unrelated labels out of the group that owns active smoke tests and previews.
+    group: >-
+        ${{ github.workflow }}-${{
+            contains(fromJSON('["labeled", "unlabeled"]'), github.event.action)
+            && !contains(fromJSON('["hobby-preview", "no-depot-docker-cache"]'), github.event.label.name)
+            && format('ignored-label-{0}', github.run_id)
+            || github.head_ref || github.ref
+        }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -36,7 +43,11 @@ jobs:
         timeout-minutes: 5
         # trunk-merge/** heads are skipped: merge-queue PRs are ephemeral and every
         # constituent PR already ran this in full.
-        if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
+        if: >-
+            github.event_name == 'pull_request'
+            && !startsWith(github.head_ref, 'trunk-merge/')
+            && (!contains(fromJSON('["labeled", "unlabeled"]'), github.event.action)
+                || contains(fromJSON('["hobby-preview", "no-depot-docker-cache"]'), github.event.label.name))
         name: Determine need to run hobby checks
         outputs:
             should_run: ${{ steps.filter.outputs.hobby == 'true' || steps.check-label.outputs.has_label == 'true' }}
