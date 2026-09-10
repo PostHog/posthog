@@ -3325,6 +3325,12 @@ def _handle_untagged_followup_run(payload: dict) -> HttpResponse:
         slack_channel_id=context.get("slack_channel_id"),
         slack_user_id=clicker_slack_user_id,
     )
+    capture_slack_event(
+        integration,
+        "slack app untagged followup confirmed",
+        slack_user_id=clicker_slack_user_id,
+        posthog_user=posthog_user,
+    )
     _delete_ephemeral_via_response_url(response_url)
     return HttpResponse(status=200)
 
@@ -3336,6 +3342,20 @@ def _handle_untagged_followup_dismiss(payload: dict) -> HttpResponse:
     if context_token:
         cache.delete(_picker_context_cache_key(context_token))
     _delete_ephemeral_via_response_url(payload.get("response_url", ""))
+    slack_team_id = payload.get("team", {}).get("id", "")
+    dismissing_integration = (
+        Integration.objects.filter(kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id)
+        .select_related("team", "team__organization")
+        .first()
+        if slack_team_id
+        else None
+    )
+    if dismissing_integration is not None:
+        capture_slack_event(
+            dismissing_integration,
+            "slack app untagged followup dismissed",
+            slack_user_id=payload.get("user", {}).get("id"),
+        )
     return HttpResponse(status=200)
 
 
