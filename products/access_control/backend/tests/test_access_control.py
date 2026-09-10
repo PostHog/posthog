@@ -1256,7 +1256,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         # endpoint is the only one here that doesn't already load it for other reasons.
         baseline = 9
         # Project access doesn't double query the object
-        with self.assertNumQueries(baseline + 10):
+        with self.assertNumQueries(baseline + 9):
             # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
             self.client.get("/api/projects/@current/is_generating_demo_data")
 
@@ -1307,7 +1307,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         # endpoint is the only one here that doesn't already load it for other reasons.
         baseline = 9
         # Project access doesn't double query the object
-        with self.assertNumQueries(baseline + 10):
+        with self.assertNumQueries(baseline + 9):
             # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
             self.client.get("/api/projects/@current/is_generating_demo_data")
 
