@@ -42,8 +42,12 @@ jobs:
 
             # The Dockerfile pulls node, python and debian from Docker Hub. Depot forwards the
             # credentials from this sandbox to the remote builder, so logging in here keeps those
-            # base image pulls off the anonymous per-IP rate limit.
+            # base image pulls off the anonymous per-IP rate limit. The images are public, so a
+            # missing secret or a failed login falls back to anonymous pulls and does not stop
+            # the outage build.
             - name: Login to Docker Hub
+              if: ${{ vars.DOCKERHUB_USER != '' && secrets.DOCKERHUB_TOKEN != '' }}
+              continue-on-error: true
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
