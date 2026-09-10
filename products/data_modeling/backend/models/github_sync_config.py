@@ -19,7 +19,9 @@ class GitHubSyncConfig(CreatedMetaFields, UpdatedMetaFields):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
     team_id: int
 
-    integration = models.ForeignKey("posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True)
+    integration = models.ForeignKey(
+        "posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
     integration_id: int | None
 
     repository = models.CharField(
