@@ -12,7 +12,7 @@ This is the fastest way to understand what a log stream is _saying_ without read
 
 - To triage an unfamiliar or noisy stream: mine the last hour, scan the top templates by `estimated_count`, and look for anything with a non-zero error share in `severity_counts`.
 - To find what's new or dominant during an incident window: mine with `severityLevels: ["error", "fatal"]` and a `dateRange` covering the incident.
-- As the entry point of a drill-down loop: mine → pick a suspicious pattern → filter logs to exactly its lines using `match_regex` (see below) → read the raw rows with `query-logs`.
+- As the entry point of a drill-down loop: mine → pick a suspicious pattern → filter logs to exactly its lines using `match_patterns`, or `match_regex` and `match_literal` when it is empty (see below) → read the raw rows with `query-logs`.
 - To quantify repetition before proposing log sampling or cleanup: `volume_share_pct` tells you how much of the stream one template accounts for.
 
 ## Pick the right tool
@@ -32,8 +32,8 @@ This is the fastest way to understand what a log stream is _saying_ without read
 - `estimated_count` / `estimated_error_count` — occurrences extrapolated to the full window. When `sampled` is false these are exact.
 - `severity_counts` — occurrences per severity, never extrapolated: sample counts when `sampled` is true, exact counts over every matching row otherwise. A template split across `info` and `error` often means the same code path logging both outcomes.
 - `services` — up to 4 service names the pattern was seen in.
-- `match_regex` — a regex over raw log bodies that matches this pattern's lines, pre-validated against the raw bodies of the pattern's own sampled rows. Null when no trustworthy regex could be compiled. For JSON logs the pattern is mined from the extracted message field, so the regex may be unanchored, because the message is a substring of the raw line. It still targets the raw stored body.
-- `match_literal` — longest literal run of the template, a plain-text fallback when `match_regex` is null.
+- `match_regex` — a regex over raw log bodies that matches this pattern's lines, pre-validated against the raw bodies of the pattern's own sampled rows. Always null on the stored-pattern path, which pivots with `match_patterns` instead, and null on the mining path when no trustworthy regex could be compiled. For JSON logs the pattern is mined from the extracted message field, so the regex may be unanchored, because the message is a substring of the raw line. It still targets the raw stored body.
+- `match_literal` — longest literal run of the template, a plain-text fallback when `match_regex` is null. Also null on the stored-pattern path.
 
 Mining samples the window (`sampled: true` when it did): counts are estimates, and rare patterns (below roughly 1 in `scanned_count` of the volume) may be missing entirely. Narrow the `dateRange` or filters to mine a finer-grained sample.
 
