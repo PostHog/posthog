@@ -12,8 +12,10 @@ from posthog.schema import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect import (
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
     APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
+    APP_STORE_CONNECT_INVALID_REPORT_ERROR,
     APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR,
     APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
+    APP_STORE_CONNECT_UNKNOWN_VENDOR_NUMBER_ERROR,
     AppStoreConnectResumeConfig,
     app_store_connect_source,
     check_credentials,
@@ -159,6 +161,11 @@ The analytics tables need a key with the Admin role. Apple lets only an Admin ke
             # A report sync selected without a vendor number can never read `/v1/salesReports`, so fail
             # fast instead of retrying the activity's whole budget until the user adds the number.
             APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR: APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR,
+            # Apple rejected the report request itself. Retrying can't change the answer, and the fix
+            # is a source update rather than anything the user can do.
+            APP_STORE_CONNECT_INVALID_REPORT_ERROR: "App Store Connect rejected this report request. The report type or version it asks for may no longer be valid. This usually needs a source update — contact support if it keeps failing.",
+            # A vendor number Apple doesn't know. Every retry fails identically until it is corrected.
+            APP_STORE_CONNECT_UNKNOWN_VENDOR_NUMBER_ERROR: "App Store Connect does not recognize your vendor number. Find it in App Store Connect under Payments and Financial Reports, update it in this source's settings, then run the sync again.",
         }
 
     def get_retryable_errors(self) -> set[str]:

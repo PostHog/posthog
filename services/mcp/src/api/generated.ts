@@ -872,6 +872,13 @@ export namespace Schemas {
       readonly last_modified_by: UserBasic;
     }
 
+    export interface AccountPresenceViewer {
+      /** PostHog user ID of the teammate viewing this account. */
+      readonly user_id: number;
+      /** Display name of the teammate viewing this account. */
+      readonly display_name: string;
+    }
+
     /**
      * A team-defined account relationship type (CSM, Onboarding manager, ...).
      */
@@ -15463,6 +15470,15 @@ export namespace Schemas {
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+    }
+
+    export interface CalendarSyncBackfill {
+      /** Id of the Google account integration to backfill. */
+      integration_id: number;
+      /** First UTC date to include. Must be within the last 365 days. */
+      start_date: string;
+      /** Final UTC date to include. Cannot be after today. */
+      end_date: string;
     }
 
     /**
@@ -58734,6 +58750,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly dismissal_note: string | null;
+      /**
+         * `organization/repository` the report's work targets, from the latest repo-selection artefact (when present). Lets list cards show repository context without a per-card fetch.
+         * @nullable
+         */
+      readonly repo_slug: string | null;
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
@@ -67970,6 +67991,25 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
     }
 
+    export interface PatchedRepoRoutingRule {
+      readonly id?: string;
+      /**
+         * Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters.
+         * @maxLength 300
+         */
+      rule_text?: string;
+      /**
+         * Target repository as owner/repo, e.g. 'posthog/posthog.com'.
+         * @maxLength 255
+         */
+      repository?: string;
+      readonly priority?: number;
+      /** Who created the rule, from the UI or the Slack commands. Null when that user was deleted. */
+      readonly created_by?: UserBasic | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+    }
+
     export interface PatchedReviewBlindSpotsConfigSelect {
       /** Set true to make this the single blind-spots skill that runs on the user's PR reviews. Only true is accepted — the blind-spot check is single-active, so you switch by selecting a different skill, not by deactivating the current one. */
       active?: boolean;
@@ -68442,9 +68482,14 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Editable schedule, enablement, and emit posture for one scout config.
+     * Editable display name, schedule, enablement, and emit posture for one scout config.
      */
     export interface PatchedSignalScoutConfigUpdate {
+      /**
+         * Name shown in the UI. Does not change the skill name. Leave blank to use the default name.
+         * @maxLength 200
+         */
+      display_name?: string;
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Turning this off records a user pause (`status` becomes `paused_by_user`, which the system never overrides); turning it on resumes the scout from any pause. Only a change of value is a lifecycle action: re-sending the current value leaves the existing status and its ownership untouched. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -76605,6 +76650,25 @@ export namespace Schemas {
       ready_to_merge_series_granularity: string;
     }
 
+    export interface RepoRoutingRule {
+      readonly id: string;
+      /**
+         * Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters.
+         * @maxLength 300
+         */
+      rule_text: string;
+      /**
+         * Target repository as owner/repo, e.g. 'posthog/posthog.com'.
+         * @maxLength 255
+         */
+      repository: string;
+      readonly priority: number;
+      /** Who created the rule, from the UI or the Slack commands. Null when that user was deleted. */
+      readonly created_by: UserBasic | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
     export type ReportPriority = typeof ReportPriority[keyof typeof ReportPriority];
 
 
@@ -78416,6 +78480,11 @@ export namespace Schemas {
       readonly skill_name: string;
       /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
       readonly description: string;
+      /**
+         * Name shown in the UI. Does not change the skill name. Leave blank to use the default name.
+         * @maxLength 200
+         */
+      display_name?: string;
       /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
       readonly scout_origin: ScoutOriginEnum;
       /** Who answers for this scout, seed-creator first. Ownership is recorded on the scout's skill rather than on this config, so editing the skill or toggling the scout leaves it unchanged. Reports the scout files suggest these people as reviewers. Prefer this over `created_by`-style fields, which only say who last flipped a switch. Empty when nobody owns the scout, when the owners are no longer members with access to the project, or when the caller is a scout sandbox token: owners are member PII, and a scout reads them through the skill API instead. */
@@ -78625,6 +78694,34 @@ export namespace Schemas {
          * @maxLength 64
          */
       suggestion_id?: string;
+    }
+
+    /**
+     * What one scout spent in the window, and what it produced for that spend.
+     */
+    export interface ScoutCost {
+      /** Full skill name of the scout, e.g. `signals-scout-error-tracking`. */
+      skill_name: string;
+      /** Model spend attributed to the scout's runs in the window, in US dollars. Zero when none of its runs had spend attributed, which `priced_run_count` tells apart from a scout that really spent nothing. */
+      spend_usd: number;
+      /** Runs the scout started in the window. */
+      run_count: number;
+      /** Runs of the scout that had spend attributed. Lower than `run_count` where a run failed before its first model call, or its generations haven't landed yet. Divide `spend_usd` by this, not by `run_count`, for cost per run. */
+      priced_run_count: number;
+      /** Distinct inbox reports the scout filed or added to in the window. A report it authored in one run and edited in three counts once. Zero means the scout produced no reports, so cost per report has no value rather than a value of zero. */
+      reports_touched: number;
+    }
+
+    /**
+     * Model spend and output per scout over a window.
+     */
+    export interface ScoutCosts {
+      /** Window the rows describe, in days. */
+      window_days: number;
+      /** One row per scout that started at least one run on this project in the window. */
+      scouts: ScoutCost[];
+      /** False when this deployment has no internal AI observability project to read the generations from, so `scouts` is empty and every spend is unknown rather than zero. */
+      available: boolean;
     }
 
     /**
@@ -79978,7 +80075,7 @@ export namespace Schemas {
          */
       readonly slack_notification_integration_id: number | null;
       /**
-         * Slack channel target in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null disables Slack notifications.
+         * Where the reviewer ping goes, in the same `id|name` shape PostHog uses elsewhere (only the id is required): a channel (`C0123ABC456|#alerts`), or a workspace member (`U0123ABC456|@sam`) who is sent a direct message. Null disables Slack notifications.
          * @maxLength 255
          * @nullable
          */
@@ -79995,6 +80092,33 @@ export namespace Schemas {
       github_assign_on_pull_request?: boolean;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    export interface SignalUserAutonomyConfigCreate {
+      autostart_priority?: AutonomyPriorityEnum | null;
+      /**
+         * Primary key of a Slack `Integration` row in one of the caller's teams. Pair with `slack_notification_channel` to enable notifications; pass null on either to disable them.
+         * @nullable
+         */
+      slack_notification_integration_id?: number | null;
+      /**
+         * `channel_id|#channel-name` target, the same convention used by Insight Alerts, or a `member_id|@display-name` target (`U0123ABC456|@sam`) to send the ping as a direct message. A member target is checked against the workspace on save.
+         * @maxLength 255
+         * @nullable
+         */
+      slack_notification_channel?: string | null;
+      /** Set true to send the ping as a direct message from the PostHog app. The caller's own member id is resolved in the connected workspace and stored in `slack_notification_channel`, so nothing has to be picked. Rejected when the workspace has no eligible account for the caller, and cannot be combined with `slack_notification_channel`. */
+      slack_notification_direct_message?: boolean;
+      /** P0 is highest. Null = notify for every priority. When set, reports without a priority judgment do not notify.
+       *
+       * * `P0` - P0
+       * * `P1` - P1
+       * * `P2` - P2
+       * * `P3` - P3
+       * * `P4` - P4 */
+      slack_notification_min_priority?: AutonomyPriorityEnum | null;
+      /** Add this user as a GitHub assignee on implementation pull requests for reports that suggest them as reviewer. Off by default. Turning it off stops future assignment and never removes an existing assignee. */
+      github_assign_on_pull_request?: boolean;
     }
 
     export interface SlackChannel {
@@ -94242,6 +94366,10 @@ export namespace Schemas {
      */
     completed?: CommentsListCompleted;
     /**
+     * Filter by the numeric ID of the user who wrote the comment.
+     */
+    created_by?: number;
+    /**
      * The pagination cursor value.
      */
     cursor?: string;
@@ -101613,6 +101741,15 @@ export namespace Schemas {
      * @minLength 1
      */
     text?: string;
+    };
+
+    export type SignalsScoutRunsCostsParams = {
+    /**
+     * Window in days over runs' `created_at` (default 7). Only 7 is accepted today — it matches the window the roster's fleet headline spans, so every number on the page describes one span.
+     * @minimum 7
+     * @maximum 7
+     */
+    window_days?: number;
     };
 
     export type SignalsScoutRunsRecentEmissionsParams = {
