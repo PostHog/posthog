@@ -1,4 +1,5 @@
 from datetime import timedelta
+from types import SimpleNamespace
 from typing import Any, cast
 from uuid import UUID, uuid4
 
@@ -27,9 +28,9 @@ from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSer
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
 from products.tasks.backend.facade.access import DesktopAccessDecision
+from products.tasks.backend.facade.ai_run_defaults import update_team_ai_run_preferences, update_user_ai_run_preferences
 from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
-from products.tasks.backend.logic.services.code_usage_gate import CodeUsageStatus
-from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage, TeamTasksConfig, UserTasksConfig
+from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage
 
 
 class InMemoryStorage:
@@ -1985,20 +1986,18 @@ class TestCanvasActions(CanvasAPIBaseTest):
         self.channel.github_integration = integration
         self.channel.save(update_fields=["repositories", "github_integration"])
         viewer = User.objects.create_and_join(self.organization, "viewer@example.com", None)
-        TeamTasksConfig.objects.update_or_create(
-            team=self.team,
-            defaults={
-                "ai_run_preferences": {
-                    "runtime_adapter": "claude",
-                    "model": "claude-opus-4-8",
-                    "reasoning_effort": "high",
-                }
-            },
+        update_team_ai_run_preferences(
+            self.team.id,
+            runtime_adapter="claude",
+            model="claude-opus-4-8",
+            reasoning_effort="high",
         )
-        UserTasksConfig.objects.for_team(self.team.id).create(
-            team=self.team,
-            user=viewer,
-            ai_run_preferences={"runtime_adapter": "codex", "model": "gpt-5.5", "reasoning_effort": "medium"},
+        update_user_ai_run_preferences(
+            self.team.id,
+            viewer.id,
+            runtime_adapter="codex",
+            model="gpt-5.5",
+            reasoning_effort="medium",
         )
         self.client.force_login(viewer)
         payload = {
@@ -2012,16 +2011,21 @@ class TestCanvasActions(CanvasAPIBaseTest):
                 "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
                 return_value=DesktopAccessDecision.ALLOWED,
             ),
-            patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None),
+            patch(
+                "products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None
+            ) as usage,
             patch("products.tasks.backend.temporal.client.execute_task_processing_workflow") as dispatch,
             self.captureOnCommitCallbacks(execute=True),
         ):
             response = self._invoke(canvas_id, "tasks.create_and_run", payload)
+            usage.return_value = SimpleNamespace(is_rate_limited=True, limit_type="burst", reset_at=None, is_pro=False)
             retry = self._invoke(canvas_id, "tasks.create_and_run", payload)
+            new_request = self._invoke(canvas_id, "tasks.create_and_run", {**payload, "idempotency_key": str(uuid4())})
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert retry.status_code == status.HTTP_200_OK, retry.json()
         assert response.json()["result"] == retry.json()["result"]
+        assert new_request.status_code == status.HTTP_429_TOO_MANY_REQUESTS, new_request.json()
         task = Task.objects.get(id=response.json()["result"]["task_id"])
         run = task.runs.get(id=response.json()["result"]["run_id"])
         assert task.created_by_id == viewer.id
@@ -2040,7 +2044,7 @@ class TestCanvasActions(CanvasAPIBaseTest):
         self, _name: str, allowed: bool, limited: bool, expected_status: int
     ) -> None:
         canvas_id = self._actions_canvas(verbs=("tasks.create_and_run",))
-        usage = CodeUsageStatus(
+        usage = SimpleNamespace(
             is_rate_limited=limited, limit_type="burst" if limited else None, reset_at=None, is_pro=False
         )
         with (

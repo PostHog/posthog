@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from uuid import UUID
 
 from django.db import transaction
@@ -16,6 +17,7 @@ def create_and_run_channel_task(
     title: str,
     description: str,
     idempotency_key: UUID,
+    before_create: Callable[[], None],
 ) -> TaskRunDTO:
     with transaction.atomic():
         channel = (
@@ -37,6 +39,7 @@ def create_and_run_channel_task(
                 raise ValueError("The previous task has no run. Open the task to start work.")
             run_id = latest_run.id
         else:
+            before_create()
             task = api.create_task(
                 team_id,
                 user_id,

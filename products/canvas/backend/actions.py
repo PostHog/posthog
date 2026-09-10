@@ -22,11 +22,20 @@ from rest_framework import serializers
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
+    from rest_framework.response import Response
+
     from posthog.models import Team
 
     from products.canvas.backend.models import Canvas
 
 logger = structlog.get_logger(__name__)
+
+
+class CanvasActionDenied(Exception):
+    def __init__(self, response: "Response") -> None:
+        super().__init__(str(response.data))
+        self.response = response
+
 
 # Kill switch: enabling this flag for a team turns every action verb off at
 # once. Evaluation failure leaves actions on — the switch is for emergencies,
@@ -93,9 +102,16 @@ def _create_task(team_id: int, user_id: int, canvas: "Canvas", payload: dict[str
 
 
 def _create_and_run_task(team_id: int, user_id: int, canvas: "Canvas", payload: dict[str, Any]) -> dict[str, Any]:
+    from posthog.models.user import User  # noqa: PLC0415
+
+    from products.tasks.backend.facade.access import usage_limit_response  # noqa: PLC0415
     from products.tasks.backend.facade.canvas_tasks import (  # noqa: PLC0415 - keeps task runtime imports off canvas validation
         create_and_run_channel_task,
     )
+
+    def check_usage() -> None:
+        if response := usage_limit_response(User.objects.get(id=user_id), team_id):
+            raise CanvasActionDenied(response)
 
     run = create_and_run_channel_task(
         team_id,
@@ -105,6 +121,7 @@ def _create_and_run_task(team_id: int, user_id: int, canvas: "Canvas", payload: 
         title=payload["title"],
         description=payload["description"],
         idempotency_key=payload["idempotency_key"],
+        before_create=check_usage,
     )
     return {"task_id": str(run.task_id), "run_id": str(run.id), "status": run.status}
 
