@@ -2,6 +2,8 @@ import { BreakPointFunction, LogicWrapper, MakeLogicType, afterMount, connect, k
 import { loaders } from 'kea-loaders'
 
 import { isScopeNotFoundError } from 'lib/api-error'
+import type { FeatureFlagKey } from 'lib/constants'
+import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -24,6 +26,13 @@ export interface SetupDetectionLogicOptions {
      * gate open if nothing has answered yet and preserves an existing answer.
      */
     detect: () => Promise<ProductSetupStatus | null>
+    /**
+     * Skip detection while this feature flag is off - set it for a product whose detection API
+     * is gated on the same flag as the product. The gate checks the flag too, but kea mounts a
+     * logic during render, so a render React discards leaves this logic mounted with nothing to
+     * unmount it, and the poll then outlives the gate. The check has to sit next to the request.
+     */
+    featureFlag?: FeatureFlagKey
     /**
      * Re-check cadence while the product has no data yet, so the empty state flips
      * to the real scene on its own once events land. Polling stops for good on the
@@ -59,6 +68,7 @@ export interface SetupDetectionValues {
     setupStatus: ProductSetupStatus
     currentProjectId: number | null
     currentTeamId: number | null
+    featureFlags: FeatureFlagsSet
 }
 
 export interface SetupDetectionActions {
@@ -115,7 +125,7 @@ function writeCachedHasData(teamId: number | null, productKey: ProductKey): void
 }
 
 export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): LogicWrapper<SetupDetectionLogicType> {
-    const { productKey, detect, pollIntervalMs, onDetected, recheckActionTypes, cacheHasData } = options
+    const { productKey, detect, featureFlag, pollIntervalMs, onDetected, recheckActionTypes, cacheHasData } = options
     return buildKea<SetupDetectionLogicType>([
         path(options.path),
         connect(() => ({
@@ -127,18 +137,23 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 ['currentProjectId'],
                 teamLogic,
                 ['currentTeamId'],
+                featureFlagLogic,
+                ['featureFlags'],
             ],
         })),
-        loaders({
+        loaders(({ values }) => ({
             detectedStatus: {
                 __default: null as ProductSetupStatus | null,
                 detectStatus: async (_: void, breakpoint: BreakPointFunction): Promise<ProductSetupStatus | null> => {
+                    if (featureFlag && !values.featureFlags[featureFlag]) {
+                        return null
+                    }
                     const status = await detect()
                     breakpoint()
                     return status
                 },
             },
-        }),
+        })),
         listeners(({ actions, values, cache }) => ({
             ...Object.fromEntries(
                 (recheckActionTypes?.() ?? []).map((actionType) => [

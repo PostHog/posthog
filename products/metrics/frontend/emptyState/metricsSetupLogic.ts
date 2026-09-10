@@ -1,4 +1,5 @@
 import { createSetupDetectionLogic } from 'lib/components/ProductEmptyState/setupDetectionLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { retryWithBackoff } from 'lib/utils/async'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
@@ -23,6 +24,9 @@ let firstIngestIntentFired = false
 export const metricsSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.METRICS,
     path: ['products', 'metrics', 'frontend', 'emptyState', 'metricsSetupLogic'],
+    // The has_metrics endpoint is gated on the same flag as the product, so a flag-off
+    // check can only 403.
+    featureFlag: FEATURE_FLAGS.METRICS,
     detect: async () => {
         if (!canViewMetrics()) {
             return 'unknown'

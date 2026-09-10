@@ -40,6 +40,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadWaitlistResponsesCount', // Soft-fails to a dash on the features list when survey access is missing
     'loadFeatureFlagStatus', // The flag page just hides its stale banner when the verdict can't be loaded
     'loadExistingSubscription', // Background eligibility check for the dashboard subscribe nudge
+    'detectStatus', // The product empty-state gate falls open to the scene when detection fails
     'loadFreeTierSubscriptionCount', // Background free-tier limit check for the dashboard subscribe nudge
     'sendNudgeNotification', // Background delivery request for the dashboard subscribe nudge
     'loadDataset', // Dataset scenes render their own retry state

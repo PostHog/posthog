@@ -171,6 +171,17 @@ describe('async utils', () => {
             expect(fn).toHaveBeenCalledTimes(1)
         })
 
+        // A 403 is an answer, not a transient failure: three identical requests produce three
+        // identical refusals, and every extra one is another error the caller has to handle.
+        it('does not retry a 403 by default', async () => {
+            const fn = jest
+                .fn()
+                .mockImplementation(() => Promise.reject(Object.assign(new Error('nope'), { status: 403 })))
+
+            await expect(retryWithBackoff(fn, { maxAttempts: 3, initialDelayMs: 0 })).rejects.toThrow('nope')
+            expect(fn).toHaveBeenCalledTimes(1)
+        })
+
         it('does not retry when shouldRetry returns false', async () => {
             const error = new Error('non-retryable')
             const fn = jest.fn().mockImplementation(() => Promise.reject(error))

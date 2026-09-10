@@ -33,7 +33,8 @@ export interface RetryOptions {
     /**
      * Predicate to determine if an error should trigger a retry.
      * Return true to retry, false to throw immediately.
-     * Defaults to retrying all errors except AbortError.
+     * Defaults to retrying all errors except AbortError and 403 (a permission answer does not
+     * change between two identical requests, so retrying it only multiplies the failure).
      *
      * @example
      * // Only retry network errors and 5xx server errors
@@ -46,6 +47,10 @@ export interface RetryOptions {
      * }
      */
     shouldRetry?: (error: unknown) => boolean
+}
+
+function isForbidden(error: unknown): boolean {
+    return typeof error === 'object' && error !== null && (error as { status?: number }).status === 403
 }
 
 /**
@@ -83,7 +88,7 @@ export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOp
             }
             lastError = e
             const isLastAttempt = attempt >= attempts - 1
-            const canRetry = shouldRetry ? shouldRetry(e) : true
+            const canRetry = shouldRetry ? shouldRetry(e) : !isForbidden(e)
             if (isLastAttempt || !canRetry) {
                 throw e
             }
