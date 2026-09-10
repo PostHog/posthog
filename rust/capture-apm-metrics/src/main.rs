@@ -9,6 +9,7 @@ use std::time::Duration;
 use axum::{extract::DefaultBodyLimit, http::Method, routing::get, routing::post, Router};
 use capture::metrics_middleware::track_metrics;
 use capture_apm_metrics::config::Config;
+use capture_apm_metrics::management;
 use capture_apm_metrics::prometheus;
 use capture_apm_metrics::series_label_gate::{spawn_redis_writer, CacheLimits, SeriesLabelGate};
 use capture_apm_metrics::service::{export_metrics_http, MetricsService};
@@ -130,19 +131,6 @@ async fn start_series_label_gate(config: &Config) -> Arc<SeriesLabelGate> {
     gate
 }
 
-/// Build the runtime that serves the probes and `/metrics`. It owns one OS
-/// thread that the data plane never uses. When request decoding saturates the
-/// data-plane workers, the kernel still schedules this thread, so the probes
-/// answer inside the kubelet timeout.
-fn build_management_runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(1)
-        .thread_name("management")
-        .enable_all()
-        .build()
-        .expect("failed to build management runtime")
-}
-
 fn main() {
     // Without this, the first TLS handshake to Valkey panics the task that made it.
     rustls::crypto::aws_lc_rs::default_provider()
@@ -154,7 +142,7 @@ fn main() {
 
     let config = Config::init_with_defaults().unwrap();
 
-    let management_runtime = build_management_runtime();
+    let management_runtime = management::build_runtime();
 
     // The registry spawns its status task on the current runtime. The task
     // must live on the management runtime, so the probe result stays current
@@ -311,19 +299,9 @@ async fn run(
 
     // Serve the probes only once the data plane listens. `/_readiness` answers
     // 200 unconditionally, so an earlier start would put the pod in service
-    // while its ingestion port still refuses connections. The server runs on
-    // its own runtime, so its connection tasks never wait behind the
-    // data-plane handlers.
-    let mgmt_server = management_runtime.spawn(async move {
-        if let Err(e) = axum::serve(
-            management_listener,
-            management_router.into_make_service_with_connect_info::<SocketAddr>(),
-        )
-        .await
-        {
-            error!("Management server failed: {}", e);
-        }
-    });
+    // while its ingestion port still refuses connections.
+    let mgmt_server =
+        management::serve(&management_runtime, management_listener, management_router);
 
     // Wait for any server to finish
     tokio::select! {
