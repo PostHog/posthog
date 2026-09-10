@@ -191,7 +191,7 @@ class LLMPromptViewSet(
             prompt["config"] = prompt.get("config")
         return prompt
 
-    def _track_prompt_fetch(self, prompt: dict[str, Any]) -> None:
+    def _track_prompt_fetch(self, prompt: dict[str, Any], fetch_path: str = "by_name") -> None:
         # prompt_label + prompt_version together answer "what was the production label
         # actually serving at time X" from the event stream alone.
         properties = {
@@ -202,6 +202,7 @@ class LLMPromptViewSet(
             "prompt_is_latest": prompt["is_latest"],
             "prompt_first_version_created_at": prompt["first_version_created_at"],
             "prompt_has_config": prompt.get("config") is not None,
+            "prompt_fetch_path": fetch_path,
         }
         if not settings.TEST:
             try:
@@ -613,6 +614,18 @@ class LLMPromptViewSet(
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    def _labeled_list_fetch_payload(self, prompt: LLMPrompt, label: str) -> dict[str, Any]:
+        first_version_created_at = getattr(prompt, "first_version_created_at", None) or prompt.created_at
+        return {
+            "id": str(prompt.id),
+            "name": prompt.name,
+            "version": prompt.version,
+            "label": label,
+            "is_latest": prompt.is_latest,
+            "first_version_created_at": first_version_created_at.isoformat().replace("+00:00", "Z"),
+            "config": prompt.config,
+        }
+
     def _get_prompt_labels_map(self, prompt_names: list[str]) -> dict[str, list[dict[str, Any]]]:
         labels_map: dict[str, list[dict[str, Any]]] = {}
         labels = (
@@ -635,6 +648,14 @@ class LLMPromptViewSet(
         context = self.get_serializer_context()
         context["prompt_labels_by_name"] = self._get_prompt_labels_map([prompt.name for prompt in prompts])
         serializer = LLMPromptListSerializer(prompts, many=True, context=context)
+
+        label = self._get_list_params(request).get("label")
+        if label:
+            # Each prompt served through a labeled list counts as one fetch, matching
+            # get_by_name, so usage counts survive a caller migrating from per-name
+            # calls. The unlabeled list backs the prompts UI page and stays untracked.
+            for prompt in prompts:
+                self._track_prompt_fetch(self._labeled_list_fetch_payload(prompt, label), fetch_path="list")
 
         if page is not None:
             return self.get_paginated_response(serializer.data)
