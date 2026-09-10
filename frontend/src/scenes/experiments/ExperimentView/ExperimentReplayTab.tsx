@@ -34,6 +34,7 @@ import { NOT_A_FUNNEL_REASON } from '../utils'
 import { ExperimentBehaviorComparison, ExperimentBehaviorComparisonToggle } from './ExperimentBehaviorComparison'
 import { ExperimentRecordingsListEmptyState } from './ExperimentRecordingsListEmptyState'
 import {
+    ExperimentInSessionEvidence,
     ExperimentReplayMetricFilterMode,
     ExperimentReplayMetricOption,
     ExperimentSessionBucket,
@@ -58,25 +59,29 @@ const ALL_EXPOSED_CAPTION =
     "Showing sessions of exposed participants from their first exposure onward. The exposure event itself doesn't have to be in the session."
 
 // The copy varies with whether the availability check has landed. 'unknown' covers the check still
-// pending or failed, where the copy claims only what a landed verdict would share. The
-// scopeLockedReason strings park the control while a bucket or watch card supplies the session set,
-// which carries in-session evidence by construction, so the control could neither widen nor narrow
-// it.
+// pending or failed, where the copy claims only what a landed verdict would share.
 type InSessionEvidenceKind = 'event' | 'unknown'
-const IN_SESSION_COPY: Record<InSessionEvidenceKind, { tooltip: string; caption: string; scopeLockedReason: string }> =
-    {
-        event: {
-            tooltip: 'Only sessions where an exposure event for this experiment was captured in the session.',
-            caption: 'Showing sessions of exposed participants where the exposure was captured in the session.',
-            scopeLockedReason:
-                'This metric filter already narrows to sessions where the exposure was captured in the session.',
-        },
-        unknown: {
-            tooltip: 'Only sessions carrying in-session exposure evidence for this experiment.',
-            caption: 'Showing sessions of exposed participants carrying in-session exposure evidence.',
-            scopeLockedReason: 'This metric filter already narrows to sessions carrying in-session exposure evidence.',
-        },
-    }
+const IN_SESSION_COPY: Record<InSessionEvidenceKind, { tooltip: string; caption: string }> = {
+    event: {
+        tooltip: 'Only sessions where an exposure event for this experiment was captured in the session.',
+        caption: 'Showing sessions of exposed participants where the exposure was captured in the session.',
+    },
+    unknown: {
+        tooltip: 'Only sessions carrying in-session exposure evidence for this experiment.',
+        caption: 'Showing sessions of exposed participants carrying in-session exposure evidence.',
+    },
+}
+
+// Why the control is parked while a bucket or watch card supplies the session set, which carries
+// in-session evidence by construction, so the control could neither widen nor narrow it. Keyed on
+// the evidence that set was matched on rather than on the scope's own: the buckets keep the stamped
+// stand-in this scope refuses, so a single reason would claim the exposure was captured in the
+// session on exactly the experiments where it never is.
+const SCOPE_LOCKED_REASON: Record<ExperimentInSessionEvidence, string> = {
+    event: 'This metric filter already narrows to sessions where the exposure was captured in the session.',
+    stamped: 'This metric filter already narrows to sessions where the feature flag was active.',
+    unknown: 'This metric filter already narrows to sessions carrying in-session exposure evidence.',
+}
 
 // A session fires a metric's events, never the metric — the caption spells that out where it
 // has the room the trigger doesn't.
@@ -270,6 +275,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         sessionBucketLoading,
         sessionBucketError,
         sessionBucketRequest,
+        scopeLockEvidence,
         linkedScanners,
         linkedScannersLoading,
     } = useValues(logic)
@@ -377,7 +383,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                     size="small"
                     value={displayedExposureScope}
                     onChange={(value) => setExposureScope(value)}
-                    disabledReason={sessionBucketRequest !== null ? inSessionCopy.scopeLockedReason : undefined}
+                    disabledReason={scopeLockEvidence ? SCOPE_LOCKED_REASON[scopeLockEvidence] : undefined}
                     options={[
                         {
                             value: 'in_session' as const,

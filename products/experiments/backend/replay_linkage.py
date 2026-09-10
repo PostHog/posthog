@@ -88,7 +88,11 @@ from products.experiments.backend.hogql_queries.experiment_query_runner import (
 from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key, has_activation_config
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.session_exposure import SessionExposure, resolve_session_exposure
+from products.experiments.backend.session_exposure import (
+    SessionExposure,
+    exposure_event_unseen,
+    resolve_session_exposure,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -245,7 +249,7 @@ def resolve_in_session_exposure_semantics(team: Team, experiment: Experiment) ->
         )
     # A Postgres EventProperty read, so it stays out of the common no-narrowing path.
     session_exposure = resolve_session_exposure(team, experiment, event_names=frozenset())
-    if session_exposure.exposure_event_unseen:
+    if exposure_event_unseen(session_exposure):
         # Before the server-side verdict, because an event nothing is known about yet is in
         # `never_linked` for the same reason as one captured only server-side. A day-old experiment
         # would otherwise be told its setup can never do this.
@@ -261,6 +265,13 @@ def resolve_in_session_exposure_semantics(team: Team, experiment: Experiment) ->
         # person was enrolled there, so a list labelled "exposed in session" would silently widen
         # to every later session the flag was live in. The session buckets keep the stand-in,
         # because an aggregate over that population is a question it can honestly answer.
+        #
+        # This verdict is per event name, not per flag, because taxonomy is: one flag read in the
+        # browser puts a `$session_id` row on the default exposure event the whole project shares.
+        # So a server-side experiment in a project that also runs client-side flags reads as
+        # available and answers with an empty list instead. Telling the two apart would cost a
+        # ClickHouse read per experiment on the tab's mount path, and the empty list carries the
+        # way back to all sessions, so the honest verdict here is worth less than the wait.
         return InSessionExposureSemantics(
             session_exposure=None, unavailable_reason=IN_SESSION_EXPOSURE_NO_EVENT_IN_SESSION_REASON
         )

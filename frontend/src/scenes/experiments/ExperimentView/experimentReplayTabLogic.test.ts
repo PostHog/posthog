@@ -61,6 +61,7 @@ const BUCKET_RESPONSE = {
     date_from: '2026-01-01T00:00:00Z',
     date_to: '2026-02-01T00:00:00Z',
     filter_test_accounts: true,
+    used_exposure_fallback: false,
 }
 
 /** A playlist page as the tab receives it, narrowed to what the watch cards read off it. */
@@ -545,6 +546,88 @@ describe('experimentReplayTabLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(scopeChanges()).toHaveLength(3)
         expect(scopeChanges()[2][1]).toMatchObject({ from: 'in_session', to: 'all_exposed', via: 'empty_state' })
+    })
+
+    it('reports no list count for a scope change made while the checks hold the playlist', async () => {
+        // Behind the hold nothing has loaded, and zero rows there would read as a viewer leaving an
+        // empty list. Leaving an empty list is what separates an opt-out from a recovery, so a list
+        // nobody has seen must not be counted as either.
+        let resolveCheck!: (response: InSessionExposureResponse) => void
+        ;(experimentsInSessionExposureRetrieve as jest.Mock).mockReturnValue(
+            new Promise((resolve) => (resolveCheck = resolve))
+        )
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        const held = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 58 } as Experiment })
+        held.mount()
+        expect(held.values.playlistHeldForChecks).toBe(true)
+
+        held.actions.setExposureScope('all_exposed')
+
+        const scopeChanges = captureSpy.mock.calls.filter(
+            ([event]) => event === 'experiment recordings exposure scope changed'
+        )
+        expect(scopeChanges).toHaveLength(1)
+        expect(scopeChanges[0][1]).toMatchObject({
+            from: 'in_session',
+            to: 'all_exposed',
+            list_result_count: null,
+            list_empty_reason: null,
+        })
+
+        resolveCheck(IN_SESSION_AVAILABLE)
+        await expectLogic(held).toFinishAllListeners()
+        held.unmount()
+    })
+
+    it('ignores a pick of the scope the control already shows as selected', async () => {
+        // Where the verdict withholds the stored scope the control shows all sessions as selected,
+        // so a click on it moves nothing on screen. Storing it would opt the viewer out of a
+        // default they never left, for good, and report the click as an opt-out on the way.
+        ;(experimentsInSessionExposureRetrieve as jest.Mock).mockResolvedValue({
+            available: false,
+            unavailable_reason: "This experiment's exposure event hasn't been captured yet.",
+        })
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        const young = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 59 } as Experiment })
+        young.mount()
+        await expectLogic(young).toFinishAllListeners()
+        expect(young.values.displayedExposureScope).toBe('all_exposed')
+
+        young.actions.setExposureScope('all_exposed')
+        await expectLogic(young).toFinishAllListeners()
+
+        expect(
+            captureSpy.mock.calls.filter(([event]) => event === 'experiment recordings exposure scope changed')
+        ).toHaveLength(0)
+        expect(young.values.exposureScope).toBe('in_session')
+
+        // Exposures arrive, so the narrower default applies to a viewer who never left it.
+        ;(experimentsInSessionExposureRetrieve as jest.Mock).mockResolvedValue(IN_SESSION_AVAILABLE)
+        young.actions.loadInSessionExposure()
+        await expectLogic(young).toFinishAllListeners()
+        expect(young.values.effectiveExposureScope).toBe('in_session')
+        young.unmount()
+    })
+
+    it('locks the scope control on the evidence the bucket matched, not on the scope verdict', async () => {
+        // The buckets keep the stamped stand-in this scope refuses, so on an experiment whose
+        // exposures never reach a session the lock must say the flag was active. Reading the scope's
+        // own verdict would claim the exposure was captured in the session, which is the one thing
+        // that experiment can never deliver.
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.scopeLockEvidence).toBeNull()
+
+        ;(experimentsSessionBucketsCreate as jest.Mock).mockResolvedValue({
+            ...BUCKET_RESPONSE,
+            used_exposure_fallback: true,
+        })
+        logic.actions.setMetricFilterMode('no_metric_activity')
+        // The evidence rides on the response, so the copy claims only what both kinds share until
+        // the bucket lands.
+        expect(logic.values.scopeLockEvidence).toBe('unknown')
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.scopeLockEvidence).toBe('stamped')
     })
 
     it('ANDs each selected metric filter onto the exposure filter, and ignores unknown metric uuids', async () => {

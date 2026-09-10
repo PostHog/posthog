@@ -513,6 +513,36 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
             ["session-test-evidence"],
         )
 
+    def test_in_session_answers_empty_for_a_server_side_flag_another_flag_session_links(self) -> None:
+        # Session linkability is taxonomy per (event, property), so one flag read in the browser puts
+        # a `$session_id` row on the default exposure event every flag in the project shares. A
+        # server-side experiment there is accepted rather than refused, and answers with an empty
+        # list because no recording holds its exposure. The narrowing must not widen back out to
+        # cover that: the tab names the empty list `in_session_has_none` and offers all sessions.
+        experiment = self._create_experiment()
+        EventProperty.objects.create(team=self.team, event="$feature_flag_called", property="$session_id")
+        create_person(team=self.team, distinct_ids=["exposed-user"])
+        exposure_time = BASE_TIME + timedelta(hours=2)
+        # This experiment's own exposures carry no session id, because its flag is read server-side.
+        self._create_exposure_event("exposed-user", exposure_time, "test")
+        flush_persons_and_events()
+
+        self._produce_recording(
+            "exposed-user",
+            "session-after-exposure",
+            exposure_time + timedelta(minutes=5),
+            exposure_time + timedelta(minutes=15),
+        )
+
+        self._assert_query_matches_session_ids(
+            {"experiment_exposure": {"experiment_id": experiment.id}},
+            ["session-after-exposure"],
+        )
+        self._assert_query_matches_session_ids(
+            {"experiment_exposure": {"experiment_id": experiment.id, "in_session": True}},
+            [],
+        )
+
     def test_in_session_with_a_server_side_default_exposure_event_refuses(self) -> None:
         # The default event is observed but never with a session id, so the only evidence left is
         # the stamped flag property. That says the flag was active in the session, not that the

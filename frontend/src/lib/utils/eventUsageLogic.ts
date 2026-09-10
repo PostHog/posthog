@@ -174,10 +174,11 @@ export interface ExperimentRecordingsScopeChangedContext {
     via: string
     /**
      * How many recordings the page the list last loaded held. Zero means the viewer was looking at
-     * an empty list, which is what separates an opt-out from a recovery.
+     * an empty list, which is what separates an opt-out from a recovery. Null when no page ever
+     * loaded, which the checks holding the playlist make reachable on every tab open.
      */
-    list_result_count: number
-    /** The reason the tab named for an empty list, null when the list had rows. */
+    list_result_count: number | null
+    /** The reason the tab named for an empty list, null when the list had rows or never loaded. */
     list_empty_reason: string | null
 }
 

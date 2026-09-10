@@ -142,6 +142,14 @@ export type ExperimentReplayExposureScope = 'in_session' | 'all_exposed'
 /** Which surface moved the exposure scope, as reported to telemetry. */
 export type ExperimentExposureScopeChangeSource = 'control' | 'empty_state'
 
+/**
+ * What a session set's in-session evidence is, so copy about it claims no more than it delivers.
+ * 'stamped' means the flag property stood in for the exposure event, which says the flag was
+ * active in the session rather than that the person was enrolled there. 'unknown' covers a set
+ * whose evidence hasn't resolved yet, where only what both kinds share can be claimed.
+ */
+export type ExperimentInSessionEvidence = 'event' | 'stamped' | 'unknown'
+
 /** What the tab asks the bucket endpoint for, and the spec a loaded response belongs to. */
 export interface ExperimentSessionBucketRequest {
     bucket: ExperimentSessionBucketEnumApi
@@ -324,6 +332,7 @@ export interface experimentReplayTabLogicValues {
     linkedScannersLoading: boolean
     listEmptyContext: ExperimentRecordingsListEmptyContext
     listEmptyReason: ExperimentReplayListEmptyReason
+    listPageLoaded: boolean
     loadedRecordings: ExperimentReplayRecording[]
     loadedRecordingsById: Map<string, ExperimentReplayRecording>
     metricFilterMode: ExperimentReplayMetricFilterMode
@@ -331,6 +340,7 @@ export interface experimentReplayTabLogicValues {
     playlistFilters: RecordingUniversalFilters | null
     playlistHeldForChecks: boolean
     recordingsFilters: RecordingUniversalFilters
+    scopeLockEvidence: ExperimentInSessionEvidence | null
     selectedMetricUuids: string[]
     selectedVariantKey: string | null
     selectedWatchCard: ExperimentWatchCardApi | null
@@ -455,6 +465,9 @@ export interface experimentReplayTabLogicActions {
         payload?: any
         seenTogetherMap: Record<string, boolean>
     } // viewRecordingsLinkabilityLogic
+    exposureScopeCommitted: (scope: ExperimentReplayExposureScope) => {
+        scope: ExperimentReplayExposureScope
+    }
     listEmptyActionClicked: (action: ExperimentRecordingsEmptyAction) => {
         action: ExperimentRecordingsEmptyAction
     }
@@ -766,6 +779,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             scope: ExperimentReplayExposureScope,
             via: ExperimentExposureScopeChangeSource = 'control'
         ) => ({ scope, via }),
+        // The committed half of the pick above. The stored scope moves from here rather than from
+        // the pick itself, so a pick the listener rejects leaves nothing behind: the control renders
+        // the scope the tab is settling on, which is not always the stored one, and picking the
+        // option it already shows as selected is not a choice anyone made.
+        exposureScopeCommitted: (scope: ExperimentReplayExposureScope) => ({ scope }),
         setMetricSelected: (metricUuid: string, selected: boolean) => ({ metricUuid, selected }),
         setMetricFilterMode: (mode: ExperimentReplayMetricFilterMode) => ({ mode }),
         playlistFiltersChanged: (filters: RecordingUniversalFilters) => ({ filters }),
@@ -899,13 +917,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         inSessionExposure: [
             null as ExperimentInSessionExposureApi | null,
             {
-                // Whether the in-session scope can answer for this experiment, and whether its
-                // evidence is the stamped-property fallback. Resolved server-side through the same
-                // seam the recordings query refuses on, so the control disables exactly what a query
-                // would be refused for, and the caption can tell "the exposure was captured here"
-                // from "the flag was active here". Fail-soft to null, read as "not yet available"
-                // by the selectors below, so a failed check never sends a narrowing the backend
-                // would reject.
+                // Whether the in-session scope can answer for this experiment. Resolved server-side
+                // through the same seam the recordings query refuses on, so the control disables
+                // exactly what a query would be refused for. Fail-soft to null, read as "not yet
+                // available" by the selectors below, so a failed check never sends a narrowing the
+                // backend would reject.
                 loadInSessionExposure: async (_: unknown = null, breakpoint) => {
                     let response: ExperimentInSessionExposureApi | null
                     try {
@@ -947,7 +963,16 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             'in_session' as ExperimentReplayExposureScope,
             { persist: true },
             {
-                setExposureScope: (_, { scope }) => scope,
+                exposureScopeCommitted: (_, { scope }) => scope,
+            },
+        ],
+        // Whether the playlist has reported a page yet, so an empty `loadedRecordings` can be told
+        // from a list that never loaded. The checks hold the playlist on open, so a viewer can move
+        // the scope before any list exists, and no rows there is not the same as an empty list.
+        listPageLoaded: [
+            false,
+            {
+                recordingsLoaded: () => true,
             },
         ],
         // Empty = no metric filter. Every selected metric narrows the playlist further (AND) —
@@ -1073,8 +1098,8 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         ],
         // Why the in-session scope can't answer for this experiment, from the server-side check:
         // the single seam the recordings query refuses on, so the option is disabled for exactly
-        // the experiments a query would be refused for (activation, or a custom event with no
-        // stand-in, or a fallback scan too large for this project). Null while the check loads or
+        // the experiments a query would be refused for (activation, an exposure event no session
+        // ever carries, or one no exposure has arrived for yet). Null while the check loads or
         // fails, so the option isn't disabled on a transient error; the query still stays on all
         // sessions until the check confirms availability (see effectiveExposureScope).
         exposureInSessionUnavailableReason: [
@@ -1468,6 +1493,26 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 return (only?.eventNames.length ?? 0) > 1 ? request('fired_any') : null
             },
         ],
+        // Which evidence backs the session set the scope control is parked on, or null while the
+        // control is free to move. The buckets keep the stamped stand-in this scope refuses, so a
+        // lock reason read off the scope's own availability verdict would claim the exposure was
+        // captured in the session on exactly the experiments where it never is. 'unknown' until
+        // the bucket lands, because the evidence rides on the response.
+        scopeLockEvidence: [
+            (s) => [s.sessionBucketRequest, s.sessionBucket],
+            (
+                sessionBucketRequest: ExperimentSessionBucketRequest | null,
+                sessionBucket: ExperimentSessionBucket | null
+            ): ExperimentInSessionEvidence | null => {
+                if (sessionBucketRequest === null) {
+                    return null
+                }
+                if (sessionBucket === null) {
+                    return 'unknown'
+                }
+                return sessionBucket.response.used_exposure_fallback ? 'stamped' : 'event'
+            },
+        ],
         // Undefined = no bucket, so the playlist keeps its own (uncapped) population. An empty
         // list is a real answer: nothing matched, or the request is still in flight — never a
         // silent widening to the unbucketed list.
@@ -1596,7 +1641,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions, cache, props, selectors }) => ({
+    listeners(({ values, actions, cache, props }) => ({
         // Every facet the bucket is keyed on re-asks for it. Listening to the actions rather than
         // subscribing to the spec keeps this off the redux subscription path.
         setMetricFilterMode: () => {
@@ -1615,27 +1660,36 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // A failed availability check leaves the in-session option enabled but inert, because the
         // scope holds at all sessions until a verdict confirms. Retry on the pick, so recovery
         // doesn't wait for a remount.
-        setExposureScope: ({ scope, via }, _breakpoint, _action, previousState) => {
+        setExposureScope: ({ scope, via }) => {
             if (scope === 'in_session' && values.inSessionExposure === null && !values.inSessionExposureLoading) {
                 actions.loadInSessionExposure()
             }
-            // The reducer has already run, so the scope the viewer moved away from only exists in
-            // the previous state. Setting the same scope again is not a choice, so it is not
-            // reported: an opt-out rate has to count viewers, not clicks.
-            const from = selectors.exposureScope(previousState)
-            if (from === scope) {
+            // The control renders the displayed scope, not the stored one, so the option it shows as
+            // selected can be one nobody picked: while the checks hold, and wherever the verdict
+            // withholds the stored scope. A pick there changes nothing on screen, and storing it
+            // would strand the viewer on all sessions once the verdict lands available.
+            if (scope === values.displayedExposureScope) {
                 return
             }
-            // The stored scope on both sides, not the effective one. A viewer picking a scope the
-            // availability verdict withholds still chose it, and that is the signal.
-            const resultCount = values.loadedRecordings.length
-            actions.reportExperimentRecordingsScopeChanged(props.experiment.id, {
-                from,
-                to: scope,
-                via,
-                list_result_count: resultCount,
-                list_empty_reason: resultCount === 0 ? values.listEmptyReason : null,
-            })
+            const from = values.exposureScope
+            // Picking the stored scope back only retried the check above. Nothing moved, so an
+            // opt-out rate must not count it: that rate has to count viewers, not clicks.
+            if (from !== scope) {
+                // Read before the commit below, which moves the stored scope the empty reason
+                // reads. The stored scope on both sides, not the effective one: a viewer picking a
+                // scope the verdict withholds still chose it, and that is the signal.
+                const resultCount = values.listPageLoaded ? values.loadedRecordings.length : null
+                actions.reportExperimentRecordingsScopeChanged(props.experiment.id, {
+                    from,
+                    to: scope,
+                    via,
+                    // Null rather than zero where no page ever loaded. An empty list is what
+                    // separates an opt-out from a recovery, and a list nobody saw is neither.
+                    list_result_count: resultCount,
+                    list_empty_reason: resultCount === 0 ? values.listEmptyReason : null,
+                })
+            }
+            actions.exposureScopeCommitted(scope)
         },
         // The shared playlist renders its own "Showing N selected recordings · Show all" control
         // whenever session_ids are set. Clearing it there is the same intent as leaving the
