@@ -34,8 +34,11 @@ class TestCheckAgentActiveFlag:
             stream = TaskRunRedisStream(get_task_run_stream_key(run_id))
             async_to_sync(stream.set_agent_active)(flag_value)
 
-        result: bool | None = async_to_sync(activity_environment.run)(
-            check_agent_active_flag, CheckAgentActiveFlagInput(run_id=run_id, team_id=1)
-        )
+        async def _run() -> bool | None:
+            return await activity_environment.run(
+                check_agent_active_flag, CheckAgentActiveFlagInput(run_id=run_id, team_id=1)
+            )
+
+        result = async_to_sync(_run)()
 
         assert result is expected
