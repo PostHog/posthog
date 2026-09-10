@@ -45,12 +45,10 @@ knowledge_base:
         filePatterns:
             # AGENTS.md is omitted because CodeRabbit detects it automatically.
 
-            # Repository-wide security rules.
             - files: '.agents/security.md'
               applyTo: '**/*'
 
-            # Comment conventions. These apply to every language, so the entry is
-            # repository-wide. The document is small.
+            # Comment conventions apply to every language, so the entry is repository-wide.
             - files: '.agents/skills/writing-code-comments/SKILL.md'
               applyTo: '**/*'
 
@@ -122,11 +120,9 @@ knowledge_base:
             - files: '.agents/skills/reviewing-personhog-protocol/SKILL.md,.agents/skills/adding-personhog-rpc/SKILL.md'
               applyTo: 'posthog/personhog_client/**,rust/personhog-coordination/**,rust/personhog-test-harness/**'
 
-            # Charts.
             - files: '.agents/skills/working-with-charts/SKILL.md,packages/quill/packages/charts/src/docs/**/*.md'
               applyTo: 'packages/quill/packages/charts/**'
 
-            # Desktop.
             - files: '.agents/skills/posthog-desktop/SKILL.md,products/desktop/.claude/skills/storybook-stories/SKILL.md,products/desktop/docs/ARCHITECTURE.md,products/desktop/docs/CONVENTIONS.md,products/desktop/docs/TESTING.md'
               applyTo: 'products/desktop/**'
 
@@ -163,7 +159,7 @@ knowledge_base:
             - 'products/workflows/CONTRIBUTING.md'
             - 'services/mcp/CONTRIBUTING.md'
 
-            # Product and service architecture already selected for the trial.
+            # Product and service architecture.
             - 'products/README.md'
             - 'products/architecture.md'
             - 'services/llm-gateway/PARITY.md'
@@ -185,7 +181,6 @@ knowledge_base:
             - files: 'services/agent-proxy/docs/SECURITY.md'
               applyTo: 'services/agent-proxy/**/*'
 
-            # Service-level contracts that apply naturally to their containing subtree.
             - 'services/llm-gateway/README.md'
             - 'services/mcp/src/tools/README.md'
             - 'products/mcp_store/README.md'

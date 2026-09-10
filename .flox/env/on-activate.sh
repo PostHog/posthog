@@ -370,78 +370,56 @@ if [[ "$_PHROCS_SKIP" -eq 0 ]]; then
   _BG_PHROCS_START=$(date +%s)
 fi
 
-# CodeRabbit CLI: machine-global, version-addressed store. The CLI ships as a
-# binary release rather than a flox catalog package, and the
-# reviewing-with-coderabbit skill needs it before `gh pr create`. One download
-# per machine per pinned version serves every checkout and survives .flox/cache
-# wipes; each activation only ensures the version and symlinks it into the venv
-# bin (Step 2b), so worktrees on different branches resolve their own pin.
+# CodeRabbit CLI, downloaded from the vendor's release server. The flox catalog
+# build omits x86_64-darwin, and the vendor install script edits the user's shell
+# profile, so neither is used. One store per machine and version serves every
+# checkout, and the venv symlink in Step 2b resolves each worktree's own pin.
 # A failed install must not break activation: the CLI is only needed at PR-open
-# time, and the skill opens the PR without a local review when it is absent.
-# The vendor install script stays unused on purpose. It appends a PATH export to
-# the user's shell profile whenever its target directory is off PATH, and this
-# store is off PATH by design.
+# time, and the reviewing-with-coderabbit skill opens the PR without it.
 _CODERABBIT_VERSION="0.7.6"
-# Digests come from https://cli.coderabbit.ai/releases/<version>/SHA256SUMS
-# and change with the version.
-_coderabbit_zip_sha256() {
-  case "$1" in
-    darwin-arm64) printf '%s' "f970e608e383114e1edf214eea71a99d6604ea1dd09c01e754ee6b8d4b852cb1" ;;
-    darwin-x64) printf '%s' "1c6242dec8a0983ff70842bc1d0e8c888d1a92b1ad80afb969c00c94c482a704" ;;
-    linux-arm64) printf '%s' "2270641a6314bef0da32e5903ddc6de6265354962f7cf651fc581a4a91f22447" ;;
-    linux-x64) printf '%s' "853a1727609ab0ff1f56863fa6de7acf3de593a6dc1bd7f91a32f11c5724ffc9" ;;
-    *) return 1 ;;
-  esac
-}
 _CODERABBIT_STORE="$HOME/.config/posthog/tools/coderabbit/$_CODERABBIT_VERSION"
 _CODERABBIT_BIN="$_CODERABBIT_STORE/coderabbit"
-_CODERABBIT_STAMP="$_CODERABBIT_STORE/.complete"
+
+# Release asset suffix for this host, empty when the host cannot install it.
+# Digests come from https://cli.coderabbit.ai/releases/<version>/SHA256SUMS.
+_CODERABBIT_PLATFORM=""
+_CODERABBIT_SHA256=""
+if command -v unzip >/dev/null 2>&1; then
+  case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64)
+      _CODERABBIT_PLATFORM="darwin-arm64"
+      _CODERABBIT_SHA256="f970e608e383114e1edf214eea71a99d6604ea1dd09c01e754ee6b8d4b852cb1" ;;
+    Darwin-x86_64)
+      _CODERABBIT_PLATFORM="darwin-x64"
+      _CODERABBIT_SHA256="1c6242dec8a0983ff70842bc1d0e8c888d1a92b1ad80afb969c00c94c482a704" ;;
+    Linux-aarch64 | Linux-arm64)
+      _CODERABBIT_PLATFORM="linux-arm64"
+      _CODERABBIT_SHA256="2270641a6314bef0da32e5903ddc6de6265354962f7cf651fc581a4a91f22447" ;;
+    Linux-x86_64 | Linux-amd64)
+      _CODERABBIT_PLATFORM="linux-x64"
+      _CODERABBIT_SHA256="853a1727609ab0ff1f56863fa6de7acf3de593a6dc1bd7f91a32f11c5724ffc9" ;;
+  esac
+fi
 
 _install_coderabbit() {
-  # Explicit `|| return`/`|| exit`: callers suppress errexit, so a failed
-  # install would otherwise fall through and stamp the broken state.
-  local os arch url
-  command -v unzip >/dev/null 2>&1 || return 1
-  case "$(uname -s)" in
-    Darwin) os="darwin" ;;
-    Linux) os="linux" ;;
-    *) return 1 ;;
-  esac
-  case "$(uname -m)" in
-    x86_64 | amd64) arch="x64" ;;
-    arm64 | aarch64) arch="arm64" ;;
-    *) return 1 ;;
-  esac
+  mkdir -p "$_CODERABBIT_STORE"
+  # A temp dir inside the store keeps the final mv an atomic rename, so a
+  # concurrent or interrupted install never leaves a partial binary behind.
+  tmp=$(mktemp -d "$_CODERABBIT_STORE/.tmp.XXXXXX")
+  trap 'rm -rf "$tmp"' EXIT
   # The release path carries no leading "v", unlike the vendor script's example.
-  url="https://cli.coderabbit.ai/releases/$_CODERABBIT_VERSION/coderabbit-$os-$arch.zip"
-  mkdir -p "$_CODERABBIT_STORE" || return 1
-  (
-    # The store is shared across checkouts, so serialize concurrent
-    # activations (fresh worktrees) installing the same version.
-    flock 9 || exit 1
-    if [[ ! -x "$_CODERABBIT_BIN" || ! -f "$_CODERABBIT_STAMP" ]]; then
-      local tmp
-      tmp=$(mktemp -d) || exit 1
-      trap 'rm -rf "$tmp"' EXIT
-      curl -fsSL "$url" -o "$tmp/coderabbit.zip" || exit 1
-      local expected actual
-      expected=$(_coderabbit_zip_sha256 "$os-$arch") || exit 1
-      actual=$(_sha256_file "$tmp/coderabbit.zip")
-      [[ -n "$actual" && "$actual" == "$expected" ]] || exit 1
-      unzip -qo "$tmp/coderabbit.zip" -d "$tmp" || exit 1
-      [[ -f "$tmp/coderabbit" ]] || exit 1
-      chmod +x "$tmp/coderabbit" || exit 1
-      # Move the binary into place before the stamp, so an interrupted install
-      # leaves no stamped store.
-      mv -f "$tmp/coderabbit" "$_CODERABBIT_BIN" || exit 1
-      touch "$_CODERABBIT_STAMP" || exit 1
-    fi
-  ) 9>"$_CODERABBIT_STORE/.install.lock"
+  curl -fsSL --connect-timeout 10 --max-time 300 \
+    "https://cli.coderabbit.ai/releases/$_CODERABBIT_VERSION/coderabbit-$_CODERABBIT_PLATFORM.zip" \
+    -o "$tmp/coderabbit.zip"
+  [[ "$(_sha256_file "$tmp/coderabbit.zip")" == "$_CODERABBIT_SHA256" ]]
+  unzip -qo "$tmp/coderabbit.zip" -d "$tmp"
+  chmod +x "$tmp/coderabbit"
+  mv -f "$tmp/coderabbit" "$_CODERABBIT_BIN"
 }
 
 _CODERABBIT_SKIP=0
-[[ -x "$_CODERABBIT_BIN" && -f "$_CODERABBIT_STAMP" ]] && _CODERABBIT_SKIP=1
-if [[ "$_CODERABBIT_SKIP" -eq 0 ]]; then
+[[ -x "$_CODERABBIT_BIN" ]] && _CODERABBIT_SKIP=1
+if [[ "$_CODERABBIT_SKIP" -eq 0 && -n "$_CODERABBIT_PLATFORM" ]]; then
   _BG_CODERABBIT_LOG=$(mktemp)
   _ACTIVATION_TMPFILES+=("$_BG_CODERABBIT_LOG")
   ( _install_coderabbit ) >"$_BG_CODERABBIT_LOG" 2>&1 &
@@ -504,11 +482,13 @@ fi
 # ── Step 2b: CodeRabbit CLI (reap; launched above with the other jobs) ──
 if [[ "$_CODERABBIT_SKIP" -eq 1 ]]; then
   done_step "CodeRabbit CLI (cached)"
+elif [[ -z "$_CODERABBIT_PLATFORM" ]]; then
+  warn_step "CodeRabbit CLI skipped  ${C_DIM}(no release for this host, or unzip is missing)${C_RESET}"
 else
   wait_bg_step "CodeRabbit CLI" "$_BG_CODERABBIT_PID" "$_BG_CODERABBIT_START" "$_BG_CODERABBIT_LOG" \
     || warn_step "CodeRabbit CLI install failed  ${C_DIM}(reviews skip until it installs)${C_RESET}"
 fi
-if [[ -x "$_CODERABBIT_BIN" && -f "$_CODERABBIT_STAMP" && -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
+if [[ -x "$_CODERABBIT_BIN" && -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   ln -sf "$_CODERABBIT_BIN" "$UV_PROJECT_ENVIRONMENT/bin/coderabbit"
   ln -sf "$_CODERABBIT_BIN" "$UV_PROJECT_ENVIRONMENT/bin/cr"
 fi
