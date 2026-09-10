@@ -21,6 +21,7 @@ from posthog.models import Team
 from posthog.models.temporal_scheduler import TemporalSchedulerState
 from posthog.temporal.ai_observability.eval_reports.activities import (
     _COUNT_TRIGGERED_REPORT_CANDIDATE_SQL,
+    _REPORTABLE_TARGET_OUTPUT_TYPES,
     _SCHEDULED_REPORT_CANDIDATE_SQL,
     _advance_eval_report_cursors,
     _check_count_triggered_eval_report_sync,
@@ -56,6 +57,7 @@ from posthog.temporal.ai_observability.eval_reports.types import (
     UpdateNextDeliveryDateInput,
 )
 
+from products.ai_observability.backend.models.evaluation_configs import REPORTABLE_OUTPUT_TYPES_BY_TARGET
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
 from products.ai_observability.backend.models.evaluations import Evaluation
 
@@ -72,6 +74,19 @@ def _scanned_window(query: ast.SelectQuery) -> list[dt.datetime]:
     visitor = CollectTimestamps()
     visitor.visit(query.where)
     return sorted(visitor.timestamps)
+
+
+class TestReportabilityContract(SimpleTestCase):
+    def test_candidate_sql_matches_the_model_reportability_contract(self):
+        # Team discovery filters through the ORM contract while the per-team rows come from the
+        # raw candidate queries. A pair added to the contract but missing from the SQL would give
+        # those teams a page slot and dispatch nothing, with no error and no metric.
+        self.assertEqual(_REPORTABLE_TARGET_OUTPUT_TYPES, REPORTABLE_OUTPUT_TYPES_BY_TARGET)
+        for target, output_types in REPORTABLE_OUTPUT_TYPES_BY_TARGET.items():
+            for output_type in output_types:
+                predicate = f"(evaluation.target = '{target}' AND evaluation.output_type = '{output_type}')"
+                self.assertIn(predicate, _SCHEDULED_REPORT_CANDIDATE_SQL)
+                self.assertIn(predicate, _COUNT_TRIGGERED_REPORT_CANDIDATE_SQL)
 
 
 class TestGroupCountTriggeredReportRows(SimpleTestCase):
