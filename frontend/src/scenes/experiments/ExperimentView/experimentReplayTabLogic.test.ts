@@ -577,6 +577,25 @@ describe('experimentReplayTabLogic', () => {
         expect(scopeChanges()[2][1]).toMatchObject({ from: 'in_session', to: 'all_exposed', via: 'empty_state' })
     })
 
+    it('reports the list a viewer opened the tab to, not a later page that came back empty', async () => {
+        // The playlist reports every page it loads. Counting the latest one would read the end of a
+        // paged list as an empty list, and an empty list is what separates an opt-out from a
+        // recovery, so the two would swap on the one event that carries the difference.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.recordingsLoaded(loadedPage(['rec-1', 'rec-2']), true)
+        logic.actions.recordingsLoaded([], false)
+
+        logic.actions.setExposureScope('all_exposed')
+        await expectLogic(logic).toFinishAllListeners()
+
+        const scopeChanges = captureSpy.mock.calls.filter(
+            ([event]) => event === 'experiment recordings exposure scope changed'
+        )
+        expect(scopeChanges).toHaveLength(1)
+        expect(scopeChanges[0][1]).toMatchObject({ list_result_count: 2, list_empty_reason: null })
+    })
+
     it('reports no list count for a scope change made while the checks hold the playlist', async () => {
         // Behind the hold nothing has loaded, and zero rows there would read as a viewer leaving an
         // empty list. Leaving an empty list is what separates an opt-out from a recovery, so a list

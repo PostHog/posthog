@@ -173,9 +173,11 @@ export interface ExperimentRecordingsScopeChangedContext {
     /** Where the change came from: `control` or `empty_state`. */
     via: string
     /**
-     * How many recordings the page the list last loaded held. Zero means the viewer was looking at
-     * an empty list, which is what separates an opt-out from a recovery. Null when no page ever
-     * loaded, which the checks holding the playlist make reachable on every tab open.
+     * How many recordings the list a viewer opened the tab to came back with, counting its first
+     * page only: the pages after it are what scrolling adds, and one of those coming back empty is
+     * the end of a list that has rows. Zero means the viewer was looking at an empty list, which is
+     * what separates an opt-out from a recovery. Null when no list ever came back, which the checks
+     * holding the playlist make reachable on every tab open.
      */
     list_result_count: number | null
     /** The reason the tab named for an empty list, null when the list had rows or never loaded. */

@@ -335,7 +335,7 @@ export interface experimentReplayTabLogicValues {
     linkedScannersLoading: boolean
     listEmptyContext: ExperimentRecordingsListEmptyContext
     listEmptyReason: ExperimentReplayListEmptyReason
-    listPageLoaded: boolean
+    listFirstPageCount: number | null
     loadedRecordings: ExperimentReplayRecording[]
     loadedRecordingsById: Map<string, ExperimentReplayRecording>
     metricFilterMode: ExperimentReplayMetricFilterMode
@@ -969,13 +969,19 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 exposureScopeCommitted: (_, { scope }) => scope,
             },
         ],
-        // Whether the playlist has reported a page yet, so an empty `loadedRecordings` can be told
-        // from a list that never loaded. The checks hold the playlist on open, so a viewer can move
-        // the scope before any list exists, and no rows there is not the same as an empty list.
-        listPageLoaded: [
-            false,
+        // How many rows the list a viewer opened the tab to came back with, and null until it has
+        // come back at all: the checks hold the playlist on open, so a viewer can move the scope
+        // before any list exists, and no rows there is not the same as an empty list.
+        //
+        // The first page rather than the latest, because the pages after it are what scrolling
+        // adds. One of those answering with zero rows is the end of a list that has rows, and read
+        // as the list itself it would report an empty list nobody saw. `loadedRecordings` below
+        // keeps the most recent page instead, which is the right one for prefetch and card copy.
+        listFirstPageCount: [
+            null as number | null,
             {
-                recordingsLoaded: () => true,
+                recordingsLoaded: (state: number | null, { recordings, isFirstPage }) =>
+                    isFirstPage ? recordings.length : state,
             },
         ],
         // Empty = no metric filter. Every selected metric narrows the playlist further (AND) —
@@ -1692,7 +1698,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 // Read before the commit below, which moves the stored scope the empty reason
                 // reads. The stored scope on both sides, not the effective one: a viewer picking a
                 // scope the verdict withholds still chose it, and that is the signal.
-                const resultCount = values.listPageLoaded ? values.loadedRecordings.length : null
+                const resultCount = values.listFirstPageCount
                 actions.reportExperimentRecordingsScopeChanged(props.experiment.id, {
                     from,
                     to: scope,
