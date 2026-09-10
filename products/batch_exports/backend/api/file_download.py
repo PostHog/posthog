@@ -357,6 +357,10 @@ class RetrieveCompletedOutputSerializer(serializers.Serializer):
 
     status = serializers.ChoiceField(choices=["Completed"])
     files = serializers.ListField(child=serializers.UUIDField())
+    records_completed = serializers.IntegerField(
+        allow_null=True,
+        help_text="Number of rows this run exported. This is the count file downloads are billed on.",
+    )
 
 
 class RetrieveFailedOutputSerializer(serializers.Serializer):
@@ -378,6 +382,11 @@ class RetrieveOutputSerializer(serializers.Serializer):
     files = serializers.ListField(
         child=serializers.UUIDField(),
         required=False,
+    )
+    records_completed = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Number of rows this run exported. This is the count file downloads are billed on.",
     )
 
 
@@ -536,7 +545,7 @@ class FileDownloadBatchExportOnDemandViewSet(
 
         run_status = batch_export_run.status
 
-        files = {}
+        completed: dict[str, list[str] | int | None] = {}
         if run_status == BatchExportRun.Status.COMPLETED:
             if batch_export_run.batch_export_on_demand is None:
                 raise RuntimeError("Batch export on demand must be defined on this run")
@@ -557,9 +566,10 @@ class FileDownloadBatchExportOnDemandViewSet(
                 # showing running status.
                 run_status = BatchExportRun.Status.RUNNING
             else:
-                files["files"] = ids
+                completed["files"] = ids
+                completed["records_completed"] = batch_export_run.records_completed
 
-        return response.Response({"status": run_status, **files, **error})
+        return response.Response({"status": run_status, **completed, **error})
 
     @action(
         methods=["GET"], detail=True, url_path=r"download(?:/(?P<part>[^/.]+))?", required_scopes=["batch_export:read"]

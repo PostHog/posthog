@@ -1822,6 +1822,11 @@ export const RetrieveCompletedOutputApiStatus = {
 export interface RetrieveCompletedOutputApi {
     status: RetrieveCompletedOutputApiStatus
     files: string[]
+    /**
+     * Number of rows this run exported. This is the count file downloads are billed on.
+     * @nullable
+     */
+    records_completed: number | null
 }
 
 export type RetrieveFailedOutputApiStatus =

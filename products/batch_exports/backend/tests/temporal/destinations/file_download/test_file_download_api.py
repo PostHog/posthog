@@ -188,6 +188,7 @@ async def test_file_download_retrieve_returns_error(
     assert data["status"] == "Failed", status_response.json()
     assert data.get("error", None) is not None
     assert data["error"] == "some error message"
+    assert "records_completed" not in data
 
 
 @pytest.mark.django_db(transaction=True)
@@ -209,6 +210,7 @@ async def test_file_download_retrieve_returns_files(
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         status=BatchExportRun.Status.COMPLETED,
+        records_completed=1234,
     )
 
     file_downloads = []
@@ -228,6 +230,7 @@ async def test_file_download_retrieve_returns_files(
     data = status_response.json()
     assert data["status"] == "Completed", status_response.json()
     assert data["files"] == [str(file_download.id) for file_download in file_downloads]
+    assert data["records_completed"] == 1234
 
 
 @pytest.mark.django_db(transaction=True)
