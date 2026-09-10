@@ -74,10 +74,14 @@ export function BusinessKnowledgeScene(): JSX.Element {
                 dataSource={sources}
                 loading={sourcesLoading}
                 rowKey={(row) => row.id}
-                onRow={(row) => ({
-                    onClick: () => openEditModal(row),
-                    style: { cursor: 'pointer' },
-                })}
+                onRow={(row) =>
+                    row.is_generated
+                        ? {}
+                        : {
+                              onClick: () => openEditModal(row),
+                              style: { cursor: 'pointer' },
+                          }
+                }
                 columns={[
                     {
                         title: 'Name',
@@ -86,6 +90,14 @@ export function BusinessKnowledgeScene(): JSX.Element {
                             <div className="flex flex-col">
                                 <span className="flex items-center gap-1">
                                     <strong>{row.name}</strong>
+                                    {row.is_generated ? (
+                                        <LemonTag
+                                            type="highlight"
+                                            title="Created automatically from resolved support tickets"
+                                        >
+                                            Generated
+                                        </LemonTag>
+                                    ) : null}
                                     {row.has_unsafe_documents ? (
                                         <LemonTag
                                             type="danger"
@@ -125,7 +137,8 @@ export function BusinessKnowledgeScene(): JSX.Element {
                         key: 'chunk_count',
                         render: (_, row) => {
                             const pages = row.document_count
-                            return row.source_type === 'url' && row.crawl_mode && row.crawl_mode !== 'single'
+                            return row.is_generated ||
+                                (row.source_type === 'url' && row.crawl_mode && row.crawl_mode !== 'single')
                                 ? `${pages.toLocaleString()} / ${row.chunk_count.toLocaleString()}`
                                 : row.chunk_count.toLocaleString()
                         },
@@ -144,50 +157,51 @@ export function BusinessKnowledgeScene(): JSX.Element {
                         title: '',
                         key: 'actions',
                         width: 0,
-                        render: (_, row) => (
-                            <div className="flex gap-1 justify-end">
-                                {row.source_type === 'url' && (
+                        render: (_, row) =>
+                            row.is_generated ? null : (
+                                <div className="flex gap-1 justify-end">
+                                    {row.source_type === 'url' && (
+                                        <LemonButton
+                                            icon={<IconRefresh />}
+                                            size="small"
+                                            tooltip="Re-fetch and re-index this URL"
+                                            loading={refreshingIds.includes(row.id)}
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                refreshSource(row.id)
+                                            }}
+                                        />
+                                    )}
                                     <LemonButton
-                                        icon={<IconRefresh />}
+                                        icon={<IconPencil />}
                                         size="small"
-                                        tooltip="Re-fetch and re-index this URL"
-                                        loading={refreshingIds.includes(row.id)}
+                                        tooltip="Edit"
                                         onClick={(e) => {
                                             e.stopPropagation()
-                                            refreshSource(row.id)
+                                            openEditModal(row)
                                         }}
                                     />
-                                )}
-                                <LemonButton
-                                    icon={<IconPencil />}
-                                    size="small"
-                                    tooltip="Edit"
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        openEditModal(row)
-                                    }}
-                                />
-                                <LemonButton
-                                    icon={<IconTrash />}
-                                    status="danger"
-                                    size="small"
-                                    tooltip="Delete"
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        LemonDialog.open({
-                                            title: `Delete "${row.name}"?`,
-                                            description: 'Chunks will be removed.',
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                status: 'danger',
-                                                onClick: () => deleteSource(row.id),
-                                            },
-                                            secondaryButton: { children: 'Cancel' },
-                                        })
-                                    }}
-                                />
-                            </div>
-                        ),
+                                    <LemonButton
+                                        icon={<IconTrash />}
+                                        status="danger"
+                                        size="small"
+                                        tooltip="Delete"
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            LemonDialog.open({
+                                                title: `Delete "${row.name}"?`,
+                                                description: 'Chunks will be removed.',
+                                                primaryButton: {
+                                                    children: 'Delete',
+                                                    status: 'danger',
+                                                    onClick: () => deleteSource(row.id),
+                                                },
+                                                secondaryButton: { children: 'Cancel' },
+                                            })
+                                        }}
+                                    />
+                                </div>
+                            ),
                     },
                 ]}
                 emptyState="No knowledge sources yet. Click 'Add source' to index your first."

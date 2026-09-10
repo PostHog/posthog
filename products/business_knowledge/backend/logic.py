@@ -116,6 +116,10 @@ class SourceBusyError(Exception):
     """A refresh is already running for this source."""
 
 
+class GeneratedSourceReadOnlyError(Exception):
+    pass
+
+
 class EmptyContentError(Exception):
     """Remote returned nothing usable after parsing."""
 
@@ -223,7 +227,12 @@ def _bulk_create_chunks(
 
 
 def _count_sources(team_id: int) -> int:
-    return KnowledgeSource.objects.filter(team_id=team_id).count()
+    return KnowledgeSource.objects.filter(team_id=team_id, is_generated=False).count()
+
+
+def _ensure_user_managed_source(source: KnowledgeSource) -> None:
+    if source.is_generated:
+        raise GeneratedSourceReadOnlyError("Generated sources are managed by PostHog.")
 
 
 # Advisory-lock namespace so we don't collide with other lock users.
@@ -379,14 +388,17 @@ def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
 @with_team_scope(canonical=True)
 def get_source_text_for_team(source_id: UUID, team_id: int) -> str | None:
     """
-    Returns the raw text of a text-type source. Has exactly one
-    document per source, so this is a single row fetch. For future URL/file
-    sources with many documents, this concatenates in stable order — not a
-    real "view" affordance but good enough to round-trip into the edit modal.
+    Return source text for the edit modal.
+
+    Generated sources can contain many documents, so callers must use the
+    bounded document-window API to inspect them.
     """
 
-    if not KnowledgeSource.objects.filter(id=source_id, team_id=team_id).exists():
+    try:
+        source = KnowledgeSource.objects.only("is_generated").get(id=source_id, team_id=team_id)
+    except KnowledgeSource.DoesNotExist:
         return None
+    _ensure_user_managed_source(source)
     documents = KnowledgeDocument.objects.filter(team_id=team_id, source_id=source_id).order_by("created_at")
     return "\n\n".join(d.content for d in documents)
 
@@ -488,6 +500,7 @@ def update_text_source(
     except KnowledgeSource.DoesNotExist:
         return None
 
+    _ensure_user_managed_source(source)
     if always_include is not None:
         source.always_include = always_include
 
@@ -567,6 +580,7 @@ def update_url_source(
         source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
     except KnowledgeSource.DoesNotExist:
         return None
+    _ensure_user_managed_source(source)
     if source.source_type != SourceType.URL:
         raise InvalidUrlError("Can only update URL sources with this endpoint.")
 
@@ -632,6 +646,7 @@ def delete_source(source_id: UUID, team_id: int) -> bool:
         source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
     except KnowledgeSource.DoesNotExist:
         return False
+    _ensure_user_managed_source(source)
     source.delete()
     return True
 
@@ -1028,6 +1043,7 @@ def claim_refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource:
             source = KnowledgeSource.objects.select_for_update().get(id=source_id, team_id=team_id)
         except KnowledgeSource.DoesNotExist:
             raise
+        _ensure_user_managed_source(source)
         if source.source_type != SourceType.URL or not source.source_url:
             raise InvalidUrlError("Only URL sources can be refreshed.")
         if source.status == SourceStatus.PROCESSING:
@@ -1050,6 +1066,7 @@ def execute_refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource 
     except KnowledgeSource.DoesNotExist:
         return None
 
+    _ensure_user_managed_source(source)
     try:
         if source.crawl_mode and source.crawl_mode != CrawlMode.SINGLE:
             return _refresh_crawl_source(source=source, team_id=team_id)
@@ -1570,8 +1587,8 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
 
 @with_team_scope(canonical=True)
 def has_ready_sources(team_id: int) -> bool:
-    """True when the team has at least one READY source (READY implies chunks exist)."""
-    return KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.READY).exists()
+    """True when the team has at least one searchable chunk."""
+    return _safe_chunks_qs(team_id).exists()
 
 
 @with_team_scope(canonical=True)

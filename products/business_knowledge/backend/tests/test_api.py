@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
@@ -11,6 +13,8 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from products.business_knowledge.backend import logic
 from products.business_knowledge.backend.api.serializers import _derive_scope_globs
 from products.business_knowledge.backend.constants import CLASSIFY_MAX_ATTEMPTS
+from products.business_knowledge.backend.facade.api import create_generated_knowledge_document
+from products.business_knowledge.backend.facade.contracts import CreateGeneratedKnowledgeDocument
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource, SafetyVerdict
 
 
@@ -19,6 +23,19 @@ class TestKnowledgeSourceAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.url = f"/api/projects/{self.team.id}/business_knowledge/sources/"
+
+    def _create_generated_source(self) -> str:
+        result = create_generated_knowledge_document(
+            CreateGeneratedKnowledgeDocument(
+                team_id=self.team.id,
+                ticket_id=UUID("10000000-0000-0000-0000-000000000001"),
+                resolution_comment_id=UUID("20000000-0000-0000-0000-000000000002"),
+                analysis_version="post_resolution_v1",
+                title="Refund policy",
+                content="Refunds are available within 30 days.",
+            )
+        )
+        return str(result.source_id)
 
     def test_create_text_source_and_chunks(self, _ff) -> None:
         response = self.client.post(
@@ -138,6 +155,48 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         )
         assert patch_resp.status_code == status.HTTP_200_OK, patch_resp.content
         assert patch_resp.json()["always_include"] is True
+
+    def test_generated_source_is_marked_in_list(self, _ff) -> None:
+        source_id = self._create_generated_source()
+
+        response = self.client.get(self.url)
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["id"] == source_id
+        assert results[0]["source_type"] == "text"
+        assert results[0]["is_generated"] is True
+
+    @parameterized.expand(
+        [
+            ("update", "patch", "", {"name": "Changed"}),
+            ("refresh", "post", "refresh/", None),
+            ("delete", "delete", "", None),
+            ("raw_text", "get", "text/", None),
+        ]
+    )
+    def test_generated_source_is_read_only(self, _ff, _name, method, suffix, body) -> None:
+        source_id = self._create_generated_source()
+
+        request_method = getattr(self.client, method)
+        response = (
+            request_method(f"{self.url}{source_id}/{suffix}", body, format="json")
+            if body is not None
+            else request_method(f"{self.url}{source_id}/{suffix}")
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert KnowledgeSource.objects.unscoped().filter(id=source_id).exists()
+
+    def test_generated_source_cannot_be_created_through_api(self, _ff) -> None:
+        response = self.client.post(
+            self.url,
+            {"is_generated": True, "name": "Spoofed", "text": "Content"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
 @patch("posthoganalytics.feature_enabled", return_value=True)
