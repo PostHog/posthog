@@ -428,7 +428,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if node.saved_query is not None:
             assert_user_can_read_query(node.saved_query.query, self.team_id, cast(User, req.user))
 
-        start_node_materialization(node)
+        start_node_materialization(node, triggered_by_id=req.user.pk)
 
         return response.Response(status=status.HTTP_200_OK)
 
