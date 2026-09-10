@@ -58,7 +58,12 @@ from products.wizard.backend.logic.workers.local_package import build_local_wiza
 from products.wizard.backend.logic.workers.wizard_error_output import stderr_to_wizard_error_code
 from products.wizard.backend.observability.service import wizard_observability
 
-from .repository_publisher import RepositoryPublishingError, create_pull_request, create_signed_commit
+from .repository_publisher import (
+    RepositoryPublishingError,
+    create_pull_request,
+    create_signed_commit,
+    stage_publishable_changes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -247,6 +252,7 @@ def execute_wizard(request: WizardExecutionRequest) -> None:
 
 def create_git_repository_handoff(request: GitRepositoryHandoffRequest) -> WizardWorkerResult:
     sandbox = get_sandbox_class().get_by_id(request.sandbox_id)
+    stage_publishable_changes(sandbox, request.workspace_path)
 
     diff_result = sandbox.execute(
         build_git_diff_command(request.workspace_path),

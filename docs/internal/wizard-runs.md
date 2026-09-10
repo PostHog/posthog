@@ -84,9 +84,12 @@ The Worker:
 2. Provisions an isolated sandbox through the generic Tasks sandbox facade.
 3. Clones the repository.
 4. Runs the headless Wizard against the prepared workspace.
-5. Captures a binary Git diff.
+5. Replaces the Git index with publishable changes and captures a binary Git diff.
 6. Creates a signed commit and opens or reuses a pull request when the workspace changed.
 7. Destroys the sandbox.
+
+The publish step excludes ignored files, private environment files, agent instruction files, skills, credentials, and new generated directories.
+It includes generated directories that the repository already tracks.
 
 Tokens do not enter Temporal inputs, workflow history, run metadata, or logs.
 Wizard owns the Worker command, environment, credentials, resource limits, timeouts, and diff behavior.
