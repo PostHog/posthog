@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Any
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -90,7 +92,7 @@ def time_window_incremental_fields(field_name: str) -> list[IncrementalField]:
 TIME_WINDOW_INCREMENTAL_FIELDS: list[IncrementalField] = time_window_incremental_fields("startTimeInMillis")
 
 
-@dataclass
+@frozen
 class AppdynamicsEndpointConfig:
     name: str
     """Stream name shown to the user."""

@@ -673,6 +673,32 @@ class TestGetRows:
         assert len(batches[0]) == MAX_ROWS_PER_TIME_WINDOW
         assert logger.warning.call_count == 1
 
+    @freeze_time("2024-01-31T00:00:00Z")
+    def test_splitting_draws_from_the_sync_wide_request_allowance(self) -> None:
+        # Splitting is per window but the fan-out limit is per sync, so a controller that
+        # returns a full response every time must not multiply an accepted sync by the
+        # per-window split cap.
+        def responder(path: str, params: dict[str, Any]) -> FakeResponse:
+            if path == "/controller/rest/applications":
+                return FakeResponse(json_data=[{"id": 1}])
+            return FakeResponse(json_data=[{"id": i} for i in range(MAX_ROWS_PER_TIME_WINDOW)])
+
+        logger = mock.MagicMock()
+        # One window is estimated, so an allowance of one leaves room for a single split.
+        with mock.patch.object(appdynamics_module, "MAX_FANOUT_REQUESTS", 2):
+            _, session = _run_get_rows(
+                responder,
+                "events",
+                FakeResumeManager(),
+                logger=logger,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=FROZEN_NOW_MS - MILLIS_PER_DAY,
+            )
+
+        # The whole window, then its two halves; neither half may split again.
+        assert len(session.get_calls) == 1 + 3
+        assert logger.warning.call_count == 2
+
     @parameterized.expand(
         [
             ("events", {"event-types": "APPLICATION_DEPLOYMENT,APP_SERVER_RESTART", "severities": "INFO,WARN,ERROR"}),

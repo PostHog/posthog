@@ -566,6 +566,24 @@ def _window_params(start_ms: int, end_ms: int) -> dict[str, Any]:
     return {"time-range-type": "BETWEEN_TIMES", "start-time": start_ms, "end-time": end_ms}
 
 
+class SplitAllowance:
+    """Extra requests window bisection may spend, shared by every window in one sync.
+
+    Splitting happens per window, but the fan-out limit is per sync. Without a shared
+    allowance a controller that returns a full response for every window would multiply an
+    already-accepted sync by the per-window split cap, which is how the limit gets bypassed.
+    """
+
+    def __init__(self, allowance: int) -> None:
+        self.remaining = max(allowance, 0)
+
+    def take(self) -> bool:
+        if self.remaining <= 0:
+            return False
+        self.remaining -= 1
+        return True
+
+
 def _get_window_rows(
     client: AppdynamicsClient,
     config: AppdynamicsEndpointConfig,
@@ -574,6 +592,7 @@ def _get_window_rows(
     application_id: int,
     window_start: int,
     window_end: int,
+    split_allowance: SplitAllowance,
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     """Yield one time window's rows, bisecting the window when the response comes back capped.
@@ -590,7 +609,8 @@ def _get_window_rows(
         rows = client.get_json(path, {**base_params, **_window_params(start, end)}) or []
 
         if config.result_cap is not None and len(rows) >= config.result_cap:
-            if end - start > MIN_WINDOW_SPLIT_MS and splits < MAX_WINDOW_SPLITS:
+            # `take` spends from the sync-wide allowance, so ask for it last.
+            if end - start > MIN_WINDOW_SPLIT_MS and splits < MAX_WINDOW_SPLITS and split_allowance.take():
                 midpoint = start + (end - start) // 2
                 # Pushed newest-first so the older half pops first and rows stay in time order.
                 pending.extend([(midpoint, end), (start, midpoint)])
@@ -690,6 +710,7 @@ def _get_windowed_application_rows(
     metric_paths: list[str],
     event_types: list[str],
     resumable_source_manager: ResumableSourceManager[AppdynamicsResumeConfig],
+    split_allowance: SplitAllowance,
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     path = config.path.format(application_id=application_id)
@@ -709,7 +730,15 @@ def _get_windowed_application_rows(
                         yield rows
         else:
             yield from _get_window_rows(
-                client, config, path, base_params, application_id, window_start, window_end, logger
+                client,
+                config,
+                path,
+                base_params,
+                application_id,
+                window_start,
+                window_end,
+                split_allowance,
+                logger,
             )
 
         # Save AFTER yielding the window so a crash re-yields it (merge dedupes on the
@@ -791,6 +820,10 @@ def get_rows(
             "Reduce the metric paths or narrow the applications."
         )
 
+    # Bisecting a capped window costs requests the estimate above cannot predict, so those
+    # draw from the same per-sync limit. Once the headroom is gone the windows stay whole.
+    split_allowance = SplitAllowance(MAX_FANOUT_REQUESTS - estimated_requests)
+
     for index, application_id in enumerate(remaining):
         if config.time_windowed:
             # Only the resumed-into application uses the saved window; the rest start fresh.
@@ -805,6 +838,7 @@ def get_rows(
                 metric_paths,
                 event_types,
                 resumable_source_manager,
+                split_allowance,
                 logger,
             )
         elif config.is_metric_tree:
