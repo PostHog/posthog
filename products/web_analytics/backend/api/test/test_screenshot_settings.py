@@ -1,6 +1,9 @@
-from posthog.test.base import APIBaseTest
+from ipaddress import ip_address
 
-from django.test import SimpleTestCase
+from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
+
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -15,6 +18,8 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.web_analytics.backend.presentation.views.screenshot_settings import (
     HeatmapScreenshotSettingsRequestSerializer,
 )
+from products.web_analytics.backend.tasks.heatmap_screenshot import generate_heatmap_screenshot
+from products.web_analytics.backend.tasks.test.test_heatmap_screenshot import BROWSERLESS_SETTINGS, _make_response
 
 
 class TestScreenshotHostnames(SimpleTestCase):
@@ -185,3 +190,33 @@ class TestScreenshotSettings(APIBaseTest):
             self.client.patch(self._url(team_id=other.id), {"allowed_hostnames": ["attacker.example"]}).status_code
             == 403
         )
+
+    @parameterized.expand([("attacker.example", False), ("www.example.com", True)])
+    @override_settings(**BROWSERLESS_SETTINGS)
+    @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests.post")
+    @patch("products.web_analytics.backend.api.heatmaps_api.generate_heatmap_screenshot.delay")
+    def test_editor_renders_only_send_credentials_to_admin_approved_hosts(
+        self, hostname: str, approved: bool, enqueue: MagicMock, render: MagicMock, resolve: MagicMock
+    ) -> None:
+        self._set_rbac(True)
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.config.allowed_hostnames = ["www.example.com"]
+        self.config.save()
+        response = self.client.patch(f"/api/projects/{self.team.id}/", {"app_urls": [f"https://{hostname}"]})
+        assert response.status_code == 200, response.json()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/saved/",
+            {"name": "Test screenshot", "url": f"https://{hostname}", "type": "screenshot"},
+        )
+        assert response.status_code == 201, response.json()
+        render.return_value = _make_response()
+        generate_heatmap_screenshot(response.json()["id"])
+        assert enqueue.called
+        assert render.called
+        for call in render.call_args_list:
+            if approved:
+                assert call.kwargs["json"]["cookies"][0]["value"] == self.config.screenshot_secret
+            else:
+                assert "cookies" not in call.kwargs["json"]
