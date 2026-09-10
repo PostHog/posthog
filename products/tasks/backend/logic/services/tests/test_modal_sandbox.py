@@ -14,6 +14,7 @@ from django.test import override_settings
 from modal.exception import (
     ConnectionError as ModalConnectionError,
     InvalidError as ModalInvalidError,
+    NotFoundError as ModalNotFoundError,
     ResourceExhaustedError as ModalResourceExhaustedError,
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
@@ -1291,6 +1292,16 @@ class TestModalSandboxResourceUsage:
         sandbox._sandbox.filesystem.read_text.side_effect = FileNotFoundError
 
         assert sandbox.read_cpu_usage_usec() is None
+
+    @parameterized.expand([(ModalNotFoundError,), (FileNotFoundError,)])
+    def test_returns_none_when_billing_state_is_unavailable(self, error_type: type[Exception]) -> None:
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-usage"
+        sandbox.config = SandboxConfig(name="usage")
+        sandbox._sandbox = MagicMock()
+        sandbox._sandbox.filesystem.read_text.side_effect = error_type("unavailable")
+
+        assert sandbox.read_billed_cpu_usage_usec() is None
 
     def test_reads_current_billed_cpu_usage(self, monkeypatch):
         sandbox = ModalSandbox.__new__(ModalSandbox)

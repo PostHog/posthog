@@ -25,6 +25,7 @@ from cachetools import TTLCache, cached
 from modal.exception import (
     ConnectionError as ModalConnectionError,
     InvalidError as ModalInvalidError,
+    NotFoundError as ModalNotFoundError,
     ResourceExhaustedError as ModalResourceExhaustedError,
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
@@ -1485,7 +1486,10 @@ class ModalSandbox(AgentServerLaunchMixin):
         return result.exit_code == 0
 
     def read_billed_cpu_usage_usec(self) -> int | None:
-        state_text = self._sandbox.filesystem.read_text(CPU_BILLING_STATE_PATH)
+        try:
+            state_text = self._sandbox.filesystem.read_text(CPU_BILLING_STATE_PATH)
+        except (ModalNotFoundError, FileNotFoundError):
+            return None
         current_cpu = self.read_cpu_usage_usec()
         if current_cpu is None:
             return None
