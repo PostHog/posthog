@@ -1079,6 +1079,56 @@ export const TaskChannelsStarCreateBody = /* @__PURE__ */ zod
     .describe('Request body for starring\/unstarring a channel for the requesting user.')
 
 /**
+ * Read the company's website so setup can show back what it does and let the person correct it. Runs an LLM pass over the page, so it takes a few seconds: fire it when setup opens, and read the result when the company step comes up. Their answer goes back to onboarding_session.
+ * @summary Read the company's site for setup
+ */
+export const taskChannelsOnboardingResearchCreateBodyUrlDefault = ``
+export const taskChannelsOnboardingResearchCreateBodyUrlMax = 2048
+
+export const TaskChannelsOnboardingResearchCreateBody = /* @__PURE__ */ zod.object({
+    url: zod
+        .string()
+        .max(taskChannelsOnboardingResearchCreateBodyUrlMax)
+        .default(taskChannelsOnboardingResearchCreateBodyUrlDefault)
+        .describe("Site to read. Blank reads the domain of the requester's email address."),
+})
+
+/**
+ * Open the agent session a new user lands in, in the team's #general space. Pass the company step's answers and the session skips reading the site and never asks again: the answers are written to the space's context here. An empty body falls back to reading the site, which takes a few seconds, so callers fire this without awaiting it.
+ * @summary Start a first-run onboarding session
+ */
+export const taskChannelsOnboardingSessionCreateBodyCompanyUrlDefault = ``
+export const taskChannelsOnboardingSessionCreateBodyCompanyUrlMax = 2048
+
+export const taskChannelsOnboardingSessionCreateBodyCompanyDescriptionDefault = ``
+export const taskChannelsOnboardingSessionCreateBodyCompanyDescriptionMax = 2000
+
+export const taskChannelsOnboardingSessionCreateBodyBuildingDefault = ``
+export const taskChannelsOnboardingSessionCreateBodyBuildingMax = 2000
+
+export const TaskChannelsOnboardingSessionCreateBody = /* @__PURE__ */ zod
+    .object({
+        company_url: zod
+            .string()
+            .max(taskChannelsOnboardingSessionCreateBodyCompanyUrlMax)
+            .default(taskChannelsOnboardingSessionCreateBodyCompanyUrlDefault)
+            .describe("The company's website, as the person left it in setup. Blank when they gave none."),
+        company_description: zod
+            .string()
+            .max(taskChannelsOnboardingSessionCreateBodyCompanyDescriptionMax)
+            .default(taskChannelsOnboardingSessionCreateBodyCompanyDescriptionDefault)
+            .describe("What the company does, in the person's own words. Blank when they gave none."),
+        building: zod
+            .string()
+            .max(taskChannelsOnboardingSessionCreateBodyBuildingMax)
+            .default(taskChannelsOnboardingSessionCreateBodyBuildingDefault)
+            .describe('Optional answer to what they are building right now.'),
+    })
+    .describe(
+        "The company step's answers. An empty body means setup never asked, so the session\nfalls back to reading the site itself and asking in chat."
+    )
+
+/**
  * Feature-flagged test path that creates a repeatable session from explicit prompt-building inputs, in the requester's personal space.
  * @summary Start a test first-run onboarding session
  */

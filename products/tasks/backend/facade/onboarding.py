@@ -22,7 +22,12 @@ from products.tasks.backend.facade.api import (
     find_general_channel_id,
     organization_has_context,
 )
-from products.tasks.backend.facade.domain_research import normalize_target, research_domain
+from products.tasks.backend.facade.domain_research import (
+    WITH_SUMMARY,
+    DomainResearch,
+    normalize_target,
+    research_domain,
+)
 from products.tasks.backend.facade.onboarding_brief import (
     OnboardingFacts,
     build_followup,
@@ -30,6 +35,7 @@ from products.tasks.backend.facade.onboarding_brief import (
     prose_list,
 )
 from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas, ensure_teaching_canvas
+from products.tasks.backend.facade.onboarding_context import CompanyAnswer
 from products.tasks.backend.facade.onboarding_prompt import (
     BUNDLED_ONBOARDING_PROMPT,
     load_onboarding_prompt,
@@ -85,7 +91,14 @@ def onboarding_session_model(team: Team) -> str:
     return ONBOARDING_SESSION_FREE_MODEL
 
 
-def gather_onboarding_facts(team: Team, user: User) -> tuple[OnboardingFacts, str]:
+def gather_onboarding_facts(
+    team: Team, user: User, company: CompanyAnswer | None = None
+) -> tuple[OnboardingFacts, str]:
+    """The facts the opening message is built from, and the homepage text it summarizes.
+
+    A ``company`` answer replaces the scrape outright: setup already asked, so there is nothing
+    left to read a homepage for and nothing left for the agent to summarize.
+    """
     sources = enable_onboarding_signal_sources(team.id, user.id)
     waiting = waiting_reports(team.id)
 
@@ -97,6 +110,21 @@ def gather_onboarding_facts(team: Team, user: User) -> tuple[OnboardingFacts, st
                 signal_reports_waiting=waiting.count,
                 reports_to_offer=waiting.offerable,
                 other_members=prose_list(desktop_users_in_team(team, user.id)),
+                sources_enabled=sources.labels,
+                sources_watching=sources.watches,
+                sources_newly_enabled=sources.newly_enabled,
+            ),
+            "",
+        )
+
+    if company is not None and not company.is_blank:
+        return (
+            OnboardingFacts(
+                org_has_context=False,
+                company_confirmed=True,
+                has_events=bool(team.ingested_event),
+                signal_reports_waiting=waiting.count,
+                reports_to_offer=waiting.offerable,
                 sources_enabled=sources.labels,
                 sources_watching=sources.watches,
                 sources_newly_enabled=sources.newly_enabled,
@@ -147,6 +175,24 @@ def _session_enabled(team: Team, user: User) -> bool:
         return False
 
 
+def research_onboarding_domain(team: Team, user: User, *, url: str = "") -> DomainResearch | None:
+    """Read the company's site so setup can show back what it found. ``None`` when there is
+    nothing to read: no session is coming, or their email carries no company domain."""
+    if not _session_enabled(team, user):
+        return None
+    target = normalize_target(url) if url.strip() else company_domain_from(user.email)
+    if target is None:
+        return None
+    research = research_domain(target, formats=WITH_SUMMARY)
+    posthoganalytics.capture(
+        distinct_id=str(user.distinct_id),
+        event="Onboarding company research completed",
+        properties={"outcome": research.outcome, "url_given": bool(url.strip())},
+        groups=groups(team.organization, team),
+    )
+    return research
+
+
 def onboarding_test_tools_enabled(team: Team, user: User) -> bool:
     if settings.DEBUG:
         return True
@@ -171,6 +217,14 @@ def onboarding_test_tools_enabled(team: Team, user: User) -> bool:
         return False
 
 
+def _research_outcome(facts: OnboardingFacts) -> str:
+    if facts.company_confirmed:
+        return "answered_in_setup"
+    if facts.research is not None:
+        return facts.research.outcome
+    return "not_applicable"
+
+
 def _teaching_canvas(team_id: int, channel_id: UUID, user: User, *, refresh: bool) -> TeachingCanvas | None:
     """Best-effort: a session without the tour beats no session."""
     try:
@@ -186,6 +240,7 @@ def start_onboarding_session(
     *,
     facts_override: OnboardingFacts | None = None,
     homepage_override: str = "",
+    company: CompanyAnswer | None = None,
     force: bool = False,
     channel_id: UUID | None = None,
     model: str | None = None,
@@ -210,7 +265,9 @@ def start_onboarding_session(
 
     teaching = _teaching_canvas(team.id, channel_id, user, refresh=force)
     facts, homepage = (
-        (facts_override, homepage_override) if facts_override is not None else gather_onboarding_facts(team, user)
+        (facts_override, homepage_override)
+        if facts_override is not None
+        else gather_onboarding_facts(team, user, company)
     )
     prompt = load_onboarding_prompt()
     missing_placeholders = missing_onboarding_prompt_placeholders(prompt.prompt)
@@ -287,7 +344,7 @@ def start_onboarding_session(
         event="Onboarding domain research completed",
         properties={
             "task_id": str(created.task_id),
-            "outcome": facts.research.outcome if facts.research else "not_applicable",
+            "outcome": _research_outcome(facts),
         },
         groups=groups(team.organization, team),
     )

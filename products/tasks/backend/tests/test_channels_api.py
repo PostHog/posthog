@@ -171,6 +171,56 @@ class ChannelsAPITestCase(TestCase):
             [general[0]["id"]],
         )
 
+    def test_the_company_step_answer_is_written_to_the_space_everyone_reads(self):
+        general_id = next(
+            channel["id"] for channel in self._provision()["channels"] if channel["system_role"] == "general"
+        )
+
+        with patch(
+            "products.tasks.backend.presentation.views.channels_api.start_onboarding_session", return_value=uuid4()
+        ) as start:
+            response = self.client.post(
+                f"{self._channels_url()}onboarding_session/",
+                {
+                    "company_url": "northwind.example",
+                    "company_description": "Northwind Freight schedules shipments.",
+                    "building": "A driver app.",
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        context = self.client.get(f"{self._channels_url()}{general_id}/instructions/").json()
+        self.assertIn("## Company", context["content"])
+        self.assertIn("Northwind Freight schedules shipments.", context["content"])
+        self.assertIn("https://northwind.example/", context["content"])
+        self.assertIn("A driver app.", context["content"])
+        self.assertEqual(start.call_args.kwargs["company"].description, "Northwind Freight schedules shipments.")
+
+    def test_a_session_started_without_the_step_leaves_the_space_context_alone(self):
+        general_id = next(
+            channel["id"] for channel in self._provision()["channels"] if channel["system_role"] == "general"
+        )
+
+        with patch(
+            "products.tasks.backend.presentation.views.channels_api.start_onboarding_session", return_value=uuid4()
+        ):
+            response = self.client.post(f"{self._channels_url()}onboarding_session/", {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        context = self.client.get(f"{self._channels_url()}{general_id}/instructions/").json()
+        self.assertEqual(context["content"], "")
+        self.assertEqual(context["version"], 0)
+
+    def test_a_site_that_was_never_read_still_answers_in_the_shape_setup_expects(self):
+        with patch(
+            "products.tasks.backend.presentation.views.channels_api.research_onboarding_domain", return_value=None
+        ):
+            response = self.client.post(f"{self._channels_url()}onboarding_research/", {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json(), {"outcome": "skipped", "url": None, "summary": None})
+
     @patch("products.tasks.backend.presentation.views.channels_api.onboarding_test_tools_enabled", return_value=False)
     def test_onboarding_test_tools_require_the_feature_flag(self, _enabled):
         for action in ("onboarding_session_test", "teaching_canvas_test"):

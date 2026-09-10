@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
@@ -9,6 +10,7 @@ from posthog.egress.firecrawl import (
     FirecrawlEgressBudgetExhausted,
     FirecrawlNotConfigured,
     FirecrawlScrapeFailed,
+    ScrapeFormat,
     scrape,
 )
 
@@ -16,7 +18,13 @@ logger = structlog.get_logger(__name__)
 
 EGRESS_SOURCE = "tasks_domain_research"
 
-SCRAPE_TIMEOUT: tuple[float, float] = (5.0, 20.0)
+SCRAPE_TIMEOUT: tuple[float, float] = (5.0, 45.0)
+
+MARKDOWN_ONLY: tuple[ScrapeFormat, ...] = ("markdown",)
+
+# Firecrawl runs an LLM pass for the summary, which roughly triples the scrape. Ask for it only
+# where a person reads the summary back; the agent writes its own from the markdown.
+WITH_SUMMARY: tuple[ScrapeFormat, ...] = ("markdown", "summary")
 
 ResearchOutcome = Literal["scraped", "not_configured", "unreachable", "busy"]
 
@@ -28,6 +36,7 @@ class DomainResearch:
     title: str | None = None
     description: str | None = None
     markdown: str | None = None
+    summary: str | None = None
 
 
 def normalize_target(raw: str) -> str | None:
@@ -45,9 +54,9 @@ def normalize_target(raw: str) -> str | None:
     return urlunsplit((parts.scheme, parts.netloc, parts.path or "/", parts.query, ""))
 
 
-def research_domain(url: str) -> DomainResearch:
+def research_domain(url: str, *, formats: Sequence[ScrapeFormat] = MARKDOWN_ONLY) -> DomainResearch:
     try:
-        scraped = scrape(url, source=EGRESS_SOURCE, formats=("markdown",), timeout=SCRAPE_TIMEOUT)
+        scraped = scrape(url, source=EGRESS_SOURCE, formats=formats, timeout=SCRAPE_TIMEOUT)
     except FirecrawlNotConfigured:
         logger.warning("domain_research_firecrawl_not_configured")
         return DomainResearch(outcome="not_configured", url=url)
@@ -63,4 +72,5 @@ def research_domain(url: str) -> DomainResearch:
         title=scraped.title,
         description=scraped.description,
         markdown=scraped.markdown,
+        summary=scraped.summary,
     )

@@ -25,6 +25,13 @@ SAVE_CONTEXT = (
     "or tell you from scratch."
 )
 
+# The prompt's standing goals include getting the company into the space's context. Setup did
+# that, so say so, or the agent chases a goal that is already met by asking again.
+CONTEXT_ALREADY_SAVED = (
+    "This space's context already says what the company does. They gave it in setup, in their own "
+    "words, so it is confirmed: never ask them to confirm it, and never write it again."
+)
+
 NO_DATA_YET = (
     "Their project has nothing flowing into PostHog yet, so anything you might look at does not "
     "exist. Adding PostHog is the only real offer. This app ships a skill for it, so offer a "
@@ -48,6 +55,7 @@ _NAMED_SOURCE_LIMIT = 3
 @frozen
 class OnboardingFacts:
     org_has_context: bool
+    company_confirmed: bool = False
     research: DomainResearch | None = None
     has_events: bool = False
     signal_reports_waiting: int = 0
@@ -147,6 +155,16 @@ def build_opening_brief(facts: OnboardingFacts) -> list[str]:
     if facts.org_has_context:
         return _joining_brief(facts)
 
+    # They already told setup what the company does, so the message spends its one ask on
+    # something else. Repeating the summary back is the question this whole path removes.
+    if facts.company_confirmed:
+        brief = [WELCOME_LINE]
+        status = _status_line(facts)
+        if status:
+            brief.append(status)
+        brief.extend(_offer_and_close(facts, researched=True))
+        return brief
+
     scraped = facts.research is not None and facts.research.outcome == "scraped"
     unreachable = facts.research is not None and facts.research.outcome == "unreachable"
     brief = [WELCOME_LINE]
@@ -207,7 +225,12 @@ def teaching_canvas_line(teaching: TeachingCanvas) -> str:
 
 
 def build_followup(facts: OnboardingFacts, teaching: TeachingCanvas | None = None) -> list[str]:
-    followup = [] if facts.org_has_context else [SAVE_CONTEXT]
+    if facts.org_has_context:
+        followup = []
+    elif facts.company_confirmed:
+        followup = [CONTEXT_ALREADY_SAVED]
+    else:
+        followup = [SAVE_CONTEXT]
     followup.append(HAS_DATA if facts.has_events else NO_DATA_YET)
     followup.append(self_driving_line(facts.reports_to_offer))
     if teaching is not None:

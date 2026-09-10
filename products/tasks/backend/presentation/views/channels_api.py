@@ -24,10 +24,12 @@ from products.tasks.backend.facade.access import compute_quota_limit_response
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
 from products.tasks.backend.facade.onboarding import (
     onboarding_test_tools_enabled,
+    research_onboarding_domain,
     start_onboarding_session,
     start_onboarding_test_session,
 )
 from products.tasks.backend.facade.onboarding_canvas import ensure_teaching_canvas
+from products.tasks.backend.facade.onboarding_context import company_answer_from, record_company_answer
 from products.tasks.backend.presentation.serializers import (
     ChannelContextGenerationSerializer,
     ChannelDeleteConflictSerializer,
@@ -40,6 +42,9 @@ from products.tasks.backend.presentation.serializers import (
     ChannelStarWriteSerializer,
     ChannelUpdateSerializer,
     ChannelWriteSerializer,
+    OnboardingResearchRequestSerializer,
+    OnboardingResearchSerializer,
+    OnboardingSessionRequestSerializer,
     OnboardingSessionSerializer,
     OnboardingSessionTestResponseSerializer,
     OnboardingSessionTestSerializer,
@@ -106,6 +111,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "create",
         "set_members",
         "provision_defaults",
+        "onboarding_research",
         "onboarding_session",
         "onboarding_session_test",
         "teaching_canvas_test",
@@ -170,24 +176,60 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(ProvisionedChannelsSerializer(provisioned).data)
 
     @extend_schema(
-        request=None,
+        request=OnboardingResearchRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=OnboardingResearchSerializer, description="What the site says"),
+        },
+        summary="Read the company's site for setup",
+        description=(
+            "Read the company's website so setup can show back what it does and let the person "
+            "correct it. Runs an LLM pass over the page, so it takes a few seconds: fire it when "
+            "setup opens, and read the result when the company step comes up. Their answer goes "
+            "back to onboarding_session."
+        ),
+    )
+    @action(methods=["POST"], detail=False, url_path="onboarding_research")
+    @validated_request(request_serializer=OnboardingResearchRequestSerializer)
+    def onboarding_research(self, request: Request, **kwargs) -> Response:
+        if not isinstance(request.user, User):
+            raise PermissionDenied("Reading the company's site requires a user.")
+        research = research_onboarding_domain(self.team, request.user, url=request.validated_data["url"])
+        if research is None:
+            return Response(OnboardingResearchSerializer({"outcome": "skipped", "url": None, "summary": None}).data)
+        return Response(
+            OnboardingResearchSerializer(
+                {"outcome": research.outcome, "url": research.url, "summary": research.summary}
+            ).data
+        )
+
+    @extend_schema(
+        request=OnboardingSessionRequestSerializer,
         responses={
             200: OpenApiResponse(response=OnboardingSessionSerializer, description="The session that was started"),
             409: OpenApiResponse(description="This team has no #general space to open a session in"),
         },
         summary="Start a first-run onboarding session",
         description=(
-            "Open the agent session a new user lands in, in the team's #general space. Reads the "
-            "company's homepage, so it takes a few seconds and is deliberately not part of "
-            "provisioning, which blocks the app opening. Callers fire it without awaiting it when "
-            "provision_defaults reports personal_created."
+            "Open the agent session a new user lands in, in the team's #general space. Pass the "
+            "company step's answers and the session skips reading the site and never asks again: "
+            "the answers are written to the space's context here. An empty body falls back to "
+            "reading the site, which takes a few seconds, so callers fire this without awaiting it."
         ),
     )
     @action(methods=["POST"], detail=False, url_path="onboarding_session")
+    @validated_request(request_serializer=OnboardingSessionRequestSerializer)
     def onboarding_session(self, request: Request, **kwargs) -> Response:
         if not isinstance(request.user, User):
             raise PermissionDenied("Starting an onboarding session requires a user.")
-        task_id = start_onboarding_session(self.team, request.user)
+        company = company_answer_from(
+            request.validated_data["company_url"],
+            request.validated_data["company_description"],
+            request.validated_data["building"],
+        )
+        # The answer outlives the session: it is worth keeping even where the rollout has not
+        # reached this user and no session opens.
+        record_company_answer(self.team, request.user, company)
+        task_id = start_onboarding_session(self.team, request.user, company=company)
         if task_id is None:
             return Response({"detail": "No #general space to open a session in."}, status=409)
         return Response(OnboardingSessionSerializer({"task_id": task_id}).data)

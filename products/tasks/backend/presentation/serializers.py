@@ -43,7 +43,7 @@ from products.tasks.backend.facade.contracts import (
     TaskUserBasicInfo,
     WizardCloudRunDTO,
 )
-from products.tasks.backend.facade.enums import CHANNEL_WRITE_TYPE_CHOICES
+from products.tasks.backend.facade.enums import CHANNEL_WRITE_TYPE_CHOICES, OnboardingResearchOutcome
 from products.tasks.backend.facade.model_catalogue import ModelChoice
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
@@ -2199,6 +2199,64 @@ class OnboardingSessionSerializer(serializers.Serializer):
     """The first-run session that was started for the requester."""
 
     task_id = serializers.UUIDField(help_text="The agent session opened in the team's #general space.")
+
+
+class OnboardingSessionRequestSerializer(serializers.Serializer):
+    """The company step's answers. An empty body means setup never asked, so the session
+    falls back to reading the site itself and asking in chat."""
+
+    company_url = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        max_length=2048,
+        help_text="The company's website, as the person left it in setup. Blank when they gave none.",
+    )
+    company_description = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        max_length=2000,
+        help_text="What the company does, in the person's own words. Blank when they gave none.",
+    )
+    building = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        max_length=2000,
+        help_text="Optional answer to what they are building right now.",
+    )
+
+
+class OnboardingResearchRequestSerializer(serializers.Serializer):
+    url = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        max_length=2048,
+        help_text="Site to read. Blank reads the domain of the requester's email address.",
+    )
+
+
+class OnboardingResearchSerializer(serializers.Serializer):
+    """What reading the company's site found, for setup to show back and let them correct."""
+
+    outcome = serializers.ChoiceField(
+        choices=OnboardingResearchOutcome.choices,
+        help_text=(
+            "scraped: the site was read. unreachable: it did not load. not_configured and busy: "
+            "PostHog could not run the read. skipped: there was nothing to read."
+        ),
+    )
+    url = serializers.CharField(
+        allow_null=True,
+        help_text="The site that was read, normalized. Null when nothing was read.",
+    )
+    summary = serializers.CharField(
+        allow_null=True,
+        allow_blank=True,
+        help_text="What the site says the company does. Null unless the outcome is scraped.",
+    )
 
 
 class OnboardingSessionTestResponseSerializer(OnboardingSessionSerializer):

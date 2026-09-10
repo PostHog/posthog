@@ -35,7 +35,10 @@ import type {
     LoopsTriggerCreateBodyThree,
     LoopsTriggerCreateBodyTwo,
     ModelCatalogueResponseApi,
+    OnboardingResearchApi,
+    OnboardingResearchRequestApi,
     OnboardingSessionApi,
+    OnboardingSessionRequestApi,
     OnboardingSessionTestApi,
     OnboardingSessionTestResponseApi,
     PaginatedChannelDTOListApi,
@@ -1156,21 +1159,45 @@ export const taskChannelsStarCreate = async (
     })
 }
 
+export const getTaskChannelsOnboardingResearchCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_channels/onboarding_research/`
+}
+
+/**
+ * Read the company's website so setup can show back what it does and let the person correct it. Runs an LLM pass over the page, so it takes a few seconds: fire it when setup opens, and read the result when the company step comes up. Their answer goes back to onboarding_session.
+ * @summary Read the company's site for setup
+ */
+export const taskChannelsOnboardingResearchCreate = async (
+    projectId: string,
+    onboardingResearchRequestApi?: OnboardingResearchRequestApi,
+    options?: RequestInit
+): Promise<OnboardingResearchApi> => {
+    return apiMutator<OnboardingResearchApi>(getTaskChannelsOnboardingResearchCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(onboardingResearchRequestApi),
+    })
+}
+
 export const getTaskChannelsOnboardingSessionCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/task_channels/onboarding_session/`
 }
 
 /**
- * Open the agent session a new user lands in, in the team's #general space. Reads the company's homepage, so it takes a few seconds and is deliberately not part of provisioning, which blocks the app opening. Callers fire it without awaiting it when provision_defaults reports personal_created.
+ * Open the agent session a new user lands in, in the team's #general space. Pass the company step's answers and the session skips reading the site and never asks again: the answers are written to the space's context here. An empty body falls back to reading the site, which takes a few seconds, so callers fire this without awaiting it.
  * @summary Start a first-run onboarding session
  */
 export const taskChannelsOnboardingSessionCreate = async (
     projectId: string,
+    onboardingSessionRequestApi?: OnboardingSessionRequestApi,
     options?: RequestInit
 ): Promise<OnboardingSessionApi> => {
     return apiMutator<OnboardingSessionApi>(getTaskChannelsOnboardingSessionCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(onboardingSessionRequestApi),
     })
 }
 

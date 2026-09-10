@@ -21,15 +21,21 @@ from products.tasks.backend.facade.onboarding import (
     _origin_key,
     _session_enabled,
     onboarding_test_tools_enabled,
+    research_onboarding_domain,
     start_onboarding_session,
     start_onboarding_test_session,
 )
 from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas
+from products.tasks.backend.facade.onboarding_context import CompanyAnswer
 from products.tasks.backend.models import Task, TaskClientProvenance
 
 MODULE = "products.tasks.backend.facade.onboarding"
 
 NOT_CONFIGURED = DomainResearch(outcome="not_configured", url="https://northwind.example/")
+ANSWERED_IN_SETUP = CompanyAnswer(
+    url="https://northwind.example/",
+    description="Northwind Freight schedules shipments for regional trucking companies.",
+)
 
 
 class TestOnboardingSessionIdempotency(TestCase):
@@ -66,14 +72,82 @@ class TestOnboardingSessionIdempotency(TestCase):
 
         self.assertEqual(feature_enabled.call_args.args[0], "posthog-desktop-onboarding-test-tools")
 
-    def _start(self, create_side_effect) -> tuple[UUID | None, int]:
+    def _start(self, create_side_effect, company: CompanyAnswer | None = None) -> tuple[UUID | None, int]:
         with (
             patch("posthoganalytics.feature_enabled", return_value=True),
             patch(f"{MODULE}.find_general_channel_id", return_value=self.channel_id),
             patch(f"{MODULE}.research_domain", return_value=NOT_CONFIGURED),
             patch(f"{MODULE}.create_and_run_task", side_effect=create_side_effect) as create,
         ):
-            return start_onboarding_session(self.team, self.user), create.call_count
+            return start_onboarding_session(self.team, self.user, company=company), create.call_count
+
+    def test_an_answer_from_setup_replaces_the_scrape_rather_than_repeating_it(self) -> None:
+        task_id = uuid4()
+
+        def succeed(**kwargs: Any) -> contracts.CreatedTaskDTO:
+            self.assertNotIn("Summarize what the company does", kwargs["description"])
+            self.assertNotIn("Save what the company does", kwargs["description"])
+            self.assertIn("never ask them to confirm it", kwargs["description"])
+            return contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch(f"{MODULE}.find_general_channel_id", return_value=self.channel_id),
+            patch(f"{MODULE}.research_domain") as research,
+            patch(f"{MODULE}.create_and_run_task", side_effect=succeed) as create,
+        ):
+            started = start_onboarding_session(self.team, self.user, company=ANSWERED_IN_SETUP)
+
+        self.assertEqual(started, task_id)
+        self.assertEqual(create.call_count, 1)
+        research.assert_not_called()
+
+    def test_an_empty_step_falls_back_to_reading_the_site(self) -> None:
+        task_id = uuid4()
+        created = contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch(f"{MODULE}.find_general_channel_id", return_value=self.channel_id),
+            patch(f"{MODULE}.research_domain", return_value=NOT_CONFIGURED) as research,
+            patch(f"{MODULE}.create_and_run_task", return_value=created),
+        ):
+            started = start_onboarding_session(self.team, self.user, company=CompanyAnswer())
+
+        self.assertEqual(started, task_id)
+        research.assert_called_once()
+
+    @override_settings(DEBUG=False)
+    def test_reading_the_site_is_skipped_where_no_session_is_coming(self) -> None:
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=False),
+            patch(f"{MODULE}.research_domain") as research,
+        ):
+            self.assertIsNone(research_onboarding_domain(self.team, self.user))
+
+        research.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("the address they typed", "acme.example", "https://acme.example/"),
+            ("their email domain", "", "https://northwind.example/"),
+        ]
+    )
+    def test_the_site_read_for_setup_is_summarized_for_them_to_correct(
+        self, _name: str, given: str, expected_url: str
+    ) -> None:
+        scraped = DomainResearch(outcome="scraped", url=expected_url, summary="They move freight.")
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch(f"{MODULE}.research_domain", return_value=scraped) as research,
+        ):
+            found = research_onboarding_domain(self.team, self.user, url=given)
+
+        assert found is not None
+        self.assertEqual(found.summary, "They move freight.")
+        self.assertEqual(research.call_args.args[0], expected_url)
+        self.assertEqual(research.call_args.kwargs["formats"], ("markdown", "summary"))
 
     def test_a_repeated_request_returns_the_session_it_already_started(self):
         existing = self._existing_session()
@@ -230,6 +304,15 @@ class TestOnboardingSessionIdempotency(TestCase):
             capture.call_args.kwargs["properties"],
             {"task_id": str(task_id), "outcome": "not_configured"},
         )
+
+    def test_an_answer_from_setup_is_reported_as_its_own_research_outcome(self) -> None:
+        task_id = uuid4()
+        created = contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
+
+        with patch(f"{MODULE}.posthoganalytics.capture") as capture:
+            self._start(create_side_effect=lambda **_kwargs: created, company=ANSWERED_IN_SETUP)
+
+        self.assertEqual(capture.call_args.kwargs["properties"]["outcome"], "answered_in_setup")
 
     def test_a_seeded_tour_reaches_the_prompt_with_both_ids(self) -> None:
         task_id = uuid4()

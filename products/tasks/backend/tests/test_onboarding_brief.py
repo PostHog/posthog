@@ -91,6 +91,22 @@ class TestOpeningBrief(SimpleTestCase):
         assert sum("what are they working on right now" in line for line in brief) == 1
         assert TOP_OF_MIND not in brief
 
+    def test_an_answer_given_in_setup_is_never_asked_for_again(self) -> None:
+        brief = build_opening_brief(_setup_facts(company_confirmed=True, research=None))
+
+        joined = " ".join(brief)
+        assert "Summarize what the company does" not in joined
+        assert "what the company does" not in joined
+        assert "what are they working on right now" not in joined
+        assert brief[0] == "Open with: Welcome to PostHog Desktop."
+
+    def test_a_confirmed_answer_never_claims_a_page_was_read(self) -> None:
+        # The scrape still ran, in setup, but they read the summary there rather than here.
+        brief = build_opening_brief(_setup_facts(company_confirmed=True, research=SCRAPED))
+
+        assert research_line("northwind.example") not in brief
+        assert not any("northwind.example" in line for line in brief)
+
     def test_the_first_thing_they_read_says_where_they_are(self) -> None:
         brief = build_opening_brief(_setup_facts())
 
@@ -175,6 +191,9 @@ class TestOpeningBrief(SimpleTestCase):
             ("joining, events, 4 findings, scraped", True, True, 4, "scraped"),
             ("joining, events, 4 findings, unreachable", True, True, 4, "unreachable"),
             ("joining, events, 4 findings, none", True, True, 4, "none"),
+            ("confirmed, no events, 0 findings", False, False, 0, "confirmed"),
+            ("confirmed, events, 0 findings", False, True, 0, "confirmed"),
+            ("confirmed, events, 4 findings", False, True, 4, "confirmed"),
         ]
     )
     def test_every_branch_ends_on_exactly_one_ask(
@@ -186,7 +205,8 @@ class TestOpeningBrief(SimpleTestCase):
                 other_members="Dana" if joining else None,
                 has_events=has_events,
                 signal_reports_waiting=reports,
-                research={"scraped": SCRAPED, "unreachable": UNREACHABLE, "none": None}[research],
+                company_confirmed=research == "confirmed",
+                research={"scraped": SCRAPED, "unreachable": UNREACHABLE, "none": None, "confirmed": None}[research],
             )
         )
 
@@ -275,6 +295,14 @@ class TestFollowup(SimpleTestCase):
         followup = build_followup(_setup_facts())
 
         assert any("Save what the company does" in line for line in followup)
+
+    def test_an_answer_given_in_setup_is_never_saved_a_second_time(self) -> None:
+        followup = build_followup(_setup_facts(company_confirmed=True))
+
+        assert not any("Save what the company does" in line for line in followup)
+        # The prompt's standing goals ask for the company in context, so the followup has to say
+        # it is already there or the agent works toward it by asking.
+        assert any("already says what the company does" in line for line in followup)
 
     def test_joining_a_workspace_never_rewrites_the_context_it_joined(self) -> None:
         followup = build_followup(OnboardingFacts(org_has_context=True, has_events=True))

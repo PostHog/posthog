@@ -1323,6 +1323,78 @@ export interface ChannelStarWriteApi {
     starred: boolean
 }
 
+export interface OnboardingResearchRequestApi {
+    /**
+     * Site to read. Blank reads the domain of the requester's email address.
+     * @maxLength 2048
+     */
+    url?: string
+}
+
+/**
+ * * `scraped` - Scraped
+ * * `not_configured` - Not configured
+ * * `unreachable` - Unreachable
+ * * `busy` - Busy
+ * * `skipped` - Skipped
+ */
+export type OnboardingResearchOutcomeEnumApi =
+    (typeof OnboardingResearchOutcomeEnumApi)[keyof typeof OnboardingResearchOutcomeEnumApi]
+
+export const OnboardingResearchOutcomeEnumApi = {
+    Scraped: 'scraped',
+    NotConfigured: 'not_configured',
+    Unreachable: 'unreachable',
+    Busy: 'busy',
+    Skipped: 'skipped',
+} as const
+
+/**
+ * What reading the company's site found, for setup to show back and let them correct.
+ */
+export interface OnboardingResearchApi {
+    /** scraped: the site was read. unreachable: it did not load. not_configured and busy: PostHog could not run the read. skipped: there was nothing to read.
+     *
+     * * `scraped` - Scraped
+     * * `not_configured` - Not configured
+     * * `unreachable` - Unreachable
+     * * `busy` - Busy
+     * * `skipped` - Skipped */
+    outcome: OnboardingResearchOutcomeEnumApi
+    /**
+     * The site that was read, normalized. Null when nothing was read.
+     * @nullable
+     */
+    url: string | null
+    /**
+     * What the site says the company does. Null unless the outcome is scraped.
+     * @nullable
+     */
+    summary: string | null
+}
+
+/**
+ * The company step's answers. An empty body means setup never asked, so the session
+ * falls back to reading the site itself and asking in chat.
+ */
+export interface OnboardingSessionRequestApi {
+    /**
+     * The company's website, as the person left it in setup. Blank when they gave none.
+     * @maxLength 2048
+     */
+    company_url?: string
+    /**
+     * What the company does, in the person's own words. Blank when they gave none.
+     * @maxLength 2000
+     */
+    company_description?: string
+    /**
+     * Optional answer to what they are building right now.
+     * @maxLength 2000
+     */
+    building?: string
+}
+
 /**
  * The first-run session that was started for the requester.
  */
