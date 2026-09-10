@@ -55,6 +55,19 @@ and describe the desired outcome for the customer.
 This separation matters because agents are good at composing simple tools
 but need guidance on _which_ tools to use, in _what order_, with _what constraints_.
 
+### Query selection guidance
+
+Query skills should choose methods from the requested calculation and output, not require typed queries or SQL for every task.
+Reuse matching approved metrics or saved queries when they define the requested measure.
+Use typed queries when standard PostHog calculation rules or native insight controls matter.
+Use SQL for record inspection, custom calculations, joins, existing SQL, or requests for SQL.
+For a new event-analytics query, prefer a typed query when both methods preserve the requested calculation and output, including simple aggregates.
+Keep valid existing SQL when it fits the task. A task that needs SQL does not require a failed typed-query attempt first.
+Reassess when the task changes. Neither the previous tool call nor a request for a chart determines the next method.
+
+Tool descriptions should state capabilities and limits. Skill examples should show direct inputs for the method they teach.
+Keep SQL examples for SQL tasks rather than requiring agents to reconstruct typed inputs from generated SQL.
+
 ### When to write a skill
 
 The decision flow:

@@ -1,18 +1,23 @@
 Executes HogQL — PostHog's variant of SQL that supports most of ClickHouse SQL. "HogQL" and "SQL" are used interchangeably.
 
-{guidelines}
-
 ### When to use `execute-sql`
 
-**Use `query-*` tools whenever the question maps to a supported insight type.** These tools produce typed, saveable insights; SQL forfeits that.
-Reach for `execute-sql` only when no `query-*` tool can express the question:
+Use SQL for record inspection, custom calculations, joins, existing SQL, or requests for SQL. It can also prepare data for a typed query. SQL cases include:
 
-- **Searching or listing existing PostHog entities** — insights, dashboards, cohorts, feature flags, experiments, surveys. No `query-*` tool covers these; query the `system.*` tables.
-- **Multi-event joins or aggregations across event types** that don't fit a single series.
-- **Sophisticated queries beyond `query-*` schemas** — custom grouping, window functions, non-trivial CTEs, data warehouse joins.
-- **Pre-filtering or shaping** a large dataset before running a `query-*` call.
+- **Searching or listing existing PostHog entities** — insights, dashboards, cohorts, feature flags, experiments, surveys. No typed query tool covers these; query the `system.*` tables.
+- **Multi-event joins or aggregations across event types** that do not fit a single series.
+- **Sophisticated queries beyond typed query schemas** — custom grouping, window functions, non-trivial CTEs, data warehouse joins.
+- **Pre-filtering or shaping** a large dataset before running a typed query.
 
-If a `query-*` tool fits, use it. Default to `query-*`; SQL is the escape hatch, not the starting point.
+For governed measures, check for a matching approved metric before deriving a new calculation.
+
+Use typed queries when standard PostHog calculation rules or native insight controls matter. Do not approximate standard funnels or retention with SQL.
+
+For a new event-analytics query, prefer a typed query when both methods preserve the requested calculation and output, including simple aggregates. Use SQL directly when the task calls for it, without requiring a failed typed-query attempt. Keep valid existing SQL when it fits the task, and reassess when the task changes.
+
+Both typed queries and SQL can support saved visualizations. A chart or table alone does not determine the method.
+
+{guidelines}
 
 {schema_discovery}
 

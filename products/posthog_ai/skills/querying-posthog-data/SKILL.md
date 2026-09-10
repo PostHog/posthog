@@ -1,11 +1,66 @@
 ---
 name: querying-posthog-data
-description: 'Required reading before writing any HogQL/SQL or calling execute-sql against PostHog. Use whenever the user wants to search, find, or do complex aggregations PostHog entities (insights, dashboards, cohorts, feature flags, experiments, surveys, hog flows, data warehouse, persons, etc.) and query analytics data (trends, funnels, retention, lifecycle, paths, stickiness, web analytics, error tracking, logs, sessions, LLM traces). Also the first stop for a governed business or telemetry measure (MRR, activation, billable usage, active organizations, failure rates): check the semantic layer (canonical metrics in system.information_schema.metrics) before deriving from raw events or a typed domain tool. Covers HogQL syntax differences from ClickHouse SQL, system table schemas (system.*), available functions, query examples, and the schema-discovery workflow.'
+description: >
+  Explains how to choose typed queries or SQL for PostHog data.
+  Read it before you write HogQL/SQL.
+  Also read it before you call execute-sql against PostHog.
+  Use it to find or aggregate PostHog entities.
+  These entities include insights, dashboards, cohorts, feature flags, experiments,
+  surveys, hog flows, warehouse data, and persons.
+  Use it for trends, funnels, retention, lifecycle, paths, stickiness,
+  web analytics, error tracking, logs, sessions, and LLM traces.
+  Before you calculate a governed business or telemetry measure, check
+  system.information_schema.metrics for an approved definition.
+  Examples include MRR, activation, billable usage, active organizations, and failure rates.
+  Use the approved definition before you derive a measure from raw events or use a typed domain tool.
+  It also covers HogQL differences, system table schemas, functions, query examples, and schema discovery.
 ---
 
 # Querying data in PostHog
 
-The [guidelines](./references/guidelines.md) contain the same instructions as `posthog:execute-sql`. If you've already read `posthog:execute-sql`, you don't need to read them again.
+The [guidelines](./references/guidelines.md) explain SQL syntax and schema discovery. Read them when you choose `posthog:execute-sql`. You do not need them for typed queries.
+
+## Choose the query path
+
+Choose the method from the requested calculation and output. Do not choose a method from the tool name. No method fits all tasks.
+
+For governed measures, follow the semantic-layer workflow below before deriving a query. Reuse a matching approved metric or saved query when it defines the requested measure.
+
+### Typed query tools
+
+Use a typed query when the task needs standard PostHog calculation rules or native insight controls:
+
+- `posthog:query-trends` for native trends with series, breakdowns, formulas, and period comparisons.
+- `posthog:query-funnel` for conversion rates, drop-off, and step completion.
+- `posthog:query-retention` for users returning over time.
+- `posthog:query-stickiness` for engagement frequency.
+- `posthog:query-paths` for navigation flows.
+- `posthog:query-lifecycle` for new, returning, resurrecting, and dormant users.
+
+Do not approximate these analyses with SQL when the user expects PostHog's standard definitions. Confirm that the selected tool supports the required calculation and output.
+
+### SQL queries
+
+Use `posthog:execute-sql` when:
+
+- The request searches `system.*` tables for PostHog entities.
+- The user requests SQL, record inspection, or changes to an existing SQL query.
+- The analysis needs custom joins, CTEs, window functions, or warehouse SQL.
+- SQL must pre-filter or shape data before a typed query.
+
+### When either method fits
+
+For a new event-analytics query, prefer a typed query when both methods preserve the requested calculation and output. This includes simple counts, sums, and other supported aggregates. Use SQL directly when the task calls for it. You do not need to try a typed query first.
+
+Keep a valid existing query when it fits the task. Choose the method again when the task changes. The previous tool call does not determine the method. Do not choose a method only because the user requests a chart or table. Both methods can support saved visualizations.
+
+## Render query results
+
+Check the selected tool's declared UI resource. Check whether the client supports this resource. For example, `posthog:query-trends` declares `query-results`. If the client renders the result automatically, do not also call `posthog:render-ui` for that result.
+
+If the client uses `posthog:render-ui`, check that it supports the selected tool. After validating a trends query, use `posthog:render-ui({ "tool_name": "query-trends", "tool_input": { ...same input passed to query-trends... } })`.
+
+Pass the exact input used for the query. The UI app fetches its own data. Do not use rendering as a discovery step. Keep a written summary with the visualization.
 
 ## When to use this skill
 
@@ -21,7 +76,7 @@ Don't try to reconstruct the entity from SQL — `execute-sql` is for discovery,
 
 ### Querying analytics data
 
-When the user wants analytics data (trends, funnels, retention, paths, sessions, LLM traces, web analytics, errors, logs, etc.) and the existing insight schemas don't fit the request:
+When the user wants analytics data and no typed query tool can express the request:
 
 1. Look for a matching example under Analytics Query Examples. The list is not exhaustive — there may not be an example for every scenario. If one is a close fit (same domain, similar aggregation), read it; otherwise skip this step.
 2. Adapt the example query (if one was found) to the user's request and run it via `posthog:execute-sql`. If no example fit, compose the query from scratch using the Data Schema and HogQL References.
@@ -97,7 +152,7 @@ Every column table below is generated from the live HogQL catalog, so it lists e
 
 ## Analytics Query Examples
 
-Use the examples below to create optimized analytical queries.
+These references include a direct typed-query example and SQL examples for analytics and data inspection. Choose the method before adapting an example. An example's format does not require you to use that method for every similar question.
 
 - [Trends (unique users, specific time range, single series)](./references/example-trends-unique-users.md)
 - [Trends (total count with multiple breakdowns)](./references/example-trends-breakdowns.md)
