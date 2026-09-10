@@ -374,6 +374,97 @@ class TestPrinter(BaseTest):
         printed = self._select("select [1, 2, 3][1:3]")
         self.assertIn("arraySlice([1, 2, 3], 1, plus(minus(3, 1), 1))", printed)
 
+    @parameterized.expand(
+        [
+            (
+                "non_constant_result",
+                "select transform(event, ['a', 'b'], [event, 'y'], 'z') from events",
+                "caseWithExpression(events.event, %(hogql_val_0)s, events.event, "
+                "%(hogql_val_1)s, %(hogql_val_2)s, %(hogql_val_3)s)",
+            ),
+            (
+                "non_constant_match",
+                "select transform(event, [event, 'b'], ['x', 'y'], 'z') from events",
+                "caseWithExpression(events.event, events.event, %(hogql_val_0)s, "
+                "%(hogql_val_1)s, %(hogql_val_2)s, %(hogql_val_3)s)",
+            ),
+            (
+                "without_default",
+                "select transform(event, ['a'], [upper(event)]) from events",
+                "caseWithExpression(events.event, %(hogql_val_0)s, upper(events.event), events.event)",
+            ),
+            (
+                "constant_arrays_keep_transform",
+                "select transform(event, ['a', 'b'], ['x', 'y'], 'z') from events",
+                "transform(events.event, [%(hogql_val_0)s, %(hogql_val_1)s], "
+                "[%(hogql_val_2)s, %(hogql_val_3)s], %(hogql_val_4)s)",
+            ),
+            # `caseWithExpression` takes only a name and arguments, so a call that sets a modifier
+            # keeps printing as `transform`. A rewrite would drop the modifier from the SQL.
+            (
+                "filter_keeps_transform",
+                "select transform(event, [event, 'b'], ['x', 'y'], 'z') FILTER (WHERE 1 = 1) from events",
+                "transform(events.event, [events.event, %(hogql_val_0)s], "
+                "[%(hogql_val_1)s, %(hogql_val_2)s], %(hogql_val_3)s) FILTER (WHERE 1)",
+            ),
+            (
+                "params_keep_transform",
+                "select transform(1)(event, [event, 'b'], ['x', 'y'], 'z') from events",
+                "transform(1)(events.event, [events.event, %(hogql_val_0)s], "
+                "[%(hogql_val_1)s, %(hogql_val_2)s], %(hogql_val_3)s)",
+            ),
+            (
+                "order_by_keeps_transform",
+                "select transform(event, [event, 'b'], ['x', 'y'], 'z' ORDER BY 1) from events",
+                "transform(events.event, [events.event, %(hogql_val_0)s], "
+                "[%(hogql_val_1)s, %(hogql_val_2)s], %(hogql_val_3)s ORDER BY 1 ASC)",
+            ),
+        ]
+    )
+    def test_transform_falls_back_to_case_with_expression(self, _name: str, query: str, expected: str):
+        self.assertIn(expected, self._select(query))
+
+    @parameterized.expand(
+        [
+            ("with_default", "transform({source}, [upper('a'), 'b'], ['x', 'y'], 'z')"),
+            ("without_default", "transform({source}, [upper('a'), 'b'], ['x', 'y'])"),
+        ]
+    )
+    def test_nested_transform_prints_without_multiplying(self, _name: str, template: str):
+        # Each rewrite prints its source once, so nesting must cost the printer one copy per level.
+        expr = "event"
+        for _ in range(8):
+            expr = template.format(source=expr)
+        self.assertLess(len(self._select(f"select {expr} as t from events")), 5000)
+
+    def test_transform_with_wrong_case_stays_unsupported(self):
+        self._assert_query_error(
+            "select TRANSFORM(event, [event, 'b'], ['x', 'y'], 'z') as t from events",
+            "Unsupported function call 'TRANSFORM(...)'",
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "over_no_rows",
+                "select transform(event, ['a', 'b'], [event, 'y'], 'z') from events where event = 'no_such_event'",
+                [],
+            ),
+            # `transform` looks a key up by hash, so a -0.0 source misses a 0.0 key and takes the default.
+            # `equals` calls the two zeros equal, so a rewrite built on it would answer 'a' here instead.
+            (
+                "signed_zero_takes_the_default",
+                "select transform(-0.0, [0.0, 1.0], ['a', upper('b')], 'z')",
+                [("z",)],
+            ),
+        ]
+    )
+    def test_transform_with_non_constant_arrays_executes_on_clickhouse(self, _name: str, query: str, expected: list):
+        # ClickHouse rejects a `transform` whose match or result array is not constant, even over no rows.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql = self._select(query, context)
+        self.assertEqual(sync_execute(sql, context.values), expected)
+
     def test_try_cast_non_postgres_error(self):
         self._assert_query_error(
             "select try_cast(1 as Int64)",
