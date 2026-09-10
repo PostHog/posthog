@@ -5,7 +5,7 @@ import typing as t
 from datetime import date, timedelta
 from typing import Any, cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
@@ -5762,9 +5762,9 @@ class TestExternalDataSource(APIBaseTest):
             ("2024-07-01T18:00:00.000Z", ExternalDataJob.Status.COMPLETED),
             ("2024-07-02T06:00:00.000Z", ExternalDataJob.Status.FAILED),
         ]:
-            with freeze_time(created_at):
+            with time_machine.travel(created_at, tick=False):
                 ExternalDataJob.objects.create(team=self.team, pipeline=source, schema=schema, status=job_status)
-        with freeze_time("2024-07-02T06:00:00.000Z"):
+        with time_machine.travel("2024-07-02T06:00:00.000Z", tick=False):
             ExternalDataJob.objects.create(
                 team=self.team, pipeline=never_completed, status=ExternalDataJob.Status.RUNNING
             )
@@ -5833,7 +5833,7 @@ class TestExternalDataSource(APIBaseTest):
     def test_source_jobs_pagination(self):
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
-        with freeze_time("2024-07-01T12:00:00.000Z"):
+        with time_machine.travel("2024-07-01T12:00:00.000Z", tick=False):
             job1 = ExternalDataJob.objects.create(
                 team=self.team,
                 pipeline=source,
@@ -5855,7 +5855,7 @@ class TestExternalDataSource(APIBaseTest):
             assert data[0]["id"] == str(job1.pk)
 
         # Query newer jobs
-        with freeze_time("2024-07-01T18:00:00.000Z"):
+        with time_machine.travel("2024-07-01T18:00:00.000Z", tick=False):
             job2 = ExternalDataJob.objects.create(
                 team=self.team,
                 pipeline=source,
@@ -5877,7 +5877,7 @@ class TestExternalDataSource(APIBaseTest):
             assert data[0]["id"] == str(job2.pk)
 
         # Query older jobs
-        with freeze_time("2024-07-01T09:00:00.000Z"):
+        with time_machine.travel("2024-07-01T09:00:00.000Z", tick=False):
             job3 = ExternalDataJob.objects.create(
                 team=self.team,
                 pipeline=source,
@@ -11025,6 +11025,37 @@ class TestDisableCDC(APIBaseTest):
         non_cdc_schema.refresh_from_db()
         assert non_cdc_schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
         assert non_cdc_schema.should_sync is True
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        return_value=None,
+    )
+    def test_disable_cdc_clears_an_earlier_auto_disable(self, _cleanup) -> None:
+        # PostHog can halt a CDC schema before the user gives up on CDC. The halt must not
+        # survive their disable, or the failure digest keeps emailing them about a sync
+        # they switched off themselves.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+
+        halted_schema = ExternalDataSchema.objects.create(
+            name="cdc_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+        )
+        ExternalDataSchema.objects.filter(pk=halted_schema.pk).update(
+            should_sync=False,
+            status=ExternalDataSchema.Status.FAILED,
+            auto_disabled_at=timezone.now(),
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        assert response.status_code == 200, response.content
+
+        halted_schema.refresh_from_db()
+        assert halted_schema.auto_disabled_at is None
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.purge_buffer_prefix")
     def test_disable_cdc_requires_editor_on_every_table(self, mock_purge) -> None:

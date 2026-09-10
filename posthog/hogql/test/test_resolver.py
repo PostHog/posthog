@@ -3,7 +3,7 @@ from typing import Any, ClassVar, Optional, cast
 from uuid import UUID
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -454,7 +454,7 @@ class TestResolver(BaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_constant_type(self):
-        with freeze_time("2020-01-10 00:00:00"):
+        with time_machine.travel("2020-01-10 00:00:00", tick=False):
             expr = self._select(
                 "SELECT 1, 'boo', true, 1.1232, null, {date}, {datetime}, {uuid}, {array}, {array12}, {tuple}",
                 placeholders={

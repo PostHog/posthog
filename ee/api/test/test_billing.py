@@ -5,7 +5,7 @@ from typing import Any, cast, get_args
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from unittest import TestCase
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -269,7 +269,7 @@ def create_billing_products_response(**kwargs) -> dict[str, list[CustomerProduct
 
 class TestUnlicensedBillingAPI(APIBaseTest):
     @patch("ee.billing.billing_manager.http_session.get")
-    @freeze_time("2022-01-01")
+    @time_machine.travel("2022-01-01", tick=False)
     def test_billing_calls_the_service_without_token(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
@@ -319,7 +319,7 @@ class TestBillingAPI(APILicensedTest):
         assert res.json()["detail"] == "Billing is not supported for this license type"
 
     @patch("ee.billing.billing_manager.http_session.get")
-    @freeze_time("2022-01-01")
+    @time_machine.travel("2022-01-01", tick=False)
     def test_billing_calls_the_service_with_appropriate_token(self, mock_request):
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
@@ -653,7 +653,7 @@ class TestBillingAPI(APILicensedTest):
             "type": "validation_error",
         }
 
-    @freeze_time("2022-01-01T12:00:00Z")
+    @time_machine.travel("2022-01-01T12:00:00Z", tick=False)
     @patch("ee.billing.billing_manager.http_session.get")
     def test_license_is_updated_on_billing_load(self, mock_request):
         mock_request.return_value.status_code = 200
@@ -1192,21 +1192,21 @@ class TestBillingUsageRequestSerializer(TestCase):
         self.assertEqual(serializer.validated_data["start_date"], "2025-01-01")
         self.assertEqual(serializer.validated_data["end_date"], "2025-01-31")
 
-    @freeze_time("2025-02-15")
+    @time_machine.travel("2025-02-15", tick=False)
     def test_relative_dates(self):
         serializer = BillingUsageRequestSerializer(data={"start_date": "-7d", "end_date": "-1d"})
         self.assertTrue(serializer.is_valid(), serializer.errors)
         self.assertEqual(serializer.validated_data["start_date"], "2025-02-08")
         self.assertEqual(serializer.validated_data["end_date"], "2025-02-14")
 
-    @freeze_time("2025-02-15")
+    @time_machine.travel("2025-02-15", tick=False)
     def test_start_date_all_defaults_end_date_to_today(self):
         serializer = BillingUsageRequestSerializer(data={"start_date": "all"})
         self.assertTrue(serializer.is_valid(), serializer.errors)
         self.assertEqual(serializer.validated_data["start_date"], "2020-01-01")
         self.assertEqual(serializer.validated_data["end_date"], "2025-02-15")
 
-    @freeze_time("2025-02-15")
+    @time_machine.travel("2025-02-15", tick=False)
     def test_start_date_without_end_date_defaults_end_date_to_today(self):
         serializer = BillingUsageRequestSerializer(data={"start_date": "2025-01-01"})
         self.assertTrue(serializer.is_valid(), serializer.errors)
