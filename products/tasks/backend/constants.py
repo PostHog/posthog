@@ -142,6 +142,24 @@ def _decode_vm_sandbox_payload(payload: object) -> object:
     return payload
 
 
+def modal_sandbox_region_from_payload(payload: object, deployment: str | None) -> list[str] | None:
+    # Keyed by deployment so a value meant for EU can never move US compute.
+    payload = _decode_vm_sandbox_payload(payload)
+    if not isinstance(payload, dict):
+        return None
+    return validated_modal_regions(payload.get(deployment or ""))
+
+
+def validated_modal_regions(value: object) -> list[str] | None:
+    # An id Modal does not know would fail every create in the deployment, so drop the whole value.
+    regions = [value] if isinstance(value, str) else value
+    if not isinstance(regions, list) or not regions:
+        return None
+    if not all(isinstance(region, str) and region in MODAL_REGIONS for region in regions):
+        return None
+    return list(regions)
+
+
 def vm_sandbox_allowed_origin_products(payload: object) -> set[str]:
     """Origin products allowed on the Modal VM runtime, parsed from the flag's payload."""
     payload = _decode_vm_sandbox_payload(payload)

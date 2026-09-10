@@ -806,7 +806,7 @@ class ModalSandbox(AgentServerLaunchMixin):
 
             sandbox_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
 
-            region: str | list[str] = config.region or _get_modal_region()
+            region = config.region or _get_modal_region()
 
             create_kwargs: dict[str, object] = {
                 "app": app,

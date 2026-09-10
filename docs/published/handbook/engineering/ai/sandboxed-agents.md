@@ -288,12 +288,10 @@ which carries two origin allowlists and an optional default image:
 
 ### Region selection
 
-Each deployment pins its sandboxes to one Modal region (`MODAL_REGION_BY_DEPLOYMENT` in `modal_sandbox.py`: `us-east` for US, `eu-west` for EU).
-The `tasks-modal-sandbox-region` flag overrides that per deployment.
-Its JSON payload is keyed by `CLOUD_DEPLOYMENT`, for example `{"EU": "eu"}` or `{"EU": ["eu-west", "eu-north"]}`, so a value for one deployment cannot move another's compute.
-Values must be Modal region ids (`MODAL_REGIONS` in `constants.py`); a payload with an unknown id is ignored and the default region stays.
-Modal's broad regions (`eu`, `us`, `ap`) pool every narrow region under them and carry a lower price multiplier than a single narrow region, so prefer them when a narrow pool runs short of hosts.
-The decision is captured once per run in `TaskProcessingContext.modal_sandbox_region`, so provisioning retries stay in the same region, and the run log records the override.
+Each deployment pins its sandboxes to one Modal region (`MODAL_REGION_BY_DEPLOYMENT`: `us-east` for US, `eu-west` for EU).
+The `tasks-modal-sandbox-region` flag overrides that per deployment: its payload is keyed by `CLOUD_DEPLOYMENT`, for example `{"EU": "eu"}` or `{"EU": ["eu-west", "eu-north"]}`.
+Values must be Modal region ids (`MODAL_REGIONS`); an unknown id leaves the default in place.
+Modal's broad regions (`eu`, `us`, `ap`) pool the narrow ones under them at a lower price multiplier, so prefer them when a narrow pool runs short of hosts.
 
 #### The prebaked dev-stack image
 
