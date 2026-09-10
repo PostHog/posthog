@@ -494,6 +494,14 @@ def test_due_lists_entries_that_fail_check_in_the_requested_days(
     assert result.output.splitlines() == expected_lines
 
 
+def test_due_fails_on_malformed_file(runner: CliRunner, tmp_path: Path) -> None:
+    path = tmp_path / "q.json"
+    path.write_text("not json{")
+    result = cli(runner, path, "due", "--in-days", "1")
+    assert result.exit_code == 1
+    assert "invalid JSON" in result.output
+
+
 def test_repo_quarantine_file_is_valid(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(core, "today_utc", WALL_CLOCK_TODAY_UTC)
     assert core.QUARANTINE_PATH.name == ".test_quarantine.json"

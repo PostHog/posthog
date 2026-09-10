@@ -127,12 +127,12 @@ def list_entries(path: Path, as_json: bool) -> None:
 @click.pass_obj
 def check(path: Path) -> None:
     result = core.load(path)
-    violations, warnings = core.check(result, today=core.today_utc())
-    for message in warnings:
+    check_result = core.check(result, today=core.today_utc())
+    for message in check_result.warnings:
         click.secho(f"warning: {message}", fg="yellow", err=True)
-    for message in violations:
+    for message in check_result.violations:
         click.secho(f"error: {message}", fg="red", err=True)
-    if violations:
+    if check_result.violations:
         raise SystemExit(1)
     click.echo(f"{path.name} OK ({len(result.entries)} entries).")
 
@@ -152,9 +152,15 @@ def check(path: Path) -> None:
 )
 @click.pass_obj
 def due(path: Path, in_days: tuple[int, ...], max_chars: int | None) -> None:
+    result = core.load(path)
+    for message in result.errors:
+        click.secho(f"error: {message}", fg="red", err=True)
+    if result.errors:
+        raise SystemExit(1)
+
     today = core.today_utc()
     lines: list[str] = []
-    for entry in core.entries_failing_check_in(core.load(path).entries, today, in_days):
+    for entry in core.entries_failing_check_in(result.entries, today, in_days):
         quarantine_state = "ends" if core.is_active(entry, today) else "ended"
         lines.append(
             f"• `{entry.id}` ({entry.owner}): quarantine {quarantine_state} {entry.expires.isoformat()}, "

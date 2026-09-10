@@ -140,6 +140,12 @@ class LoadResult:
     extras: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class CheckResult:
+    violations: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
+
+
 def today_utc() -> date:
     return datetime.now(UTC).date()
 
@@ -347,8 +353,8 @@ def entries_failing_check_in(entries: list[Entry], today: date, days: tuple[int,
     return sorted((e for e in entries if (check_failure_date(e) - today).days in days), key=lambda e: e.id)
 
 
-def check(result: LoadResult, today: date) -> tuple[list[str], list[str]]:
-    """Lint a loaded quarantine file; returns (violations, warnings).
+def check(result: LoadResult, today: date) -> CheckResult:
+    """Lint a loaded quarantine file.
 
     Violations: load errors, duplicate ids, ``expires`` before ``added`` or
     more than ``MAX_QUARANTINE_DAYS`` after it, a future ``added`` (which
@@ -394,4 +400,4 @@ def check(result: LoadResult, today: date) -> tuple[list[str], list[str]]:
         if selector_problem is not None:
             violations.append(f"{label}: {selector_problem}")
 
-    return violations, warnings
+    return CheckResult(violations=tuple(violations), warnings=tuple(warnings))

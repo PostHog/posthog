@@ -51,10 +51,11 @@ jobs:
               if: github.event_name != 'pull_request'
               # Slack rejects a section block over 3000 characters.
               run: |
+                  delimiter="EOF_$(openssl rand -hex 16)"
                   {
-                      echo 'entries<<EOF'
+                      echo "entries<<$delimiter"
                       PYTHONPATH=tools/hogli-commands uv run --no-project --with click python -m hogli_commands.quarantine.cli due --in-days 7 --in-days 1 --max-chars 3000
-                      echo 'EOF'
+                      echo "$delimiter"
                   } >> "$GITHUB_OUTPUT"
 
             - name: Notify Slack
