@@ -364,6 +364,34 @@ class TestRunDetection(BaseTest):
 
         assert TicketPattern.objects.for_team(self.team.id).count() == 0
 
+    def test_baseline_refresh_learns_the_hourly_rate_over_the_whole_window(self):
+        for days_ago in (1, 2):
+            self._ticket(
+                "Cannot login to the dashboard",
+                "user@company.example",
+                created_at=self.now - timedelta(days=days_ago),
+            )
+
+        refresh_baselines(self.team, now=self.now, sample_window_days=30)
+
+        baseline = TicketTopicBaseline.objects.for_team(self.team.id).get(topic="login")
+        assert baseline.distinct_days_seen == 2
+        assert baseline.mean_per_hour == 2 / (30 * 24)
+
+    def test_baseline_refresh_forgets_a_topic_that_left_the_window(self):
+        with team_scope(self.team.id):
+            TicketTopicBaseline.objects.create(
+                team=self.team,
+                topic="printer",
+                mean_per_hour=1.0,
+                distinct_days_seen=4,
+                refreshed_at=self.now - timedelta(days=1),
+            )
+
+        refresh_baselines(self.team, now=self.now, sample_window_days=30)
+
+        assert not TicketTopicBaseline.objects.for_team(self.team.id).filter(topic="printer").exists()
+
     def test_baseline_refresh_relearns_a_topic_that_only_survives_on_feedback(self):
         # The delete spares a topic with feedback, so nothing else would ever revisit its rate.
         with team_scope(self.team.id):

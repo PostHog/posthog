@@ -9,7 +9,7 @@ guard and the learned per-topic baseline only moves the bar up or down from ther
 from __future__ import annotations
 
 import re
-import statistics
+import math
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from datetime import date, datetime, timedelta
@@ -46,6 +46,9 @@ MAX_EVIDENCE_TICKETS = 200
 # One IN clause per chunk of subject-less tickets, matching the batch size the billing enrichment
 # uses on the same comment index.
 COMMENT_ID_CHUNK_SIZE = 1000
+# Baseline rows go out in batches: psycopg inlines every value, so one statement for a whole
+# team's topics is a multi-megabyte query crossing the connection pooler.
+BASELINE_WRITE_BATCH_SIZE = 1000
 MAX_TOPIC_LENGTH = 200
 MIN_TOKEN_LENGTH = 4
 # What a ticket is about is in its opening lines. Past this the text is a pasted log or a quoted
@@ -475,30 +478,37 @@ def _refresh_baselines(team: Team, *, now: datetime, sample_window_days: int) ->
             per_topic_days[topic].add(item.created_at.date())
 
     total_hours = max(int((now - since).total_seconds() // 3600), 1)
+    # Only rows a human acted on are worth reading back: every other topic starts from zero anyway.
+    # A topic carrying feedback survives the delete below, so it is relearned here even when the
+    # sample no longer holds it. Left out, its rate and day count would keep describing a window
+    # that has passed, and nothing would ever correct them.
     feedback = {
         b.topic: (b.dismiss_count, b.confirm_count)
-        for b in TicketTopicBaseline.objects.for_team(team.id).only("topic", "dismiss_count", "confirm_count")
+        for b in TicketTopicBaseline.objects.for_team(team.id)
+        .exclude(dismiss_count=0, confirm_count=0)
+        .only("topic", "dismiss_count", "confirm_count")
     }
-    # A topic carrying human feedback survives the delete below, so it is relearned here even when
-    # the sample no longer holds it. Left out, its rate and day count would keep describing a window
-    # that has passed, and nothing would ever correct them.
-    with_feedback = {topic for topic, (dismissed, confirmed) in feedback.items() if dismissed or confirmed}
     rows: list[TicketTopicBaseline] = []
-    for topic in sorted(set(per_topic_hours) | with_feedback):
+    for topic in sorted(set(per_topic_hours) | set(feedback)):
         hours = per_topic_hours.get(topic, {})
         days = per_topic_days.get(topic, set())
         # Only topics seen on more than one day carry a rate worth learning; one-off terms stay unknown
         # so the default bar applies.
-        if len(days) < 2 and topic not in with_feedback:
+        if len(days) < 2 and topic not in feedback:
             continue
-        counts = list(hours.values()) + [0] * (total_hours - len(hours))
+        # Every hour the topic missed counts as a zero. Zeros add nothing to either sum, so the
+        # rate and the spread come from the hours it did appear in rather than from a list with
+        # one entry per hour of the window.
+        counts = hours.values()
+        mean = sum(counts) / total_hours
+        variance = sum(count * count for count in counts) / total_hours - mean * mean
         dismissed, confirmed = feedback.get(topic, (0, 0))
         rows.append(
             TicketTopicBaseline(
                 team=team,
                 topic=topic,
-                mean_per_hour=statistics.fmean(counts),
-                spread=statistics.pstdev(counts) if len(counts) > 1 else 0.0,
+                mean_per_hour=mean,
+                spread=math.sqrt(max(variance, 0.0)),
                 distinct_days_seen=len(days),
                 dismiss_count=dismissed,
                 confirm_count=confirmed,
@@ -507,13 +517,17 @@ def _refresh_baselines(team: Team, *, now: datetime, sample_window_days: int) ->
             )
         )
     with transaction.atomic():
-        TicketTopicBaseline.objects.for_team(team.id).exclude(topic__in=[r.topic for r in rows]).filter(
-            dismiss_count=0, confirm_count=0
-        ).delete()
         TicketTopicBaseline.objects.bulk_create(
             rows,
             update_conflicts=True,
             update_fields=["mean_per_hour", "spread", "distinct_days_seen", "sample_window_days", "refreshed_at"],
             unique_fields=["team", "topic"],
+            batch_size=BASELINE_WRITE_BATCH_SIZE,
         )
+        # Everything relearned above carries this run's timestamp, so an older one marks a topic
+        # that has dropped out of the window. Comparing on that keeps the team's whole topic list
+        # out of the delete statement.
+        TicketTopicBaseline.objects.for_team(team.id).filter(
+            refreshed_at__lt=now, dismiss_count=0, confirm_count=0
+        ).delete()
     return len(rows)
