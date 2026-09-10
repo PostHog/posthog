@@ -102,19 +102,61 @@ describe('mcpSessionsLogic', () => {
         })
 
         // Without this the list narrows but the open session's detail panel keeps showing calls
-        // the list no longer counts.
-        it("reloads the selected session's calls with the same filters", async () => {
+        // the list no longer counts. The reload has to run after the list resolves: the filters
+        // move the session's aggregated session_start, which bounds the detail scan.
+        it("reloads the selected session's calls once the refreshed session row arrives", async () => {
+            listMock.mockResolvedValue({
+                results: [{ session_id: 'A', session_start: '2026-01-01T00:05:00Z' }],
+                has_next: false,
+            })
             toolCallsMock.mockResolvedValue({ results: [toolCall('a1')], has_next: false })
             await expectLogic(logic, () => {
                 logic.actions.selectSession('A')
             }).toDispatchActions(['loadToolCallsSuccess'])
+            listMock.mockResolvedValue({
+                results: [{ session_id: 'A', session_start: '2026-01-01T00:09:00Z' }],
+                has_next: false,
+            })
             toolCallsMock.mockClear()
 
             await expectLogic(logic, () => {
                 mcpAnalyticsFiltersLogic.actions.setPropertyFilters([TOOL_FILTER])
+            }).toDispatchActions(['loadSessionsSuccess', 'loadToolCalls', 'loadToolCallsSuccess'])
+
+            expect(toolCallsMock.mock.calls[0][2]).toMatchObject({
+                properties: JSON.stringify([TOOL_FILTER]),
+                date_from: '2026-01-01T00:09:00Z',
+            })
+        })
+
+        // The session stays selected across a filter change, so the session-id guard alone lets an
+        // in-flight "load more" put the pre-filter page back on screen.
+        it('drops a load-more page fetched under the previous filters', async () => {
+            listMock.mockResolvedValue({
+                results: [{ session_id: 'A', session_start: '2026-01-01T00:05:00Z' }],
+                has_next: false,
+            })
+            toolCallsMock.mockResolvedValueOnce({ results: [toolCall('a1')], has_next: true })
+            await expectLogic(logic, () => {
+                logic.actions.selectSession('A')
             }).toDispatchActions(['loadToolCallsSuccess'])
 
-            expect(toolCallsMock.mock.calls[0][2]).toMatchObject({ properties: JSON.stringify([TOOL_FILTER]) })
+            let resolveMore: (value: any) => void = () => {}
+            toolCallsMock.mockImplementationOnce(() => new Promise((resolve) => (resolveMore = resolve)))
+            await expectLogic(logic, () => {
+                logic.actions.loadMoreToolCalls()
+            }).toDispatchActions(['loadMoreToolCalls'])
+
+            toolCallsMock.mockResolvedValue({ results: [toolCall('filtered')], has_next: false })
+            await expectLogic(logic, () => {
+                mcpAnalyticsFiltersLogic.actions.setPropertyFilters([TOOL_FILTER])
+            }).toDispatchActions(['loadToolCallsSuccess'])
+
+            await expectLogic(logic, () => {
+                resolveMore({ results: [toolCall('a2')], has_next: false })
+            }).toDispatchActions(['loadMoreToolCallsSuccess'])
+
+            expect(logic.values.selectedSessionToolCalls.calls.map((c) => c.event_id)).toEqual(['filtered'])
         })
     })
 })
