@@ -4,67 +4,21 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from dataclasses import dataclass
-from typing import Any, ClassVar, NotRequired, TypedDict
+from typing import Any, ClassVar
 from urllib.parse import urlsplit
 
-from django.db import models
-
-
-class DestinationType(models.TextChoices):
-    SLACK = "slack", "Slack"
-    DISCORD = "discord", "Discord"
-    WEBHOOK = "webhook", "Webhook"
-    TEAMS = "teams", "Microsoft Teams"
-
-
-class AlertDestinationData(TypedDict):
-    type: DestinationType
-    slack_workspace_id: NotRequired[int]
-    slack_channel_id: NotRequired[str]
-    slack_channel_name: NotRequired[str]
-    webhook_url: NotRequired[str]
-
-
-class AlertDestinationValidationError(Exception):
-    def __init__(self, message: str, *, field: str | None = None) -> None:
-        self.message = message
-        self.field = field
-        super().__init__(message)
-
+from products.alerts.backend.facade.contracts import (
+    AlertDestinationAction,
+    AlertDestinationConfig,
+    AlertDestinationData,
+    AlertDestinationValidationError,
+    DestinationType,
+    EventKindSpec,
+)
 
 WEBHOOK_HEADERS = {"Content-Type": "application/json", "X-PostHog-Webhook-Version": "1"}
 
 _HOG_FUNCTION_NAME_MAX_LEN = 400
-
-
-@dataclass(frozen=True)
-class AlertDestinationConfig:
-    team: Any
-    payload: dict[str, Any]
-
-
-@dataclass(frozen=True)
-class AlertDestinationAction:
-    url: str
-    label: str
-
-
-@dataclass(frozen=True)
-class EventKindSpec:
-    event_id: str
-    display_kind: str
-    header: str
-    details: tuple[tuple[str, str], ...]
-    primary_action_url: str
-    primary_action_label: str
-    webhook_body: dict[str, Any]
-    product_label: str = "alert"
-    intro_lines: tuple[str, ...] = ()
-    additional_actions: tuple[AlertDestinationAction, ...] = ()
-
-    def destination_description(self, alert_name: str) -> str:
-        return f'Sends {self.display_kind} notifications for {self.product_label} "{alert_name}".'
 
 
 def clip_hog_function_name(name: str) -> str:
@@ -338,7 +292,6 @@ def validate_destination_data(
 
 def build_alert_destination_config(
     *,
-    team: Any,
     spec: EventKindSpec,
     alert_id: str,
     alert_name: str,
@@ -350,7 +303,6 @@ def build_alert_destination_config(
     destination_name = destination_spec.build_name(data)
 
     return AlertDestinationConfig(
-        team=team,
         payload={
             "type": "internal_destination",
             "enabled": True,

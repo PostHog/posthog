@@ -36,12 +36,12 @@ This skill covers two jobs:
 Both paths must preserve these rules:
 
 1. **Evaluation stays domain-specific.** Products decide whether their data breached. The shared lifecycle consumes normalized `CheckInput`.
-2. **One lifecycle machine.** Reuse `products/alerts/backend/state_machine.py`; express real product differences through `AlertPolicy`, not forks.
+2. **One lifecycle machine.** Reuse `products/alerts/backend/facade/lifecycle.py`; express real product differences through `AlertPolicy`, not forks.
 3. **One product mutator.** Every persisted `state` or `consecutive_failures` write goes through the product adapter's `apply_outcome`.
 4. **Dispatch and persistence agree.** For HogFunction notifications, do not persist a notification-dependent transition until the internal-event producer acknowledges the event. Restore the pre-check outcome when production fails. This acknowledgement does not confirm downstream destination execution.
 5. **Destinations are allowlisted.** Shared support does not automatically expose a destination in every product.
-6. **Scheduling math is shared, eligibility is product-owned.** Reuse fixed-cadence, calendar-anchor, timezone, and schedule-restriction helpers from `products/alerts/backend/scheduling.py`. Keep model-specific due predicates and persistence with the adopter.
-7. **Shared code has no product branches.** The lifecycle module stays pure Python. Reusable Django behavior belongs elsewhere in `products/alerts/backend/`.
+6. **Scheduling math is shared, eligibility is product-owned.** Reuse fixed-cadence, calendar-anchor, timezone, and schedule-restriction helpers from `products/alerts/backend/facade/scheduling.py`. Keep model-specific due predicates and persistence with the adopter.
+7. **Shared code has no product branches.** The lifecycle module stays pure Python. Reusable Django behavior belongs behind `products/alerts/backend/facade/`. Implementation that several facade modules share goes in `products/alerts/backend/logic/`. Consumers import the facade. The tach interface also exposes the DRF presentation surface and, until the core pipeline moves, a named legacy set (see [architecture.md](references/architecture.md)).
 8. **Frontend data is normalized at the product boundary.** Shared editor components render normalized definitions, destinations, advanced options, schedules, and history. Product API calls, payloads, and evaluation-specific fields stay in the product adapter.
 9. **Defaults remain backward compatible.** New platform options must preserve existing adopters until they explicitly opt in.
 10. **Configuration, routing, and delivery are one contract.** A supported destination must persist, remain visible, be selected when its alert fires, and reach its delivery worker. Do not test only one of these steps.

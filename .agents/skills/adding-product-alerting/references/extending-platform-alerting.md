@@ -4,16 +4,16 @@ Use this path when adding a reusable alert capability, option, or advanced behav
 
 ## 1. Classify the extension
 
-| Capability                                                                       | Primary source of truth                                              | Also inspect                                                                           |
-| -------------------------------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Lifecycle state, notification action, control-plane transition, or policy option | `products/alerts/backend/state_machine.py`                           | Shared decision tests, every adopter policy and adapter, semgrep rule                  |
-| Fixed-cadence, calendar, timezone, or schedule-restriction behavior              | `products/alerts/backend/scheduling.py`                              | Product wrappers, create/update paths, due queries, scheduler interval, DST boundaries |
-| Destination type or destination-wide option                                      | `products/alerts/backend/destination_configs.py`                     | HogFunction templates/sub-templates, facade exports, product allowlists, `AlertWizard` |
-| HogFunction persistence or delivery semantics                                    | `products/alerts/backend/destinations.py`                            | Worker batching, rollback, delivery metrics, destination tests                         |
-| Email transport capability                                                       | `products/alerts/backend/email_notifications.py`                     | Facade export, campaign-key semantics, adopter templates and tests                     |
-| Shared insight query evaluation                                                  | `products/alerts/backend/evaluation/`                                | Alert config schema, API validation, query-kind gates, generated API types             |
-| Shared alert model or API option                                                 | `products/alerts/backend/models/` and `products/alerts/backend/api/` | Migrations, OpenAPI, frontend logic, MCP schema                                        |
-| Wizard trigger, destination, or advanced creation option                         | `frontend/src/lib/components/Alerting/AlertWizard/`                  | HogFunction sub-template compatibility, adopter props, kea tests                       |
+| Capability                                                                       | Primary source of truth                                                             | Also inspect                                                                           |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Lifecycle state, notification action, control-plane transition, or policy option | `products/alerts/backend/facade/lifecycle.py`                                       | Shared decision tests, every adopter policy and adapter, semgrep rule                  |
+| Fixed-cadence, calendar, timezone, or schedule-restriction behavior              | `products/alerts/backend/facade/scheduling.py`                                      | Product wrappers, create/update paths, due queries, scheduler interval, DST boundaries |
+| Destination type or destination-wide option                                      | `products/alerts/backend/logic/destination_configs.py`                              | HogFunction templates/sub-templates, facade exports, product allowlists, `AlertWizard` |
+| HogFunction persistence or delivery semantics                                    | `products/alerts/backend/logic/destinations.py`                                     | Worker batching, rollback, delivery metrics, destination tests                         |
+| Email transport capability                                                       | `products/alerts/backend/facade/email.py`                                           | Campaign-key semantics, adopter templates and tests                                    |
+| Shared insight query evaluation                                                  | `products/alerts/backend/evaluation/`                                               | Alert config schema, API validation, query-kind gates, generated API types             |
+| Shared alert model or API option                                                 | `products/alerts/backend/models/` and `products/alerts/backend/presentation/views/` | Migrations, OpenAPI, frontend logic, MCP schema                                        |
+| Wizard trigger, destination, or advanced creation option                         | `frontend/src/lib/components/Alerting/AlertWizard/`                                 | HogFunction sub-template compatibility, adopter props, kea tests                       |
 
 If the change crosses rows, update each row deliberately. Do not hide a cross-layer contract in one product adapter.
 
@@ -21,7 +21,7 @@ If the change crosses rows, update each row deliberately. Do not hide a cross-la
 
 ### Lifecycle
 
-- Keep `products/alerts/backend/state_machine.py` free of Django and product-model imports.
+- Keep `products/alerts/backend/facade/lifecycle.py` free of Django and product-model imports.
 - Add policy fields only for observed semantic differences. Give them defaults that preserve every existing adopter.
 - Prefer a new pure transition helper over direct model mutation.
 - Update the decision table for firing, resolving, snoozing, erroring, breaking, cooldown, and notification edges affected by the change.
@@ -42,7 +42,7 @@ If the change crosses rows, update each row deliberately. Do not hide a cross-la
 
 A new destination type normally requires all of these:
 
-1. Add the enum value, HogFunction template ID, and required fields in `products/alerts/backend/destination_configs.py`.
+1. Add the enum value in `products/alerts/backend/facade/contracts.py`, and the HogFunction template ID and required fields in `products/alerts/backend/logic/destination_configs.py`.
 2. Extend validation and `build_alert_destination_config(...)` without changing existing payloads.
 3. Add or update the transport template under `posthog/cdp/templates/<destination>/template_<destination>.py` and its adjacent tests.
 4. Add alert-specific template compatibility in `frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts`.
@@ -106,8 +106,8 @@ Read `frontend/src/AGENTS.md` before changing the wizard.
 
 ## 3. Expose the shared contract
 
-- Export product-facing Django helpers through `products.alerts.backend.facade.api`.
-- Keep worker-only delivery primitives in `products.alerts.backend.destinations` when callers need their detailed result types.
+- Export product-facing Django helpers as real functions on the matching facade module: `facade.destinations`, `facade.email`, `facade.delivery_slo`, or `facade.api`. A facade module must never be a list of names re-exported from an internal one.
+- Put the types those functions take and return in `products.alerts.backend.facade.contracts`, and keep them free of Django and DRF.
 - Update type annotations and help text so OpenAPI and MCP schemas remain useful.
 - Update this skill when the ownership boundary, public helper set, or adoption workflow changes.
 

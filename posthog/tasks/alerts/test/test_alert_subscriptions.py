@@ -9,7 +9,6 @@ from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.alerts.utils import send_notifications_for_breaches, send_notifications_for_disabled
-from posthog.tasks.test.utils_email_tests import mock_email_messages
 
 from products.alerts.backend.models import AlertConfiguration, AlertSubscription
 
@@ -65,19 +64,16 @@ class TestAlertSubscriptionOrgMembership(APIBaseTest):
         assert not AlertSubscription.objects.filter(alert_configuration=alert, user=self.other_user).exists()
         assert AlertSubscription.objects.filter(alert_configuration=alert, user=self.user).exists()
 
-    @patch("products.alerts.backend.email_notifications.EmailMessage")
-    def test_send_notifications_excludes_removed_members(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
+    @patch("posthog.tasks.alerts.utils.send_alert_email")
+    def test_send_notifications_excludes_removed_members(self, mock_send_alert_email: MagicMock) -> None:
         alert = AlertConfiguration.objects.get(pk=self.alert["id"])
 
         OrganizationMembership.objects.filter(user=self.other_user, organization=self.organization).delete()
 
         send_notifications_for_breaches(alert, ["test breach"], idempotency_key="test-excludes-removed-members")
 
-        assert len(mocked_email_messages) == 1
-        email = mocked_email_messages[0]
-        assert len(email.to) == 1
-        assert email.to[0]["recipient"] == "user1@posthog.com"
+        mock_send_alert_email.assert_called_once()
+        assert list(mock_send_alert_email.call_args.kwargs["recipients"]) == ["user1@posthog.com"]
 
 
 @freeze_time("2024-06-02T08:55:00.000Z")
@@ -180,30 +176,30 @@ class TestAlertEmailNotifications(APIBaseTest):
             },
         ).json()
 
-    @patch("products.alerts.backend.email_notifications.EmailMessage")
-    def test_send_emails(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
+    @patch("posthog.tasks.alerts.utils.send_alert_email")
+    def test_send_emails(self, mock_send_alert_email: MagicMock) -> None:
         alert = AlertConfiguration.objects.get(pk=self.alert["id"])
         send_notifications_for_breaches(
             alert, ["first anomaly description", "second anomaly description"], idempotency_key="test-send-emails"
         )
 
-        assert len(mocked_email_messages) == 1
-        email = mocked_email_messages[0]
-        assert len(email.to) == 1
-        assert email.to[0]["recipient"] == "user1@posthog.com"
-        assert "first anomaly description" in email.html_body
-        assert "second anomaly description" in email.html_body
+        mock_send_alert_email.assert_called_once()
+        kwargs = mock_send_alert_email.call_args.kwargs
+        assert list(kwargs["recipients"]) == ["user1@posthog.com"]
+        assert kwargs["template_name"] == "alert_check_firing"
+        assert kwargs["template_context"]["match_descriptions"] == [
+            "first anomaly description",
+            "second anomaly description",
+        ]
 
-    @patch("products.alerts.backend.email_notifications.EmailMessage")
-    def test_send_disabled_email(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
+    @patch("posthog.tasks.alerts.utils.send_alert_email")
+    def test_send_disabled_email(self, mock_send_alert_email: MagicMock) -> None:
         alert = AlertConfiguration.objects.get(pk=self.alert["id"])
 
         send_notifications_for_disabled(alert, "Insight query is invalid", [self.user.email])
 
-        assert len(mocked_email_messages) == 1
-        email = mocked_email_messages[0]
-        assert email.template_name == "alert_disabled"
-        assert email.to[0]["recipient"] == "user1@posthog.com"
-        assert "Insight query is invalid" in email.html_body
+        mock_send_alert_email.assert_called_once()
+        kwargs = mock_send_alert_email.call_args.kwargs
+        assert kwargs["template_name"] == "alert_disabled"
+        assert list(kwargs["recipients"]) == ["user1@posthog.com"]
+        assert kwargs["template_context"]["alert_error"] == "Insight query is invalid"

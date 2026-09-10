@@ -19,7 +19,7 @@ from posthog.temporal.ai.anomaly_investigation.workflow import (
     investigate_anomaly_activity,
 )
 
-from products.alerts.backend.destinations import AlertDelivery
+from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.models.alert import (
     AlertCheck,
     AlertConfiguration,

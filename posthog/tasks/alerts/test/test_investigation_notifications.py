@@ -14,7 +14,7 @@ from posthog.tasks.alerts.investigation_notifications import (
     run_investigation_notification_safety_net,
 )
 
-from products.alerts.backend.destinations import AlertDelivery
+from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.product_analytics.backend.facade.models import Insight
 

@@ -1,4 +1,9 @@
-"""Pydantic OpenAPI types for alert quiet hours (schedule_restriction JSONField)."""
+"""Pydantic OpenAPI types for alert quiet hours (schedule_restriction JSONField).
+
+Adopter products reuse them to describe the same JSON field on their own alert APIs.
+They carry drf-spectacular meaning rather than data a consumer reads, so they sit on the
+presentation surface, not in the facade.
+"""
 
 from __future__ import annotations
 

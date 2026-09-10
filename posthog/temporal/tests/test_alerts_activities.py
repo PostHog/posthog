@@ -54,9 +54,9 @@ from posthog.temporal.alerts.types import (
     SkipReason,
 )
 
-from products.alerts.backend.destinations import AlertDelivery
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
+from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.facade.models import Insight
 
@@ -615,7 +615,7 @@ class TestNotifyAlert:
 
         with (
             patch("posthog.slo.events.posthoganalytics"),
-            patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US"),
+            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
             patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[]),
             patch("posthog.tasks.alerts.utils.send_notifications_for_errors") as mock_errors,
         ):
@@ -639,7 +639,7 @@ class TestNotifyAlert:
 
         with (
             patch("posthog.slo.events.posthoganalytics") as mock_slo_analytics,
-            patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US"),
+            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
                 return_value=[_email_delivery("alice@posthog.com")],
@@ -870,7 +870,7 @@ class TestNotifyAlert:
 
         with (
             patch("posthog.slo.events.posthoganalytics") as mock_slo_analytics,
-            patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US"),
+            patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US"),
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
                 side_effect=RuntimeError("SMTP unavailable"),

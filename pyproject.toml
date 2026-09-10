@@ -566,6 +566,7 @@ ignore_imports = [
     "products.alerts.backend.presentation.views.alert -> products.alerts.backend.evaluation.validation",
     "products.alerts.backend.presentation.views.alert -> products.alerts.backend.insight_alert_state_machine",
     "products.alerts.backend.presentation.views.alert -> products.alerts.backend.models.alert",
+    "products.alerts.backend.presentation.views.insight_alerts -> products.alerts.backend.models.alert",
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.logic",
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.models",
     "products.mcp_analytics.backend.presentation.serializers -> products.mcp_analytics.backend.models",
@@ -804,8 +805,6 @@ allow_indirect_imports = true
 ignore_imports = [
     # TODO: existing violations — move the presentation-shaped code out of the facade, or the
     # facade-shaped code out of presentation, and drop the line
-    "products.alerts.backend.facade.api -> products.alerts.backend.presentation.views.alert",
-    "products.alerts.backend.facade.api -> products.alerts.backend.presentation.views.alert_schedule_restriction",
     "products.managed_warehouse.backend.facade.api -> products.managed_warehouse.backend.presentation.views",
     "products.stamphog.backend.facade.webhooks -> products.stamphog.backend.presentation.webhooks",
     "products.tasks.backend.facade.api -> products.tasks.backend.presentation.serializers",

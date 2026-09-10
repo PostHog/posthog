@@ -1,3 +1,7 @@
+"""Facade for alert email notifications."""
+
+from __future__ import annotations
+
 from collections.abc import Collection
 
 from posthog.email import EmailMessage
@@ -11,6 +15,7 @@ def send_alert_email(
     template_name: str,
     template_context: dict[str, object],
 ) -> None:
+    """Send one alert email to every recipient."""
     message = EmailMessage(
         campaign_key=campaign_key,
         subject=subject,
