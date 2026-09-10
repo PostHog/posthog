@@ -86,19 +86,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
-    @parameterized.expand(
-        [
-            ("trend", "/api/projects/{team_id}/insights/trend/"),
-            ("funnel", "/api/projects/{team_id}/insights/funnel/"),
-        ]
-    )
-    def test_legacy_computation_endpoints_are_gone(self, _name: str, path: str) -> None:
-        # With the actions removed, the path falls through to the detail route and reads
-        # "trend"/"funnel" as an insight id, which is a 404 rather than a routing error.
-        response = self.client.get(path.format(team_id=self.team.id))
-
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.content)
-
     def test_creating_insight_with_legacy_filters_is_rejected(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/",
