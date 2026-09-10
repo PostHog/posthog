@@ -11,7 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { McpDateFilter } from './components/McpDateFilter'
 import { ActivityChart } from './dashboard/ActivityChart'
-import { HarnessDonut } from './dashboard/HarnessDonut'
+import { HarnessBarChart } from './dashboard/HarnessBarChart'
 import { KpiTiles } from './dashboard/KpiTiles'
 import { NotableSessionsTable } from './dashboard/NotableSessionsTable'
 import { ToolErrorRateChart } from './dashboard/ToolErrorRateChart'
@@ -113,7 +113,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                                 incompleteTail={activityIncompleteTail}
                             />
                         </div>
-                        <HarnessDonut rows={harnessRows} loading={harnessRowsLoading} theme={theme} />
+                        <HarnessBarChart rows={harnessRows} loading={harnessRowsLoading} theme={theme} />
                     </div>
                     <div className="grid grid-cols-1 gap-[22px] lg:grid-cols-2">
                         <ToolErrorRateChart rows={toolRows} loading={toolRowsLoading} theme={theme} />
