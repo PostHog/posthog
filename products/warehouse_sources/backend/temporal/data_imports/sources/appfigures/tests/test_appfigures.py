@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures import appfigures
@@ -206,7 +206,7 @@ class TestIterPaged:
 
 
 class TestIterReport:
-    @freeze_time("2024-02-15")
+    @time_machine.travel("2024-02-15", tick=False)
     def test_windows_date_range_into_chunks(self):
         body_by_window: dict[str, dict] = {
             "2024-01-01": {"2024-01-01": {"downloads": 1}},
@@ -235,7 +235,7 @@ class TestIterReport:
         # State saved after the first window, pointing at the next window's start.
         manager.save_state.assert_called_once_with(AppfiguresResumeConfig(window_start="2024-01-31"))
 
-    @freeze_time("2024-02-15")
+    @time_machine.travel("2024-02-15", tick=False)
     def test_report_request_sets_group_by_and_granularity(self):
         with mock.patch(f"{_MODULE}._fetch", return_value={}) as fetch:
             list(
@@ -252,7 +252,7 @@ class TestIterReport:
         assert params["group_by"] == "dates"
         assert params["granularity"] == "daily"
 
-    @freeze_time("2024-02-15")
+    @time_machine.travel("2024-02-15", tick=False)
     def test_resume_starts_from_saved_window(self):
         with mock.patch(f"{_MODULE}._fetch", return_value={}) as fetch:
             list(
@@ -352,7 +352,7 @@ class TestFlattenRanks:
 
 
 class TestIterRanks:
-    @freeze_time("2024-02-15")
+    @time_machine.travel("2024-02-15", tick=False)
     def test_fans_out_over_product_chunks_and_yields_dates_ascending(self):
         products = {str(index): {"id": index, "type": "app"} for index in range(1, 4)}
         # An in-app purchase never holds a store category rank, so it must not reach the /ranks path.
@@ -403,7 +403,7 @@ class TestIterRanks:
         assert [batch[0]["date"] for batch in batches] == ["2024-02-14", "2024-02-15"]
         assert [sorted(row["product_id"] for row in batch) for batch in batches] == [[1, 2, 3], [1, 2, 3]]
 
-    @freeze_time("2024-02-15")
+    @time_machine.travel("2024-02-15", tick=False)
     def test_walks_date_windows_and_saves_state_after_each(self):
         windows: list[tuple[str, str]] = []
 
@@ -432,7 +432,7 @@ class TestIterRanks:
         assert windows == [("2024-01-01", "2024-01-30"), ("2024-01-31", "2024-02-15")]
         manager.save_state.assert_called_once_with(AppfiguresResumeConfig(window_start="2024-01-31"))
 
-    @freeze_time("2024-02-15")
+    @time_machine.travel("2024-02-15", tick=False)
     def test_resume_starts_from_saved_window(self):
         starts: list[str] = []
 
