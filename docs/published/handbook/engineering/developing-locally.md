@@ -219,6 +219,11 @@ If you see `Error while fetching server API version: 500 Server Error for http+d
 **Port conflicts**
 `hogli start` automatically cleans up orphaned PostHog processes before launching, which resolves most port conflicts. To skip this, set `HOGLI_SKIP_ZOMBIE_CHECK=1`. If you still see a port binding error for 5432, you likely have Postgres running locally. Use `lsof -i :5432` to find the process, then `sudo service postgresql stop` to stop it. You may also see errors like `role "posthog" does not exist`, which could indicate that a local PostgreSQL instance is being used instead of the expected containerized one.
 
+For manual cleanup, preview the targets with `hogli doctor:zombies --dry-run`, then run `hogli doctor:zombies` to select processes to stop.
+Default cleanup preserves dev jobs owned by live Codex sessions, phrocs (including detached stacks), and recognized terminals such as Warp.
+Use `--all --dry-run` to preview cleanup that also includes managed dev jobs.
+Even with `--all`, Codex itself, its Node launchers and runtime helpers across all sessions, and the cleanup command's ancestors stay excluded.
+
 **GeoLite database missing**
 The feature-flags container needs the GeoLite database in `/share`. If it's missing, run `./bin/download-mmdb` and then `chmod 0755 ./share/GeoLite2-City.mmdb`.
 

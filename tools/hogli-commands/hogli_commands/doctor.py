@@ -7,6 +7,7 @@ import enum
 import json
 import time
 import fcntl
+import shlex
 import select
 import shutil
 import signal
@@ -15,7 +16,7 @@ import platform
 import tempfile
 import importlib
 import subprocess
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -980,7 +981,7 @@ def _format_size(bytes_size: float) -> str:
 # ---------------------------------------------------------------------------
 
 # Executable basenames that should never be reported as PostHog dev processes.
-# Matched against the first token's basename only (not the full args string)
+# Matched against the executable's basename only (not the full args string)
 # to avoid false positives from directory names like "/Users/x/code/github/...".
 _EXCLUDED_EXECUTABLES: frozenset[str] = frozenset(
     {
@@ -1038,7 +1039,9 @@ class DevProcess:
 )
 @click.option("--dry-run", is_flag=True, help="Show what would be killed without killing")
 @click.option("--yes", "-y", is_flag=True, help="Auto-confirm kill of all orphaned processes")
-@click.option("--all", "include_all", is_flag=True, help="Include processes under an active phrocs, not just orphans")
+@click.option(
+    "--all", "include_all", is_flag=True, help="Include managed dev processes; Codex infrastructure stays excluded"
+)
 def doctor_zombies(dry_run: bool, yes: bool, include_all: bool) -> None:
     """Find and kill orphaned PostHog dev processes left behind after an unclean shutdown."""
 
@@ -1134,8 +1137,10 @@ def _scan_posthog_processes(repo_root: Path) -> list[DevProcess]:
 
     # Build a full PID→(PPID, args) map for ancestor lookups
     all_procs: dict[int, tuple[int, str]] = {pid: (ppid, args) for pid, ppid, _, _, _, args in parsed}
+    executables = _get_process_executables()
+    codex_pids = _codex_infrastructure_pids(all_procs, executables)
 
-    own_tree = _get_own_process_tree()
+    own_tree = _get_own_process_tree(all_procs)
     repo_str = str(repo_root)
     repo_prefix = repo_str + "/"
 
@@ -1147,11 +1152,12 @@ def _scan_posthog_processes(repo_root: Path) -> list[DevProcess]:
     cwd_pids: list[int] = []
     for entry in parsed:
         pid, _, _, _, _, args = entry
-        if pid in own_tree or _is_excluded(args):
+        executable = executables.get(pid) or _command_executable(args)
+        if pid in own_tree or pid in codex_pids or _is_excluded(args, executable):
             continue
         if _matches_repo_path(args, repo_str, repo_prefix):
             candidates.append((entry, True))
-        elif _has_known_executable(args):
+        elif _has_known_executable(executable):
             candidates.append((entry, False))
             cwd_pids.append(pid)
 
@@ -1166,9 +1172,9 @@ def _scan_posthog_processes(repo_root: Path) -> list[DevProcess]:
             if cwd is None or not (cwd == repo_str or cwd.startswith(repo_prefix)):
                 continue
 
-        name = _extract_process_name(args)
+        name = Path(executables.get(pid) or _command_executable(args)).name
         category = _categorize_process(args)
-        is_orphan, manager = _resolve_orphan_status(pid, all_procs)
+        is_orphan, manager = _resolve_orphan_status(pid, all_procs, executables, codex_pids)
 
         processes.append(
             DevProcess(
@@ -1188,12 +1194,17 @@ def _scan_posthog_processes(repo_root: Path) -> list[DevProcess]:
     return processes
 
 
-def _resolve_orphan_status(pid: int, all_procs: dict[int, tuple[int, str]]) -> tuple[bool, str]:
+def _resolve_orphan_status(
+    pid: int,
+    all_procs: dict[int, tuple[int, str]],
+    executables: dict[int, str],
+    codex_pids: set[int],
+) -> tuple[bool, str]:
     """Walk the ancestor chain to determine if a process is orphaned or managed.
 
     Returns (is_orphan, manager_description).
-    A process is orphaned if any ancestor has PPID=1 (reparented to launchd).
-    Otherwise, identifies the nearest recognizable manager.
+    PID 1 also parents live applications, so only an unmanaged dev executable
+    or leftover shell at that boundary is evidence of an abandoned process tree.
     """
 
     visited: set[int] = {pid}
@@ -1201,15 +1212,16 @@ def _resolve_orphan_status(pid: int, all_procs: dict[int, tuple[int, str]]) -> t
 
     while current in all_procs:
         ppid, args = all_procs[current]
+        executable = executables.get(current) or _command_executable(args)
 
-        if ppid <= 1:
-            # Reached launchd — this process (or ancestor) is orphaned
-            return True, ""
-
-        # Check if the parent is a known process manager
-        manager_name = _identify_manager(args)
+        manager_name = "Codex" if current in codex_pids else _identify_manager(executable, args)
         if manager_name:
             return False, f"{manager_name} (PID {current})"
+
+        if ppid <= 1:
+            if ppid == 1 and (_has_known_executable(executable) or Path(executable).name in _SHELL_EXECUTABLES):
+                return True, ""
+            break
 
         if ppid in visited:
             break
@@ -1234,18 +1246,104 @@ _KNOWN_MANAGERS = (
     ("kitty", "kitty"),
     ("alacritty", "alacritty"),
     ("wezterm", "wezterm"),
+    ("wezterm-gui", "wezterm"),
     ("Terminal", "Terminal.app"),
     ("iTerm", "iTerm2"),
+    ("iTerm2", "iTerm2"),
 )
 
 
-def _identify_manager(args: str) -> str | None:
-    """Check if a command line belongs to a known process manager or terminal."""
+def _identify_manager(executable: str, args: str) -> str | None:
+    if executable.endswith(("/Warp.app/Contents/MacOS/stable", "/WarpPreview.app/Contents/MacOS/stable")):
+        return "Warp"
 
+    names = {Path(executable).name, Path(_command_executable(args, executable)).name}
     for keyword, display_name in _KNOWN_MANAGERS:
-        if keyword in args:
+        if keyword in names:
             return display_name
     return None
+
+
+_SHELL_EXECUTABLES = frozenset({"sh", "bash", "zsh", "fish", "dash", "ksh"})
+
+
+def _get_process_executables() -> dict[int, str]:
+    # macOS comm contains the full path, but Linux comm can be a truncated title.
+    # Keep the path in the final column so spaces cannot split its identity.
+    field = "comm" if platform.system() == "Darwin" else "exe"
+    result = subprocess.run(["ps", "-eo", f"pid=,{field}="], capture_output=True, text=True, check=False)
+    executables: dict[int, str] = {}
+    for line in result.stdout.splitlines():
+        parts = line.strip().split(maxsplit=1)
+        if len(parts) == 2 and parts[0].isdigit() and parts[1] != "-":
+            executables[int(parts[0])] = parts[1]
+    return executables
+
+
+def _command_executable(args: str, executable: str = "") -> str:
+    if executable and (args == executable or args.startswith(executable + " ")):
+        return executable
+    try:
+        return next(_command_words(args), "")
+    except ValueError:
+        return args.split()[0] if args else ""
+
+
+def _command_words(args: str) -> Iterator[str]:
+    words = shlex.shlex(args, posix=True)
+    words.whitespace_split = True
+    words.commenters = ""
+    return iter(words)
+
+
+def _is_codex_entrypoint(args: str, executable: str) -> bool:
+    # ps does not quote argv[0], which can itself contain spaces.
+    try:
+        if args.startswith(executable + " "):
+            arguments = _command_words(args[len(executable) :])
+        else:
+            arguments = _command_words(args)
+            next(arguments, None)
+        return _is_codex_script(arguments)
+    except ValueError:
+        return False
+
+
+def _is_codex_script(arguments: Iterable[str]) -> bool:
+    options = iter(arguments)
+    for argument in options:
+        if argument in {"--eval", "--print"} or argument.startswith(("-e", "-p", "--eval=", "--print=")):
+            return False
+        if argument in {"-r", "--require", "--import", "--loader", "--experimental-loader"}:
+            next(options, None)
+            continue
+        if argument.startswith("-") and argument != "-":
+            continue
+        return argument == "codex" or argument.endswith(("/bin/codex", "/@openai/codex/bin/codex.js"))
+    return False
+
+
+def _codex_infrastructure_pids(all_procs: dict[int, tuple[int, str]], executables: dict[int, str]) -> set[int]:
+    native: set[int] = set()
+    nodes: set[int] = set()
+    protected: set[int] = set()
+    for pid, (_, args) in all_procs.items():
+        executable = executables.get(pid) or _command_executable(args)
+        path = Path(executable)
+        if path.name == "codex":
+            native.add(pid)
+        if path.name in {"codex", "codex-code-mode-host"}:
+            protected.add(pid)
+        elif "cua_node" in path.parts and path.name in {"node", "node_repl", "node-repl", "repl"}:
+            protected.add(pid)
+        elif path.name in {"node", "nodejs"}:
+            nodes.add(pid)
+            if _is_codex_entrypoint(args, executable):
+                protected.add(pid)
+
+    # Launchers can run through symlinks whose names do not identify Codex.
+    protected.update(all_procs[pid][0] for pid in native if all_procs[pid][0] in nodes)
+    return protected
 
 
 _PsLine = tuple[int, int, float, int, str, str]
@@ -1254,7 +1352,7 @@ _PsLine = tuple[int, int, float, int, str, str]
 def _parse_ps_line(line: str) -> _PsLine | None:
     """Parse a single ps output line into (pid, ppid, cpu%, rss_kb, start_time, args)."""
 
-    parts = line.split()
+    parts = line.split(maxsplit=9)
     # Need at least: pid ppid cpu rss + 5 date tokens + 1 args token = 10
     if len(parts) < 10:
         return None
@@ -1269,32 +1367,23 @@ def _parse_ps_line(line: str) -> _PsLine | None:
 
     # lstart is always 5 tokens: Day Mon DD HH:MM:SS YYYY
     start_time = " ".join(parts[4:9])
-    args = " ".join(parts[9:])
+    args = parts[9]
 
     return pid, ppid, cpu, rss, start_time, args
 
 
-def _get_own_process_tree() -> set[int]:
+def _get_own_process_tree(all_procs: dict[int, tuple[int, str]]) -> set[int]:
     """Return PIDs of the current process and all its ancestors up to PID 1."""
 
     pids: set[int] = set()
     pid = os.getpid()
 
     # Walk up the PPID chain
-    while pid > 1:
+    while pid > 1 and pid not in pids:
         pids.add(pid)
-        result = subprocess.run(
-            ["ps", "-o", "ppid=", "-p", str(pid)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0 or not result.stdout.strip():
+        if pid not in all_procs:
             break
-        try:
-            pid = int(result.stdout.strip())
-        except ValueError:
-            break
+        pid = all_procs[pid][0]
 
     return pids
 
@@ -1314,20 +1403,39 @@ def _matches_repo_path(args: str, repo_str: str, repo_prefix: str) -> bool:
         idx = end
 
 
-def _is_excluded(args: str) -> bool:
+def _is_excluded(args: str, executable: str | None = None) -> bool:
     """Check if the executable basename is in the exclusion set."""
     if not args or not args.strip():
         return False
-    basename = args.split()[0].rsplit("/", 1)[-1]
-    return basename in _EXCLUDED_EXECUTABLES
+    # Script launchers can retain their own argv[0] while ps identifies the interpreter.
+    names = {Path(executable or "").name, Path(_command_executable(args, executable or "")).name}
+    return bool(names & _EXCLUDED_EXECUTABLES)
 
 
-def _has_known_executable(args: str) -> bool:
-    """Check if the command starts with a known PostHog dev executable."""
-
-    known = ("python", "node", "celery", "granian", "uvicorn", "dagster", "cargo", "air", "tsx", "esbuild", "pnpm")
-    first_word = args.split()[0].rsplit("/", 1)[-1] if args else ""
-    return first_word in known
+def _has_known_executable(executable: str) -> bool:
+    known = (
+        "node",
+        "nodejs",
+        "celery",
+        "granian",
+        "uvicorn",
+        "gunicorn",
+        "dagster",
+        "cargo",
+        "air",
+        "tsx",
+        "esbuild",
+        "pnpm",
+        "capture",
+        "feature-flags",
+        "property-defs-rs",
+        "cymbal",
+        "cyclotron",
+        "personhog",
+        "batch-import",
+    )
+    name = Path(executable).name
+    return name in known or re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", name) is not None
 
 
 def _get_process_cwds(pids: Sequence[int]) -> dict[int, str]:
@@ -1363,13 +1471,6 @@ def _get_process_cwds(pids: Sequence[int]) -> dict[int, str]:
         elif tag == "n" and current is not None:
             cwds[current] = value
     return cwds
-
-
-def _extract_process_name(args: str) -> str:
-    """Extract a short display name from a full command line."""
-
-    first = args.split()[0] if args else ""
-    return first.rsplit("/", 1)[-1]
 
 
 def _categorize_process(args: str) -> str:

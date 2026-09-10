@@ -3,6 +3,7 @@ import json
 import time
 import fcntl
 import shutil
+import signal
 import hashlib
 import threading
 import subprocess
@@ -19,6 +20,7 @@ from hogli_commands.doctor import (
     FLOX_LOG_MAX_TOTAL_BYTES,
     _binary_arches,
     _check_git_health,
+    _check_zombies,
     _collect_import_targets,
     _config_procs,
     _confirm_stack_teardown,
@@ -44,12 +46,14 @@ from hogli_commands.doctor import (
     _run_ok,
     _sanitize_compose_name,
     _scan_port_holders,
+    _scan_posthog_processes,
     _scan_unheld_via_lsof,
     _select_flox_logs_to_remove,
     _tail,
     doctor_git,
     doctor_migrate_volumes,
     doctor_ports,
+    doctor_zombies,
 )
 
 _QUARTER_BUDGET = FLOX_LOG_MAX_TOTAL_BYTES // 4
@@ -161,6 +165,189 @@ def test_is_excluded_does_not_match_posthog_processes(args: str) -> None:
 
 def test_is_excluded_empty_string() -> None:
     assert _is_excluded("") is False
+
+
+@pytest.fixture
+def zombie_snapshot(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[list[str]]:
+    rows = """
+10 1 /opt/codex/bin/codex | /opt/codex/bin/codex --cwd /repo/posthog
+11 10 /opt/codex/bin/codex-code-mode-host | /opt/codex/bin/codex-code-mode-host /repo/posthog
+12 11 /opt/Codex Runtime/cua_node/bin/node | /opt/Codex Runtime/cua_node/bin/node --experimental-repl-await /repo/posthog
+13 1 /opt/Codex Runtime/cua_node/bin/node_repl | /opt/Codex Runtime/cua_node/bin/node_repl /repo/posthog
+14 10 /usr/bin/node | node /repo/posthog/frontend/dev.js
+15 10 /usr/bin/phrocs | phrocs -c /repo/posthog/mprocs.yaml
+16 15 /usr/bin/python3.13 | python /repo/posthog/manage.py runserver
+18 10 /usr/bin/hogli | hogli doctor:zombies
+20 1 /usr/bin/node | node /opt/node_modules/@openai/codex/bin/codex.js
+21 20 /opt/codex/bin/codex | codex --cwd /repo/posthog
+22 21 /usr/bin/node | node /repo/posthog/frontend/dev.js
+23 1 /usr/bin/node | node /usr/local/bin/session-agent /repo/posthog
+24 23 /opt/codex/bin/codex | codex --cwd /repo/posthog
+25 24 /opt/codex/bin/codex-code-mode-host | codex-code-mode-host /repo/posthog
+30 1 /usr/bin/node | node --enable-source-maps /usr/local/bin/codex fix the project's /repo/posthog config
+31 1 /usr/bin/node | node --require bootstrap.js "/opt/Agent Tools/node_modules/@openai/codex/bin/codex.js" /repo/posthog
+32 1 /opt/Node  Runtime/bin/node | /opt/Node  Runtime/bin/node /opt/node_modules/@openai/codex/bin/codex.js /repo/posthog
+33 1 /opt/Agent  Tools/bin/codex | /opt/Agent  Tools/bin/codex /repo/posthog
+34 1 /usr/bin/node | node /repo/posthog/frontend/dev.js --input /opt/node_modules/@openai/codex/bin/codex.js
+35 1 /usr/bin/node | node --eval process.exit() /usr/local/bin/codex /repo/posthog
+36 1 /usr/bin/node | node -eprocess.exit() /usr/local/bin/codex /repo/posthog
+37 1 /usr/bin/node | node /repo/posthog/codex/frontend/dev.js
+38 1 /usr/bin/node | node /repo/posthog/frontend/dev.js --runtime /opt/cua_node/bin/node
+39 1 /usr/bin/node | node --import /opt/node_modules/@openai/codex/bin/codex.js /repo/posthog/frontend/dev.js
+40 1 /Applications/Warp.app/Contents/MacOS/stable | /Applications/Warp.app/Contents/MacOS/stable
+41 40 /bin/zsh | -zsh
+42 41 /usr/bin/node | node /repo/posthog/frontend/dev.js
+43 1 /Applications/Terminal Tools/WarpPreview.app/Contents/MacOS/stable | /Applications/Terminal Tools/WarpPreview.app/Contents/MacOS/stable
+44 43 /usr/bin/node | node /repo/posthog/frontend/dev.js
+50 1 /usr/bin/phrocs | phrocs --daemon -c /repo/posthog/mprocs.yaml
+51 50 /usr/bin/granian | granian /repo/posthog/asgi.py
+60 1 /usr/bin/node | node /repo/posthog/frontend/dev.js
+61 1 /bin/bash | /bin/bash -c python /repo/posthog/manage.py runserver
+62 61 /usr/bin/python3.13 | python /repo/posthog/manage.py runserver
+63 1 /repo/posthog/rust/target/debug/capture | /repo/posthog/rust/target/debug/capture
+64 60 /usr/bin/node | node /repo/posthog/frontend/worker.js
+70 1 /opt/application | /opt/application --project /repo/posthog
+71 70 /usr/bin/node | node /repo/posthog/frontend/dev.js
+72 9999 /usr/bin/node | node /repo/posthog/frontend/dev.js
+73 74 /usr/bin/node | node /repo/posthog/frontend/dev.js
+74 73 /bin/bash | /bin/bash /repo/posthog/bin/worker
+75 1 /opt/stable | /opt/stable --project /repo/posthog --terminal /Applications/Warp.app/Contents/MacOS/stable
+76 75 /usr/bin/node | node /repo/posthog/frontend/dev.js
+77 1 /usr/bin/node | node /repo/posthog/frontend/dev.js --label codex-code-mode-host phrocs Terminal iTerm
+78 1 /opt/unknown | /opt/unknown --project /repo/posthog --codex /opt/codex/bin/codex
+80 1 /Applications/Terminal.app/Contents/MacOS/Terminal | /Applications/Terminal.app/Contents/MacOS/Terminal
+81 80 /usr/bin/node | node /repo/posthog/frontend/dev.js
+82 1 /opt/Python  Runtime/bin/python3.13 | /opt/Python  Runtime/bin/python3.13 manage.py runserver
+83 1 /usr/bin/tmux | tmux new
+84 83 /usr/bin/node | node /repo/posthog/frontend/dev.js
+85 1 /Applications/iTerm.app/Contents/MacOS/iTerm2 | /Applications/iTerm.app/Contents/MacOS/iTerm2
+86 85 /usr/bin/node | node /repo/posthog/frontend/dev.js
+90 1 /usr/bin/node | node unrelated.js
+91 1 /work/codex/bin/node | /work/codex/bin/node frontend/dev.js
+92 1 /usr/bin/node | node /repo/posthog/frontend/dev.js --output /tmp/git
+93 1 /usr/bin/python3.13 | hogli --repo /repo/posthog doctor
+94 1 /opt/claude/1.0.0 | claude --cwd /repo/posthog
+95 1 /opt/code tools/bin/node | /opt/code tools/bin/node frontend/dev.js
+900 80 /usr/bin/node | node /repo/posthog/tools/terminal.js
+901 900 /bin/bash | /bin/bash -c hogli /repo/posthog
+902 901 /usr/bin/hogli | hogli doctor:zombies
+"""
+    ps_lines: list[str] = []
+    executable_lines: list[str] = []
+    for row in rows.strip().splitlines():
+        identity, args = row.split(" | ", 1)
+        pid, ppid, executable = identity.split(maxsplit=2)
+        ps_lines.append(f"{pid} {ppid} 0.0 1024 Thu Sep 10 12:00:00 2026 {args}")
+        executable_lines.append(f"{pid} {executable}")
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> SimpleNamespace:
+        calls.append(cmd)
+        if cmd == ["ps", "-eo", "pid=,ppid=,pcpu=,rss=,lstart=,args="]:
+            output = "\n".join(ps_lines)
+        elif cmd in (["ps", "-eo", "pid=,comm="], ["ps", "-eo", "pid=,exe="]):
+            output = "\n".join(executable_lines)
+        elif cmd[:3] == ["lsof", "-a", "-p"] and cmd[4:] == ["-d", "cwd", "-Fpn"]:
+            output = "\n".join(
+                f"p{pid}\nn{'/somewhere/else' if pid == '90' else '/repo/posthog'}" for pid in cmd[3].split(",")
+            )
+        else:
+            raise AssertionError(f"Unexpected OS call: {cmd}")
+        return SimpleNamespace(returncode=0, stdout=output, stderr="")
+
+    def unexpected_kill(pid: int, sig: int) -> None:
+        raise AssertionError(f"Unexpected signal {sig} to PID {pid}")
+
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
+    monkeypatch.setattr("hogli_commands.doctor.os.getpid", lambda: 902)
+    monkeypatch.setattr("hogli_commands.doctor.os.kill", unexpected_kill)
+    monkeypatch.setattr("hogli_commands.doctor.REPO_ROOT", Path("/repo/posthog"))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    return calls
+
+
+_ORPHAN_PIDS = {34, 35, 36, 37, 38, 39, 60, 61, 62, 63, 64, 77, 82, 91, 92, 95}
+_PRESERVED_MANAGERS = {
+    14: "Codex (PID 10)",
+    15: "phrocs (PID 15)",
+    16: "phrocs (PID 15)",
+    22: "Codex (PID 21)",
+    42: "Warp (PID 40)",
+    44: "Warp (PID 43)",
+    50: "phrocs (PID 50)",
+    51: "phrocs (PID 50)",
+    70: "PID 1",
+    71: "PID 70",
+    72: "PID 9999",
+    73: "PID 74",
+    74: "PID 73",
+    75: "PID 1",
+    76: "PID 75",
+    78: "PID 1",
+    81: "Terminal.app (PID 80)",
+    84: "tmux (PID 83)",
+    86: "iTerm2 (PID 85)",
+}
+
+
+@pytest.mark.parametrize("system,field", [("Darwin", "comm"), ("Linux", "exe")])
+def test_zombie_snapshot_classification(
+    zombie_snapshot: list[list[str]], monkeypatch: pytest.MonkeyPatch, system: str, field: str
+) -> None:
+    monkeypatch.setattr("hogli_commands.doctor.platform.system", lambda: system)
+
+    processes = _scan_posthog_processes(Path("/repo/posthog"))
+
+    assert {p.pid for p in processes} == _ORPHAN_PIDS | _PRESERVED_MANAGERS.keys()
+    assert {p.pid for p in processes if p.is_orphan} == _ORPHAN_PIDS
+    assert {p.pid: p.manager for p in processes if not p.is_orphan} == _PRESERVED_MANAGERS
+    python = next(p for p in processes if p.pid == 82)
+    assert python.name == "python3.13"
+    assert python.cmdline == "/opt/Python  Runtime/bin/python3.13 manage.py runserver"
+    assert zombie_snapshot == [
+        ["ps", "-eo", "pid=,ppid=,pcpu=,rss=,lstart=,args="],
+        ["ps", "-eo", f"pid=,{field}="],
+        ["lsof", "-a", "-p", "82,90,91,95", "-d", "cwd", "-Fpn"],
+    ]
+    assert _check_zombies(Path("/repo/posthog")).summary == f"{len(_ORPHAN_PIDS)} orphaned"
+
+
+@pytest.mark.parametrize("own_pid", [18, 902], ids=["from-codex", "from-another-terminal"])
+@pytest.mark.parametrize(
+    "arguments",
+    [["--yes"], ["--all", "--yes"], ["--dry-run"], ["--all", "--yes", "--dry-run"]],
+)
+def test_doctor_zombies_signals_only_selected_dev_processes(
+    zombie_snapshot: list[list[str]], monkeypatch: pytest.MonkeyPatch, own_pid: int, arguments: list[str]
+) -> None:
+    signals: list[tuple[int, int]] = []
+
+    def fake_kill(pid: int, sig: int) -> None:
+        signals.append((pid, sig))
+        if sig == 0 and pid != 60:
+            raise ProcessLookupError
+
+    monkeypatch.setattr("hogli_commands.doctor.os.getpid", lambda: own_pid)
+    monkeypatch.setattr("hogli_commands.doctor.os.kill", fake_kill)
+    monkeypatch.setattr("hogli_commands.doctor.time.sleep", lambda _: None)
+
+    result = CliRunner().invoke(doctor_zombies, arguments)
+
+    assert result.exit_code == 0, result.output
+    if "--dry-run" in arguments:
+        assert signals == []
+        assert "[DRY-RUN] No processes were killed." in result.output
+        return
+
+    expected = set(_ORPHAN_PIDS)
+    if "--all" in arguments:
+        expected.update(_PRESERVED_MANAGERS)
+        if own_pid == 18:
+            expected.update({900, 901})
+    assert {pid for pid, _ in signals} == expected
+    assert sorted(pid for pid, sig in signals if sig == signal.SIGTERM) == sorted(expected)
+    assert [pid for pid, sig in signals if sig == signal.SIGKILL] == [60]
+    assert {pid for pid, sig in signals if sig == 0} == expected
 
 
 @pytest.mark.parametrize(
