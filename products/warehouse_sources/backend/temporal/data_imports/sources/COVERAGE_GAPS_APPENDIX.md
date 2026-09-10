@@ -273,14 +273,14 @@ Note: Static schema list. The Amazon Ads docs site is a Redocly SPA; the real sp
 
 ## Amplitude — gaps
 
-Today (3): `annotations`, `cohorts`, `events`
+Today (7): `annotations`, `cohorts`, `event_categories`, `event_properties`, `event_types`, `events`, `user_properties`
 
 Diffed against: <https://amplitude.com/docs/apis>
 
-- [ ] `GET /api/2/taxonomy/event` — event type catalog - the lookup that names and describes the event stream already synced (high)
-- [ ] `GET /api/2/taxonomy/event-property` — event property definitions and types, needed to interpret the events table (high)
-- [ ] `GET /api/2/taxonomy/user-property` — user property catalog with types and descriptions (high)
-- [ ] `GET /api/2/taxonomy/category` — event category lookup resolving the category IDs on event types (medium)
+- [x] `GET /api/2/taxonomy/event` — event type catalog - the lookup that names and describes the event stream already synced (high)
+- [x] `GET /api/2/taxonomy/event-property` — event property definitions and types, needed to interpret the events table (high)
+- [x] `GET /api/2/taxonomy/user-property` — user property catalog with types and descriptions (high)
+- [x] `GET /api/2/taxonomy/category` — event category lookup resolving the category IDs on event types (medium)
 - [ ] `GET /api/2/taxonomy/group-property` — group property catalog for account-level analysis (medium)
 - [ ] `GET /api/2/release` — release markers to join against event timestamps, the sibling of the annotations table already synced (medium)
 - [ ] `GET /api/2/audit-logs/{ORG_ID}` — org-level change history for charts, cohorts and permissions (medium)
