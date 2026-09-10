@@ -16,6 +16,10 @@ const toastMock = vi.hoisted(() => ({
 }));
 vi.mock("@posthog/ui/primitives/toast", () => ({ toast: toastMock }));
 
+import {
+  clearCapturedLogs,
+  formatCapturedLogs,
+} from "@posthog/ui/shell/logCapture";
 import { playCompletionSound } from "@posthog/ui/utils/sounds";
 import type {
   IActiveView,
@@ -280,6 +284,47 @@ describe("sound", () => {
       settings: { scaleSoundWithTaskLength },
     });
     bus.notifyPromptComplete("My task", "end_turn", TASK_ID, durationMs);
-    expect(play).toHaveBeenCalledWith("meep", 80, [], expectedRate);
+    expect(play).toHaveBeenCalledWith(
+      "meep",
+      80,
+      [],
+      expectedRate,
+      "task_completed",
+    );
+  });
+});
+
+describe("notification log", () => {
+  // The only record of why the app made a noise. A user reporting a sound they
+  // did not expect has nothing else to send us.
+  it.each([
+    {
+      label: "delivered notification names its reason, trigger and sound",
+      hasFocus: false,
+      activeTarget: undefined,
+      expected: [
+        '"reason":"task_needs_input"',
+        '"trigger":"local_permission_request"',
+        '"channel":"native"',
+        '"soundPlayed":true',
+        '"sound":"meep"',
+      ],
+    },
+    {
+      label: "suppressed notification records that nothing played",
+      hasFocus: true,
+      activeTarget: taskTarget(TASK_ID),
+      expected: ['"channel":"suppress"', '"soundPlayed":false'],
+    },
+  ])("$label", ({ hasFocus, activeTarget, expected }) => {
+    clearCapturedLogs();
+    const { bus } = makeBus({ hasFocus, activeTarget });
+
+    bus.notifyPermissionRequest("My task", TASK_ID, {
+      trigger: "local_permission_request",
+    });
+
+    const logs = formatCapturedLogs();
+    for (const fragment of expected) expect(logs).toContain(fragment);
   });
 });

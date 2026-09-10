@@ -3,6 +3,7 @@ import type {
   CompletionSound,
   CustomSound,
 } from "@posthog/ui/features/settings/settingsStore";
+import { logger } from "@posthog/ui/shell/logger";
 import bubblesUrl from "../assets/sounds/bubbles.mp3";
 import daniloUrl from "../assets/sounds/danilo.mp3";
 import dropUrl from "../assets/sounds/drop.mp3";
@@ -20,6 +21,7 @@ import switchUrl from "../assets/sounds/switch.mp3";
 import wilhelmUrl from "../assets/sounds/wilhelm.mp3";
 
 const CUSTOM_SOUND_PREFIX = "custom:";
+const log = logger.scope("sounds");
 
 const SOUND_URLS: Record<Exclude<BuiltInCompletionSound, "none">, string> = {
   guitar: guitarUrl,
@@ -104,14 +106,29 @@ export function playTrashSound(): void {
   void audio.play().catch(() => undefined);
 }
 
+// `reason` only reaches the log: it separates a notification's sound from a
+// settings preview, which otherwise look identical in the log file.
 export function playCompletionSound(
   sound: CompletionSound,
   volume = 80,
   customSounds: CustomSound[] = [],
   playbackRate = 1,
+  reason = "unspecified",
 ): void {
   const url = resolveSoundUrl(sound, customSounds);
-  if (!url) return;
+  if (!url) {
+    log.debug("Completion sound resolved to nothing, staying quiet", {
+      sound,
+      reason,
+    });
+    return;
+  }
+  log.info("Playing completion sound", {
+    sound,
+    reason,
+    volume,
+    playbackRate,
+  });
 
   if (currentAudio) {
     currentAudio.pause();
@@ -122,8 +139,9 @@ export function playCompletionSound(
   audio.volume = Math.max(0, Math.min(100, volume)) / 100;
   audio.playbackRate = playbackRate;
   currentAudio = audio;
-  audio.play().catch(() => {
+  audio.play().catch((error: unknown) => {
     // Audio play can fail if user hasn't interacted with the page yet
+    log.warn("Completion sound failed to play", { sound, reason, error });
   });
   audio.addEventListener("ended", () => {
     if (currentAudio === audio) {
