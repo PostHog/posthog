@@ -178,6 +178,33 @@ class TestDataQualityNotifications(BaseTest):
         assert self.user.id in recipients
         assert blocked.id not in recipients
 
+    @parameterized.expand([("metric",), ("view",)])
+    def test_a_subject_deleted_before_the_notice_sends_nothing(self, subject_type: str) -> None:
+        if subject_type == "metric":
+            metric = Metric.objects.for_team(self.team.id).create(
+                team=self.team, name="signups", definition={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+            )
+            check = self._check(
+                subject_type=SubjectType.METRIC,
+                saved_query_id=None,
+                metric_id=metric.id,
+                subject_name="signups",
+                column_name="",
+                check_type=CheckType.CUSTOM_SQL,
+                config={"query": "SELECT * FROM {metric}"},
+            )
+            metric.deleted = True
+            metric.save(update_fields=["deleted"])
+        else:
+            check = self._check()
+            self.view.deleted = True
+            self.view.save(update_fields=["deleted"])
+
+        with patch(CREATE_NOTIFICATION) as notifications:
+            notify_check_started_failing(check, 3)
+
+        notifications.assert_not_called()
+
     @parameterized.expand(
         [
             ("first_failure", "", CheckSeverity.ERROR, 3, 1),

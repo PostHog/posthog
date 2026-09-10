@@ -165,6 +165,8 @@ def notify_check_started_failing(
             return
         team = Team.objects.get(id=check.team_id)
         subject = resolve_subject(team.id, check.subject_type, check.subject_uuid)
+        if not subject.exists:
+            return
         is_metric = check.subject_type == SubjectType.METRIC
         subject_name = subject.name if is_metric else check.subject_name
         create_notification(
