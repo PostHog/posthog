@@ -188,6 +188,7 @@ class TestOIDCAuthentication(APILicensedTest):
             response = self.client.get("/complete/oidc/", {"state": params["state"][0], "code": "example-code"})
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
+        self.assertEqual(response.cookies["ph_last_login_method"].value, "oidc")
         social_auth = UserSocialAuth.objects.get(user=self.user, provider="oidc")
         self.assertEqual(social_auth.uid, f"{self.config.id}:example-user")
         self.assertEqual(social_auth.extra_data, {})

@@ -405,6 +405,11 @@ LOGIN_METHODS = [
         "backends": ["saml", "ee.api.authentication.MultitenantSAMLAuth"],
     },
     {
+        "key": "oidc",
+        "display": "OIDC",
+        "backends": ["oidc", "posthog.api.oidc.MultitenantOIDCAuth"],
+    },
+    {
         "key": "passkey",
         "display": "Passkey",
         "backends": ["posthog.auth.WebauthnBackend"],
