@@ -17,7 +17,7 @@ class NodeType(models.TextChoices):
 
 
 class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
     team_id: int
 
     # models.PROTECT prevents deleting a saved query if its referenced by a Node

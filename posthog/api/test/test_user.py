@@ -2448,7 +2448,7 @@ class TestUserAPI(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK, f"key {good_key!r} was rejected")
 
     def test_pipeline_notifications_caps_total_entries(self):
-        from posthog.api.user import MAX_PIPELINE_NOTIFICATIONS
+        from posthog.api.notification_settings import MAX_PIPELINE_NOTIFICATIONS
 
         too_many = {f"hog_function:fake-{i}": True for i in range(MAX_PIPELINE_NOTIFICATIONS + 1)}
         response = self.client.patch(

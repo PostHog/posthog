@@ -1,4 +1,7 @@
+import io
 import re
+import csv
+import json
 from collections.abc import Iterator
 from typing import Any
 
@@ -24,6 +27,18 @@ MAX_SYMBOLS = 100
 # "07. latest trading day" -> "latest trading day").
 _ORDINAL_PREFIX = re.compile(r"^\d+\.\s*")
 
+# LISTING_STATUS covers the whole market in one call per state. Both states are synced: the table's
+# value is asset-lifecycle and survivorship research, which needs the delisted side too.
+LISTING_STATES = ("active", "delisted")
+
+# Each state returns ~15k rows, so yield in chunks rather than one oversized batch.
+LISTING_CHUNK_SIZE = 5000
+
+# Alpha Vantage writes an absent value as one of these placeholder strings rather than JSON null or an
+# empty CSV cell (e.g. `delistingDate=null` on an active listing, `payment_date=None` on an old
+# dividend), which would otherwise land in the warehouse as literal text in a date column.
+_NULL_PLACEHOLDERS = frozenset({"none", "null", ""})
+
 
 class AlphaVantageRetryableError(Exception):
     pass
@@ -42,17 +57,13 @@ def _normalize_key(key: str) -> str:
     return stripped.replace(" ", "_").lower()
 
 
-@retry(
-    retry=retry_if_exception_type((AlphaVantageRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    # Alpha Vantage's free per-minute throttle resets on a ~60s window, so back off long enough to
-    # clear it before the last attempt.
-    wait=wait_exponential_jitter(initial=2, max=60),
-    reraise=True,
-)
-def _fetch(session: requests.Session, params: dict[str, Any], logger: FilteringBoundLogger) -> dict[str, Any]:
-    response = session.get(ALPHA_VANTAGE_BASE_URL, params=params, timeout=60)
+def _nullable(value: Any) -> Any:
+    if isinstance(value, str) and value.strip().lower() in _NULL_PLACEHOLDERS:
+        return None
+    return value
 
+
+def _raise_for_status(response: requests.Response) -> None:
     if response.status_code == 429 or response.status_code >= 500:
         raise AlphaVantageRetryableError(f"Alpha Vantage API error (retryable): status={response.status_code}")
 
@@ -65,20 +76,63 @@ def _fetch(session: requests.Session, params: dict[str, Any], logger: FilteringB
             f"{response.status_code} {kind}: {response.reason} for url: {safe_url}", response=response
         )
 
-    body = response.json()
-    if not isinstance(body, dict):
-        raise AlphaVantageAPIError("Alpha Vantage API error [unexpected_response]: response was not a JSON object")
 
-    # Alpha Vantage signals problems with HTTP 200 and a body-level message rather than a status code:
-    #   "Note"        -> per-minute rate limit; transient, so retry with backoff.
-    #   "Information"  -> daily quota exhausted, premium-only dataset, or the shared demo key; permanent.
-    #   "Error Message"-> missing/invalid apikey or an unrecognized function/symbol; permanent.
+def _raise_for_envelope(body: dict[str, Any]) -> None:
+    """Alpha Vantage signals problems with HTTP 200 and a body-level message rather than a status code.
+
+    "Note"        -> per-minute rate limit; transient, so the caller retries with backoff.
+    "Information" -> daily quota exhausted, premium-only dataset, or the shared demo key; permanent.
+
+    "Error Message" (missing/invalid apikey, unrecognized function/symbol) is left to the caller,
+    because for per-symbol functions it is scoped to the one symbol rather than the whole sync.
+    """
     if "Note" in body:
         raise AlphaVantageRetryableError(f"Alpha Vantage API error (retryable) [rate_limit]: {body['Note']}")
     if "Information" in body:
         raise AlphaVantageAPIError(f"Alpha Vantage API error [rate_limit_or_premium]: {body['Information']}")
 
+
+@retry(
+    retry=retry_if_exception_type((AlphaVantageRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(5),
+    # Alpha Vantage's free per-minute throttle resets on a ~60s window, so back off long enough to
+    # clear it before the last attempt.
+    wait=wait_exponential_jitter(initial=2, max=60),
+    reraise=True,
+)
+def _fetch(session: requests.Session, params: dict[str, Any], logger: FilteringBoundLogger) -> dict[str, Any]:
+    response = session.get(ALPHA_VANTAGE_BASE_URL, params=params, timeout=60)
+    _raise_for_status(response)
+
+    body = response.json()
+    if not isinstance(body, dict):
+        raise AlphaVantageAPIError("Alpha Vantage API error [unexpected_response]: response was not a JSON object")
+
+    _raise_for_envelope(body)
     return body
+
+
+@retry(
+    retry=retry_if_exception_type((AlphaVantageRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=2, max=60),
+    reraise=True,
+)
+def _fetch_csv(session: requests.Session, params: dict[str, Any]) -> str | None:
+    """Fetch a CSV-only function. Returns None when Alpha Vantage answered with JSON instead of a CSV body.
+
+    LISTING_STATUS has no `datatype` param and always replies with CSV, but it still reports errors as
+    a JSON envelope, so branch on the payload rather than on what was requested.
+    """
+    response = session.get(ALPHA_VANTAGE_BASE_URL, params=params, timeout=120)
+    _raise_for_status(response)
+
+    text = response.text
+    if not text.lstrip().startswith("{"):
+        return text
+
+    _raise_for_envelope(json.loads(text))
+    return None
 
 
 def _parse_time_series(body: dict[str, Any], symbol: str) -> Iterator[dict[str, Any]]:
@@ -155,12 +209,50 @@ def _parse_earnings(body: dict[str, Any], symbol: str) -> Iterator[dict[str, Any
                 }
 
 
+def _parse_corporate_action(body: dict[str, Any], symbol: str) -> Iterator[dict[str, Any]]:
+    # DIVIDENDS and SPLITS both answer with {"symbol": ..., "data": [{...}, ...]}.
+    data = body.get("data")
+    if not isinstance(data, list):
+        return
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        row: dict[str, Any] = {key: _nullable(value) for key, value in entry.items()}
+        # The entries are not symbol-tagged, so the requested symbol is the only source for the column.
+        row["symbol"] = symbol
+        yield row
+
+
+def _listing_status_rows(
+    session: requests.Session, api_key: str, logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    for state in LISTING_STATES:
+        params = {"function": "LISTING_STATUS", "state": state, "apikey": api_key}
+        listing = _fetch_csv(session, params)
+        if listing is None:
+            # A key that is not entitled to a state gets an empty JSON object instead of a CSV body.
+            # Skip it so the other state still syncs.
+            logger.warning(f"Alpha Vantage: no listing returned for state={state}")
+            continue
+
+        batch: list[dict[str, Any]] = []
+        for row in csv.DictReader(io.StringIO(listing)):
+            # DictReader parks any surplus cells under a None key, which has no column to land in.
+            batch.append({key: _nullable(value) for key, value in row.items() if key is not None})
+            if len(batch) >= LISTING_CHUNK_SIZE:
+                yield batch
+                batch = []
+        if batch:
+            yield batch
+
+
 _PARSERS = {
     "time_series": _parse_time_series,
     "quote": _parse_quote,
     "overview": _parse_overview,
     "reports": _parse_reports,
     "earnings": _parse_earnings,
+    "corporate_action": _parse_corporate_action,
 }
 
 
@@ -206,9 +298,15 @@ def get_rows(
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     config = ALPHA_VANTAGE_ENDPOINTS[endpoint]
-    parser = _PARSERS[config.kind]
     # apikey rides as a query param on every request, so mask its value from logged URLs and samples.
     session = make_tracked_session(redact_values=(api_key,))
+
+    if config.kind == "listing":
+        # The whole market listing arrives in one call per state, so the configured symbols don't apply.
+        yield from _listing_status_rows(session, api_key, logger)
+        return
+
+    parser = _PARSERS[config.kind]
 
     # One request per symbol (no pagination); yield each symbol's rows as a list and let the pipeline
     # batch. A symbol's full time series is bounded (~20 years), so it comfortably fits in memory.

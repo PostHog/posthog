@@ -542,8 +542,9 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         stored = self._latest_reviewers(report)
         assert stored[0]["github_login"] == "alicecase"
 
-    def test_put_user_uuid_without_github_login_returns_400(self):
-        # Org member without any linked GitHub identity.
+    def test_put_user_uuid_without_github_login_is_stored_by_uuid(self):
+        # Org member without any linked GitHub identity still routes: stored by uuid with a null
+        # login, and the response resolves them to their PostHog user.
         member = self._create_org_member("nogh@example.com", github_login=None)
         report = self._create_report()
         artefact = self._create_artefact(report, content=[])
@@ -551,6 +552,20 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         response = self.client.put(
             self._detail_url(str(report.id), str(artefact.id)),
             data=json.dumps({"content": [{"user_uuid": str(member.uuid)}]}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        stored = self._latest_reviewers(report)
+        assert [(e["user_uuid"], e["github_login"]) for e in stored] == [(str(member.uuid), None)]
+        assert response.json()["content"][0]["user"]["uuid"] == str(member.uuid)
+
+    def test_put_non_member_user_uuid_returns_400(self):
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[])
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": [{"user_uuid": str(uuid.uuid4())}]}),
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -688,6 +703,22 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             data=json.dumps({"content": [{"github_login": "bob"}, {"github_login": "alice"}]}),
             content_type="application/json",
         )
+        assert response.status_code == status.HTTP_200_OK
+        assert not ActivityLog.objects.filter(team_id=self.team.id, scope="SignalReport").exists()
+
+    def test_put_deduplicates_prior_reviewers_before_it_computes_changes(self):
+        report = self._create_report()
+        artefact = self._create_artefact(
+            report,
+            content=[{"github_login": "alice"}, {"github_login": "alice"}],
+        )
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": [{"github_login": "alice"}]}),
+            content_type="application/json",
+        )
+
         assert response.status_code == status.HTTP_200_OK
         assert not ActivityLog.objects.filter(team_id=self.team.id, scope="SignalReport").exists()
 
@@ -869,6 +900,25 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert list_response.status_code == status.HTTP_200_OK
         ids = {r["id"] for r in list_response.json()["results"]}
         assert str(report.id) in ids
+
+    def test_filter_does_not_match_a_reassigned_login_on_a_uuid_entry(self):
+        original = self._create_org_member("original@example.com")
+        replacement = self._create_org_member("replacement@example.com", github_login="reassigned")
+        report = self._create_report()
+        self._create_artefact(
+            report,
+            content=[{"user_uuid": str(original.uuid), "github_login": "reassigned"}],
+        )
+
+        original_response = self.client.get(
+            f"/api/projects/{self.team.id}/signals/reports/?suggested_reviewers={original.uuid}"
+        )
+        replacement_response = self.client.get(
+            f"/api/projects/{self.team.id}/signals/reports/?suggested_reviewers={replacement.uuid}"
+        )
+
+        assert str(report.id) in {row["id"] for row in original_response.json()["results"]}
+        assert str(report.id) not in {row["id"] for row in replacement_response.json()["results"]}
 
     def test_diff_with_non_dict_content_returns_400_not_500(self):
         # Log content is stored as arbitrary JSON; a non-object commit payload must not 500.
