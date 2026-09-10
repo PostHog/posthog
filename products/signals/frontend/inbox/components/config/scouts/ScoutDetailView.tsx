@@ -179,12 +179,16 @@ function ScoutActivitySummary({ skillName }: { skillName: string }): JSX.Element
 
 /**
  * What the scout spent over the cost window and what it produced for it, e.g.
- * "$1.68 across 14 runs · 11 reports filed or added to · $0.15 per report". Staff only, and on its
- * own line because it describes the cost window rather than the run window above it.
+ * "$1.68 across 14 priced runs · 11 reports filed or added to · $0.15 per report". Staff only, and
+ * on its own line because it describes the cost window rather than the run window above it.
+ *
+ * The count is the priced runs rather than every run started, because it is the divisor behind the
+ * "Cost per run" tile. It keeps the qualifier so it does not read as the activity count that the
+ * run summary above states over its own window.
  */
 function scoutSpendSummary(rollup: ScoutCostRollup): string {
     return [
-        `${formatRunCost(rollup.spendUsd)} across ${pluralize(rollup.pricedRunCount, 'run')} in the ${scoutCostWindowLabel(rollup.windowDays)}`,
+        `${formatRunCost(rollup.spendUsd)} across ${pluralize(rollup.pricedRunCount, 'priced run')} in the ${scoutCostWindowLabel(rollup.windowDays)}`,
         rollup.reportsTouched > 0
             ? `${pluralize(rollup.reportsTouched, 'report')} filed or added to`
             : 'no reports filed or added to',
