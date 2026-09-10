@@ -2081,6 +2081,9 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
     @snapshot_clickhouse_queries
     def test_query_runner_with_unique_users_metric(self, name, use_precomputation):
         """Test that unique users metric correctly counts unique users, not total events."""
+        # The precomputed read embeds per-run job UUIDs; zero all numbers so the
+        # snapshot is stable across runs.
+        self.snapshot_replace_all_numbers = True
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
