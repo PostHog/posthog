@@ -930,6 +930,9 @@ const scoutEmitReport = (): ToolBase<ReturnType<typeof ScoutEmitReportSchema>, S
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
         }
+        if (params.idempotency_key !== undefined) {
+            body['idempotency_key'] = params.idempotency_key
+        }
         const result = await context.api.request<Schemas.EmitReportResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/emit-report/`,
@@ -1674,6 +1677,9 @@ const signalsScoutEmitReport = (): ToolBase<
         }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
+        }
+        if (params.idempotency_key !== undefined) {
+            body['idempotency_key'] = params.idempotency_key
         }
         const result = await context.api.request<Schemas.EmitReportResponse>({
             method: 'POST',
