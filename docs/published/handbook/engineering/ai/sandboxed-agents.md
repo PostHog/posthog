@@ -406,6 +406,15 @@ container traffic because their network paths differ.
 The `use_modal_vm_sandbox` run-state key force-selects the VM runtime for trusted server-created runs
 (image builders) and is never accepted from client input.
 
+### Sandbox readiness
+
+Every Modal sandbox is created with a [readiness probe](https://modal.com/docs/guide/sandboxes#readiness-probes) that runs `true` inside the sandbox until it exits 0.
+Provisioning waits on that probe before it runs anything else in the sandbox, because a sandbox can come up dead with every RPC succeeding.
+That happens most often after a filesystem snapshot restore: a resume snapshot, or the prebaked dev-stack image, which is itself a snapshot.
+A sandbox whose probe has not passed within `READINESS_PROBE_TIMEOUT_SECONDS` (`products/tasks/backend/logic/services/modal_sandbox.py`) is terminated and recreated from the next image candidate in the downgrade chain: resume snapshot, then custom or dev-stack image, then the plain base.
+The run log records each downgrade as "Sandbox image downgraded: ...".
+When no candidate remains, provisioning fails with a transient error and Temporal retries the activity.
+
 ### Network access
 
 Network access is configured per-team via `SandboxEnvironment`:

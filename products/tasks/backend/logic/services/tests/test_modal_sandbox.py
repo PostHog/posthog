@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from modal import Probe
 from modal.exception import (
     ConnectionError as ModalConnectionError,
     InvalidError as ModalInvalidError,
@@ -52,6 +53,8 @@ from products.tasks.backend.logic.services.modal_sandbox import (
     DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS,
     FILESYSTEM_SNAPSHOT_TIMEOUT_SECONDS,
     PUBLISHED_IMAGE_SNAPSHOT_TIMEOUT_SECONDS,
+    READINESS_PROBE_INTERVAL_MS,
+    READINESS_PROBE_TIMEOUT_SECONDS,
     SANDBOX_IMAGE,
     ModalSandbox,
     _attach_local_package_mounts,
@@ -1585,6 +1588,15 @@ class TestModalSandboxCreateAllowlist:
 
         assert mock_create.call_args.kwargs["experimental_options"] == {"vm_runtime": True}
 
+    def test_create_attaches_an_exec_readiness_probe_and_waits_on_it(self):
+        # Modal raises on wait_until_ready when no probe was attached, so the two must stay paired.
+        mock_create = self._create_with_config(SandboxConfig(name="t"))
+
+        assert mock_create.call_args.kwargs["readiness_probe"] == Probe.with_exec(
+            "true", interval_ms=READINESS_PROBE_INTERVAL_MS
+        )
+        mock_create.return_value.wait_until_ready.assert_called_once_with(timeout=READINESS_PROBE_TIMEOUT_SECONDS)
+
 
 class TestModalSandboxCreateImageFallback:
     """A failed create with an overlaid image must downgrade one step at a time (bare
@@ -1594,8 +1606,6 @@ class TestModalSandboxCreateImageFallback:
     def _create_failing_on(self, config: SandboxConfig, *, failing_image: Any, loaded_image: Any) -> tuple[Any, list]:
         mock_sb = MagicMock()
         mock_sb.object_id = "sb-created"
-        # A snapshot-restored sandbox is health-probed after create; make the probe pass.
-        mock_sb.exec.return_value.poll.return_value = 0
         images_tried: list[Any] = []
 
         def sandbox_create(**kwargs: Any) -> Any:
@@ -1664,7 +1674,6 @@ class TestModalSandboxCreateImageFallback:
             return original_create(**kwargs)
 
         original_create.return_value.object_id = "sb-created"
-        original_create.return_value.exec.return_value.poll.return_value = 0
         with (
             patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
             patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
@@ -1747,7 +1756,7 @@ class TestModalSandboxCreateImageFallback:
         ):
             ModalSandbox.create(config)
 
-        assert len(attempts) == 3
+        assert len(attempts) == 2
         assert all(attempt["experimental_options"] == {"vm_runtime": True} for attempt in attempts)
         assert all(attempt["outbound_domain_allowlist"] == ["example.com", "*.posthog.com"] for attempt in attempts)
 
@@ -1796,20 +1805,23 @@ class TestModalSandboxCreateImageFallback:
         assert attempts[0]["outbound_domain_allowlist"] == ["example.com"]
         assert attempts[0]["experimental_options"] == {"vm_runtime": True}
 
-    def _create_with_probe(
+    def _create_with_readiness(
         self,
         config: SandboxConfig,
         *,
-        probe: Any,
+        ready: list[bool],
         snapshot_image: Any,
         custom_image: Any,
     ) -> tuple[Any, list]:
         images_tried: list[Any] = []
+        outcomes = iter(ready)
 
         def sandbox_create(**kwargs: Any) -> Any:
             images_tried.append(kwargs["image"])
             sb = MagicMock()
             sb.object_id = f"sb-{len(images_tried)}"
+            if not next(outcomes, True):
+                sb.wait_until_ready.side_effect = ModalTimeoutError("readiness probe timed out")
             return sb
 
         with (
@@ -1834,7 +1846,6 @@ class TestModalSandboxCreateImageFallback:
             patch(
                 "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create", side_effect=sandbox_create
             ),
-            probe,
         ):
             sandbox = ModalSandbox.create(config)
         return sandbox, images_tried
@@ -1852,10 +1863,10 @@ class TestModalSandboxCreateImageFallback:
         snapshot_image = MagicMock(name="snapshot_image")
         custom_image = MagicMock(name="custom_image")
 
-        sandbox, images_tried = self._create_with_probe(
+        sandbox, images_tried = self._create_with_readiness(
             config,
-            # Snapshot restore wedged; the recovered dev-stack boot probes healthy.
-            probe=patch.object(ModalSandbox, "_is_healthy_after_restore", side_effect=[False, True]),
+            # Snapshot restore wedged; the recovered dev-stack boot becomes ready.
+            ready=[False, True],
             snapshot_image=snapshot_image,
             custom_image=custom_image,
         )
@@ -1863,7 +1874,7 @@ class TestModalSandboxCreateImageFallback:
         assert images_tried == [snapshot_image, custom_image]
         assert sandbox.config.snapshot_restored is False
         assert sandbox.config.image_fallback is not None
-        assert "snapshot image im-snap-1 (unresponsive after restore)" in sandbox.config.image_fallback
+        assert "snapshot image im-snap-1 (never became ready)" in sandbox.config.image_fallback
         assert "custom image posthog-dev-stack" in sandbox.config.image_fallback
 
     def test_wedged_dev_stack_boot_is_probed_and_falls_back_to_base(self):
@@ -1873,9 +1884,9 @@ class TestModalSandboxCreateImageFallback:
         config = SandboxConfig(name="t", template=SandboxTemplate.VM_BASE, custom_image_name="posthog-dev-stack")
         custom_image = MagicMock(name="custom_image")
 
-        sandbox, images_tried = self._create_with_probe(
+        sandbox, images_tried = self._create_with_readiness(
             config,
-            probe=patch.object(ModalSandbox, "_is_healthy_after_restore", side_effect=[False]),
+            ready=[False],
             snapshot_image=MagicMock(name="unused_snapshot"),
             custom_image=custom_image,
         )
@@ -1883,26 +1894,45 @@ class TestModalSandboxCreateImageFallback:
         assert len(images_tried) == 2  # dev-stack image, then base
         assert images_tried[0] is custom_image
         assert sandbox.config.image_fallback is not None
-        assert "custom image posthog-dev-stack (unresponsive after restore)" in sandbox.config.image_fallback
+        assert "custom image posthog-dev-stack (never became ready)" in sandbox.config.image_fallback
         assert "base image" in sandbox.config.image_fallback
 
-    def test_spec_built_custom_images_are_not_probed(self):
-        # User custom images are spec-built, not snapshot restores — probing them would
-        # add a health-check roundtrip (and its flake surface) to every custom-image run.
+    def test_unready_spec_built_custom_image_falls_back_to_base(self):
         config = SandboxConfig(
             name="t", template=SandboxTemplate.VM_BASE, custom_image_name="posthog-sandbox-custom-2-abc:latest"
         )
-        probe_mock = MagicMock()
+        custom_image = MagicMock(name="custom_image")
 
-        _, images_tried = self._create_with_probe(
+        sandbox, images_tried = self._create_with_readiness(
             config,
-            probe=patch.object(ModalSandbox, "_is_healthy_after_restore", probe_mock),
+            ready=[False],
             snapshot_image=MagicMock(name="unused_snapshot"),
-            custom_image=MagicMock(name="custom_image"),
+            custom_image=custom_image,
         )
 
-        assert len(images_tried) == 1
-        probe_mock.assert_not_called()
+        assert len(images_tried) == 2
+        assert images_tried[0] is custom_image
+        assert sandbox.config.image_fallback is not None
+        assert "custom image posthog-sandbox-custom-2-abc:latest (never became ready)" in sandbox.config.image_fallback
+        assert "base image" in sandbox.config.image_fallback
+
+    def test_unready_base_image_is_terminated_and_provisioning_fails(self):
+        mock_sb = MagicMock()
+        mock_sb.object_id = "sb-dead"
+        mock_sb.wait_until_ready.side_effect = ModalTimeoutError("readiness probe timed out")
+
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
+            patch("products.tasks.backend.logic.services.modal_sandbox._get_template_image", return_value=MagicMock()),
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create", return_value=mock_sb),
+            patch("products.tasks.backend.exceptions.capture_exception"),
+        ):
+            with pytest.raises(SandboxProvisionError) as error:
+                ModalSandbox.create(SandboxConfig(name="t"))
+
+        mock_sb.terminate.assert_called_once()
+        assert error.value.non_retryable is False
 
     def test_wedged_directory_mount_recovers_on_same_image_and_names_the_mount(self):
         # A directory resume that wedges the sandbox never changed the boot image — the
@@ -1918,10 +1948,10 @@ class TestModalSandboxCreateImageFallback:
         )
         custom_image = MagicMock(name="custom_image")
 
-        sandbox, images_tried = self._create_with_probe(
+        sandbox, images_tried = self._create_with_readiness(
             config,
-            # Mounted sandbox wedged; the recreated (mount-free) one probes healthy.
-            probe=patch.object(ModalSandbox, "_is_healthy_after_restore", side_effect=[False, True]),
+            # Mounted sandbox wedged; the recreated (mount-free) one becomes ready.
+            ready=[False, True],
             snapshot_image=MagicMock(name="snapshot_image"),
             custom_image=custom_image,
         )
