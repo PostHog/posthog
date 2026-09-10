@@ -11,7 +11,7 @@ import {
   isStatusRedundantWithActionability,
   parseConventionalCommitTitle,
 } from "@posthog/core/inbox/reportPresentation";
-import { Button } from "@posthog/quill";
+import { Button, cn } from "@posthog/quill";
 import { dismissalReasonLabel } from "@posthog/shared/dismissalReasons";
 import type {
   SignalReport,
@@ -20,6 +20,7 @@ import type {
 import { ConventionalCommitScopeTag } from "@posthog/ui/features/inbox/components/ConventionalCommitScopeTag";
 import {
   InboxCardActions,
+  InboxCardSelectionCheckbox,
   InboxCardTimestamp,
   inboxCardBodyClassName,
   inboxCardClassName,
@@ -33,6 +34,7 @@ import { SignalReportActionabilityBadge } from "@posthog/ui/features/inbox/compo
 import { SignalReportStatusBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportStatusBadge";
 import { SignalReportSummaryMarkdown } from "@posthog/ui/features/inbox/components/utils/SignalReportSummaryMarkdown";
 import { hasKnownSourceProduct } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
+import { useInboxReportCardSelection } from "@posthog/ui/features/inbox/hooks/useInboxReportCardSelection";
 import { useInboxReportDetailPrefetch } from "@posthog/ui/features/inbox/hooks/useInboxReportDetailPrefetch";
 import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { Button as UiButton } from "@posthog/ui/primitives/Button";
@@ -41,7 +43,7 @@ import {
   reportNavigationState,
 } from "@posthog/ui/router/reportNavigation";
 import { Link, useNavigate } from "@tanstack/react-router";
-import type { HTMLAttributes, MouseEvent, ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 
 interface ReportCardViewBaseProps {
   report: SignalReport;
@@ -305,8 +307,6 @@ export function ReportCardView(props: ReportCardViewProps) {
 
 interface BaseReportCardProps {
   report: SignalReport;
-  isSelected?: boolean;
-  onRowClick?: (event: MouseEvent) => void;
 }
 
 interface DefaultReportCardProps extends BaseReportCardProps {
@@ -325,8 +325,10 @@ interface ArchivedReportCardProps extends BaseReportCardProps {
 export type ReportCardProps = DefaultReportCardProps | ArchivedReportCardProps;
 
 export function ReportCard(props: ReportCardProps) {
-  const { report, isSelected = false, onRowClick } = props;
+  const { report } = props;
   const isArchived = props.variant === "archived";
+  // Archived cards are read-only, so they take no part in a bulk selection.
+  const selection = useInboxReportCardSelection(report.id, !isArchived);
 
   const source = navigationSourceHref();
   const detailRoute = {
@@ -349,22 +351,42 @@ export function ReportCard(props: ReportCardProps) {
     : extractRepoSelectionRepository(artefactsResp?.results);
 
   const renderBody = (body: ReactNode, className: string) => (
-    <Link
-      {...detailRoute}
-      state={reportNavigationState}
-      preload="intent"
-      onClick={(event) => {
-        onRowClick?.(event);
-        if (event.metaKey || event.ctrlKey || event.shiftKey) {
-          event.preventDefault();
-          return;
-        }
-        prefetch();
-      }}
-      className={className}
-    >
-      {body}
-    </Link>
+    <div className="flex min-w-0 flex-1 items-start">
+      {!isArchived && (
+        <InboxCardSelectionCheckbox
+          checked={selection.isSelected}
+          selectionMode={selection.selectionMode}
+          label={`Select report: ${report.title}`}
+          onToggle={() => selection.toggle("checkbox")}
+        />
+      )}
+      {/* The gestures sit on this wrapper, not on the link: a selecting click has to be
+          caught before the link acts on it. */}
+      <div
+        className={cn(
+          "flex min-w-0 flex-1",
+          // A long press must not paint the title as selected text under the pointer.
+          selection.isHolding && "select-none",
+        )}
+        {...selection.cardHandlers}
+      >
+        <Link
+          {...detailRoute}
+          state={reportNavigationState}
+          preload="intent"
+          onClick={(event) => {
+            if (event.metaKey || event.ctrlKey || event.shiftKey) {
+              event.preventDefault();
+              return;
+            }
+            prefetch();
+          }}
+          className={className}
+        >
+          {body}
+        </Link>
+      </div>
+    </div>
   );
 
   if (props.variant === "archived") {
@@ -372,7 +394,6 @@ export function ReportCard(props: ReportCardProps) {
       <ReportCardView
         variant="archived"
         report={report}
-        isSelected={isSelected}
         onRestore={props.onRestore}
         isRestorePending={props.isRestorePending}
         renderBody={renderBody}
@@ -384,7 +405,7 @@ export function ReportCard(props: ReportCardProps) {
   return (
     <ReportCardView
       report={report}
-      isSelected={isSelected}
+      isSelected={selection.isSelected}
       repoSlug={repoSlug}
       artefacts={artefactsResp ?? null}
       onDismiss={props.onDismiss}

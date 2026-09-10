@@ -36,7 +36,6 @@ import {
 import {
   type ComponentType,
   Fragment,
-  type MouseEvent,
   type ReactNode,
   useCallback,
   useMemo,
@@ -45,8 +44,6 @@ import {
 
 interface DismissibleCardProps {
   report: SignalReport;
-  isSelected: boolean;
-  onRowClick: (event: MouseEvent) => void;
   onDismiss: () => void;
   dismissDisabledReason: string | null;
   isDismissPending: boolean;
@@ -128,13 +125,8 @@ export function InboxReportListTab({
     [matchingReports],
   );
 
-  const {
-    orderedSelectedIds,
-    selectedCount,
-    isReportSelected,
-    handleReportClick,
-    clearSelection,
-  } = useInboxReportListSelection(orderedReportIds);
+  const { orderedSelectedIds, selectedCount, clearSelection } =
+    useInboxReportListSelection(orderedReportIds);
 
   // Build the disabled-reason lookup once per render so each card is O(1).
   const suppressDisabledByReportId = useMemo(
@@ -253,10 +245,6 @@ export function InboxReportListTab({
                     <Card
                       key={report.id}
                       report={report}
-                      isSelected={isReportSelected(report.id)}
-                      onRowClick={(event) =>
-                        handleReportClick(report.id, event)
-                      }
                       onDismiss={() => setDismissReport(report)}
                       dismissDisabledReason={
                         suppressDisabledByReportId.get(report.id) ?? null

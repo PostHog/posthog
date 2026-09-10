@@ -14,7 +14,7 @@ import {
 } from "@posthog/ui/features/inbox/components/DismissReportDialog";
 import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
 import { Button } from "@posthog/ui/primitives/Button";
-import { AlertDialog, Flex, Text } from "@radix-ui/themes";
+import { AlertDialog, Flex } from "@radix-ui/themes";
 import { useCallback, useState } from "react";
 
 interface InboxBulkSelectionBarProps {
@@ -77,12 +77,12 @@ export function InboxBulkSelectionBar({
         className="rounded-(--radius-2) border border-(--accent-7) bg-(--accent-2) px-3 py-2"
       >
         <Flex align="center" gap="2" className="min-w-0">
-          <Text className="shrink-0 font-medium text-[13px] text-gray-12">
+          <span className="shrink-0 font-medium text-[13px] text-gray-12">
             {selectedCount} selected
-          </Text>
-          <Text className="text-[12px] text-gray-10">
-            Shift-click range · {"\u2318"}-click toggle · Esc to clear
-          </Text>
+          </span>
+          <span className="text-[12px] text-gray-10">
+            Hold or {"\u2318"}-click a card · Shift-click a range · Esc to clear
+          </span>
         </Flex>
 
         <Flex align="center" gap="2" wrap="wrap">

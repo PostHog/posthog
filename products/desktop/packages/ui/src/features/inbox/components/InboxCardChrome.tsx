@@ -1,4 +1,4 @@
-import { cn } from "@posthog/quill";
+import { Checkbox, cn } from "@posthog/quill";
 import type { ReactNode } from "react";
 
 /**
@@ -22,6 +22,41 @@ export function inboxCardClassName(options: {
     options.dimmed && "opacity-90",
     options.isSelected &&
       "border-(--accent-8) bg-(--accent-2) ring-(--accent-8) ring-2 ring-inset",
+  );
+}
+
+/**
+ * Multi-select affordance in the card's left gutter. Hidden until the card is hovered or
+ * focused, and pinned visible for every card once anything is selected, so the list stays
+ * quiet while it is only being read.
+ */
+export function InboxCardSelectionCheckbox({
+  checked,
+  selectionMode,
+  label,
+  onToggle,
+}: {
+  checked: boolean;
+  selectionMode: boolean;
+  label: string;
+  onToggle: () => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex shrink-0 items-start pt-0.5 pr-3 transition-opacity",
+        selectionMode
+          ? "opacity-100"
+          : "opacity-0 focus-within:opacity-100 group-hover:opacity-100",
+      )}
+    >
+      <Checkbox
+        checked={checked}
+        aria-label={label}
+        data-attr="inbox-report-select"
+        onCheckedChange={() => onToggle()}
+      />
+    </div>
   );
 }
 

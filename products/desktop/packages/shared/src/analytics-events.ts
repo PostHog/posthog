@@ -776,6 +776,22 @@ export interface InboxTriageEndedProperties
   end_reason: "completed" | "exited";
 }
 
+/** Which affordance a person used to put the first report into a selection. */
+export type InboxSelectionEntryMethod =
+  | "long_press"
+  | "meta_click"
+  | "shift_click"
+  | "checkbox";
+
+/**
+ * Fired once per selection, when the inbox list goes from nothing selected to
+ * one report selected. It says which affordance the person found, so the ones
+ * nobody uses can go. Mirrors cloud's `Inbox selection mode entered`.
+ */
+export interface InboxSelectionModeEnteredProperties {
+  entry_method: InboxSelectionEntryMethod;
+}
+
 /** Sentiment captured by the report usefulness thumbs. */
 export type InboxReportFeedbackSentiment = "positive" | "negative";
 
@@ -1678,6 +1694,7 @@ export const ANALYTICS_EVENTS = {
   INBOX_REPORT_FEEDBACK_NOTE: "Inbox report feedback note",
   INBOX_TRIAGE_STARTED: "Inbox triage started",
   INBOX_TRIAGE_ENDED: "Inbox triage ended",
+  INBOX_SELECTION_MODE_ENTERED: "Inbox selection mode entered",
   SIGNAL_SOURCE_CONNECTED: "Signal source connected",
 
   // Agents page events
@@ -1890,6 +1907,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE]: InboxReportFeedbackNoteProperties;
   [ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED]: InboxTriageStartedProperties;
   [ANALYTICS_EVENTS.INBOX_TRIAGE_ENDED]: InboxTriageEndedProperties;
+  [ANALYTICS_EVENTS.INBOX_SELECTION_MODE_ENTERED]: InboxSelectionModeEnteredProperties;
   [ANALYTICS_EVENTS.SIGNAL_SOURCE_CONNECTED]: SignalSourceConnectedProperties;
 
   // Agents page events
@@ -1979,6 +1997,7 @@ const INBOX_ANALYTICS_EVENT_NAMES: ReadonlySet<string> = new Set([
   ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE,
   ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED,
   ANALYTICS_EVENTS.INBOX_TRIAGE_ENDED,
+  ANALYTICS_EVENTS.INBOX_SELECTION_MODE_ENTERED,
   ANALYTICS_EVENTS.SIGNAL_SOURCE_CONNECTED,
 ]);
 

@@ -6,6 +6,7 @@ describe("inboxReportSelectionStore", () => {
     useInboxReportSelectionStore.setState({
       selectedReportIds: [],
       lastClickedId: null,
+      orderedReportIds: [],
     });
   });
 
@@ -90,16 +91,31 @@ describe("inboxReportSelectionStore", () => {
     expect(useInboxReportSelectionStore.getState().lastClickedId).toBeNull();
   });
 
-  it("pruneSelection keeps only visible report ids", () => {
+  it("setOrderedReportIds keeps only visible report ids", () => {
     useInboxReportSelectionStore.setState({
       selectedReportIds: ["r1", "r2", "r3"],
     });
 
-    useInboxReportSelectionStore.getState().pruneSelection(["r2", "r4"]);
+    useInboxReportSelectionStore.getState().setOrderedReportIds(["r2", "r4"]);
 
     expect(useInboxReportSelectionStore.getState().selectedReportIds).toEqual([
       "r2",
     ]);
+    expect(useInboxReportSelectionStore.getState().orderedReportIds).toEqual([
+      "r2",
+      "r4",
+    ]);
+  });
+
+  it("setOrderedReportIds drops an anchor that left the list", () => {
+    useInboxReportSelectionStore.setState({
+      selectedReportIds: ["r1"],
+      lastClickedId: "r1",
+    });
+
+    useInboxReportSelectionStore.getState().setOrderedReportIds(["r2", "r3"]);
+
+    expect(useInboxReportSelectionStore.getState().lastClickedId).toBeNull();
   });
 
   describe("selectRange", () => {

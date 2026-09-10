@@ -6,7 +6,7 @@ import {
   parseConventionalCommitTitle,
   parsePrUrl,
 } from "@posthog/core/inbox/reportPresentation";
-import { Button } from "@posthog/quill";
+import { Button, cn } from "@posthog/quill";
 import type {
   SignalReport,
   SignalReportArtefactsResponse,
@@ -14,6 +14,7 @@ import type {
 import { ConventionalCommitScopeTag } from "@posthog/ui/features/inbox/components/ConventionalCommitScopeTag";
 import {
   InboxCardActions,
+  InboxCardSelectionCheckbox,
   InboxCardTimestamp,
   InboxCardTopRight,
   inboxCardBodyClassName,
@@ -25,6 +26,7 @@ import { PrDiffStats } from "@posthog/ui/features/inbox/components/PrDiffStats";
 import { PriorityMonogram } from "@posthog/ui/features/inbox/components/PriorityMonogram";
 import { SuggestedReviewerAvatarStack } from "@posthog/ui/features/inbox/components/SuggestedReviewerAvatarStack";
 import { ReportImplementationPrLink } from "@posthog/ui/features/inbox/components/utils/ReportImplementationPrLink";
+import { useInboxReportCardSelection } from "@posthog/ui/features/inbox/hooks/useInboxReportCardSelection";
 import { useInboxReportDetailPrefetch } from "@posthog/ui/features/inbox/hooks/useInboxReportDetailPrefetch";
 import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { Button as UiButton } from "@posthog/ui/primitives/Button";
@@ -33,7 +35,7 @@ import {
   reportNavigationState,
 } from "@posthog/ui/router/reportNavigation";
 import { Link, useNavigate } from "@tanstack/react-router";
-import type { HTMLAttributes, MouseEvent, ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 
 export interface PullRequestCardViewProps {
   report: SignalReport;
@@ -168,8 +170,6 @@ export function PullRequestCardView({
 
 interface PullRequestCardProps {
   report: SignalReport;
-  isSelected?: boolean;
-  onRowClick?: (event: MouseEvent) => void;
   onDismiss: () => void;
   dismissDisabledReason?: string | null;
   isDismissPending?: boolean;
@@ -177,8 +177,6 @@ interface PullRequestCardProps {
 
 export function PullRequestCard({
   report,
-  isSelected = false,
-  onRowClick,
   onDismiss,
   dismissDisabledReason = null,
   isDismissPending = false,
@@ -191,6 +189,7 @@ export function PullRequestCard({
   };
   const { prefetch, pointerHandlers } =
     useInboxReportDetailPrefetch(detailRoute);
+  const selection = useInboxReportCardSelection(report.id, true);
   const navigate = useNavigate();
   const prRef = report.implementation_pr_url
     ? parsePrUrl(report.implementation_pr_url)
@@ -207,7 +206,7 @@ export function PullRequestCard({
       report={report}
       repoSlug={repoSlug}
       artefacts={artefactsResp ?? null}
-      isSelected={isSelected}
+      isSelected={selection.isSelected}
       onDismiss={onDismiss}
       dismissDisabledReason={dismissDisabledReason}
       isDismissPending={isDismissPending}
@@ -217,22 +216,40 @@ export function PullRequestCard({
       }}
       rootProps={pointerHandlers}
       renderBody={(body, className) => (
-        <Link
-          {...detailRoute}
-          state={reportNavigationState}
-          preload="intent"
-          onClick={(event) => {
-            onRowClick?.(event);
-            if (event.metaKey || event.ctrlKey || event.shiftKey) {
-              event.preventDefault();
-              return;
-            }
-            prefetch();
-          }}
-          className={className}
-        >
-          {body}
-        </Link>
+        <div className="flex min-w-0 flex-1 items-start">
+          <InboxCardSelectionCheckbox
+            checked={selection.isSelected}
+            selectionMode={selection.selectionMode}
+            label={`Select pull request: ${report.title}`}
+            onToggle={() => selection.toggle("checkbox")}
+          />
+          {/* The gestures sit on this wrapper, not on the link: a selecting click has to be
+              caught before the link acts on it. */}
+          <div
+            className={cn(
+              "flex min-w-0 flex-1",
+              // A long press must not paint the title as selected text under the pointer.
+              selection.isHolding && "select-none",
+            )}
+            {...selection.cardHandlers}
+          >
+            <Link
+              {...detailRoute}
+              state={reportNavigationState}
+              preload="intent"
+              onClick={(event) => {
+                if (event.metaKey || event.ctrlKey || event.shiftKey) {
+                  event.preventDefault();
+                  return;
+                }
+                prefetch();
+              }}
+              className={className}
+            >
+              {body}
+            </Link>
+          </div>
+        </div>
       )}
     />
   );

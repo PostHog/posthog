@@ -4,6 +4,8 @@ interface InboxReportSelectionState {
   selectedReportIds: string[];
   /** The last report ID that was clicked – used as the anchor for shift-click range selection. */
   lastClickedId: string | null;
+  /** The rendered order of the list currently on screen, in render order. */
+  orderedReportIds: string[];
 }
 
 interface InboxReportSelectionActions {
@@ -25,7 +27,8 @@ interface InboxReportSelectionActions {
   clearSelection: () => void;
   /** Remove a set of ids from the selection (used after a partial-success bulk action). */
   removeFromSelection: (reportIds: string[]) => void;
-  pruneSelection: (visibleReportIds: string[]) => void;
+  /** Record the list currently on screen, dropping any selection or anchor that left it. */
+  setOrderedReportIds: (reportIds: string[]) => void;
 }
 
 type InboxReportSelectionStore = InboxReportSelectionState &
@@ -35,6 +38,7 @@ export const useInboxReportSelectionStore = create<InboxReportSelectionStore>()(
   (set, get) => ({
     selectedReportIds: [],
     lastClickedId: null,
+    orderedReportIds: [],
 
     setSelectedReportIds: (reportIds) =>
       set({
@@ -108,12 +112,18 @@ export const useInboxReportSelectionStore = create<InboxReportSelectionStore>()(
       }));
     },
 
-    pruneSelection: (visibleReportIds) => {
-      const visibleIds = new Set(visibleReportIds);
+    setOrderedReportIds: (reportIds) => {
+      const visibleIds = new Set(reportIds);
       set((state) => ({
+        orderedReportIds: reportIds,
         selectedReportIds: state.selectedReportIds.filter((id) =>
           visibleIds.has(id),
         ),
+        // An anchor that left the list would range from the wrong row, so drop it.
+        lastClickedId:
+          state.lastClickedId && !visibleIds.has(state.lastClickedId)
+            ? null
+            : state.lastClickedId,
       }));
     },
   }),
