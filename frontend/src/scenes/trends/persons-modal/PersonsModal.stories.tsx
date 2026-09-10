@@ -4,6 +4,7 @@ import { delay, HttpResponse } from 'msw'
 import { RawPropertiesTimelineResult } from 'lib/components/PropertiesTimeline/propertiesTimelineLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
+import { NodeKind } from '~/queries/schema/schema-general'
 
 import EXAMPLE_PERSONS_RESPONSE from './__mocks__/examplePersonsResponse.json'
 import EXAMPLE_SESSION_ACTORS_RESPONSE from './__mocks__/exampleSessionActorsResponse.json'
@@ -137,6 +138,38 @@ export const TimeoutError: Story = {
         return (
             <div className="flex max-h-200">
                 <PersonsModalComponent title="Hello!" url="/api/projects/1/persons/trends/" inline />
+            </div>
+        )
+    },
+}
+
+export const TransientError: Story = {
+    render: () => {
+        useStorybookMocks({
+            post: {
+                '/api/environments/:team_id/query/:query_kind/': async () => {
+                    await delay(200)
+                    return HttpResponse.json(
+                        {
+                            type: 'server_error',
+                            detail: 'The query cluster is at capacity.',
+                        },
+                        { status: 503 }
+                    )
+                },
+            },
+        })
+
+        return (
+            <div className="flex max-h-200">
+                <PersonsModalComponent
+                    title="Hello!"
+                    query={{
+                        kind: NodeKind.InsightActorsQuery,
+                        source: { kind: NodeKind.TrendsQuery, series: [] },
+                    }}
+                    inline
+                />
             </div>
         )
     },
