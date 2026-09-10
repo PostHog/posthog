@@ -290,16 +290,6 @@ from products.wizard.backend.facade.temporal import (
 # in .github/workflows/container-images-cd.yml (check_changes_*_temporal_worker)
 _task_queue_specs = [
     (
-        settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
-        ALERTS_PRODUCT_EVALUATION_WORKFLOWS,
-        ALERTS_PRODUCT_EVALUATION_ACTIVITIES,
-    ),
-    (
-        settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE,
-        ALERTS_PRODUCT_DELIVERY_WORKFLOWS,
-        ALERTS_PRODUCT_DELIVERY_ACTIVITIES,
-    ),
-    (
         settings.SYNC_BATCH_EXPORTS_TASK_QUEUE,
         BATCH_EXPORTS_WORKFLOWS,
         BATCH_EXPORTS_ACTIVITIES,
@@ -552,6 +542,16 @@ _task_queue_specs = [
         settings.STAMPHOG_TASK_QUEUE,
         STAMPHOG_WORKFLOWS,
         STAMPHOG_ACTIVITIES,
+    ),
+    (
+        settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+        ALERTS_PRODUCT_EVALUATION_WORKFLOWS,
+        ALERTS_PRODUCT_EVALUATION_ACTIVITIES,
+    ),
+    (
+        settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE,
+        ALERTS_PRODUCT_DELIVERY_WORKFLOWS,
+        ALERTS_PRODUCT_DELIVERY_ACTIVITIES,
     ),
 ]
 
