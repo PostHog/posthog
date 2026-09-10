@@ -43,6 +43,13 @@ from products.alerts.backend.insight_alert_destinations import (
     build_insight_alert_slack_config,
 )
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
+from products.alerts.backend.llm_detector_limits import (
+    is_llm_detector_config,
+    llm_alert_limit_error,
+    llm_detector_access_error,
+    llm_detector_interval_error,
+    lock_llm_alert_limit,
+)
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts.backend.presentation.views.alert_schedule_restriction import AlertScheduleRestriction
 from products.alerts.backend.scheduling import (
@@ -235,7 +242,12 @@ __all__ = [
     "get_alert_team_id",
     "insight_alerts_prefetch",
     "insight_ids_with_alerts",
+    "is_llm_detector_config",
     "list_alert_destination_groups",
+    "llm_alert_limit_error",
+    "llm_detector_access_error",
+    "llm_detector_interval_error",
+    "lock_llm_alert_limit",
     "owned_alert_destinations_qs",
     "redact_urls_in_name",
     "serialize_insight_alerts",

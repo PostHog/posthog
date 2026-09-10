@@ -88,6 +88,11 @@ from products.alerts.backend.facade.api import (
     build_insight_alert_slack_config,
     count_active_alert_destinations,
     create_alert_destination_hog_functions,
+    is_llm_detector_config,
+    llm_alert_limit_error,
+    llm_detector_access_error,
+    llm_detector_interval_error,
+    lock_llm_alert_limit,
     soft_delete_alert_destinations,
     validate_and_normalize_schedule_start_time,
     validate_destination_data,
@@ -98,13 +103,6 @@ from products.alerts.backend.insight_alert_state_machine import (
     apply_snooze,
     apply_threshold_change,
     apply_unsnooze,
-)
-from products.alerts.backend.llm_detector_limits import (
-    is_llm_detector_config,
-    llm_alert_limit_error,
-    llm_detector_access_error,
-    llm_detector_interval_error,
-    lock_llm_alert_limit,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.alerts.backend.presentation.views.alert_schedule_restriction import AlertScheduleRestriction
