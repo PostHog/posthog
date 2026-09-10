@@ -684,6 +684,10 @@ class AssignAndEmitSignalInput:
     metadata: dict = field(default_factory=dict)
     # Defaults false so workflow histories written before staged handoffs replay on the direct-emission path.
     use_handoffs: bool = False
+    # Nothing reads this. It stays on the payload because workers from the release before staged
+    # handoffs still require the field to decode this input, and both poll the same task queue
+    # during a rolling deploy. Drop it once no such worker can pick up an activity.
+    embedding: list[float] = field(default_factory=list)
 
 
 @dataclass(frozen=False)
