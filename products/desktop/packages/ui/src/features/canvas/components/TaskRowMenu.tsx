@@ -32,7 +32,10 @@ import {
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
-import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
+import {
+  type Channel,
+  useChannels,
+} from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useFileTaskToChannel } from "@posthog/ui/features/canvas/hooks/useFileTaskToChannel";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useSidebarPeekStore } from "@posthog/ui/features/sidebar/sidebarPeekStore";
@@ -52,6 +55,9 @@ import {
   useMemo,
   useState,
 } from "react";
+
+/** Stable empty list, so a gated-off channels array keeps a steady identity. */
+const EMPTY_CHANNELS: Channel[] = [];
 
 /**
  * What a row's menu can do. The row owns the handlers because they're the same
@@ -142,15 +148,20 @@ function TaskRowMenuItems({
   menu: TaskRowMenuProps;
 }) {
   const { Item, Sub, SubTrigger } = parts;
-  // "File to…" is a Project Bluebird feature; gate the channel fetch behind the
-  // flag so neither the submenu nor its request reaches ungated users.
+  // "File to…" is a Project Bluebird feature. `enabled: false` stops the
+  // request but still hands back whatever an ungated surface elsewhere put in
+  // the shared cache, so the flag has to gate the list itself: an empty list is
+  // what keeps the submenu off an ungated user's row.
   const bluebirdEnabled = useFeatureFlag(
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
   const isTask = menu.kind === "task";
   const analysisTask = isTask && menu.task?.latest_run ? menu.task : null;
-  const { channels } = useChannels({ enabled: bluebirdEnabled });
+  const { channels: fetchedChannels } = useChannels({
+    enabled: bluebirdEnabled,
+  });
+  const channels = bluebirdEnabled ? fetchedChannels : EMPTY_CHANNELS;
   const fileToChannel = useFileTaskToChannel({ enabled: bluebirdEnabled });
   const openBrowserTab = useOpenBrowserTab();
 

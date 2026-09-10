@@ -6,7 +6,10 @@ import { useHostTRPCClient } from "@posthog/host-router/react";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
-import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
+import {
+  type Channel,
+  useChannels,
+} from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useFileTaskToChannel } from "@posthog/ui/features/canvas/hooks/useFileTaskToChannel";
 import { useExternalAppAction } from "@posthog/ui/features/external-apps/useExternalAppAction";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
@@ -18,6 +21,9 @@ import { useCallback, useState } from "react";
 
 const log = logger.scope("context-menu");
 
+/** Stable empty list, so a gated-off channels array keeps a steady identity. */
+const EMPTY_CHANNELS: Channel[] = [];
+
 export function useTaskContextMenu() {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const hostClient = useHostTRPCClient();
@@ -26,13 +32,19 @@ export function useTaskContextMenu() {
   const { archiveTask } = useArchiveTask();
   const { suspendTask } = useSuspendTask();
   const { restoreTask } = useRestoreTask();
-  // "File to…" is a Project Bluebird feature. Gate the channel fetch behind the
-  // flag so the submenu (and its API request) never reaches ungated users.
+  // "File to…" is a Project Bluebird feature. `enabled: false` stops the
+  // request but still hands back whatever an ungated surface elsewhere put in
+  // the shared cache, so the flag has to gate the list itself: the native menu
+  // builds its submenu from these channels and leaves it out when there are
+  // none.
   const bluebirdEnabled = useFeatureFlag(
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
-  const { channels } = useChannels({ enabled: bluebirdEnabled });
+  const { channels: fetchedChannels } = useChannels({
+    enabled: bluebirdEnabled,
+  });
+  const channels = bluebirdEnabled ? fetchedChannels : EMPTY_CHANNELS;
   const fileTaskToChannel = useFileTaskToChannel({ enabled: bluebirdEnabled });
 
   const showContextMenu = useCallback(
