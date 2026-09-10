@@ -82,6 +82,7 @@ export interface scoutSuggestionsLogicValues {
         existing: ExistingScoutForSuggestion | null
         item: ScoutSuggestionItemApi
     } | null
+    expandedSuggestionId: string | null
     hasPicks: boolean
     hiddenSuggestionIds: string[]
     isRefreshing: boolean
