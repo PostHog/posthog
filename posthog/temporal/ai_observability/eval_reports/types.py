@@ -5,15 +5,27 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 
+DEFAULT_MAX_SCHEDULED_EVAL_REPORTS_PER_RUN = 300
+MAX_SCHEDULED_EVAL_REPORTS_PER_RUN = 1_000
+
+# The count-triggered coordinator currently checks roughly 1,070 US reports every five
+# minutes. Two thousand keeps almost 2x production headroom while the 5,000 hard ceiling
+# and the wire-size guard prevent an operator override from creating an oversized activation.
+DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN = 2_000
+MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN = 5_000
+
 
 @dataclasses.dataclass
 class ScheduleAllEvalReportsWorkflowInputs:
     buffer_minutes: int = 15
+    max_reports_per_run: int = DEFAULT_MAX_SCHEDULED_EVAL_REPORTS_PER_RUN
+    region: str = "local"
 
 
 @dataclasses.dataclass
 class CheckCountTriggeredReportsWorkflowInputs:
-    pass
+    max_reports_per_run: int = DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN
+    region: str = "local"
 
 
 @dataclasses.dataclass
@@ -45,6 +57,10 @@ class FetchDueEvalReportsOutput:
     # COUNT_TRIGGER_QUERY_WIDTH wide. None when emitted by a pre-batching worker;
     # the workflow then keeps the legacy per-report path.
     report_id_groups: list[list[str]] | None = None
+    due_items_lower_bound: int = 0
+    oldest_due_at_iso: str | None = None
+    payload_bytes: int = 0
+    limited_by: str = "none"
 
 
 @dataclasses.dataclass

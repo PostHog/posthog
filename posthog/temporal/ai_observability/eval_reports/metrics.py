@@ -137,6 +137,27 @@ def record_coordinator_check_count(count: int, trigger_type: str) -> None:
     ).add(count)
 
 
+def record_coordinator_candidate_inventory(count: int, trigger_type: str, region: str, *, saturated: bool) -> None:
+    """Expose current candidate inventory and whether one poll can cover it.
+
+    Unlike a time-based backlog, every count-triggered report is a candidate on every
+    poll. These dedicated gauges let operators alert when the rotating page can no longer
+    cover all candidates in one five-minute cycle without mislabeling them as overdue.
+    """
+
+    if not activity.in_activity() and not workflow.in_workflow():
+        return
+    meter = get_metric_meter({"trigger_type": trigger_type, "region": region})
+    meter.create_gauge(
+        "llma_eval_reports_coordinator_candidate_inventory_lower_bound",
+        "Bounded lower bound for reports eligible for coordinator discovery",
+    ).set(count)
+    meter.create_gauge(
+        "llma_eval_reports_coordinator_page_saturated",
+        "One when candidate discovery deferred work beyond the current poll",
+    ).set(int(saturated))
+
+
 # ---------------------------------------------------------------------------
 # Interceptor — automatic timing for activities and workflows
 # ---------------------------------------------------------------------------

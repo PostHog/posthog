@@ -90,22 +90,12 @@ class ScheduleAllEvalReportsWorkflow(PostHogWorkflow):
         if not result.report_ids:
             return
 
-        # Fan-out: start child workflow per due report
-        tasks = []
-        for report_id in result.report_ids:
-            task = temporalio.workflow.execute_child_workflow(
-                GenerateAndDeliverEvalReportWorkflow.run,
-                GenerateAndDeliverEvalReportWorkflowInput(report_id=report_id),
-                id=f"eval-report-{report_id}",
-                execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
-            )
-            tasks.append(task)
-
-        # return_exceptions=True isolates individual report failures — one failing
-        # report shouldn't block the others. Log the offenders so they're visible
-        # in observability even though we don't re-raise.
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        _log_fan_out_failures("scheduled_eval_report", result.report_ids, results)
+        await _dispatch_report_workflows(
+            "scheduled_eval_report",
+            "eval-report",
+            result.report_ids,
+            patch_id="eval-report-scheduled-coordinator-fire-and-forget-2026-09",
+        )
 
 
 @temporalio.workflow.defn(name=CHECK_COUNT_TRIGGERED_REPORTS_WORKFLOW_NAME)
@@ -140,18 +130,12 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
         if not report_ids:
             return
 
-        tasks = []
-        for report_id in report_ids:
-            task = temporalio.workflow.execute_child_workflow(
-                GenerateAndDeliverEvalReportWorkflow.run,
-                GenerateAndDeliverEvalReportWorkflowInput(report_id=report_id),
-                id=f"eval-report-count-{report_id}",
-                execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
-            )
-            tasks.append(task)
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        _log_fan_out_failures("count_triggered_eval_report", report_ids, results)
+        await _dispatch_report_workflows(
+            "count_triggered_eval_report",
+            "eval-report-count",
+            report_ids,
+            patch_id="eval-report-count-coordinator-fire-and-forget-2026-09",
+        )
 
 
 async def _check_count_triggered_eval_report_candidates(report_ids: list[str]) -> list[str]:
@@ -260,16 +244,83 @@ async def _check_count_triggered_eval_report_candidates_batched(report_id_groups
     return due_report_ids
 
 
-def _log_fan_out_failures(kind: str, report_ids: list[str], results: list) -> None:
-    """Log which child workflows failed in a fan-out, without re-raising."""
-    failed: list[tuple[str, str]] = []
-    for report_id, result in zip(report_ids, results):
-        if isinstance(result, BaseException):
-            failed.append((report_id, f"{type(result).__name__}: {result}"))
+async def _dispatch_report_workflows(
+    kind: str,
+    workflow_id_prefix: str,
+    report_ids: list[str],
+    *,
+    patch_id: str,
+) -> None:
+    if temporalio.workflow.patched(patch_id):
+        await _start_report_workflows(kind, workflow_id_prefix, report_ids)
+        return
+
+    # Preserve the command sequence for coordinator histories that started before the
+    # fire-and-forget release. New histories record the patch marker and never take this path.
+    tasks = [
+        temporalio.workflow.execute_child_workflow(
+            GenerateAndDeliverEvalReportWorkflow.run,
+            GenerateAndDeliverEvalReportWorkflowInput(report_id=report_id),
+            id=f"{workflow_id_prefix}-{report_id}",
+            execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
+        )
+        for report_id in report_ids
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    _log_legacy_fan_out_failures(kind, report_ids, results)
+
+
+async def _start_report_workflows(kind: str, workflow_id_prefix: str, report_ids: list[str]) -> None:
+    """Start bounded report children and return after Temporal accepts each command.
+
+    The coordinator must not live for the full report-generation duration: doing so turns
+    every report into coordinator history and makes an hourly/5-minute poll vulnerable to
+    one slow child. ABANDON keeps accepted children running after this coordinator closes.
+    """
+
+    already_started = 0
+    failed_count = 0
+    failure_samples: list[tuple[str, str]] = []
+    for report_id in report_ids:
+        try:
+            await temporalio.workflow.start_child_workflow(
+                GenerateAndDeliverEvalReportWorkflow.run,
+                GenerateAndDeliverEvalReportWorkflowInput(report_id=report_id),
+                id=f"{workflow_id_prefix}-{report_id}",
+                task_queue=settings.LLMA_TASK_QUEUE,
+                parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
+            )
+        except WorkflowAlreadyStartedError:
+            # A previous coordinator already launched this report and it is still open.
+            already_started += 1
+        except Exception as error:
+            failed_count += 1
+            if len(failure_samples) < 20:
+                failure_samples.append((report_id, f"{type(error).__name__}: {error}"))
+
+    if already_started or failed_count:
+        temporalio.workflow.logger.warning(
+            f"{kind}.child_workflow_start_errors",
+            extra={
+                "already_started_count": already_started,
+                "failed_count": failed_count,
+                "failure_samples": failure_samples,
+            },
+        )
+
+
+def _log_legacy_fan_out_failures(kind: str, report_ids: list[str], results: list) -> None:
+    failed = [
+        (report_id, f"{type(result).__name__}: {result}")
+        for report_id, result in zip(report_ids, results)
+        if isinstance(result, BaseException)
+    ]
     if failed:
         temporalio.workflow.logger.warning(
             f"{kind}.child_workflow_errors",
-            extra={"failed_count": len(failed), "failures": failed},
+            extra={"failed_count": len(failed), "failures": failed[:20]},
         )
 
 
