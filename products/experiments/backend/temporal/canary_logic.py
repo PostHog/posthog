@@ -21,7 +21,7 @@ The bug class this guards (multi-node ClickHouse read-your-writes, see
 Runbook:
 
 - Outcomes land in Prometheus via the pushgateway (job ``experiment_precompute_canary``):
-  ``experiment_precompute_canary_outcomes{outcome=pass|divergence|path_flip|error|skipped}``,
+  ``experiment_precompute_canary_outcomes{outcome=pass|divergence|path_flip|uncheckable|error|skipped}``,
   ``experiment_precompute_canary_max_deviation{check=stability|correctness}``, and
   ``experiment_precompute_canary_last_run_timestamp``. Suggested alerts:
   ``outcomes{outcome="divergence"} > 0`` (experiment results unstable between refreshes or cache content
@@ -51,6 +51,7 @@ from prometheus_client import Gauge
 from posthog.schema import ExperimentQuery, PrecomputationMode
 
 from posthog.clickhouse.query_tagging import tags_context
+from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.metrics import pushed_metrics_registry
 from posthog.models.scoping import team_scope
 
@@ -71,6 +72,7 @@ from products.experiments.backend.temporal.models import (
     OUTCOME_PASS,
     OUTCOME_PATH_FLIP,
     OUTCOME_SKIPPED,
+    OUTCOME_UNCHECKABLE,
     CanaryMetricResult,
     CanaryMetricTarget,
     CanaryOutcome,
@@ -276,17 +278,26 @@ def _stability_violated(metric_type: str, run_a: CanaryRunSnapshot, run_b: Canar
 
 
 def evaluate_canary_runs(
-    metric_type: str, run_a: CanaryRunSnapshot, run_b: CanaryRunSnapshot, run_c: CanaryRunSnapshot
+    metric_type: str, run_a: CanaryRunSnapshot, run_b: CanaryRunSnapshot, run_c: CanaryRunSnapshot | None
 ) -> CanaryVerdict:
-    """Compare the three runs: A↔B is the stability check, B↔C the correctness check (B is adjacent in
-    time to C, minimizing live-ingestion drift)."""
-    runs = (run_a, run_b, run_c)
+    """Compare the runs: A↔B is the stability check, B↔C the correctness check (B is adjacent in
+    time to C, minimizing live-ingestion drift). run_c is None when the direct scan cannot execute
+    under the per-query byte cap: stability is still checked, and a clean pair verdicts as
+    uncheckable rather than pass because correctness stays unverified."""
+    runs = tuple(run for run in (run_a, run_b, run_c) if run is not None)
     if any(not run.variants for run in runs):
         return CanaryVerdict(outcome=OUTCOME_SKIPPED, detail="empty results (no exposures yet)")
 
     # Checked before the variant-set comparison: a flipped run compares live vs frozen data, so it can
-    # also explain a variant showing up in one run but not another.
-    flipped = [run.label for run in (run_a, run_b) if not run.is_precomputed]
+    # also explain a variant showing up in one run but not another. Both cache sides count: a run whose
+    # metric-events build fell back to scanning events would compare that scan against run c's scan,
+    # which passes trivially without testing the cache.
+    flipped = []
+    for run in (run_a, run_b):
+        if not run.is_precomputed:
+            flipped.append(f"{run.label} (exposures)")
+        if run.metric_events_path == "direct_scan":
+            flipped.append(f"{run.label} (metric events)")
     if flipped:
         # A forced-precomputed run fell back to the direct scan (e.g. the lazy computation executor timed
         # out). Deviation is expected — not a divergence.
@@ -304,8 +315,21 @@ def evaluate_canary_runs(
         )
 
     stability_deviation = _max_deviation(run_a, run_b)
+    stability_broken = _stability_violated(metric_type, run_a, run_b)
+
+    if run_c is None:
+        return CanaryVerdict(
+            outcome=OUTCOME_DIVERGENCE if stability_broken else OUTCOME_UNCHECKABLE,
+            stability_deviation=stability_deviation,
+            detail=(
+                "deviation beyond tolerance"
+                if stability_broken
+                else "direct scan exceeds the byte cap; correctness not checked"
+            ),
+        )
+
     correctness_deviation = _max_deviation(run_b, run_c, min_sum_delta=MIN_CORRECTNESS_SUM_DELTA)
-    diverged = _stability_violated(metric_type, run_a, run_b) or correctness_deviation > LOOSE_TOLERANCE
+    diverged = stability_broken or correctness_deviation > LOOSE_TOLERANCE
 
     return CanaryVerdict(
         outcome=OUTCOME_DIVERGENCE if diverged else OUTCOME_PASS,
@@ -351,6 +375,19 @@ def _execute_canary_run(
             entry.key: CanaryVariantStats(sum=entry.sum, number_of_samples=entry.number_of_samples)
             for entry in stats_entries
         },
+        metric_events_path=runner.metric_events_path,
+    )
+
+
+def _log_canary_run_failed(target: CanaryMetricTarget, label: str, query_id: str) -> None:
+    logger.warning(
+        "experiment_precompute_canary_run_failed",
+        team_id=target.team_id,
+        experiment_id=target.experiment_id,
+        metric_uuid=target.metric_uuid,
+        run_label=label,
+        query_id=query_id,
+        exc_info=True,
     )
 
 
@@ -359,7 +396,9 @@ def run_metric_canary_sync(target: CanaryMetricTarget) -> CanaryMetricResult:
 
     Deterministic dead ends (experiment/metric gone, unparseable definition) return a skipped result.
     Query failures raise so Temporal retries the whole triple — the comparisons require runs adjacent in
-    time, so retrying a single run against stale siblings would skew the pair.
+    time, so retrying a single run against stale siblings would skew the pair. One exception: the direct
+    scan hitting the per-query byte cap is deterministic for the data window, so it yields an uncheckable
+    verdict instead of burning another full scan per retry.
     """
     close_old_connections()
 
@@ -391,23 +430,31 @@ def run_metric_canary_sync(target: CanaryMetricTarget) -> CanaryMetricResult:
 
         canary_id = uuid.uuid4().hex[:12]
         runs: list[CanaryRunSnapshot] = []
+        direct_scan_uncheckable = False
         for label, mode in _CANARY_RUNS:
             query_id = f"experiment-canary-{canary_id}-{label}"
             try:
                 runs.append(_execute_canary_run(experiment, metric, mode, label, query_id))
-            except Exception:
-                logger.warning(
-                    "experiment_precompute_canary_run_failed",
+            except CHQueryErrorTooManyBytes:
+                if label != "c":
+                    # A forced-precomputed run that falls back to the direct scan can hit the cap too;
+                    # that failure is what a user's read would see, so it stays an error.
+                    _log_canary_run_failed(target, label, query_id)
+                    raise
+                direct_scan_uncheckable = True
+                logger.info(
+                    "experiment_precompute_canary_direct_scan_uncheckable",
                     team_id=target.team_id,
                     experiment_id=target.experiment_id,
                     metric_uuid=target.metric_uuid,
-                    run_label=label,
                     query_id=query_id,
-                    exc_info=True,
                 )
+            except Exception:
+                _log_canary_run_failed(target, label, query_id)
                 raise
 
-        verdict = evaluate_canary_runs(metric_type, *runs)
+        run_c = None if direct_scan_uncheckable else runs[2]
+        verdict = evaluate_canary_runs(metric_type, runs[0], runs[1], run_c)
         result = CanaryMetricResult(
             target=target,
             outcome=verdict.outcome,
@@ -439,6 +486,8 @@ def run_metric_canary_sync(target: CanaryMetricTarget) -> CanaryMetricResult:
 
 def _format_run_line(run: CanaryRunSnapshot) -> str:
     path = "precomputed" if run.is_precomputed else "direct"
+    if run.metric_events_path != "not_applicable":
+        path += f", metric events {run.metric_events_path}"
     variants = ", ".join(
         f"{key} {stats.sum:g}/{stats.number_of_samples}" for key, stats in sorted(run.variants.items())
     )
