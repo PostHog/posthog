@@ -181,10 +181,11 @@ def _rate(events: int, sent: int) -> float:
 def _discover_candidate_team_ids(*, now: datetime, thresholds: list[DetectorThreshold]) -> set[int]:
     """Find the teams worth looking at, with the volume gates pushed into ClickHouse.
 
-    One sweep per window across the whole fleet, never a query per team. The gates are applied per
-    `app_source_id` rather than per workflow, so a workflow whose feedback is spread thinly across
-    many batch jobs (none of them individually over a gate) is not discovered. That direction is
-    the safe one: it under-detects rather than pausing a workflow that is fine.
+    One pass per window across the whole fleet, never a query per team. The gates are applied at
+    the team level, so a workflow whose feedback is spread across many batch jobs (none of them
+    individually over a gate) still surfaces its team. Batch sends are the detector's main case,
+    so per-source gating would let exactly that shape escape. Over-selection is fine: the second
+    pass computes exact per-workflow totals before any decision.
     """
     candidate_team_ids: set[int] = set()
     before = _hour_floor(now)
@@ -195,6 +196,7 @@ def _discover_candidate_team_ids(*, now: datetime, thresholds: list[DetectorThre
             after=before - window,
             before=before,
             hour_aligned=True,
+            per_source=False,
             min_totals={SENT_METRIC: min(threshold.min_sent for threshold in group)},
             any_min_totals={threshold.metric_name: threshold.min_events for threshold in group},
         )
@@ -409,7 +411,12 @@ def pause_workflow_email_sending(
             email_sending_paused_reason=reason,
             email_sending_paused_by=paused_by,
         )
-        transaction.on_commit(lambda: reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=[hog_flow_id]))
+        # Robust: a failing reload publish must not stop the callbacks after it. Without this, the
+        # pause commits but the admin email is never queued, and later runs skip the already-paused
+        # workflow, so the notification is never retried. Workers still catch up on cache expiry.
+        transaction.on_commit(
+            lambda: reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=[hog_flow_id]), robust=True
+        )
         # Dispatch after commit so a rollback can't leave an email claiming a pause that was never
         # persisted.
         transaction.on_commit(
@@ -543,7 +550,7 @@ def sweep_workflow_email_health(*, now: datetime | None = None) -> list[PauseDec
     return applied
 
 
-def _decision_log_fields(decision: PauseDecision) -> dict:
+def _decision_log_fields(decision: PauseDecision) -> dict[str, str | int | float]:
     return {
         "team_id": decision.team_id,
         "hog_flow_id": decision.hog_flow_id,
@@ -590,7 +597,9 @@ def resume_workflow_email_sending(flow: HogFlow, *, actor: str = "customer", now
             email_sending_paused_by="",
             email_sending_resumed_at=now,
         )
-        transaction.on_commit(lambda: reload_hog_flows_on_workers(team_id=flow.team_id, hog_flow_ids=[str(flow.id)]))
+        transaction.on_commit(
+            lambda: reload_hog_flows_on_workers(team_id=flow.team_id, hog_flow_ids=[str(flow.id)]), robust=True
+        )
     # The caller serializes these back to the customer, so mirror what was written.
     flow.email_sending_paused_at = None
     flow.email_sending_paused_reason = ""

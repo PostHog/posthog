@@ -309,6 +309,7 @@ def fetch_app_metric_totals_by_team_and_source(
     min_totals: Optional[dict[str, int]] = None,
     any_min_totals: Optional[dict[str, int]] = None,
     hour_aligned: bool = False,
+    per_source: bool = True,
 ) -> dict[int, dict[str, dict[str, int]]]:
     """Per-`app_source_id` metric totals across many teams in one grouped query.
 
@@ -364,10 +365,15 @@ def fetch_app_metric_totals_by_team_and_source(
     if any_clauses:
         having_clauses.append(f"({' OR '.join(any_clauses)})")
 
+    # per_source=False gates and groups at the team level: a caller discovering candidates must not
+    # exclude a team whose per-source rows each sit under a gate while their sum crosses it. The
+    # source key in the result is then a single empty string.
+    source_select = "app_source_id," if per_source else "'' AS app_source_id,"
+    group_by = "team_id, app_source_id" if per_source else "team_id"
     clickhouse_query = f"""
         SELECT
             team_id,
-            app_source_id,
+            {source_select}
             {selects}
         FROM app_metrics2
         WHERE app_source = %(app_source)s
@@ -375,7 +381,7 @@ def fetch_app_metric_totals_by_team_and_source(
         {f"AND {bound_expr} >= toDateTime64(%(after)s, 6)" if after else ""}
         {f"AND {bound_expr} {before_op} toDateTime64(%(before)s, 6)" if before else ""}
         AND metric_name IN %(name)s
-        GROUP BY team_id, app_source_id
+        GROUP BY {group_by}
         {f"HAVING {' AND '.join(having_clauses)}" if having_clauses else ""}
     """
 

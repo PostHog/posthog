@@ -96,7 +96,7 @@ class HogFlowAdmin(admin.ModelAdmin):
         )
 
     @admin.display(description="Email sending")
-    def email_sending_state(self, hog_flow: HogFlow):
+    def email_sending_state(self, hog_flow: HogFlow) -> str:
         if hog_flow.email_sending_paused_at is None:
             return "Sending"
         return format_html('<span style="color: #C0392B;">Paused {}</span>', hog_flow.email_sending_paused_at)
