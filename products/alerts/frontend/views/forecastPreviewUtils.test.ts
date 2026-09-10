@@ -7,6 +7,7 @@ import {
 
 import {
     bucketLabel,
+    chartInterval,
     findFirstCrossing,
     findObservedBreach,
     forecastGoalLines,
@@ -63,6 +64,19 @@ describe('bucketLabel', () => {
         ['an unparseable value is passed through', 'not a date', 'hour', 'not a date'],
     ] as const)('%s', (_name, value, interval, expected) => {
         expect(bucketLabel(value, interval)).toBe(expected)
+    })
+})
+
+describe('chartInterval', () => {
+    it.each([
+        ['an interval the chart knows is passed through', 'hour', 'hour'],
+        ['a daily interval is passed through', 'day', 'day'],
+        // The API types the interval as a plain string, so the chart must not receive a bucket size
+        // it has no rule for. It infers one from the labels instead.
+        ['an interval the chart cannot read becomes undefined', 'fortnight', undefined],
+        ['a missing interval becomes undefined', null, undefined],
+    ] as const)('%s', (_name, interval, expected) => {
+        expect(chartInterval(interval)).toBe(expected)
     })
 })
 

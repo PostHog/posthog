@@ -47,6 +47,9 @@ const BASE_RESULT: ForecastSimulateResponseApi = {
 const meta: Meta<typeof ForecastPreview> = {
     title: 'Products/Alerts/Forecast preview',
     component: ForecastPreview,
+    args: {
+        projectTimezone: 'UTC',
+    },
     parameters: {
         layout: 'fullscreen',
         testOptions: { waitForSelector: '[data-attr="forecast-preview-chart"]' },

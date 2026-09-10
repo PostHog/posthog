@@ -1,4 +1,4 @@
-import type { GoalLineConfig } from '@posthog/quill-charts'
+import type { GoalLineConfig, TimeInterval } from '@posthog/quill-charts'
 
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -58,6 +58,15 @@ export function bucketLabel(value: string, interval: string | null | undefined):
         return value
     }
     return parsed.format(interval === 'hour' ? 'MMM D, YYYY HH:mm' : 'MMM D, YYYY')
+}
+
+const CHART_INTERVALS = new Set<string>(['second', 'minute', 'hour', 'day', 'week', 'month', 'quarter', 'year'])
+
+/** The bucket size the chart formats a tooltip date against. The API types the interval as a plain
+ *  string, so a value the chart has no rule for becomes `undefined`, which leaves the chart to infer
+ *  the bucket size from the labels instead of formatting against a size it cannot read. */
+export function chartInterval(interval: string | null | undefined): TimeInterval | undefined {
+    return interval != null && CHART_INTERVALS.has(interval) ? (interval as TimeInterval) : undefined
 }
 
 export function targetSummary(projection: ForecastTargetProjectionApi, direction: ForecastTargetDirection): string {

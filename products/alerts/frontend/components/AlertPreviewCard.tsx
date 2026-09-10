@@ -82,7 +82,11 @@ export interface AlertPreviewCardProps {
     funnelPreview: FunnelAlertPreview | null
     hogqlPreview: HogQLAlertPreview | null
     checkPreview?: TrendsAlertPreviewSeries
-    forecast?: { result: ForecastSimulateResponseApi; thresholdBounds: InsightsThresholdBounds | null }
+    forecast?: {
+        result: ForecastSimulateResponseApi
+        thresholdBounds: InsightsThresholdBounds | null
+        projectTimezone: string
+    }
     // Keeps the card visible with a skeleton while data loads instead of popping in once it arrives.
     loading?: boolean
 }
@@ -148,6 +152,7 @@ export function AlertPreviewCard({
                 result={forecast.result}
                 thresholdBounds={forecast.thresholdBounds}
                 forecastConfig={alertForm.forecast_config}
+                projectTimezone={forecast.projectTimezone}
             />
         )
     } else if (isUnconfiguredAbsoluteThreshold) {

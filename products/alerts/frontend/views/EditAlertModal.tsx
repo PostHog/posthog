@@ -483,6 +483,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                               alertForm.forecast_config?.condition === ForecastConditionType.FUTURE_BREACH
                                   ? (alertForm.threshold?.configuration?.bounds ?? null)
                                   : null,
+                          projectTimezone,
                       }
                     : undefined
             }

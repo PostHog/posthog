@@ -21,6 +21,7 @@ import { makeChartErrorHandler } from 'products/product_analytics/frontend/insig
 
 import {
     bucketLabel,
+    chartInterval,
     findFirstCrossing,
     findObservedBreach,
     forecastGoalLines,
@@ -40,11 +41,13 @@ function ForecastChart({
     result,
     thresholdBounds,
     forecastConfig,
+    projectTimezone,
     markerDataIndex,
 }: {
     result: ForecastSimulateResponseApi
     thresholdBounds: InsightsThresholdBounds | null
     forecastConfig: ForecastConfig
+    projectTimezone: string
     markerDataIndex: number | null
 }): JSX.Element {
     const theme = useChartTheme()
@@ -83,7 +86,13 @@ function ForecastChart({
                 labels={labels}
                 theme={theme}
                 config={{
-                    xAxis: { hide: true },
+                    // The axis is hidden, so the timezone is here for the tooltip: the chart formats
+                    // the header date only when it knows the zone to read each label in. Without it
+                    // the tooltip prints the raw API timestamp, and it is the only date this chart
+                    // shows. The engine sends history as project-local wall time and hourly forecast
+                    // buckets with the project offset attached, and the chart reads both against this
+                    // zone, so the header names the bucket the backend evaluated.
+                    xAxis: { hide: true, timezone: projectTimezone, interval: chartInterval(result.interval) },
                     yAxis: {
                         showGrid: true,
                         startAtZero: false,
@@ -116,10 +125,12 @@ export function ForecastPreview({
     result,
     thresholdBounds,
     forecastConfig,
+    projectTimezone,
 }: {
     result: ForecastSimulateResponseApi
     thresholdBounds: InsightsThresholdBounds | null
     forecastConfig: ForecastConfig
+    projectTimezone: string
 }): JSX.Element {
     const isFutureBreach = forecastConfig.condition === ForecastConditionType.FUTURE_BREACH
     const observedBreach = isFutureBreach ? findObservedBreach(result.data, thresholdBounds) : null
@@ -141,6 +152,7 @@ export function ForecastPreview({
                 result={result}
                 thresholdBounds={thresholdBounds}
                 forecastConfig={forecastConfig}
+                projectTimezone={projectTimezone}
                 markerDataIndex={markerDataIndex}
             />
             <div className="text-sm">
