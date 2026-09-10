@@ -262,8 +262,6 @@ export interface inboxReportDetailLogicValues {
     feedbackNoteSent: boolean
     feedbackNoteSubmitting: boolean
     feedbackSentiment: InboxReportFeedbackSentiment | null
-    selectedPullRequestUrl: string | null
-    selectedPullRequest: ReportPullRequest
     hasImplementationPr: boolean
     hasPersonalGithub: boolean
     implementationSlotClaim: ImplementationSlotClaim | null
@@ -298,6 +296,8 @@ export interface inboxReportDetailLogicValues {
     reportSummary: string | null
     reportTasks: ReportTaskEntry[] | null
     reportTasksLoading: boolean
+    selectedPullRequest: ReportPullRequest
+    selectedPullRequestUrl: string | null
     selectedTask: ReportTaskEntry | null
     selectedTaskId: string | null
     shouldPollReportTasks: boolean
@@ -351,7 +351,7 @@ export interface inboxReportDetailLogicActions {
             query?: string
         }
     }
-    loadPrChecks: () => any
+    loadPrChecks: (_: void) => void
     loadPrChecksFailure: (
         error: string,
         errorObject?: any
@@ -361,12 +361,12 @@ export interface inboxReportDetailLogicActions {
     }
     loadPrChecksSuccess: (
         prChecks: readonly PullRequestCheckApi[] | null,
-        payload?: any
+        payload?: void
     ) => {
         prChecks: readonly PullRequestCheckApi[] | null
-        payload?: any
+        payload?: void
     }
-    loadPrComments: () => any
+    loadPrComments: (_: void) => void
     loadPrCommentsFailure: (
         error: string,
         errorObject?: any
@@ -376,10 +376,10 @@ export interface inboxReportDetailLogicActions {
     }
     loadPrCommentsSuccess: (
         prComments: readonly PullRequestCommentApi[] | null,
-        payload?: any
+        payload?: void
     ) => {
         prComments: readonly PullRequestCommentApi[] | null
-        payload?: any
+        payload?: void
     }
     loadReportArtefacts: () => any
     loadReportArtefactsFailure: (
@@ -480,6 +480,9 @@ export interface inboxReportDetailLogicActions {
     searchAvailableReviewers: (query: string) => {
         query: string
     }
+    selectPullRequest: (url: string) => {
+        url: string
+    }
     setDetailTab: (tab: ReportDetailTab) => {
         tab: ReportDetailTab
     }
@@ -495,7 +498,6 @@ export interface inboxReportDetailLogicActions {
     setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => {
         reviewers: EnrichedReviewer[] | null
     }
-    selectPullRequest: (url: string) => { url: string }
     setReport: (report: SignalReport | null) => {
         report: SignalReport | null
     }
@@ -532,6 +534,7 @@ export interface inboxReportDetailLogicMeta {
         reportReviewers: (reportArtefacts: SignalReportArtefact[] | null) => EnrichedReviewer[] | null
         isReportActive: (report: SignalReport | null) => boolean
         shouldPollReportTasks: (isReportActive: boolean, reportTasks: ReportTaskEntry[] | null) => boolean
+        selectedPullRequest: (report: SignalReport | null, selectedPullRequestUrl: string | null) => ReportPullRequest
         hasImplementationPr: (report: SignalReport | null) => boolean
         prChecksBackedOff: (prChecksConsecutiveFailures: number) => boolean
         hasPersonalGithub: (personalIntegrations: PersonalGitHubIntegration[]) => boolean
@@ -760,7 +763,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         prChecks: [
             null as readonly PullRequestCheckApi[] | null,
             {
-                loadPrChecks: async (_, breakpoint) => {
+                loadPrChecks: async (_: void, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return null
@@ -768,6 +771,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     const pr = values.selectedPullRequest
                     const response = await signalsReportPrChecks(String(teamId), props.reportId, {
                         pull_request_id: pr.id ?? undefined,
+                    }).catch((error: unknown) => {
+                        breakpoint()
+                        throw error
                     })
                     breakpoint()
                     if (values.selectedPullRequest.url !== pr.url) {
@@ -781,7 +787,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         prComments: [
             null as readonly PullRequestCommentApi[] | null,
             {
-                loadPrComments: async (_, breakpoint) => {
+                loadPrComments: async (_: void, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return null
@@ -789,6 +795,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     const pr = values.selectedPullRequest
                     const response = await signalsReportPrComments(String(teamId), props.reportId, {
                         pull_request_id: pr.id ?? undefined,
+                    }).catch((error: unknown) => {
+                        breakpoint()
+                        throw error
                     })
                     breakpoint()
                     if (values.selectedPullRequest.url !== pr.url) {

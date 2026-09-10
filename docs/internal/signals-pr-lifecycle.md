@@ -127,3 +127,7 @@ subsequent GitHub event or explicit state reconciliation before auto-completion.
 | Billing eligibility and spend gates                           | Immutable implementation task/run evidence, never externally attached PRs.                           |
 | Refund merge state                                            | Canonical state of the particular billed PR; task-output fallback for unmigrated evidence.           |
 | Agent instructions and validation scout                       | Full collection and each PR's state; claims and attachment use one interaction.                      |
+
+The web detail view discards superseded checks and comments responses, including
+failures, after PR selection changes. Only current requests can set errors or
+advance the checks retry counter; selection survives virtual PR ID replacement.
