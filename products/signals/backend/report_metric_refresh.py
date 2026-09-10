@@ -210,8 +210,10 @@ def _persist_metric_snapshot(
             "series": measurement.series,
         }
         # The kind's own rules decide what a valid number is (a count is a whole non-negative
-        # number, a rate stays within its bounds), so an out-of-range result is dropped here
-        # instead of stored as a snapshot no reader could format.
+        # number, a rate's value stays within its bounds), so an out-of-range result is dropped
+        # here instead of stored as a snapshot no reader could format. Those range rules cover the
+        # headline value and the comparison, not the bucket series, which carries only the shared
+        # finite and count rules.
         ReportMetric.model_validate(refreshed)
         metrics = [*expected_metrics[:metric_index], refreshed, *expected_metrics[metric_index + 1 :]]
         report.metrics = metrics
