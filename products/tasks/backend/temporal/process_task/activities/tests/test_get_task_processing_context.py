@@ -60,6 +60,7 @@ BENJAMIN_PAYLOAD_TARGET = (
     "products.tasks.backend.temporal.process_task.activities."
     "get_task_processing_context.posthoganalytics.get_feature_flag_payload"
 )
+ORG_FLAG_PAYLOAD_TARGET = "products.tasks.backend.feature_flags.posthoganalytics.get_feature_flag_payload"
 
 
 @pytest.mark.parametrize(
@@ -1690,7 +1691,7 @@ class TestResolveModalSandboxRegion:
         assert _modal_sandbox_region_from_payload(payload, deployment) == expected
 
     def test_state_override_wins_without_consulting_the_flag(self):
-        with patch(BENJAMIN_PAYLOAD_TARGET) as payload_mock:
+        with patch(ORG_FLAG_PAYLOAD_TARGET) as payload_mock:
             region = _resolve_modal_sandbox_region(
                 distinct_id="distinct-id",
                 organization_id="organization-id",
@@ -1702,7 +1703,7 @@ class TestResolveModalSandboxRegion:
         payload_mock.assert_not_called()
 
     def test_flag_failure_keeps_the_deployment_default(self):
-        with patch(BENJAMIN_PAYLOAD_TARGET, side_effect=RuntimeError("flags unavailable")):
+        with patch(ORG_FLAG_PAYLOAD_TARGET, side_effect=RuntimeError("flags unavailable")):
             assert (
                 _resolve_modal_sandbox_region(
                     distinct_id="distinct-id", organization_id="organization-id", run_id="run-id"

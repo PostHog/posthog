@@ -50,7 +50,7 @@ from products.tasks.backend.exceptions import (
     TaskRunNotReadyError,
 )
 from products.tasks.backend.facade.api import ensure_task_run_session
-from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled
+from products.tasks.backend.feature_flags import get_org_flag_payload, is_agent_otel_telemetry_enabled
 from products.tasks.backend.logic.services.agentsh import (
     _get_debug_only_domains,
     _get_debug_only_ports,
@@ -134,8 +134,7 @@ class TaskProcessingContext:
     agent_otel_telemetry_enabled: bool = False
     use_modal_vm_sandbox: bool = False
     use_modal_network_allowlist: bool = False
-    # Modal region override for this run, or None for the deployment default. Captured at
-    # workflow start so every provisioning retry places the box in the same region.
+    # Captured at workflow start so provisioning retries stay in one region.
     modal_sandbox_region: list[str] | None = None
     # Burstable by default; the per-run state can opt out to pin a fixed-size box
     # (request == limit). Captured at workflow start so it's stable across activity retries.
@@ -886,19 +885,9 @@ def _resolve_modal_sandbox_region(
         log_with_activity_context("modal_sandbox_region_state_override", run_id=run_id, region=state_override)
         return state_override
 
-    try:
-        payload = posthoganalytics.get_feature_flag_payload(
-            MODAL_SANDBOX_REGION_FEATURE_FLAG,
-            distinct_id=distinct_id,
-            groups={"organization": organization_id},
-            group_properties={"organization": {"id": organization_id}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    except Exception as e:
-        log_with_activity_context("modal_sandbox_region_flag_check_failed", run_id=run_id, error=str(e))
-        return None
-
+    payload = get_org_flag_payload(
+        MODAL_SANDBOX_REGION_FEATURE_FLAG, distinct_id=distinct_id, organization_id=organization_id
+    )
     region = _modal_sandbox_region_from_payload(payload)
     if region is not None:
         log_with_activity_context("modal_sandbox_region_flag_override", run_id=run_id, region=region)
@@ -906,12 +895,7 @@ def _resolve_modal_sandbox_region(
 
 
 def _modal_sandbox_region_from_payload(payload: object, deployment: str | None = None) -> list[str] | None:
-    """Read this deployment's region list out of the flag payload, or None to keep the default.
-
-    The payload is keyed by CLOUD_DEPLOYMENT so a value meant for EU can never move US compute.
-    A region id Modal does not know is dropped with the rest of the value, because a typo that
-    reached Sandbox.create would fail every provisioning in the deployment.
-    """
+    # Keyed by deployment so a value meant for EU can never move US compute.
     if isinstance(payload, str):
         try:
             payload = json.loads(payload)
@@ -923,6 +907,7 @@ def _modal_sandbox_region_from_payload(payload: object, deployment: str | None =
 
 
 def _validated_modal_regions(value: object) -> list[str] | None:
+    # An id Modal does not know would fail every create in the deployment, so drop the whole value.
     regions = [value] if isinstance(value, str) else value
     if not isinstance(regions, list) or not regions:
         return None

@@ -166,7 +166,7 @@ class SandboxConfig(BaseModel):
     cpu_request_cores: float = BURSTABLE_REQUEST_CPU_CORES
     memory_request_mb: int = BURSTABLE_REQUEST_MEMORY_MB
     vm_runtime: bool = False
-    # Modal region ids to place the box in. None means the deployment's default region.
+    # None keeps the deployment's default Modal region.
     region: list[str] | None = None
     outbound_domain_allowlist: list[str] | None = None
     network_policy_fingerprint: str | None = None

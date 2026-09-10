@@ -25,12 +25,9 @@ MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
 # Gates the nightly prebaked dev-stack image bake (see logic/services/dev_stack_image.py).
 DEV_STACK_IMAGE_BAKE_FEATURE_FLAG = "tasks-dev-stack-image-bake"
 MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
-# Overrides the Modal region a sandbox is placed in. The payload is keyed by CLOUD_DEPLOYMENT
-# (`{"EU": "eu"}` or `{"EU": ["eu-west", "eu-north"]}`), so one flag cannot move a region's
-# compute by accident. Values must be Modal region ids (MODAL_REGIONS); anything else is ignored.
+# Payload keyed by CLOUD_DEPLOYMENT, e.g. `{"EU": "eu"}` or `{"EU": ["eu-west", "eu-north"]}`.
 MODAL_SANDBOX_REGION_FEATURE_FLAG = "tasks-modal-sandbox-region"
-# Region ids Modal accepts on Sandbox.create. Broad ids (`us`, `eu`, `ap`) pool every narrow
-# region under them and price at a lower multiplier. See modal.com/docs/guide/region-selection.
+# Region ids Modal accepts on Sandbox.create (modal.com/docs/guide/region-selection).
 MODAL_REGIONS: frozenset[str] = frozenset(
     {
         "us",

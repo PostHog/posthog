@@ -42,6 +42,22 @@ def is_workflow_dispatch_shadow_enabled() -> bool:
         return False
 
 
+def get_org_flag_payload(flag: str, *, distinct_id: str, organization_id: str) -> object | None:
+    """Payload of an org-targeted flag, or None when the flag is off or the check fails."""
+    try:
+        return posthoganalytics.get_feature_flag_payload(
+            flag,
+            distinct_id=distinct_id,
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        logger.exception("org_flag_payload_check_failed", extra={"flag": flag})
+        return None
+
+
 def _is_workflow_dispatch_org_flag_enabled(flag: str, organization_id: str, distinct_id: str) -> bool:
     try:
         return bool(
