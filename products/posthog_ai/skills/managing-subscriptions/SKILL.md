@@ -55,6 +55,10 @@ Use `subscriptions-list` with optional filters:
 - Filter by dashboard: pass the `dashboard` query parameter with the dashboard ID
 - Filter by channel: pass `target_type` as `email`, `slack`, or `teams`
 
+A `teams` row reads back with only the webhook host in `target_value`, and one host serves many
+channels, so a read cannot tell you which channel it posts to. Do not treat a matching Teams row
+as a duplicate — see the Teams duplicate rule under Error handling.
+
 ### Creating a subscription
 
 #### Step 1: Ask the user how they want to receive it
@@ -224,6 +228,7 @@ When the user doesn't specify details:
 ## Error handling
 
 - **Duplicate check**: If a subscription already exists for the same insight/dashboard and channel, inform the user and offer to update it rather than creating a duplicate
+- **Duplicate check for Teams**: A Teams read returns only the webhook host, and one host serves many channels, so a matching row is never a confirmed duplicate. Do not offer to update a Teams subscription on that basis, because you cannot tell which channel it posts to. List what you found with each row's `title`, schedule, `created_by`, and `created_at`, and ask the user which one they mean. If nothing tells the rows apart, create a new subscription rather than change one
 - **Slack not connected**: If a Slack subscription is requested but no Slack integration exists, explain that Slack must be connected in [Project settings > Integrations](/settings/integrations) first, then offer email as an alternative. Do not attempt to create the subscription — it will fail with a validation error
 - **Slack integration wrong team**: The Slack integration must belong to the same PostHog team. If `integrations-list` returns Slack integrations but creation still fails, the integration may be misconfigured
 - **Teams webhook URL rejected**: The URL must be an `https` Microsoft Teams webhook URL. If creation fails on `target_value`, ask the user to create the webhook again in the target channel with the Workflows app, using the template for posting to a channel when a webhook request is received, then paste the full URL
