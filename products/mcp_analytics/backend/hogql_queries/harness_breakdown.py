@@ -10,7 +10,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -21,6 +20,7 @@ from products.mcp_analytics.backend import mcp_harness
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.hogql_queries.base import (
     mcp_query_date_range,
+    shared_filter_exprs,
     tool_scope_exprs,
     validate_mcp_analytics_access,
 )
@@ -59,11 +59,7 @@ class MCPHarnessBreakdownQueryRunner(AnalyticsQueryRunner[MCPHarnessBreakdownQue
         ]
         if self.query.toolName:
             exprs.extend(tool_scope_exprs(self.query.toolName))
-        properties = list(self.query.properties or [])
-        if self.query.filterTestAccounts:
-            properties += self.team.test_account_filters or []
-        if properties:
-            exprs.append(property_to_expr(properties, self.team))
+        exprs.extend(shared_filter_exprs(self.team, self.query.properties, self.query.filterTestAccounts))
         return ast.And(exprs=exprs)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:

@@ -60,11 +60,15 @@ from products.mcp_analytics.backend.hogql_queries.base import (
     NEW_SDK_SOURCE,
     display_person_properties,
     mcp_query_date_range,
+    shared_filter_exprs,
     tool_scope_exprs,
     validate_mcp_analytics_access,
 )
 
 if TYPE_CHECKING:
+    from posthog.schema import AnyPropertyFilterDiscriminated
+
+    from posthog.models.team import Team
     from posthog.models.user import User
 
 # The effective-description expression lives in base.py so the intent-clustering
@@ -89,7 +93,15 @@ _RAW_ERROR_STATUS = "substring(coalesce(toString(properties.$mcp_error_status), 
 _COMPOSED_FAILURE_LABEL = "concat(error_type, if(empty(error_status), '', concat(' (HTTP ', error_status, ')')))"
 
 
-def _tool_call_where(tool: str, date_range: QueryDateRange, *, extra: list[ast.Expr] | None = None) -> ast.Expr:
+def _tool_call_where(
+    tool: str,
+    date_range: QueryDateRange,
+    team: "Team",
+    properties: "list[AnyPropertyFilterDiscriminated] | None" = None,
+    filter_test_accounts: bool | None = None,
+    *,
+    extra: list[ast.Expr] | None = None,
+) -> ast.Expr:
     """WHERE for new-SDK $mcp_tool_call events scoped to one effective tool and window.
 
     `tool` is bound as an ast.Constant, never interpolated. `extra` appends
@@ -100,6 +112,7 @@ def _tool_call_where(tool: str, date_range: QueryDateRange, *, extra: list[ast.E
         parse_expr("timestamp >= {date_from}", placeholders={"date_from": date_range.date_from_as_hogql()}),
         parse_expr("timestamp <= {date_to}", placeholders={"date_to": date_range.date_to_as_hogql()}),
         *tool_scope_exprs(tool),
+        *shared_filter_exprs(team, properties, filter_test_accounts),
     ]
     if extra:
         exprs.extend(extra)
@@ -118,7 +131,9 @@ class MCPToolTopUsersQueryRunner(AnalyticsQueryRunner[MCPToolTopUsersQueryRespon
         return mcp_query_date_range(self.team, self.query.dateRange)
 
     def _where(self) -> ast.Expr:
-        return _tool_call_where(self.query.toolName, self.query_date_range)
+        return _tool_call_where(
+            self.query.toolName, self.query_date_range, self.team, self.query.properties, self.query.filterTestAccounts
+        )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return parse_select(
@@ -211,6 +226,9 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
         return _tool_call_where(
             self.query.toolName,
             self.query_date_range,
+            self.team,
+            self.query.properties,
+            self.query.filterTestAccounts,
             extra=[parse_expr("toBool(properties.$mcp_is_error)")],
         )
 
@@ -326,7 +344,14 @@ class MCPToolFailureOccurrencesQueryRunner(AnalyticsQueryRunner[MCPToolFailureOc
             )
         else:
             extra.append(parse_expr("empty({raw_status})", placeholders={"raw_status": parse_expr(_RAW_ERROR_STATUS)}))
-        return _tool_call_where(self.query.toolName, self.query_date_range, extra=extra)
+        return _tool_call_where(
+            self.query.toolName,
+            self.query_date_range,
+            self.team,
+            self.query.properties,
+            self.query.filterTestAccounts,
+            extra=extra,
+        )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return parse_select(
@@ -436,7 +461,13 @@ class MCPToolStatsQueryRunner(AnalyticsQueryRunner[MCPToolStatsQueryResponse]):
                 "_IS_ERROR": parse_expr(_IS_ERROR),
                 "_P50": parse_expr(_P50),
                 "_P95": parse_expr(_P95),
-                "where": _tool_call_where(self.query.toolName, self.query_date_range),
+                "where": _tool_call_where(
+                    self.query.toolName,
+                    self.query_date_range,
+                    self.team,
+                    self.query.properties,
+                    self.query.filterTestAccounts,
+                ),
             },
         )
 
@@ -521,7 +552,13 @@ class MCPToolDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolDailyStatsQueryRe
                 "_IS_ERROR": parse_expr(_IS_ERROR),
                 "_P50": parse_expr(_P50),
                 "_P95": parse_expr(_P95),
-                "where": _tool_call_where(self.query.toolName, self.query_date_range),
+                "where": _tool_call_where(
+                    self.query.toolName,
+                    self.query_date_range,
+                    self.team,
+                    self.query.properties,
+                    self.query.filterTestAccounts,
+                ),
             },
         )
 
@@ -576,6 +613,9 @@ class MCPToolDescriptionsQueryRunner(AnalyticsQueryRunner[MCPToolDescriptionsQue
         where = _tool_call_where(
             self.query.toolName,
             self.query_date_range,
+            self.team,
+            self.query.properties,
+            self.query.filterTestAccounts,
             extra=[
                 parse_expr("notEmpty({description})", placeholders={"description": parse_expr(_EFFECTIVE_DESCRIPTION)})
             ],
@@ -637,6 +677,9 @@ class MCPToolSampleIntentsQueryRunner(AnalyticsQueryRunner[MCPToolSampleIntentsQ
         where = _tool_call_where(
             self.query.toolName,
             self.query_date_range,
+            self.team,
+            self.query.properties,
+            self.query.filterTestAccounts,
             extra=[
                 parse_expr("notEmpty(toString(properties.$mcp_intent))"),
                 parse_expr("toString(properties.$mcp_intent) != '{}'"),
@@ -743,6 +786,7 @@ class MCPToolNeighborsQueryRunner(AnalyticsQueryRunner[MCPToolNeighborsQueryResp
                     "properties.$mcp_source = {source}", placeholders={"source": ast.Constant(value=NEW_SDK_SOURCE)}
                 ),
                 parse_expr("notEmpty({conv_id})", placeholders={"conv_id": parse_expr(_CONVERSATION_ID)}),
+                *shared_filter_exprs(self.team, self.query.properties, self.query.filterTestAccounts),
             ]
         )
         return parse_select(

@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { type DailyToolStat, buildDailyChartData, mcpAnalyticsToolDetailLogic } from './mcpAnalyticsToolDetailLogic'
 
@@ -218,5 +219,60 @@ describe('failure drill-down', () => {
         await expectLogic(logic, () => {
             logic.actions.selectFailure(null)
         }).toMatchValues({ selectedFailure: null, failureOccurrences: [] })
+    })
+})
+
+describe('shared filter wiring', () => {
+    beforeEach(() => {
+        jest.clearAllMocks()
+        initKeaTests()
+        jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] })
+    })
+
+    function queryCallsSince(callIndex: number): Record<string, any>[] {
+        return mockApi.query.mock.calls.slice(callIndex).map((call) => call[0] as any)
+    }
+
+    const EVENT_FILTER: AnyPropertyFilter = {
+        key: '$mcp_tool_name',
+        value: ['query_run'],
+        operator: PropertyOperator.Exact,
+        type: PropertyFilterType.Event,
+    }
+
+    // All ten sections loadAllSections triggers read the shared filters, so one reload proves
+    // the wiring reaches all of them rather than duplicating this per section.
+    it('spreads the shared property filters into every section query and reloads on change', async () => {
+        const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
+        logic.mount()
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSections()
+        }).toFinishAllListeners()
+        const callsBefore = mockApi.query.mock.calls.length
+
+        await expectLogic(logic, () => {
+            logic.actions.setPropertyFilters([EVENT_FILTER])
+        }).toFinishAllListeners()
+
+        const reloads = queryCallsSince(callsBefore)
+        expect(reloads.length).toBe(10)
+        expect(reloads.every((call) => JSON.stringify(call.properties) === JSON.stringify([EVENT_FILTER]))).toBe(true)
+    })
+
+    it('spreads filterTestAccounts into every section query and reloads on change', async () => {
+        const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
+        logic.mount()
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSections()
+        }).toFinishAllListeners()
+        const callsBefore = mockApi.query.mock.calls.length
+
+        await expectLogic(logic, () => {
+            logic.actions.setFilterTestAccounts(true)
+        }).toFinishAllListeners()
+
+        const reloads = queryCallsSince(callsBefore)
+        expect(reloads.length).toBe(10)
+        expect(reloads.every((call) => call.filterTestAccounts === true)).toBe(true)
     })
 })
