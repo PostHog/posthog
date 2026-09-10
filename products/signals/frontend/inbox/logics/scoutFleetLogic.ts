@@ -69,6 +69,7 @@ import {
     computeScoutRollups,
     FleetSummary,
     isSettledRun,
+    pendingScoutRun,
     scoutDisplayName,
     SCOUT_ROSTER_WINDOW_HOURS,
     SCOUT_RUNS_PER_SCOUT,
@@ -116,6 +117,11 @@ function captureScoutConfigUpdates(
 // Fleet runs are refetched on a slow cadence so "running now" / recent emissions
 // stay live without hammering the capped runs endpoint (desktop: 60s).
 const RUNS_REFETCH_INTERVAL_MS = 60_000
+// A manual run's row lands a beat after the POST returns, so a click starts a faster catch-up poll
+// and the page says a run is in flight well inside the 60s fleet cadence. The cap releases the
+// button when the row never appears — a scout the worker never picked up must not stay busy forever.
+const MANUAL_RUN_POLL_INTERVAL_MS = 3_000
+const MANUAL_RUN_POLL_ATTEMPTS = 15
 // The findings feed's fixed lookback: the runs endpoint caps each page at 100 rows newest-first, so
 // covering the whole window means walking back page-by-page via a `date_to` cursor (the oldest run's
 // `started_at`, as the backend documents). MAX_RUNS_PAGES bounds the walk so a pathologically busy
@@ -1312,7 +1318,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 extra: { search_length: query.length, filter_match_count: values.rosterScouts.length },
             })
         },
-        runScoutNow: async ({ configId }) => {
+        runScoutNow: async ({ configId }, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 actions.runScoutNowFinished(configId)
@@ -1327,13 +1333,34 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     skillName: config?.skill_name ?? null,
                 })
                 lemonToast.success('Run started. It shows up in this scout’s runs when it finishes.')
-                // The run row appears on the next poll; pull once now so the page reacts immediately.
-                actions.loadScoutRuns()
             } catch (error: any) {
                 // The endpoint refuses deliberately in several ordinary cases — already running,
                 // over the daily budget — so the backend's own message is the useful one.
                 lemonToast.error(error?.detail || error?.message || 'Could not start a run')
+                // Captured too, because a refused click is the one a person repeats. Only the started
+                // branch was recorded, so every repeat press that hit a refusal was invisible.
+                captureScoutAction({
+                    actionType: 'run_now_refused',
+                    surface: 'scout_detail',
+                    skillName: config?.skill_name ?? null,
+                    extra: { error_status: error?.status ?? null },
+                })
+                actions.runScoutNowFinished(configId)
+                return
+            }
+            // Hold the dispatched state until the scout's run row exists, so the header says a run is
+            // in flight rather than offering "Run now" again over an unchanged page.
+            const skillName = config?.skill_name
+            try {
+                for (let attempt = 0; skillName && attempt < MANUAL_RUN_POLL_ATTEMPTS; attempt++) {
+                    actions.loadScoutRuns()
+                    await breakpoint(MANUAL_RUN_POLL_INTERVAL_MS)
+                    if (pendingScoutRun(values.rollups.get(skillName), new Date())) {
+                        break
+                    }
+                }
             } finally {
+                // Also reached when a later click breaks this wait: the run row then holds the state.
                 actions.runScoutNowFinished(configId)
             }
         },

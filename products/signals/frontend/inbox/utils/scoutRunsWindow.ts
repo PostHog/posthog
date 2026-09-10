@@ -392,6 +392,22 @@ export function computeScoutRollups(runs: SignalScoutRunSummary[]): Map<string, 
     return rollups
 }
 
+/**
+ * The scout's newest run that is still in flight, or null when nothing is running. A run past the
+ * deadline is stranded rather than working, so `deriveRunOutcome` reads it as stuck and it does not
+ * count here — one stranded run must not hold the scout busy for the whole window.
+ */
+export function pendingScoutRun(rollup: ScoutRollup | undefined, now: Date): SignalScoutRunSummary | null {
+    const runs = rollup?.runs ?? []
+    for (let index = runs.length - 1; index >= 0; index--) {
+        const outcome = deriveRunOutcome(runs[index], now)
+        if (outcome === 'running' || outcome === 'queued') {
+            return runs[index]
+        }
+    }
+    return null
+}
+
 // ── Fleet summary ────────────────────────────────────────────────────────────
 
 export interface FleetSummary {

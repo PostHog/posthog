@@ -95,7 +95,17 @@ export function ScoutTagBadge({ tag }: { tag: string }): JSX.Element {
 }
 
 /** Where a scout stands right now, in one tag. Used on the scout page header and its settings modal. */
-export function ScoutStatusTag({ config }: { config: SignalScoutConfig }): JSX.Element {
+export function ScoutStatusTag({ config, running }: { config: SignalScoutConfig; running?: boolean }): JSX.Element {
+    // A run in flight outranks every configured state, including "off": a manual run starts whatever
+    // the schedule says, and "On patrol" next to a running scout is what made a started run read as
+    // a dead click.
+    if (running) {
+        return (
+            <LemonTag type="primary" size="small">
+                Running now
+            </LemonTag>
+        )
+    }
     if (config.status === 'paused_by_system') {
         return (
             <LemonTag type="danger" size="small">

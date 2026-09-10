@@ -7,6 +7,7 @@ import {
     deriveRunOutcome,
     formatRunCost,
     mostRecentEmittedRuns,
+    pendingScoutRun,
     runMatchesFilter,
     dayTimeToWeeklyCron,
     getScoutScheduleMode,
@@ -123,6 +124,41 @@ describe('scoutRunsWindow report channel', () => {
             const rollup = computeScoutRollups(runs).get(skill)!
             expect([...rollup.authoredReportIds]).toEqual(['r-1'])
             expect([...rollup.editedReportIds].sort()).toEqual(['r-1', 'r-2'])
+        })
+    })
+
+    describe('pendingScoutRun', () => {
+        const skill = 'signals-scout-dev-report-probe'
+
+        it('returns the newest in-flight run', () => {
+            const rollups = computeScoutRollups([
+                makeRun({ run_id: 'older', skill_name: skill }),
+                makeRun({
+                    run_id: 'newer',
+                    skill_name: skill,
+                    status: 'in_progress',
+                    started_at: '2026-06-27T21:59:00Z',
+                    completed_at: null,
+                }),
+            ])
+            expect(pendingScoutRun(rollups.get(skill), NOW)?.run_id).toEqual('newer')
+        })
+
+        it('ignores a run stranded past the deadline, so one dead run cannot hold the scout busy', () => {
+            const rollups = computeScoutRollups([
+                makeRun({
+                    run_id: 'stranded',
+                    skill_name: skill,
+                    status: 'in_progress',
+                    started_at: '2026-06-27T20:00:00Z',
+                    completed_at: null,
+                }),
+            ])
+            expect(pendingScoutRun(rollups.get(skill), NOW)).toBeNull()
+        })
+
+        it('is null for a scout with no runs in the window', () => {
+            expect(pendingScoutRun(undefined, NOW)).toBeNull()
         })
     })
 

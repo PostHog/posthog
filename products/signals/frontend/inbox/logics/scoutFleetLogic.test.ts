@@ -15,6 +15,7 @@ import { initKeaTests } from '~/test/init'
 import {
     signalsScoutChatTasksCreate,
     signalsScoutConfigList,
+    signalsScoutConfigRun,
     signalsScoutConfigSync,
     signalsScoutConfigUpdate,
     signalsScoutRunsRecentPerScout,
@@ -30,6 +31,7 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutChatTasksCreate: jest.fn(),
     signalsScoutConfigDestroy: jest.fn(),
     signalsScoutConfigList: jest.fn(),
+    signalsScoutConfigRun: jest.fn(),
     signalsScoutConfigSync: jest.fn(),
     signalsScoutConfigUpdate: jest.fn(),
     signalsScoutRunsFindingsSummary: jest.fn(),
@@ -42,6 +44,7 @@ const mockSignalsScoutChatTasksCreate = signalsScoutChatTasksCreate as jest.Mock
     typeof signalsScoutChatTasksCreate
 >
 const mockSignalsScoutConfigList = signalsScoutConfigList as jest.MockedFunction<typeof signalsScoutConfigList>
+const mockSignalsScoutConfigRun = signalsScoutConfigRun as jest.MockedFunction<typeof signalsScoutConfigRun>
 const mockSignalsScoutConfigSync = signalsScoutConfigSync as jest.MockedFunction<typeof signalsScoutConfigSync>
 const mockSignalsScoutConfigUpdate = signalsScoutConfigUpdate as jest.MockedFunction<typeof signalsScoutConfigUpdate>
 const mockSignalsScoutRunsRecentPerScout = signalsScoutRunsRecentPerScout as jest.MockedFunction<
@@ -128,6 +131,7 @@ describe('scoutFleetLogic', () => {
         initKeaTests()
         mockSignalsScoutChatTasksCreate.mockReset()
         mockSignalsScoutConfigList.mockReset().mockResolvedValue([])
+        mockSignalsScoutConfigRun.mockReset()
         mockSignalsScoutConfigSync.mockReset().mockResolvedValue([])
         mockSignalsScoutConfigUpdate.mockReset()
         mockSignalsScoutRunsRecentPerScout.mockReset().mockResolvedValue([])
@@ -702,6 +706,40 @@ describe('scoutFleetLogic', () => {
         await expectLogic(logic).toDispatchActions(['startScoutChatTaskFailure'])
 
         expect(logic.values.runningChatType).toBeNull()
+    })
+
+    describe('running a scout on demand', () => {
+        const RUN_DISPATCHED = { skill_name: BASE_CONFIG.skill_name, workflow_id: 'wf-1', started: true }
+
+        // The workflow writes the run row, not the dispatch request, so a resolved POST proves
+        // nothing has appeared on the page yet. The scout must read as busy across that gap.
+        it('stays pending after the dispatch resolves, while no run row exists yet', async () => {
+            mockSignalsScoutConfigRun.mockResolvedValue(RUN_DISPATCHED)
+
+            logic.actions.runScoutNow(BASE_CONFIG.id)
+            expect(logic.values.manualRunScoutIds).toEqual([BASE_CONFIG.id])
+
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.manualRunScoutIds).toEqual([BASE_CONFIG.id])
+        })
+
+        it('releases the scout and reports a refusal the endpoint returned', async () => {
+            const capture = posthog.capture as jest.Mock
+            capture.mockClear()
+            mockSignalsScoutConfigRun.mockRejectedValue(new ApiError('already running', 409))
+
+            logic.actions.runScoutNow(BASE_CONFIG.id)
+            await expectLogic(logic).toDispatchActions(['runScoutNowFinished'])
+
+            expect(logic.values.manualRunScoutIds).toEqual([])
+            expect(
+                capture.mock.calls.some(
+                    ([, properties]) =>
+                        properties?.action_type === 'run_now_refused' && properties?.error_status === 409
+                )
+            ).toBe(true)
+        })
     })
 
     // The 60s roster poll returns freshly parsed objects every cycle. Without per-item
