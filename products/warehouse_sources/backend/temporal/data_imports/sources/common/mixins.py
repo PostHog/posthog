@@ -13,6 +13,7 @@ import structlog
 from posthog.cloud_utils import is_cloud
 from posthog.models.integration import Integration
 from posthog.psycopg_helpers import prefer_routable_addresses
+from posthog.temporal.common.errors import NonReportableError
 from posthog.utils import get_instance_region
 
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
@@ -28,6 +29,24 @@ _INTERNAL_IP_ERROR = (
     "Use a host that's reachable from the public internet."
 )
 _DNS_FAILURE_ERROR = "Host could not be resolved"
+
+
+class HostNotAllowedError(NonReportableError):
+    """A direct database or SSH tunnel host resolved to an address PostHog won't connect to.
+
+    Raised at connect time by `_check_direct_host` and `_pinned_ssh_host`. A host can pass the
+    validation-layer check and still land here, because each check resolves the host again and a
+    short-TTL record can answer public for one lookup and private for the next. It is always the
+    customer's own DNS or network config, never a PostHog defect, and retrying re-hits the same
+    rejection, so it must fail the work without minting an error tracking issue.
+
+    Two connect paths reach it, and each suppresses reporting its own way:
+    - Import pipeline (Temporal): `NonReportableError` makes the activity interceptor fail the
+      activity without capturing. The message is unchanged so `Any_Source_Errors` still matches it
+      and pauses the schema.
+    - Direct query (HogQL): the direct-source adapter catches this and re-raises `ExposedHogQLError`
+      so the query runner returns a 4xx instead of capturing a platform failure.
+    """
 
 
 def is_team_allowlisted_for_internal_hosts(team_id: int) -> bool:
@@ -259,7 +278,7 @@ def _pinned_ssh_host(ssh_config, team_id: int | None) -> str:
     """
     resolution = resolve_safe_host(ssh_config.host, team_id)
     if resolution.connect_host is None:
-        raise Exception(f"SSH tunnel host not allowed: {resolution.error}")
+        raise HostNotAllowedError(f"SSH tunnel host not allowed: {resolution.error}")
     return resolution.connect_host
 
 
@@ -293,7 +312,7 @@ def _check_direct_host(config, team_id: int | None) -> None:
     """
     resolution = resolve_safe_host(config.host, team_id)
     if resolution.connect_host is None:
-        raise Exception(f"Database host not allowed: {resolution.error}")
+        raise HostNotAllowedError(f"Database host not allowed: {resolution.error}")
 
 
 @contextmanager
