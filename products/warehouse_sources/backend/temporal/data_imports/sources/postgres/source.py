@@ -20,6 +20,7 @@ from posthog.schema import (
 )
 
 from posthog.exceptions_capture import capture_exception
+from posthog.psycopg_helpers import HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR
 
 from products.data_warehouse.backend.facade.api import reconcile_postgres_schemas
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -999,12 +1000,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         # `using_read_replica` is False. The single-conflict message reaching here (as opposed to the
         # "kept canceling reads..."/"no key that can resume..." messages above, which are the
         # exhausted-retry abort and stay non-retryable) is the same self-recovering condition.
+        # The bounded lookup in front of every connect raises these two when the resolver does not
+        # answer in time or answers "try again". Neither is a verdict on the host, and a fresh
+        # attempt recovers, so they belong with the other self-recovering connect failures.
         return {
             *_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_SERVER_STARTING_UP_ERROR_SUBSTRINGS,
             *_CONNECTION_LIMIT_ERROR_SUBSTRINGS,
             "conflict with recovery",
+            HOST_RESOLUTION_TIMEOUT_ERROR,
+            TEMPORARY_HOST_RESOLUTION_ERROR,
         }
 
     def reconcile_schema_metadata(

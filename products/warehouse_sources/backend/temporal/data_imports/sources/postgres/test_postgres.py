@@ -26,6 +26,7 @@ from psycopg import sql
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.dataclasses import frozen
+from posthog.psycopg_helpers import HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR
 
 import products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables as partitioned_tables_pkg
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -605,6 +606,22 @@ class TestPostgresSourceNonRetryableErrors:
         # If they drop out of get_retryable_errors, _handle_import_error logs the self-recovering
         # failure as a tracked exception again instead of a warning. They must also stay out of
         # get_non_retryable_errors so the sync keeps retrying rather than being disabled.
+        assert error_message_matches(error_msg, source.get_retryable_errors())
+        assert not error_message_matches(error_msg, source.get_non_retryable_errors().keys())
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            f"{HOST_RESOLUTION_TIMEOUT_ERROR} after 15.0s",
+            TEMPORARY_HOST_RESOLUTION_ERROR,
+        ],
+    )
+    def test_resolver_failures_before_the_connect_are_classified_retryable(self, source, error_msg):
+        # The bounded lookup in front of every connect raises these when the resolver stalls or
+        # answers "try again". Neither is a verdict on the host, so a fresh attempt recovers. Without
+        # the classification, `_handle_import_error` reports a self-recovering failure on every one
+        # of the activity's retries. They must stay out of get_non_retryable_errors too, which is
+        # checked first and would disable the schema.
         assert error_message_matches(error_msg, source.get_retryable_errors())
         assert not error_message_matches(error_msg, source.get_non_retryable_errors().keys())
 

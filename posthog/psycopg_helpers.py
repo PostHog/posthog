@@ -66,6 +66,12 @@ def is_temporary_resolution_failure(error: BaseException) -> bool:
     return isinstance(error, socket.gaierror) and error.errno in _TEMPORARY_RESOLUTION_ERRNOS
 
 
+# The bounded lookup's own transient failures. A classifier that matches on the message reuses
+# these strings, so a reword here cannot silently drop the classification.
+HOST_RESOLUTION_TIMEOUT_ERROR = "Timed out resolving database host name"
+TEMPORARY_HOST_RESOLUTION_ERROR = "Temporary failure resolving database host name"
+
+
 def is_resolvable_hostname(host: str) -> bool:
     """Whether `host` is a name a resolver would look up: not empty, not a Unix socket path, not an IP literal."""
     if not host or host.startswith("/"):
@@ -113,13 +119,13 @@ def resolve_psycopg_hostaddr_with_timeout(
             abort_check()
         remaining_seconds = deadline - monotonic()
         if remaining_seconds <= 0:
-            raise psycopg.OperationalError(f"Timed out resolving database host name after {timeout}s")
+            raise psycopg.OperationalError(f"{HOST_RESOLUTION_TIMEOUT_ERROR} after {timeout}s")
         thread.join(min(remaining_seconds, 1.0 if abort_check is not None else remaining_seconds))
     if abort_check is not None:
         abort_check()
     if lookup_error:
         if raise_on_temporary_failure and is_temporary_resolution_failure(lookup_error[0]):
-            raise psycopg.OperationalError("Temporary failure resolving database host name") from lookup_error[0]
+            raise psycopg.OperationalError(TEMPORARY_HOST_RESOLUTION_ERROR) from lookup_error[0]
         if isinstance(lookup_error[0], OSError):
             if fail_on_resolution_error:
                 raise psycopg.OperationalError("Could not resolve database host name") from lookup_error[0]
