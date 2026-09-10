@@ -239,12 +239,13 @@ class BaseTaskAPITest(TestCase):
         title: str = "Test Task",
         created_by: User | None = None,
         runtime: Task.Runtime = Task.Runtime.ACP,
+        description: str = "Test Description",
     ) -> Task:
         return Task.objects.create(
             team=self.team,
             created_by=created_by or self.user,
             title=title,
-            description="Test Description",
+            description=description,
             origin_product=Task.OriginProduct.USER_CREATED,
             runtime=runtime,
         )
@@ -1235,8 +1236,20 @@ class TestTaskAPI(BaseTaskAPITest):
         row = response.json()["results"][0]
         if expect_description:
             self.assertEqual(row["description"], "Test Description")
+            self.assertNotIn("description_preview", row)
         else:
             self.assertNotIn("description", row)
+            self.assertEqual(row["description_preview"], "Test Description")
+
+    def test_basic_description_preview_is_truncated(self):
+        self.create_task("Long", description="x" * 1500)
+
+        response = self.client.get("/api/projects/@current/tasks/?basic=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        row = response.json()["results"][0]
+        self.assertNotIn("description", row)
+        self.assertEqual(row["description_preview"], "x" * 1000)
 
     def test_list_tasks_includes_latest_run(self):
         task1 = self.create_task("Task 1")
@@ -3697,9 +3710,15 @@ class TestTaskAPI(BaseTaskAPITest):
             ("glm_5_2_max", "claude", "@cf/zai-org/glm-5.2", "max", "anthropic"),
         ]
     )
+    # GLM 5.2 is gated, and this case is about the metadata a run persists rather than about
+    # entitlement, so the flag is granted here and gating is covered in `test_feature_flags`.
+    @patch(
+        "products.tasks.backend.feature_flags.posthoganalytics.feature_enabled",
+        side_effect=lambda flag, *args, **kwargs: flag == "posthog-code-glm-model",
+    )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_persists_runtime_metadata(
-        self, _case_name, runtime_adapter, model, reasoning_effort, provider, mock_workflow
+        self, _case_name, runtime_adapter, model, reasoning_effort, provider, mock_workflow, _mock_flag
     ):
         task = self.create_task()
 
@@ -5645,6 +5664,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "provider": "anthropic",
                 "model": "claude-sonnet-5",
                 "reasoning_effort": "low",
+                "service_tier": "default",
                 "rtk_effective": True,
                 "benjamin_effective": True,
                 "usage_metrics_recorded": True,
@@ -5715,6 +5735,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "provider": "openai",
                     "model": "claude-opus-4-8",
                     "reasoning_effort": "high",
+                    # the premium queue costs more; a writable tier is a spend escalation
+                    "service_tier": "priority",
                     "rtk_effective": False,
                     "benjamin_effective": False,
                     "usage_metrics_recorded": False,
@@ -5770,6 +5792,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["provider"] == "anthropic"
         assert run.state["model"] == "claude-sonnet-5"
         assert run.state["reasoning_effort"] == "low"
+        assert run.state["service_tier"] == "default"
         assert run.state["rtk_effective"] is True
         assert run.state["benjamin_effective"] is True
         assert run.state["usage_metrics_recorded"] is True
@@ -5810,6 +5833,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "provider",
                     "model",
                     "reasoning_effort",
+                    "service_tier",
                     "rtk_effective",
                     "benjamin_effective",
                     "usage_metrics_recorded",

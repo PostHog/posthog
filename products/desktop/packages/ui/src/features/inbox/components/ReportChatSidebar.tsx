@@ -22,13 +22,20 @@ import {
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
+import { SessionStartupStatus } from "@posthog/ui/features/sessions/components/SessionStartupStatus";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
-import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { useOpenTask } from "@posthog/ui/router/useOpenTask";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
+
+const loadingConversation = (
+  <SessionStartupStatus
+    label="Loading conversation..."
+    className="h-full justify-center"
+  />
+);
 
 const isMac =
   typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
@@ -128,7 +135,7 @@ export function ReportChatSidebar({
           ) : tasksLoading ? (
             // Offering the starter before the task lookup resolves invites a
             // duplicate conversation on a report that already has one.
-            <LoadingState />
+            loadingConversation
           ) : (
             <ReportChatStarter
               report={report}
@@ -185,7 +192,7 @@ function ReportChatConversation({
   ]);
 
   if (!task) {
-    return <LoadingState />;
+    return loadingConversation;
   }
 
   return <EmbeddedSessionView task={task} />;

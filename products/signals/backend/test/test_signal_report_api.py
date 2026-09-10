@@ -1863,6 +1863,47 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         )
         assert json.loads(selections[-1].content)["repository"] is None
 
+    def test_repeat_wrong_repo_dismissal_does_not_record_the_correction_as_the_rejected_repo(self):
+        # The first dismissal makes the correction the report's newest selection, so the repeat reads
+        # it back as the "selected" repository. Recorded as-is, the pair says the reviewer rejected the
+        # repository they named, which tells scouts to avoid the correction and renders a
+        # self-contradictory lesson into the selection prompt.
+        report = self._create_report()
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=RepoSelectionResult(repository="acme/website", reason="initial pick"),
+            attribution=ArtefactAttribution.system(),
+        )
+        payload = json.dumps(
+            {
+                "state": "suppressed",
+                "dismissal_reason": "wrong_repo",
+                "corrected_repository": "acme/checkout",
+            }
+        )
+
+        with patch(
+            "products.tasks.backend.facade.repo_selection.list_team_connected_repositories",
+            return_value=["acme/website", "acme/checkout"],
+        ):
+            for _ in range(2):
+                response = self.client.post(
+                    self._state_url(str(report.id)), data=payload, content_type="application/json"
+                )
+                assert response.status_code == status.HTTP_200_OK, response.json()
+
+        dismissals = list(
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
+            ).order_by("created_at")
+        )
+        assert len(dismissals) == 2
+        first = json.loads(dismissals[0].content)
+        assert (first["selected_repository"], first["corrected_repository"]) == ("acme/website", "acme/checkout")
+        repeat = json.loads(dismissals[1].content)
+        assert (repeat["selected_repository"], repeat["corrected_repository"]) == (None, "acme/checkout")
+
     def test_rejects_unknown_state(self):
         report = self._create_report()
         response = self.client.post(
@@ -1940,6 +1981,72 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         report.refresh_from_db()
         assert report.status == SignalReport.Status.POTENTIAL
+
+    @parameterized.expand(
+        [
+            # A detail view that lags the server (the PR was closed on GitHub first) re-sends the
+            # verdict the report already holds; the feedback on that click must not be lost.
+            ("dismiss", "suppressed", SignalReport.Status.SUPPRESSED, SignalReport.Status.READY),
+            ("resolve", "resolved", SignalReport.Status.RESOLVED, None),
+        ]
+    )
+    def test_repeating_a_verdict_the_report_already_holds_records_the_feedback(
+        self, _name, target, current_status, prior_status
+    ):
+        report = self._create_report(report_status=current_status)
+        if prior_status is not None:
+            report.status_before_suppression = prior_status
+            report.save(update_fields=["status_before_suppression"])
+
+        with (
+            patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_close_pr,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                self._state_url(str(report.id)),
+                data=json.dumps(
+                    {"state": target, "dismissal_reason": "report_unclear", "dismissal_note": "still can't see it"}
+                ),
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["dismissal_reason"] == "report_unclear"
+        assert response.json()["dismissal_note"] == "still can't see it"
+
+        report.refresh_from_db()
+        assert report.status == current_status
+        assert report.status_before_suppression == prior_status
+
+        dismissal = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        content = json.loads(dismissal.content)
+        assert content["reason"] == "report_unclear"
+        assert content["note"] == "still can't see it"
+        assert content["user_id"] == self.user.id
+        mock_close_pr.delay.assert_not_called()
+
+    def test_repeating_a_verdict_without_feedback_is_a_no_op_success(self):
+        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "suppressed"}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+        assert not SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
+        ).exists()
+
+    def test_restoring_a_report_already_in_the_inbox_is_still_refused(self):
+        report = self._create_report(report_status=SignalReport.Status.POTENTIAL)
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "potential"}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
 
     @parameterized.expand(
         [
@@ -2091,20 +2198,20 @@ class TestAvailableReviewersAPI(APIBaseTest):
             email=f"user{n:04d}@example.com",
         )
 
-    def _login_map(self, count: int) -> dict[str, SimpleNamespace]:
-        return {f"gh{n}": self._fake_user(n) for n in range(count)}
+    def _member_map(self, count: int) -> dict[str, SimpleNamespace]:
+        return {str(uuid.UUID(int=n)): self._fake_user(n) for n in range(count)}
 
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_returns_all_members_without_cap(self, mock_map):
         # 250 > the old hard cap of 100: every member must come back now.
-        mock_map.return_value = self._login_map(250)
+        mock_map.return_value = self._member_map(250)
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()) == 250
 
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_search_query_filters_server_side(self, mock_map):
-        mock_map.return_value = self._login_map(250)
+        mock_map.return_value = self._member_map(250)
         response = self.client.get(self._url(query="User0123"))
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
@@ -2112,48 +2219,48 @@ class TestAvailableReviewersAPI(APIBaseTest):
         assert next(iter(body.values()))["email"] == "user0123@example.com"
 
     @patch("products.signals.backend.views.capture_exception")
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_no_exception_captured_under_threshold(self, mock_map, mock_capture):
-        mock_map.return_value = self._login_map(50)
+        mock_map.return_value = self._member_map(50)
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         mock_capture.assert_not_called()
 
     @patch("products.signals.backend.views.capture_exception")
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_exception_captured_over_threshold(self, mock_map, mock_capture):
-        mock_map.return_value = self._login_map(1201)
+        mock_map.return_value = self._member_map(1201)
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()) == 1201
         mock_capture.assert_called_once()
 
     @patch("products.signals.backend.views.capture_exception")
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_threshold_capture_deduplicated_across_requests(self, mock_map, mock_capture):
         # Repeated popover opens for the same over-threshold org must report at most once.
-        mock_map.return_value = self._login_map(1201)
+        mock_map.return_value = self._member_map(1201)
         for _ in range(3):
             assert self.client.get(self._url()).status_code == status.HTTP_200_OK
         mock_capture.assert_called_once()
 
     @patch("products.signals.backend.views.capture_exception")
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_threshold_not_triggered_by_search_requests(self, mock_map, mock_capture):
         # A search-as-you-type request must not spam the threshold capture.
-        mock_map.return_value = self._login_map(1201)
+        mock_map.return_value = self._member_map(1201)
         response = self.client.get(self._url(query="User0001"))
         assert response.status_code == status.HTTP_200_OK
         mock_capture.assert_not_called()
 
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_empty_org_returns_empty(self, mock_map):
         mock_map.return_value = {}
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {}
 
-    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
     def test_missing_team_map_returns_empty(self, mock_map):
         # The helper returns None for an unknown team; the view coalesces it to an empty result.
         mock_map.return_value = None
