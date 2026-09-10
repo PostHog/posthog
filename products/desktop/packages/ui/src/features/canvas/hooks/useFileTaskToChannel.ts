@@ -4,12 +4,22 @@ import { toast } from "@posthog/ui/primitives/toast";
 import { useNavigate, useParams, useRouter } from "@tanstack/react-router";
 import { useCallback } from "react";
 
-const latestRouteFilings = new WeakMap<object, Map<string, symbol>>();
+interface RouteFiling {
+  /**
+   * The route the task sat on before the first filing of this run, or null
+   * when the task was not the open route.
+   */
+  origin: { channelId: string | undefined } | null;
+  /** Marks the newest filing, so an older failure cannot move the route. */
+  token: symbol;
+}
 
-function latestRouteFilingsFor(router: object): Map<string, symbol> {
+const latestRouteFilings = new WeakMap<object, Map<string, RouteFiling>>();
+
+function latestRouteFilingsFor(router: object): Map<string, RouteFiling> {
   const existing = latestRouteFilings.get(router);
   if (existing) return existing;
-  const filings = new Map<string, symbol>();
+  const filings = new Map<string, RouteFiling>();
   latestRouteFilings.set(router, filings);
   return filings;
 }
@@ -38,8 +48,16 @@ export function useFileTaskToChannel(options?: {
 
   return useCallback(
     async (channelId: string, taskId: string) => {
+      const routeFilings = latestRouteFilingsFor(router);
       const filingToken = Symbol(taskId);
-      latestRouteFilingsFor(router).set(taskId, filingToken);
+      // Hold the origin of the first filing in a run. A filing that starts
+      // while another is in flight reads an activeChannelId that the earlier
+      // optimistic move already changed, so a rollback to it would leave the
+      // route on a space the task never entered.
+      const origin =
+        routeFilings.get(taskId)?.origin ??
+        (activeTaskId === taskId ? { channelId: activeChannelId } : null);
+      routeFilings.set(taskId, { origin, token: filingToken });
       const moveActiveRoute =
         activeTaskId === taskId && activeChannelId !== channelId;
       const filing = fileTask(channelId, taskId);
@@ -60,15 +78,19 @@ export function useFileTaskToChannel(options?: {
       } catch (error) {
         await routeMove?.catch(() => undefined);
         const optimisticPath = `/spaces/${channelId}/tasks/${taskId}`;
+        // The pathname match is what says the route needs restoring, rather
+        // than whether this call moved it: a retry to the same destination
+        // moves nothing and still leaves the route on the failed space.
         if (
-          latestRouteFilingsFor(router).get(taskId) === filingToken &&
-          moveActiveRoute &&
+          routeFilings.get(taskId)?.token === filingToken &&
+          origin &&
+          origin.channelId !== channelId &&
           router.state.location.pathname === optimisticPath
         ) {
-          if (activeChannelId) {
+          if (origin.channelId) {
             void navigate({
               to: "/spaces/$channelId/tasks/$taskId",
-              params: { channelId: activeChannelId, taskId },
+              params: { channelId: origin.channelId, taskId },
               replace: true,
             });
           } else {
@@ -83,8 +105,8 @@ export function useFileTaskToChannel(options?: {
           description: error instanceof Error ? error.message : String(error),
         });
       } finally {
-        if (latestRouteFilingsFor(router).get(taskId) === filingToken) {
-          latestRouteFilingsFor(router).delete(taskId);
+        if (routeFilings.get(taskId)?.token === filingToken) {
+          routeFilings.delete(taskId);
         }
       }
     },

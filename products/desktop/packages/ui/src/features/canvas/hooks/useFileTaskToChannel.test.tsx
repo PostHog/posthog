@@ -15,16 +15,32 @@ function deferred<T>(): {
   return { promise, reject, resolve };
 }
 
+function routerStub(): { state: { location: { pathname: string } } } {
+  return {
+    state: {
+      location: {
+        get pathname() {
+          return mocks.pathname;
+        },
+      },
+    },
+  };
+}
+
 const mocks = vi.hoisted(() => ({
   activeChannelId: "source" as string | undefined,
   activeTaskId: "task-1" as string | undefined,
   channels: [
     { id: "source", name: "Source" },
     { id: "dest", name: "Destination" },
+    { id: "other", name: "Other" },
   ],
   fileTask: vi.fn(),
   navigate: vi.fn(),
   pathname: "/spaces/source/tasks/task-1",
+  // useRouter hands back the one router instance, and the hook keys its
+  // in-flight filings on it, so a stub per render would lose them.
+  router: {} as { state: { location: { pathname: string } } },
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
 }));
@@ -45,15 +61,7 @@ vi.mock("@tanstack/react-router", () => ({
       channelId: mocks.activeChannelId,
       taskId: mocks.activeTaskId,
     }),
-  useRouter: () => ({
-    state: {
-      location: {
-        get pathname() {
-          return mocks.pathname;
-        },
-      },
-    },
-  }),
+  useRouter: () => mocks.router,
 }));
 
 import { useFileTaskToChannel } from "./useFileTaskToChannel";
@@ -64,6 +72,7 @@ describe("useFileTaskToChannel", () => {
     mocks.activeChannelId = "source";
     mocks.activeTaskId = "task-1";
     mocks.pathname = "/spaces/source/tasks/task-1";
+    mocks.router = routerStub();
     mocks.navigate.mockImplementation(
       ({ to, params }: { to: string; params: Record<string, string> }) => {
         mocks.pathname = to
@@ -154,6 +163,48 @@ describe("useFileTaskToChannel", () => {
       await secondFiling;
     });
   });
+
+  it.each([
+    { name: "a third space", secondChannelId: "other" },
+    { name: "the same space", secondChannelId: "dest" },
+  ])(
+    "restores the first space when an overlapping filing to $name fails",
+    async ({ secondChannelId }) => {
+      const firstRequest = deferred<void>();
+      const secondRequest = deferred<void>();
+      mocks.fileTask
+        .mockReturnValueOnce(firstRequest.promise)
+        .mockReturnValueOnce(secondRequest.promise);
+      const { rerender, result } = renderHook(() => useFileTaskToChannel());
+      let firstFiling = Promise.resolve();
+      let secondFiling = Promise.resolve();
+
+      act(() => {
+        firstFiling = result.current("dest", "task-1");
+      });
+      // The first optimistic move settles before the second click, so the
+      // route params name the destination the way a real re-render would.
+      mocks.activeChannelId = "dest";
+      rerender();
+
+      act(() => {
+        secondFiling = result.current(secondChannelId, "task-1");
+      });
+
+      await act(async () => {
+        firstRequest.reject(new Error("First request failed"));
+        secondRequest.reject(new Error("Second request failed"));
+        await Promise.all([firstFiling, secondFiling]);
+      });
+
+      expect(mocks.navigate).toHaveBeenLastCalledWith({
+        to: "/spaces/$channelId/tasks/$taskId",
+        params: { channelId: "source", taskId: "task-1" },
+        replace: true,
+      });
+      expect(mocks.pathname).toBe("/spaces/source/tasks/task-1");
+    },
+  );
 
   it("does not replace a later route when filing fails", async () => {
     const request = deferred<void>();
