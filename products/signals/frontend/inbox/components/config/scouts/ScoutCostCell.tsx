@@ -45,6 +45,10 @@ export function scoutCostColumns(
         key: `cost-per-${unit}`,
         width: '7%',
         align: 'right' as const,
+        // Descending first, so one click answers the question the column exists for: the biggest
+        // spenders on top, the scouts with no number out of the way at the bottom. Ascending would
+        // open with a block of blank cells.
+        defaultSortOrder: -1 as const,
         sorter: (a: ScoutRosterRow, b: ScoutRosterRow) => {
             const left = sortValue(rollups, a, of)
             const right = sortValue(rollups, b, of)
@@ -59,8 +63,9 @@ export function scoutCostColumns(
     }))
 }
 
-// A scout without a number sorts below every scout that has one, so sorting a column descending
-// puts the biggest spenders on top and the unpriced ones out of the way.
+// A scout without a number sorts below every scout that has one in the descending direction, which
+// is the direction a first click takes. Sorting ascending asks for the cheapest first, and lifts
+// the unpriced scouts with it.
 function sortValue(
     rollups: Map<string, ScoutCostRollup>,
     row: ScoutRosterRow,
