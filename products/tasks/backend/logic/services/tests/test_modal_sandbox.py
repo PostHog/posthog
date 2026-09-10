@@ -1393,31 +1393,28 @@ class TestStartupFailureDiagnostics:
     @pytest.mark.parametrize(
         "probe_stdout, expected, unexpected",
         [
-            # Refused: the connection never opened, so a policy blocked it.
             (
                 "api.anthropic.com http_code=200 curl_exit=0\nmcp-eu.posthog.com http_code=000 curl_exit=7",
                 "egress blocked",
                 "timed out",
             ),
-            # Lines from an image that predates the curl_exit suffix still read as a block.
             (
                 "api.anthropic.com http_code=200\nmcp-eu.posthog.com http_code=000\nFAILED",
                 "egress blocked",
                 "timed out",
             ),
-            # Timed out: the box was too slow to finish the handshake, so nothing was blocked.
             (
                 "api.anthropic.com http_code=000 curl_exit=28\nmcp-eu.posthog.com http_code=000 curl_exit=28",
                 "timed out",
                 "egress blocked",
             ),
-            # One refused host is a block even when another host only timed out.
             (
                 "api.anthropic.com http_code=000 curl_exit=28\nmcp-eu.posthog.com http_code=000 curl_exit=7",
                 "egress blocked",
                 "timed out",
             ),
         ],
+        ids=["refused", "legacy_image_without_curl_exit", "every_host_timed_out", "one_refused_one_timed_out"],
     )
     @override_settings(SITE_URL="https://eu.posthog.com", SANDBOX_MCP_URL=None)
     def test_reports_blocked_egress_host(self, probe_stdout: str, expected: str, unexpected: str):

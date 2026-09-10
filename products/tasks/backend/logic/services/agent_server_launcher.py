@@ -110,10 +110,10 @@ def _session_init_probe_hosts() -> list[str]:
 def _egress_failure_reason(egress: str) -> str | None:
     """Name the failure the egress probe saw, or None when every host answered.
 
-    A refused connection (curl exit 7) or a failed lookup (exit 6) is a network policy block.
-    A timeout (exit 28) is not: the probe ran on a box that could not finish a TLS handshake
-    inside its budget, which is what a CPU-starved sandbox looks like. The two must read
-    differently, because the first sends a reader to the allowlist and the second to the host.
+    A refused connection (curl exit 7) or a failed lookup (exit 6) proves a network policy block.
+    A timeout (exit 28) proves nothing on its own: a slow sandbox and a policy that drops packets
+    silently both look like one. So a timeout is reported as a timeout, and the reader is sent to
+    the host-pressure probe in the same diagnostics rather than to the allowlist.
     """
     failed = [line for line in egress.splitlines() if "http_code=000" in line or line.endswith("FAILED")]
     if not failed:
@@ -121,9 +121,9 @@ def _egress_failure_reason(egress: str) -> str | None:
     timed_out = [line for line in failed if line.endswith(f"curl_exit={CURL_EXIT_OPERATION_TIMEOUT}")]
     if len(timed_out) == len(failed):
         return (
-            f"egress probe timed out after {EGRESS_PROBE_MAX_TIME_SECONDS}s to session-init host(s), not refused; "
-            "the sandbox is too slow to complete a TLS handshake, which points at CPU starvation rather than a "
-            "network policy block: " + "; ".join(failed)
+            f"egress probe timed out after {EGRESS_PROBE_MAX_TIME_SECONDS}s to every session-init host it could "
+            "not reach, and none refused the connection; read the host-pressure probe before the allowlist, "
+            "because a starved sandbox and a policy that drops packets silently both time out: " + "; ".join(failed)
         )
     return "egress blocked to required session-init host(s): " + "; ".join(failed)
 
