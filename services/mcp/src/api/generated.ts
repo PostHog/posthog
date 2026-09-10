@@ -16275,8 +16275,11 @@ export namespace Schemas {
        * * `native` - Native
        * * `mcp` - Mcp */
       kind: ConnectorKindEnum;
-      /** True when the caller has a usable connection to this provider. */
-      connected: boolean;
+      /**
+         * True when the caller has a usable connection. Null in the static catalog returned to sandbox authors.
+         * @nullable
+         */
+      connected: boolean | null;
       /** In-app path where the caller connects this provider. */
       connect_path: string;
       /** Tools the caller's connection exposes, sorted by name. */
