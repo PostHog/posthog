@@ -79,6 +79,22 @@ class TestGetModelNames:
         (backend / "models.py").write_text(NO_DJANGO_SOURCE)
         assert get_model_names(backend) == []
 
+    def test_a_proxy_model_needs_no_django_import_of_its_own(self, tmp_path: Path) -> None:
+        # A proxy model subclasses its concrete model and imports nothing from django.db, so an
+        # import gate drops it and a facade handing it out gets no finding.
+        models_dir = tmp_path / "backend" / "models"
+        models_dir.mkdir(parents=True)
+        (models_dir / "widgets.py").write_text(MODELS_SOURCE)
+        (models_dir / "web_widget.py").write_text(
+            "from posthog.models.utils import RootTeamManager\n\n"
+            "from .widgets import Widget\n\n\n"
+            "class WebWidgetManager(RootTeamManager):\n    pass\n\n\n"
+            "class WebWidget(Widget):\n    class Meta:\n        proxy = True\n"
+        )
+        names = get_model_names(tmp_path / "backend")
+        assert "WebWidget" in names
+        assert "WebWidgetManager" not in names
+
 
 FROZEN_DATACLASS_SOURCE = """
 import posthog.dataclasses

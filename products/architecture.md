@@ -352,9 +352,15 @@ It reports three kinds:
 - `accepts`: such a type, a DRF object, or an `Any` on a `team`, `request` or `user` parameter enters the facade. Take ids and contracts, so the caller never holds the object.
 - `logic`: a capability submodule holds definitions with bodies. Move each body to the wiring location and leave the re-export in the facade.
 
+A capability submodule is one whose job is to hand out wiring or model classes, read from what it hands out and not from its name.
+The names the doctrine spells out (`queries.py`, `temporal.py`, `max_tools.py`, `tasks.py`, `dags.py`, `hogql.py`, `models.py`) always count; any other module counts once one name it hands out resolves into a wiring location or the model surface.
+`api*.py` never counts, because it holds the data capabilities, and neither do `contracts.py`, `enums.py` and `testing.py`.
+
 A model reaches another facade through the owner's `facade/models` shim as often as through its models module, so both spellings count.
+The signature rules read the functions a facade hands out through a PEP 562 lazy map too, under the facade name a consumer imports, because a lazy re-export is part of the same call surface.
 Only registered Django models count: a models module also holds choices, enums and managers, which a contract may carry.
-Classes on the carve-out and watched-models lists above are sanctioned, so they are not reported.
+A nested class attribute (`Thing.Status`) is a value rather than an instance, so it is not reported.
+Classes on the carve-out and watched-models lists above are sanctioned for the product that owns them, so an identically named class from another product is still reported.
 Core models are not reported either, because product to core is the sanctioned direction.
 `products/model_crossing_uses_baseline.txt` records what the facades do today, as the `facade-*` kinds next to the other couplings the import graph cannot see.
 The first column says what crosses: `<product>.<Class>` for a product model, the source library for everything else (`django`, `rest_framework`, `typing`), and the facade module for a `facade-logic` line.

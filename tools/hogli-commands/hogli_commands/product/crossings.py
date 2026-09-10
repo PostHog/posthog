@@ -60,7 +60,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from .ast_helpers import ast_parse_safe, get_model_names, lazy_reexport_map
+from .ast_helpers import ast_parse_safe, get_model_names, lazy_reexport_map, lazy_reexport_prefixes
 from .isolation import (
     COMPUTED_WIRING_LOCATIONS,
     MODEL_CROSSINGS,
@@ -873,14 +873,7 @@ def _lazy_reexports(tree: ast.Module, product: str, exists: Callable[[str], bool
     Lazy maps store their values relative to some package: absolute, relative to the product's
     backend package, or relative to a module-level prefix constant (`_B = "products....hogql_queries."`).
     The first candidate that names a real module wins."""
-    prefixes = [
-        node.value.value
-        for node in tree.body
-        if isinstance(node, ast.Assign)
-        and isinstance(node.value, ast.Constant)
-        and isinstance(node.value.value, str)
-        and node.value.value.endswith(".")
-    ]
+    prefixes = lazy_reexport_prefixes(tree)
     resolved: dict[str, str] = {}
     for name, value in lazy_reexport_map(tree).items():
         candidates = [value, *(prefix + value for prefix in prefixes), f"products.{product}.backend.{value}"]

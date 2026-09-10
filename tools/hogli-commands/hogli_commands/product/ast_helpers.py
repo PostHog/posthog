@@ -6,6 +6,7 @@ import re
 import ast
 import warnings
 from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 # Common suffixes/prefixes that contract dataclasses may use instead of mirroring the model name exactly.
@@ -77,32 +78,39 @@ def _is_abstract_model(node: ast.ClassDef) -> bool:
     return False
 
 
-def get_model_names(backend_dir: Path) -> list[str]:
-    """Return names of Django ORM model classes in backend/models.py and/or backend/models/.
+@dataclass(frozen=True)
+class _ModelCandidate:
+    """One module-level class in a model module, with what decides whether it is a model."""
 
-    Counts every concrete module-level class with at least one base, in files that import
-    from django.db. Base-name matching cannot see that TeamScopedRootMixin or a meta-fields
-    mixin ultimately reaches models.Model, so this fails open: overcounting a helper class
-    is harmless (apps.get_model can never resolve it), while missing a model lets a
-    crossing bypass the ratchet. Excluded: abstract models (Meta.abstract = True) and
-    choices/enum/manager/queryset subclasses, which the app registry never returns.
-    """
+    name: str
+    bases: tuple[str, ...]
+    django_in_file: bool
+
+
+def _model_source_files(backend_dir: Path) -> list[Path]:
+    """The product's model modules: backend/models.py, backend/models/, or both."""
     sources: list[Path] = []
     models_file = backend_dir / "models.py"
     models_dir = backend_dir / "models"
     if models_file.exists():
         sources.append(models_file)
     if models_dir.is_dir():
-        sources.extend(models_dir.rglob("*.py"))
+        sources.extend(sorted(models_dir.rglob("*.py")))
+    return sources
 
-    names: list[str] = []
-    for path in sources:
+
+def _model_candidates(backend_dir: Path) -> list[_ModelCandidate]:
+    """Every module-level class in the model modules that could be a registered model.
+
+    Nested classes (Meta, TextChoices) are never registered, and neither are the
+    choices/enum/manager/queryset subclasses or an abstract model, so all of those are out here.
+    """
+    candidates: list[_ModelCandidate] = []
+    for path in _model_source_files(backend_dir):
         tree = ast_parse_safe(path)
         if not tree:
             continue
-        if not _file_imports_django_models(tree):
-            continue
-        # Module level only: nested classes (Meta, TextChoices) are never registered models.
+        django_in_file = _file_imports_django_models(tree)
         for node in tree.body:
             if not isinstance(node, ast.ClassDef):
                 continue
@@ -113,7 +121,37 @@ def get_model_names(backend_dir: Path) -> list[str]:
                 continue
             if _is_abstract_model(node):
                 continue
-            names.append(node.name)
+            candidates.append(_ModelCandidate(node.name, tuple(bases), django_in_file))
+    return candidates
+
+
+def get_model_names(backend_dir: Path) -> list[str]:
+    """Return names of Django ORM model classes in backend/models.py and/or backend/models/.
+
+    A class counts when its file imports from django.db, or when one of its bases is already a
+    model of this product. A proxy model subclasses its concrete model and needs no import of its
+    own, and dropping such a class lets a crossing bypass the ratchet. The base rule reaches
+    across model modules, so the resolution repeats until no further class turns into a model.
+
+    Base-name matching cannot see that TeamScopedRootMixin or a meta-fields mixin ultimately
+    reaches models.Model, so the django.db rule fails open: overcounting a helper class is
+    harmless (apps.get_model can never resolve it). Excluded: abstract models (Meta.abstract =
+    True) and choices/enum/manager/queryset subclasses, which the app registry never returns.
+    """
+    candidates = _model_candidates(backend_dir)
+    names: list[str] = []
+    known: set[str] = set()
+    pending = True
+    while pending:
+        pending = False
+        for candidate in candidates:
+            if candidate.name in known:
+                continue
+            if not (candidate.django_in_file or any(base in known for base in candidate.bases)):
+                continue
+            known.add(candidate.name)
+            names.append(candidate.name)
+            pending = True
     return names
 
 
@@ -260,6 +298,22 @@ def lazy_reexport_map(tree: ast.Module) -> dict[str, str]:
         if valid:
             mapping.update(entries)
     return mapping
+
+
+def lazy_reexport_prefixes(tree: ast.Module) -> list[str]:
+    """Module-level string constants a lazy map prepends to its values (`_B = "products.x.backend."`).
+
+    A lazy map stores its source modules relative to some package, and the prefix constant is how
+    the module says which. Every module-level string that ends in a dot is a candidate, so a caller
+    tries each and keeps the one that names a real module."""
+    return [
+        node.value.value
+        for node in ast.iter_child_nodes(tree)
+        if isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+        and node.value.value.endswith(".")
+    ]
 
 
 def iter_public_callables(tree: ast.Module) -> Iterator[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]]:

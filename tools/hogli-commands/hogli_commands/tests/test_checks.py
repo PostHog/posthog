@@ -2060,10 +2060,16 @@ _MODELS_PY = (
 )
 
 
-def _write_shape_product(tmp_path: Path, facade_files: dict[str, str], *, name: str = "my_product") -> Path:
+def _write_shape_product(
+    tmp_path: Path,
+    facade_files: dict[str, str],
+    *,
+    name: str = "my_product",
+    sources: dict[str, str] | None = None,
+) -> Path:
     """A product whose models module defines Thing, the ThingKind choices, and ExternalDataSource."""
     _, backend = _write_facade_product(
-        tmp_path, name=name, facade_files=facade_files, sources={"models.py": _MODELS_PY}
+        tmp_path, name=name, facade_files=facade_files, sources={"models.py": _MODELS_PY, **(sources or {})}
     )
     return backend
 
@@ -2105,6 +2111,27 @@ class TestFacadeShape:
             (
                 {"api.py": "from django.db import models\n\n\ndef things() -> models.QuerySet:\n    ...\n"},
                 {("things", "", "returns", "QuerySet")},
+            ),
+            # a bare relative import binds the submodule too, so `models.Thing` after it names the
+            # model, which is the spelling several facades already use for their own models shim
+            (
+                {"api.py": "from . import models\n\n\ndef get_thing() -> models.Thing:\n    ...\n"},
+                {("get_thing", "", "returns", "Thing")},
+            ),
+            (
+                {"api.py": "from .. import models\n\n\ndef get_thing() -> models.Thing:\n    ...\n"},
+                {("get_thing", "", "returns", "Thing")},
+            ),
+            # ...but only the model surface binds that way: contracts are what the facade is for
+            (
+                {"api.py": "from . import contracts\n\n\ndef get_thing() -> contracts.Thing:\n    ...\n"},
+                set(),
+            ),
+            # a nested class attribute carries no instance of the outer class, so `Thing.Status` is
+            # a value a contract may hold
+            (
+                {"api.py": "from ..models import Thing\n\n\ndef status() -> Thing.Status:\n    ...\n"},
+                set(),
             ),
             # an alias must report the type at the source, or the row cannot be matched to a class
             (
@@ -2199,6 +2226,40 @@ class TestFacadeShape:
         assert facade_shape_findings(allowed, "warehouse_sources") == []
         assert [f.type_name for f in facade_shape_findings(other, "unrelated_product")] == ["ExternalDataSource"]
 
+    def test_the_allowance_does_not_cover_a_same_named_class_from_another_product(self, tmp_path: Path) -> None:
+        # warehouse_sources may hand out its own ExternalDataSource, and the identically named class
+        # from another product is a crossing nobody sanctioned. Both sit in one annotation, so a
+        # per-name key would collapse them and let the sanctioned one hide the other.
+        _write_shape_product(tmp_path, {}, name="lookalike")
+        backend = _write_shape_product(
+            tmp_path,
+            {
+                "api.py": "from ..models import ExternalDataSource\n"
+                "from products.lookalike.backend.models import ExternalDataSource as Other\n\n\n"
+                "def sources() -> tuple[ExternalDataSource, Other]:\n    ...\n"
+            },
+            name="warehouse_sources",
+        )
+        findings = facade_shape_findings(backend, "warehouse_sources")
+        assert [(f.source, f.type_name) for f in findings] == [("lookalike", "ExternalDataSource")]
+
+    def test_a_lazily_re_exported_function_is_read_under_the_facade_name(self, tmp_path: Path) -> None:
+        # A PEP 562 map is part of the facade's own call surface: the consumer imports the name from
+        # the facade, so a lazy spelling cannot be what gets the model past the check.
+        backend = _write_shape_product(
+            tmp_path,
+            {
+                "api.py": '_B = "products.my_product.backend."\n'
+                '_LAZY = {"get_thing": "logic.crud"}\n\n\n'
+                "def __getattr__(name):\n    ...\n"
+            },
+            sources={"logic/crud.py": "from ..models import Thing\n\n\ndef get_thing() -> Thing:\n    ...\n"},
+        )
+        findings = facade_shape_findings(backend, "my_product")
+        assert [(f.dotted_module, f.symbol, f.kind, f.type_name) for f in findings] == [
+            ("products.my_product.backend.facade.api", "get_thing", "returns", "Thing")
+        ]
+
     @pytest.mark.parametrize(
         "facade_files, expected",
         [
@@ -2243,6 +2304,29 @@ class TestFacadeShape:
         logic = [f for f in facade_shape_findings(backend, "my_product") if f.kind == "logic"]
         assert [f.bodies for f in logic] == ([expected] if expected else [])
         assert [f.count for f in logic] == ([len(expected)] if expected else [])
+
+    @pytest.mark.parametrize(
+        "reexport_from, expected",
+        [
+            # a module that hands out a Temporal definition is wiring whatever it is called, and
+            # products already name such a module workflow_tasks.py or tools.py
+            ("..temporal.flows", ("helper",)),
+            # a module that hands out logic is an ordinary facade module, where a body is allowed
+            ("..logic.crud", None),
+        ],
+    )
+    def test_a_capability_module_is_recognized_by_what_it_hands_out(
+        self, tmp_path: Path, reexport_from: str, expected: tuple[str, ...] | None
+    ) -> None:
+        backend = _write_shape_product(
+            tmp_path,
+            {
+                "wiring.py": f"from {reexport_from} import run_it\n\n__all__ = ['run_it']\n\n\ndef helper():\n    return 1\n"
+            },
+            sources={"temporal/flows.py": "def run_it():\n    ...\n", "logic/crud.py": "def run_it():\n    ...\n"},
+        )
+        logic = [f for f in facade_shape_findings(backend, "my_product") if f.kind == "logic"]
+        assert [f.bodies for f in logic] == ([expected] if expected else [])
 
 
 class TestFacadeShapeLedgerRows:

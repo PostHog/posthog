@@ -24,7 +24,7 @@ import ast
 import json
 import tomllib
 import functools
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -36,6 +36,7 @@ from .ast_helpers import (
     has_any_function_defs,
     iter_public_callables,
     lazy_reexport_map,
+    lazy_reexport_prefixes,
     module_dunder_all,
     module_has_prefix,
     module_level_import_froms,
@@ -663,13 +664,20 @@ def _name_is_class(
     return False
 
 
-def _resolve_dotted_source(dotted: str, backend_dir: Path) -> str | None:
-    """A lazy-map source value ('logic.crud' or 'products.x.backend.logic.crud') -> backend path."""
-    module_rel = _resolve_absolute_module(dotted, backend_dir)
-    if module_rel is None:
-        # Lazy maps commonly store the value relative to the product's backend package.
-        module_rel = dotted.replace(".", "/")
-    return _backend_rel_path(module_rel, backend_dir)
+def _resolve_dotted_source(dotted: str, backend_dir: Path, prefixes: Sequence[str] = ()) -> str | None:
+    """A lazy-map source value ('logic.crud' or 'products.x.backend.logic.crud') -> backend path.
+
+    A map may also store its values relative to a module-level prefix constant, so every prefix the
+    module defines is tried after the bare value. The first candidate that names a real module wins."""
+    for candidate in (dotted, *(prefix + dotted for prefix in prefixes)):
+        module_rel = _resolve_absolute_module(candidate, backend_dir)
+        if module_rel is None:
+            # Lazy maps commonly store the value relative to the product's backend package.
+            module_rel = candidate.replace(".", "/")
+        source_path = _backend_rel_path(module_rel, backend_dir)
+        if source_path is not None:
+            return source_path
+    return None
 
 
 def _is_facade_or_garage(source_path: str) -> bool:
@@ -693,18 +701,54 @@ def _iter_facade_modules(backend_dir: Path) -> Iterator[Path]:
             yield path
 
 
-def _iter_facade_class_reexports(backend_dir: Path) -> Iterator[FacadeClassImport]:
-    """Every product-internal class a facade module hands out, from a module that is neither facade nor wiring location —
-    carve-outs included (callers filter). Three shapes are read:
+@dataclass(frozen=True)
+class _HandedOutName:
+    """A product-internal name one facade module hands out, and the module that defines it."""
 
-      - a pure re-export module (no top-level function definitions) hands out every class it imports.
+    original: str  # the name at the source
+    source_path: str  # backend-relative, e.g. "backend/logic/crud.py"
+
+
+def _iter_handed_out_names(tree: ast.Module, backend_dir: Path) -> Iterator[_HandedOutName]:
+    """Every product-internal name one facade module hands out, wiring locations included (callers
+    filter). Three shapes are read:
+
+      - a pure re-export module (no top-level function definitions) hands out every name it imports.
       - a data-capability module (api.py and its split-out siblings, which hold functions that
-        convert models to contracts) legitimately imports internal classes for its own use, so only
+        convert models to contracts) legitimately imports internal names for its own use, so only
         deliberate re-exports count as handed out: names in its literal `__all__`, plus names
         imported with the explicit self-alias idiom (`from ..x import Foo as Foo` — the shape that
         also suppresses ruff's F401, so it would otherwise be invisible to every lint).
-      - a PEP 562 `_LAZY`/`_MODULES` map hands out every class it maps, read regardless of shape.
+      - a PEP 562 `_LAZY`/`_MODULES` map hands out every name it maps, read regardless of shape.
     """
+    is_pure_reexport = not tree_has_top_level_functions(tree)
+    allowed = None if is_pure_reexport else module_dunder_all(tree)
+    for level, module, aliases in module_level_import_froms(tree):
+        module_rel = (
+            _resolve_relative(["facade"], level, module)
+            if level > 0
+            else _resolve_absolute_module(module or "", backend_dir)
+        )
+        if module_rel is None:
+            continue
+        source_path = _backend_rel_path(module_rel, backend_dir)
+        if source_path is None:
+            continue
+        for orig, asname in aliases:
+            bound = asname or orig
+            handed_out = is_pure_reexport or (allowed is not None and bound in allowed) or asname == orig
+            if handed_out:
+                yield _HandedOutName(orig, source_path)
+    prefixes = lazy_reexport_prefixes(tree)
+    for name, dotted in lazy_reexport_map(tree).items():
+        source_path = _resolve_dotted_source(dotted, backend_dir, prefixes)
+        if source_path is not None:
+            yield _HandedOutName(name, source_path)
+
+
+def _iter_facade_class_reexports(backend_dir: Path) -> Iterator[FacadeClassImport]:
+    """Every product-internal class a facade module hands out, from a module that is neither facade
+    nor wiring location — carve-outs included (callers filter)."""
     parse_cache: dict[Path, ast.Module | None] = {}
     for module_file in _iter_facade_modules(backend_dir):
         # contracts/enums are the sanctioned homes for data types, so neither is a wiring re-export.
@@ -713,34 +757,11 @@ def _iter_facade_class_reexports(backend_dir: Path) -> Iterator[FacadeClassImpor
         tree = ast_parse_safe(module_file)
         if tree is None:
             continue
-        # A pure re-export module hands out everything it imports; a data-capability module only
-        # its deliberate re-exports (__all__ membership or the Foo-as-Foo self-alias).
-        is_pure_reexport = not tree_has_top_level_functions(tree)
-        allowed = None if is_pure_reexport else module_dunder_all(tree)
-        for level, module, aliases in module_level_import_froms(tree):
-            module_rel = (
-                _resolve_relative(["facade"], level, module)
-                if level > 0
-                else _resolve_absolute_module(module or "", backend_dir)
-            )
-            if module_rel is None:
+        for handed in _iter_handed_out_names(tree, backend_dir):
+            if _is_facade_or_garage(handed.source_path):
                 continue
-            source_path = _backend_rel_path(module_rel, backend_dir)
-            if source_path is None or _is_facade_or_garage(source_path):
-                continue
-            for orig, asname in aliases:
-                bound = asname or orig
-                handed_out = is_pure_reexport or (allowed is not None and bound in allowed) or asname == orig
-                if not handed_out:
-                    continue
-                if _name_is_class(source_path, orig, backend_dir, cache=parse_cache):
-                    yield FacadeClassImport(module_file.name, orig, source_path)
-        for name, dotted in lazy_reexport_map(tree).items():
-            source_path = _resolve_dotted_source(dotted, backend_dir)
-            if source_path is None or _is_facade_or_garage(source_path):
-                continue
-            if _name_is_class(source_path, name, backend_dir, cache=parse_cache):
-                yield FacadeClassImport(module_file.name, name, source_path)
+            if _name_is_class(handed.source_path, handed.original, backend_dir, cache=parse_cache):
+                yield FacadeClassImport(module_file.name, handed.original, handed.source_path)
 
 
 @dataclass(frozen=True)
@@ -881,11 +902,18 @@ def unwatched_model_surface(product_dir: Path) -> set[str]:
 # Capability submodules re-export wiring and hold no logic of their own. A task body or a workflow
 # definition here sits in the one package core imports, so the product cannot change it without
 # changing what core runs. The implementation belongs in the wiring location, which the
-# contract-check inputs watch. `testing.py` is not on the list, because products/architecture.md
-# sanctions a facade/testing.py helper for fixture-only needs, so a body there is the designed shape.
+# contract-check inputs watch.
+#
+# The names the doctrine spells out. A product may call the same wiring anything, so the stem list
+# is a floor and _is_capability_module decides the rest from what a module hands out.
 CAPABILITY_SUBMODULES: frozenset[str] = frozenset(
     {"dags", "hogql", "max_tools", "models", "queries", "tasks", "temporal"}
 )
+
+# Facade stems that are never capability submodules whatever they hand out. `api*.py` holds the
+# data capabilities, so a body there is the designed shape; contracts and enums are the sanctioned
+# homes for data types; products/architecture.md sanctions a facade/testing.py fixture helper.
+_NON_CAPABILITY_FACADE_STEMS: frozenset[str] = frozenset({"contracts", "enums", "testing"})
 
 # Parameters that name the tenant or the actor a call is for. `Any` on one of these hides a Django
 # or a DRF object behind an annotation no check can read, which is how a leak survives review.
@@ -1006,10 +1034,10 @@ def _import_source(module: str) -> str | None:
     return _product_model_owner(module)
 
 
-def _relative_import_source(node: ast.ImportFrom, product: str) -> str | None:
-    """The same, for a relative import inside the facade package: the facade's own product when the
-    import reaches its model surface, else None."""
-    backend_module = _resolve_relative(["facade"], node.level, node.module)
+def _relative_import_source(level: int, module: str | None, product: str, package_parts: Sequence[str]) -> str | None:
+    """The same, for a relative import inside the scanned module's own package: the module's own
+    product when the import reaches its model surface, else None."""
+    backend_module = _resolve_relative(list(package_parts), level, module)
     if backend_module is None:
         return None
     return product if _reaches_model_surface(backend_module.replace("/", ".")) else None
@@ -1027,7 +1055,16 @@ def _forbidden(source: str, name: str, model_names: _ModelNames) -> _ForbiddenTy
     return _ForbiddenType(source, name) if name in model_names.for_product(source) else None
 
 
-def _facade_import_env(tree: ast.Module, product: str, model_names: _ModelNames) -> _FacadeImportEnv:
+def _submodule_of(module: str | None, name: str) -> str:
+    """The module a `from <module> import <name>` names when `name` is a submodule.
+
+    `from . import models` carries no module of its own, so the imported name is the whole path."""
+    return f"{module}.{name}" if module else name
+
+
+def _facade_import_env(
+    tree: ast.Module, product: str, model_names: _ModelNames, package_parts: Sequence[str] = ("facade",)
+) -> _FacadeImportEnv:
     types: dict[str, _ForbiddenType] = {}
     modules: dict[str, str] = {}
     for node in module_level_import_nodes(tree, type_checking=True):
@@ -1038,13 +1075,22 @@ def _facade_import_env(tree: ast.Module, product: str, model_names: _ModelNames)
                     modules[alias.asname or alias.name.split(".")[0]] = source
             continue
         module = node.module or ""
-        source = _relative_import_source(node, product) if node.level > 0 else _import_source(module)
+        source = (
+            _relative_import_source(node.level, node.module, product, package_parts)
+            if node.level > 0
+            else _import_source(module)
+        )
         for alias in node.names:
             bound = alias.asname or alias.name
             if source is None:
-                # `from django.db import models` binds the namespace and not a type, so the
-                # annotation spells `models.QuerySet`.
-                submodule_source = _import_source(f"{module}.{alias.name}") if node.level == 0 else None
+                # `from django.db import models` and `from . import models` both bind the namespace
+                # and not a type, so the annotation spells `models.QuerySet`.
+                submodule = _submodule_of(node.module, alias.name)
+                submodule_source = (
+                    _relative_import_source(node.level, submodule, product, package_parts)
+                    if node.level > 0
+                    else _import_source(submodule)
+                )
                 if submodule_source is not None:
                     modules[bound] = submodule_source
                 continue
@@ -1101,7 +1147,9 @@ def _named_type(env: _FacadeImportEnv, root: str, named: str) -> _ForbiddenType 
     """The forbidden type one annotation reference stands for, or None."""
     bound = env.types.get(root)
     if bound is not None:
-        return bound
+        # `Thing.Status` is a nested class attribute, which carries no instance of the outer class,
+        # so only the bare name puts the type on the boundary.
+        return bound if named == root else None
     source = env.modules.get(root)
     if source is None or named == root:
         return None
@@ -1109,12 +1157,15 @@ def _named_type(env: _FacadeImportEnv, root: str, named: str) -> _ForbiddenType 
 
 
 def _forbidden_types_in(env: _FacadeImportEnv, annotation: ast.expr | None) -> list[_ForbiddenType]:
-    """Every forbidden type one annotation names, first occurrence kept."""
-    found: dict[str, _ForbiddenType] = {}
+    """Every forbidden type one annotation names, first occurrence kept.
+
+    Keyed by source and name together: two types can share a name across products, and collapsing
+    them would let a sanctioned one hide an unsanctioned one behind it."""
+    found: dict[tuple[str, str], _ForbiddenType] = {}
     for ref in _annotation_refs(annotation):
         forbidden = _named_type(env, ref.root, ref.named)
         if forbidden is not None:
-            found.setdefault(forbidden.type_name, forbidden)
+            found.setdefault((forbidden.source, forbidden.type_name), forbidden)
     return list(found.values())
 
 
@@ -1125,7 +1176,12 @@ def _annotation_is_any(env: _FacadeImportEnv, annotation: ast.expr | None) -> bo
 
 
 def _is_sanctioned(product: str, forbidden: _ForbiddenType) -> bool:
-    """A class the doctrine already lets this product's facade hand out."""
+    """A class the doctrine already lets this product's facade hand out.
+
+    The allowance covers the product's own class, so the source must be the product too: another
+    product's same-named model is a crossing nobody sanctioned."""
+    if forbidden.source != product:
+        return False
     key = (product, forbidden.type_name)
     return key in CARVE_OUTS or key in MODEL_CROSSINGS
 
@@ -1191,6 +1247,58 @@ def _iter_module_signature_findings(
         yield from _iter_signature_findings(node, env, product, facade_module, dotted_module, symbol)
 
 
+def _top_level_function(tree: ast.Module, name: str) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            return node
+    return None
+
+
+def _iter_lazy_signature_findings(
+    tree: ast.Module,
+    backend_dir: Path,
+    product: str,
+    facade_module: str,
+    dotted_module: str,
+    model_names: _ModelNames,
+) -> Iterator[FacadeShapeFinding]:
+    """Signature findings for the functions a facade hands out through a PEP 562 lazy map.
+
+    A lazy re-export is part of the facade's own call surface: a consumer imports the name from the
+    facade and the map decides which module answers. So the defining function is read under the
+    facade name, and the lazy spelling cannot be what gets a type past the check. Annotations are
+    resolved in the defining module's own namespace, which is where they were written.
+    """
+    prefixes = lazy_reexport_prefixes(tree)
+    defined_here = {
+        node.name
+        for node in ast.iter_child_nodes(tree)
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    parse_cache: dict[str, ast.Module | None] = {}
+    env_cache: dict[str, _FacadeImportEnv] = {}
+    for name, dotted in sorted(lazy_reexport_map(tree).items()):
+        # A real definition wins over __getattr__, and the module scan already read it.
+        if name.startswith("_") or name in defined_here:
+            continue
+        source_path = _resolve_dotted_source(dotted, backend_dir, prefixes)
+        if source_path is None:
+            continue
+        if source_path not in parse_cache:
+            parse_cache[source_path] = ast_parse_safe(_source_file(source_path, backend_dir))
+        source_tree = parse_cache[source_path]
+        if source_tree is None:
+            continue
+        node = _top_level_function(source_tree, name)
+        if node is None:
+            continue
+        if source_path not in env_cache:
+            env_cache[source_path] = _facade_import_env(
+                source_tree, product, model_names, _module_package_parts(source_path)
+            )
+        yield from _iter_signature_findings(node, env_cache[source_path], product, facade_module, dotted_module, name)
+
+
 def _has_wiring_decorator(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> bool:
     """True when a definition carries wiring core registers: a Celery task or a Temporal
     definition. Temporal is spelled `<module>.defn`, so its receiver is read too: a bare `defn` is
@@ -1245,6 +1353,22 @@ def _capability_finding(
     )
 
 
+def _is_capability_module(tree: ast.Module, filename: str, backend_dir: Path) -> bool:
+    """True when a facade module is a capability submodule: one whose job is to hand out wiring or
+    model classes.
+
+    Read from what the module hands out rather than from its name, because a product may call the
+    same wiring anything (`workflow_tasks.py`, `tools.py`) and a filename allowlist then misses it.
+    The doctrine stems stay a floor, so such a module keeps the rule before it hands anything out."""
+    stem = filename.removesuffix(".py")
+    if stem in CAPABILITY_SUBMODULES:
+        return True
+    if stem.startswith("api") or stem in _NON_CAPABILITY_FACADE_STEMS:
+        return False
+    wiring = (*GARAGE_PREFIXES, *MODEL_SURFACE_PREFIXES)
+    return any(handed.source_path.startswith(wiring) for handed in _iter_handed_out_names(tree, backend_dir))
+
+
 def _facade_module_dotted(product: str, filename: str) -> str:
     """`products.<product>.backend.facade.<module>` for one facade file. A package __init__ names
     the package itself, the same rule the crossings scan uses for a repo path."""
@@ -1272,7 +1396,8 @@ def facade_shape_findings(backend_dir: Path, name: str) -> list[FacadeShapeFindi
         dotted_module = _facade_module_dotted(name, path.name)
         env = _facade_import_env(tree, name, model_names)
         findings.extend(_iter_module_signature_findings(tree, env, name, path.name, dotted_module))
-        if path.stem in CAPABILITY_SUBMODULES:
+        findings.extend(_iter_lazy_signature_findings(tree, backend_dir, name, path.name, dotted_module, model_names))
+        if _is_capability_module(tree, path.name, backend_dir):
             logic = _capability_finding(tree, name, path.name, dotted_module)
             if logic is not None:
                 findings.append(logic)
