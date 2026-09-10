@@ -173,9 +173,7 @@ class TestPromptSuggestions(_VisionAPITestCase):
         self.assertIsNotNone(body["applied_at"])
 
     def test_apply_reports_the_recommendation_and_the_scanner_edit(self) -> None:
-        # apply writes scanner_config directly instead of going through the scanner serializer, so it has
-        # to report the edit itself. Without both events an applied recommendation is invisible, and every
-        # before/after analysis of calibration silently measures manual edits only.
+        # Guards both events: apply bypasses the serializer, so it reports the edit itself.
         self._create_rated_observation("sess-1", False, "should be yes")
         suggestion_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
 

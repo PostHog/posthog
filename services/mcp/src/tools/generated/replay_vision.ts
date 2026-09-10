@@ -237,7 +237,7 @@ const VisionScannersCreateSchema = () => {
 
 const visionScannersCreate = (): ToolBase<
     ReturnType<typeof VisionScannersCreateSchema>,
-    WithAgentNote<Schemas.ReplayScanner>
+    WithAgentNote<WithPostHogUrl<Schemas.ReplayScanner>>
 > => ({
     name: 'vision-scanners-create',
     schema: VisionScannersCreateSchema(),
@@ -295,8 +295,8 @@ const visionScannersCreate = (): ToolBase<
             body,
         })
         return withAgentNote(
-            result,
-            'A new scanner runs the prompt as written, and the first sweep is where its weaknesses show. Tell the person that rating results thumbs up or down turns into a config recommendation they can review, and that `_posthogUrl` plus the Calibration tab is where they do it. There is nothing to rate yet, so this is a closing sentence for them, not a step for you.\n'
+            await withPostHogUrl(context, result, `/replay-vision/${result.id}`),
+            'A new scanner runs the prompt as written, and the first sweep is where its weaknesses show. Tell the person that rating its results thumbs up or down turns into a config recommendation they can review, and that `_posthogUrl` opens the scanner where they do it. There is nothing to rate yet, so this is a closing sentence for them, not a step for you.\n'
         )
     },
 })
@@ -622,7 +622,7 @@ const visionScannersObservationsStats = (): ToolBase<
         })
         return withAgentNote(
             result,
-            "When `labels.up_total` and `labels.down_total` are both near zero against `status_counts.succeeded`, this scanner has results nobody has rated, so a prompt suggestion has almost nothing to learn from. Say so, and ask the person to rate a few results before you call `vision-scanners-prompt-suggestions-generate`. Record their verdicts with `vision-observations-label-create` rather than supplying your own. Testing a suggestion is not available over MCP, so tell them to test it on the scanner's Calibration tab before they apply it.\n"
+            "When `status_counts.succeeded` is above 10 and `labels.up_total` + `labels.down_total` is under 5, this scanner has results almost nobody has rated, so a prompt suggestion has little to learn from. Say so, and ask the person to rate a few results before you call `vision-scanners-prompt-suggestions-generate`. Record their verdicts with `vision-observations-label-create` rather than supplying your own. Testing a suggestion is not available over MCP, so tell them to test it on the scanner's Calibration tab before they apply it.\n"
         )
     },
 })

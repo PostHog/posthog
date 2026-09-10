@@ -426,7 +426,6 @@ class ReplayScannerPromptSuggestionViewSet(
             **_suggestion_properties(suggestion),
             "scanner_type": scanner.scanner_type,
             "applied_fields": applied_fields,
-            # True when the user changed the recommendation by hand before applying it.
             "was_edited": edited_config is not None,
         }
         report_user_action(user, "replay_vision_prompt_suggestion_applied", properties, team=self.team, request=request)

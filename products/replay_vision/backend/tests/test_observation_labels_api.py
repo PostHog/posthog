@@ -88,8 +88,7 @@ class TestObservationLabels(_VisionAPITestCase):
     def test_resaving_a_label_only_reports_a_real_change(
         self, _name: str, payload: dict, expect_event: bool, expect_verdict_changed: bool | None
     ) -> None:
-        # The feedback box autosaves as the user types and resends the whole label, so an unchanged
-        # re-save is the common case. Reporting it counted one rated session several times over.
+        # Guards the autosave overcount: an unchanged re-save must not report.
         self.client.post(self._label_url(self.observation), {"is_correct": False, "feedback": "wrong"}, format="json")
         with patch("posthoganalytics.capture") as capture:
             resp = self.client.post(self._label_url(self.observation), payload, format="json")
@@ -154,8 +153,7 @@ class TestObservationLabels(_VisionAPITestCase):
         self.client.post(self._label_url(self.observation), {"is_correct": True}, format="json")
         with CaptureQueriesContext(connection) as queries:
             self.client.delete(self._label_url(self.observation))
-        # Unlocked, a concurrent re-rate reads the old label, this delete reports the removal, and the
-        # re-rate then writes identical values and reports nothing, leaving a label counted as removed.
+        # Guards against a concurrent re-rate leaving a stored rating counted as removed.
         locked = [q["sql"] for q in queries.captured_queries if "FOR UPDATE" in q["sql"] and "observation" in q["sql"]]
         self.assertEqual(len(locked), 1)
 

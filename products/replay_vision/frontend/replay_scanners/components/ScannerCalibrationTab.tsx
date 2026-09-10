@@ -149,21 +149,21 @@ function SuggestionEvaluationPanel({
     suggestion,
     preview,
     editedSinceTest,
-    supported,
-    nudgeUntested,
+    evaluationSupported,
+    showUntestedNotice,
 }: {
     suggestion: ReplayScannerPromptSuggestionApi
     preview: boolean
     editedSinceTest: boolean
-    supported: boolean
-    nudgeUntested: boolean
+    evaluationSupported: boolean
+    showUntestedNotice: boolean
 }): JSX.Element | null {
     const [detailsOpen, setDetailsOpen] = useState(false)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const evaluation = suggestion.evaluation
     if (!evaluation) {
         // Most people apply without testing, so say what testing is for rather than showing nothing.
-        return supported && nudgeUntested ? (
+        return evaluationSupported && showUntestedNotice ? (
             <div className="border rounded p-3 text-sm text-muted" data-attr="vision-calibration-untested-notice">
                 Not tested yet. Testing re-runs this recommendation on your rated results, so you can see what changes
                 before you apply it.
@@ -407,8 +407,8 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                         suggestion={currentSuggestion}
                         preview={previewEvaluation}
                         editedSinceTest={recommendationEditedSinceTest}
-                        supported={evaluationSupported}
-                        nudgeUntested={featureFlags[FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_TEST_NUDGE] === 'test'}
+                        evaluationSupported={evaluationSupported}
+                        showUntestedNotice={featureFlags[FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_TEST_NUDGE] === 'test'}
                     />
                 )}
                 <div className="flex flex-wrap items-center justify-between gap-2">
