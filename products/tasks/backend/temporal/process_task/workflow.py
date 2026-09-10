@@ -412,6 +412,12 @@ _PATCH_ID_COMPLETE_STREAM_AFTER_CLEANUP_FAILURE = "tasks-complete-stream-after-c
 # Same two-step deprecate-then-delete cleanup lifecycle as the patches above.
 _PATCH_ID_RUN_LIFECYCLE_BOUNDS = "tasks-run-lifecycle-bounds"
 
+# Gates the agent-lost FAILED terminalizations: a run whose agent was observed active with
+# no end of turn since died mid-turn, so the inactivity and sandbox-gone exits record it as
+# failed instead of completed. Pre-patch histories recorded "completed" as the status
+# activity's input, so replays must keep it. Same cleanup lifecycle as above.
+_PATCH_ID_AGENT_LOST_FAILED = "tasks-inactivity-agent-lost-failed"
+
 _PATCH_ID_SNAPSHOT_BEFORE_CI_FOLLOW_UP = "tasks-snapshot-before-ci-follow-up"
 
 # Keeps an interactive run alive when follow-up delivery exhausts retries, releasing
@@ -448,6 +454,12 @@ def _run_lifecycle_bounds_enabled() -> bool:
     return workflow.patched(_PATCH_ID_RUN_LIFECYCLE_BOUNDS)
 
 
+def _agent_lost_failed_enabled() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_AGENT_LOST_FAILED)
+
+
 def _dev_stack_preview_enabled() -> bool:
     return workflow.in_workflow() and workflow.patched(_PATCH_ID_DEV_STACK_PREVIEW)
 
@@ -476,6 +488,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # State marker recorded with the terminal status (e.g. sandbox_gone), so the
         # reason a run ended stays machine-readable without abusing error_message.
         self._completion_timeout_marker: Optional[str] = None
+        self._completion_agent_lost: bool = False
         self._heartbeat_received: bool = False
         self._client_activity_received: bool = False
         self._agent_active: Optional[bool] = None
@@ -1488,6 +1501,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     error_message=self._completion_error,
                     error_type=self._completion_error_type,
                     timeout_marker=self._completion_timeout_marker,
+                    agent_lost=self._completion_agent_lost,
                 )
             elif timeout_event == TaskEvent.MAX_DURATION_REACHED:
                 # Only reachable under the lifecycle-bounds patch (the timer is gated on it).
@@ -1495,8 +1509,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 # state marker carries the reason so error_message stays empty.
                 await self._update_task_run_status("failed", timeout_marker=TIMED_OUT_WALL_CLOCK_STATE_KEY)
             elif timeout_event is not None:
-                inactivity_status = "failed" if self._onboarding_exit_is_failure() else "completed"
-                await self._update_task_run_status(inactivity_status, timed_out_inactivity=True)
+                if self._onboarding_exit_is_failure():
+                    await self._update_task_run_status("failed", timed_out_inactivity=True)
+                elif self._agent_lost_mid_turn():
+                    # The timer expired because the agent died mid-turn, not because the work
+                    # finished; "completed" here would record a dead run as a success.
+                    await self._update_task_run_status("failed", timed_out_inactivity=True, agent_lost=True)
+                else:
+                    await self._update_task_run_status("completed", timed_out_inactivity=True)
 
             # Close out the keep-it-green step so a finished run doesn't show a still-spinning CI step.
             if self._pr_progress_emitted:
@@ -1550,6 +1570,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 error_message=self._completion_error,
                 error_type=self._completion_error_type,
                 timeout_marker=self._completion_timeout_marker,
+                agent_lost=self._completion_agent_lost,
             )
             if self._context:
                 await self._post_slack_update()
@@ -2682,6 +2703,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         timed_out_inactivity: bool = False,
         error_type: Optional[str] = None,
         timeout_marker: Optional[str] = None,
+        agent_lost: bool = False,
     ) -> None:
         seconds_since_last_agent_heartbeat = (
             (workflow.now() - self._last_agent_heartbeat_at).total_seconds() if self._last_agent_heartbeat_at else None
@@ -2695,6 +2717,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 timed_out_inactivity=timed_out_inactivity,
                 error_type=error_type,
                 timeout_marker=timeout_marker,
+                agent_lost=agent_lost,
                 agent_active_at_termination=self._agent_active,
                 end_of_turn_received=self._end_of_turn_received,
                 last_agent_heartbeat_at=(
@@ -2753,10 +2776,35 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return False
         return not self.context.create_pr or self._ci_repetitions > 0
 
+    def _agent_lost_mid_turn(self) -> bool:
+        """Whether the agent died mid-turn, making a quiet exit a loss rather than a completion.
+
+        `_agent_active` only ever flips True when the event relay observed the agent working,
+        and back to False on the end-of-turn event, so a truthy value here means a turn started
+        and never ended: the sandbox or agent-server died mid-turn. Only that positive evidence
+        downgrades. `None` keeps the old completion, because it also covers runs whose transport
+        sends no agent-state signal at all (sequenced ingest bypasses the SSE relay) and runs
+        that never started a turn (unclaimed prewarms) — for those, silence proves nothing.
+        A run that already delivered its PR keeps completing for the same reason onboarding
+        exempts it: a failed terminal status would report a loss over a delivered PR.
+        """
+        if not _agent_lost_failed_enabled():
+            return False
+        return self._agent_active is True and not self._pr_progress_emitted
+
     def _mark_sandbox_gone(self) -> None:
         # A sandbox that vanished mid-setup is a failed setup for onboarding; see
         # _onboarding_exit_is_failure for why a run that already opened its PR is exempt.
-        self._completion_status = "failed" if self._onboarding_exit_is_failure() else "completed"
+        if self._onboarding_exit_is_failure():
+            self._completion_status = "failed"
+        elif self.context.mode != "interactive" and self._agent_lost_mid_turn():
+            # A background run has no one to resume it, so a sandbox that died mid-turn left
+            # nothing behind and the run must read as failed. Interactive runs keep completing:
+            # their vanished sandbox stays the resumable snapshot the session picks back up from.
+            self._completion_status = "failed"
+            self._completion_agent_lost = True
+        else:
+            self._completion_status = "completed"
         self._completion_error = SANDBOX_GONE_ERROR_MESSAGE
         self._completion_timeout_marker = SANDBOX_GONE_STATE_KEY
         self._task_completed = True

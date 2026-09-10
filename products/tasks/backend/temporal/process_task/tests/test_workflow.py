@@ -1962,28 +1962,47 @@ class TestProcessTaskWorkflowUnit:
         relay_agent_design_signals_mock.assert_called_once()
 
     @pytest.mark.parametrize(
-        "origin_product, pr_progress_emitted, ci_repetitions, expected_status",
+        "origin_product, pr_progress_emitted, ci_repetitions, agent_active, mode, expected_status, expected_agent_lost",
         [
-            (None, False, 1, "completed"),
-            ("user_created", False, 1, "completed"),
+            (None, False, 1, None, "background", "completed", False),
+            ("user_created", False, 1, None, "background", "completed", False),
             # Onboarding runs are one-shot, so a vanished sandbox is a failed setup rather than a
             # resumable snapshot.
-            ("onboarding", False, 1, "failed"),
+            ("onboarding", False, 1, None, "background", "failed", False),
             # Unless the PR is already open: the wizard reads the terminal status, so a downgrade
             # would report a failed install over a PR the user can merge.
-            ("onboarding", True, 1, "completed"),
+            ("onboarding", True, 1, None, "background", "completed", False),
             # No follow-up round ever ran, so the empty PR latch is unobserved rather than evidence
             # of no PR. Downgrading here would fail a run whose PR the loop never got to look at.
-            ("onboarding", False, 0, "completed"),
+            ("onboarding", False, 0, None, "background", "completed", False),
+            # A background sandbox that vanished mid-turn left nothing behind; recording it as
+            # completed hides the loss from the user and from every retry surface.
+            (None, False, 1, True, "background", "failed", True),
+            # The turn ended before the sandbox went; the run delivered and must keep completing.
+            (None, False, 1, False, "background", "completed", False),
+            # A PR is already open, so the run delivered despite the mid-turn loss.
+            (None, True, 1, True, "background", "completed", False),
+            # Interactive sessions resume from the vanished sandbox's snapshot, so they keep the
+            # completed status their resume flow reads.
+            (None, False, 1, True, "interactive", "completed", False),
         ],
     )
     async def test_run_completes_when_credential_refresh_detects_sandbox_gone(
-        self, monkeypatch, origin_product, pr_progress_emitted, ci_repetitions, expected_status
+        self,
+        monkeypatch,
+        origin_product,
+        pr_progress_emitted,
+        ci_repetitions,
+        agent_active,
+        mode,
+        expected_status,
+        expected_agent_lost,
     ):
         workflow = ProcessTaskWorkflow()
         workflow._pr_progress_emitted = pr_progress_emitted
         workflow._ci_repetitions = ci_repetitions
-        context = _build_context(github_integration_id=123, origin_product=origin_product)
+        workflow._agent_active = agent_active
+        context = _build_context(github_integration_id=123, origin_product=origin_product, state={"mode": mode})
         update_task_run_status_mock = AsyncMock()
         cleanup_sandbox_mock = AsyncMock()
 
@@ -2043,17 +2062,19 @@ class TestProcessTaskWorkflowUnit:
             error_message=SANDBOX_GONE_ERROR_MESSAGE,
             error_type=None,
             timeout_marker=SANDBOX_GONE_STATE_KEY,
+            agent_lost=expected_agent_lost,
         )
         cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123", complete_stream=True)
 
     @pytest.mark.parametrize(
-        "event, origin_product, pr_progress_emitted, ci_repetitions, expected_status, expected_kwargs",
+        "event, origin_product, pr_progress_emitted, ci_repetitions, agent_active, expected_status, expected_kwargs",
         [
             (
                 process_task_workflow_module.TaskEvent.TIMEOUT_REACHED,
                 None,
                 False,
                 1,
+                None,
                 "completed",
                 {"timed_out_inactivity": True},
             ),
@@ -2062,6 +2083,7 @@ class TestProcessTaskWorkflowUnit:
                 "onboarding",
                 False,
                 1,
+                None,
                 "failed",
                 {"timed_out_inactivity": True},
             ),
@@ -2072,6 +2094,7 @@ class TestProcessTaskWorkflowUnit:
                 "onboarding",
                 True,
                 1,
+                None,
                 "completed",
                 {"timed_out_inactivity": True},
             ),
@@ -2082,6 +2105,41 @@ class TestProcessTaskWorkflowUnit:
                 "onboarding",
                 False,
                 0,
+                None,
+                "completed",
+                {"timed_out_inactivity": True},
+            ),
+            # The agent was observed mid-turn and never reached end of turn: the sandbox or
+            # agent-server died, the timer expired over a corpse, and "completed" would record
+            # a dead run as a success with nothing to show.
+            (
+                process_task_workflow_module.TaskEvent.TIMEOUT_REACHED,
+                None,
+                False,
+                1,
+                True,
+                "failed",
+                {"timed_out_inactivity": True, "agent_lost": True},
+            ),
+            # End of turn arrived before the idle window: a genuine post-turn completion must
+            # never be downgraded to failed.
+            (
+                process_task_workflow_module.TaskEvent.TIMEOUT_REACHED,
+                None,
+                False,
+                1,
+                False,
+                "completed",
+                {"timed_out_inactivity": True},
+            ),
+            # The run already opened its PR; a mid-turn loss during CI babysitting must not
+            # report a failure over a delivered PR.
+            (
+                process_task_workflow_module.TaskEvent.TIMEOUT_REACHED,
+                None,
+                True,
+                1,
+                True,
                 "completed",
                 {"timed_out_inactivity": True},
             ),
@@ -2090,6 +2148,7 @@ class TestProcessTaskWorkflowUnit:
                 None,
                 False,
                 1,
+                None,
                 "failed",
                 {"timeout_marker": TIMED_OUT_WALL_CLOCK_STATE_KEY},
             ),
@@ -2098,20 +2157,30 @@ class TestProcessTaskWorkflowUnit:
                 "onboarding",
                 False,
                 1,
+                None,
                 "failed",
                 {"timeout_marker": TIMED_OUT_WALL_CLOCK_STATE_KEY},
             ),
         ],
     )
     async def test_run_terminalizes_timeouts_with_their_marker(
-        self, monkeypatch, event, origin_product, pr_progress_emitted, ci_repetitions, expected_status, expected_kwargs
+        self,
+        monkeypatch,
+        event,
+        origin_product,
+        pr_progress_emitted,
+        ci_repetitions,
+        agent_active,
+        expected_status,
+        expected_kwargs,
     ):
         # The wall-clock cap is a failure for every origin; the inactivity timeout only fails for
-        # onboarding runs that delivered nothing, because other origins resume from the timed-out
-        # run and a PR-bearing onboarding run already succeeded.
+        # onboarding runs that delivered nothing and for runs whose agent died mid-turn, because
+        # other origins resume from the timed-out run and a PR-bearing run already succeeded.
         workflow = ProcessTaskWorkflow()
         workflow._pr_progress_emitted = pr_progress_emitted
         workflow._ci_repetitions = ci_repetitions
+        workflow._agent_active = agent_active
         context = _build_context(github_integration_id=123, origin_product=origin_product)
         update_task_run_status_mock = AsyncMock()
 
@@ -2185,9 +2254,12 @@ class TestProcessTaskWorkflowUnit:
         assert workflow._onboarding_exit_is_failure() is expected
 
     async def test_run_keeps_completing_inactivity_timeouts_before_the_lifecycle_patch(self, monkeypatch):
-        # Replaying a pre-patch history: the onboarding FAILED terminalization must not apply, or the
-        # replay would write a different terminal status than the recorded one.
+        # Replaying a pre-patch history: neither the onboarding FAILED terminalization nor the
+        # agent-lost one may apply, or the replay would write a different terminal status than
+        # the recorded one. The active agent state makes the agent-lost downgrade reachable, so
+        # only the patch gate keeps it off.
         workflow = ProcessTaskWorkflow()
+        workflow._agent_active = True
         context = _build_context(github_integration_id=123, origin_product="onboarding")
         update_task_run_status_mock = AsyncMock()
 
