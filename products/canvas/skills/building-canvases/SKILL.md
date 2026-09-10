@@ -147,12 +147,15 @@ That field is the only valid link to a canvas — never construct one yourself; 
 Progressive fragments let a canvas appear one panel at a time.
 The layout goes live first with placeholders, and each panel replaces its placeholder as soon as its own build is ready.
 
-The switch is one line in the task: `Progressive fragments: enabled.`
+The switch is the `progressive_fragments_enabled` field on the canvas.
+`canvas-create` returns it on the new canvas, and `canvas-source-retrieve` returns it under `canvas` for an existing one.
+Read it before you write the first file.
 
-- The line is present: always build with fragments. Put every panel in its own fragment file, even a small one, and follow the build order below.
-- The line is absent: never use fragments. Do not import `@posthog/canvas-sdk/fragment` and do not create `src/fragments/`. Without the feature, a marker renders its fallback forever.
+- `true`: always build with fragments. Put every panel in its own fragment file, even a small one, and follow the build order below.
+- `false`: never use fragments. Do not import `@posthog/canvas-sdk/fragment` and do not create `src/fragments/`. Without the feature, a marker renders its fallback forever.
 
 Do not decide this from the size or the shape of the request.
+A task line such as `Progressive fragments: expected.` is a hint from the host; the API field wins when they disagree.
 
 ### Authoring model
 
@@ -170,7 +173,7 @@ Rules:
 ### Build order
 
 1. Publish the layout first: the entry, the `src/shared/**` modules, and every marker with its fallback. Do not include any fragment file yet.
-2. Wait for that build to reach `ready`. Read the build's `manifest` from `canvas-builds-retrieve`. `manifest.fragments` is present (an empty object counts) when the feature is active. If it is absent, the task line and the team's flag disagree; stop and finish the canvas with a single publish that includes every panel as ordinary components (see "Feature flag" below).
+2. Wait for that build to reach `ready`. Read the build's `manifest` from `canvas-builds-retrieve`. `manifest.fragments` is present (an empty object counts) when the feature is active. If it is absent, the flag changed since you read the canvas; stop and finish the canvas with a single publish that includes every panel as ordinary components (see "Feature flag" below).
 3. Add fragments in small batches (two or three files) and publish after each batch with `canvas-edit-create`. Wait for each build to reach `ready` before the next publish; the queue drops older queued builds when a newer publish arrives, so back-to-back publishes waste work.
 4. After each build, read `manifest.pendingFragments`. It lists the markers that still have no fragment. Continue until it is empty.
 5. Finish when `manifest.pendingFragments` is empty and the last build is `ready`.
@@ -181,7 +184,7 @@ A publish that changes the layout, a shared module, or `dependencies` reloads th
 ### Feature flag
 
 Fragments take effect only when the team has the `canvas-progressive-fragments` flag.
-The desktop app reads that flag and adds the `Progressive fragments: enabled.` line to the task when it is on, so the task line is your source of truth.
+The backend evaluates the flag and reports the result as `progressive_fragments_enabled` on the canvas, so the API field is your source of truth.
 Without the flag, the files under `src/fragments/**` build as normal files, `manifest.fragments` is absent, and every marker renders its fallback forever.
 As a safety check, read `manifest.fragments` after the first build.
 If it is absent, replace each marker with the panel component itself, drop the `@posthog/canvas-sdk/fragment` import, and finish with one publish.

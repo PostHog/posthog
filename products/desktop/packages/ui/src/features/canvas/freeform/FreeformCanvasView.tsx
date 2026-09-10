@@ -51,11 +51,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@posthog/quill";
-import {
-  CANVAS_COMPONENT_PATH,
-  CANVAS_PROGRESSIVE_FRAGMENTS_FLAG,
-  formatRelativeAge,
-} from "@posthog/shared";
+import { CANVAS_COMPONENT_PATH, formatRelativeAge } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
@@ -78,7 +74,6 @@ import {
   useFreeformChatStore,
   useFreeformThread,
 } from "@posthog/ui/features/canvas/stores/freeformChatStore";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
@@ -306,11 +301,10 @@ export function FreeformCanvasView({
   // The published build's artifact, pinned to one signed URL per build (so the
   // 2s builds poll can't reload the iframe), with expired-URL recovery via the
   // refresh-key remount. The whole lifecycle machine lives in the hook. With
-  // progressive fragments on, a newer build that kept the layout rolls its
-  // fragments into the mounted frame instead of remounting it.
-  const progressiveFragments = useFeatureFlag(
-    CANVAS_PROGRESSIVE_FRAGMENTS_FLAG,
-  );
+  // progressive fragments on for the team (the canvas record carries the
+  // backend's answer), a newer build that kept the layout rolls its fragments
+  // into the mounted frame instead of remounting it.
+  const progressiveFragments = dashboard?.progressiveFragmentsEnabled ?? false;
   const {
     artifact: pinnedArtifact,
     fragments: artifactFragments,

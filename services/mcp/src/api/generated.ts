@@ -15869,6 +15869,8 @@ export namespace Schemas {
       readonly updated_at: string;
       /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
       readonly url: string;
+      /** Whether builds of this canvas emit progressive fragments. True: author the layout with <CanvasFragment> markers and every panel as a src/fragments/ file, publish the layout first, then the fragments. False: build with a single publish and no fragments. This value is the switch; do not decide from the request. */
+      readonly progressive_fragments_enabled: boolean;
     }
 
     /**
@@ -16800,6 +16802,8 @@ export namespace Schemas {
       created_at: string;
       /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
       readonly url: string;
+      /** Whether builds of this canvas emit progressive fragments. True: author the layout with <CanvasFragment> markers and every panel as a src/fragments/ file, publish the layout first, then the fragments. False: build with a single publish and no fragments. This value is the switch; do not decide from the request. */
+      readonly progressive_fragments_enabled: boolean;
     }
 
     /**

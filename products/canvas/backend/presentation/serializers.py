@@ -8,6 +8,7 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
+from products.canvas.backend.build_service import progressive_fragments_enabled
 from products.canvas.backend.contract import (
     GRID_COLUMN_CHOICES,
     MAX_COMPONENT_HEIGHT,
@@ -33,6 +34,12 @@ _MAX_ASSET_BASE64_LENGTH = (contract_limits()["maxSourceTotalBytes"] + 2) // 3 *
 _CANVAS_URL_HELP_TEXT = (
     "Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — "
     "share this when pointing a user at it; never construct a canvas URL."
+)
+
+_PROGRESSIVE_FRAGMENTS_HELP_TEXT = (
+    "Whether builds of this canvas emit progressive fragments. True: author the layout with <CanvasFragment> markers "
+    "and every panel as a src/fragments/ file, publish the layout first, then the fragments. False: build with a "
+    "single publish and no fragments. This value is the switch; do not decide from the request."
 )
 
 
@@ -120,6 +127,7 @@ class CanvasSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     pinned = serializers.SerializerMethodField(help_text="Whether the canvas is pinned to its channel.")
     url = serializers.SerializerMethodField(help_text=_CANVAS_URL_HELP_TEXT)
+    progressive_fragments_enabled = serializers.SerializerMethodField(help_text=_PROGRESSIVE_FRAGMENTS_HELP_TEXT)
 
     class Meta:
         model = Canvas
@@ -140,11 +148,20 @@ class CanvasSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "url",
+            "progressive_fragments_enabled",
         ]
         read_only_fields = fields
 
     def get_pinned(self, canvas: Canvas) -> bool:
         return canvas.pinned_at is not None
+
+    def get_progressive_fragments_enabled(self, canvas: Canvas) -> bool:
+        # One flag evaluation per response: a list shares this serializer's context.
+        cached: bool | None = self.context.get("progressive_fragments_enabled")
+        if cached is None:
+            cached = progressive_fragments_enabled(canvas.team)
+            self.context["progressive_fragments_enabled"] = cached
+        return cached
 
     def get_url(self, canvas: Canvas) -> str:
         return canvas_url(canvas)
@@ -586,9 +603,13 @@ class CanvasSummarySerializer(serializers.Serializer):
     )
     created_at = serializers.DateTimeField(help_text="When the canvas was created.")
     url = serializers.SerializerMethodField(help_text=_CANVAS_URL_HELP_TEXT)
+    progressive_fragments_enabled = serializers.SerializerMethodField(help_text=_PROGRESSIVE_FRAGMENTS_HELP_TEXT)
 
     def get_url(self, canvas: Canvas) -> str:
         return canvas_url(canvas)
+
+    def get_progressive_fragments_enabled(self, canvas: Canvas) -> bool:
+        return progressive_fragments_enabled(canvas.team)
 
 
 class CanvasLayoutResponseSerializer(serializers.Serializer):

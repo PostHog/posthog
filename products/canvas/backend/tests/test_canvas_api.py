@@ -145,6 +145,32 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/canvases/")
         assert {row["id"] for row in response.json()["results"]} == {canvas_id, other_id}
 
+    @parameterized.expand(
+        [
+            ("flag_on", True, True),
+            ("flag_off", False, False),
+            ("flag_check_fails", RuntimeError("flag service down"), False),
+        ]
+    )
+    def test_canvas_reports_progressive_fragments_from_the_team_flag(
+        self, _name: str, flag_result: bool | Exception, expected: bool
+    ) -> None:
+        side_effect = flag_result if isinstance(flag_result, Exception) else lambda *_, **__: flag_result
+        with patch.object(build_service.posthoganalytics, "feature_enabled", side_effect=side_effect) as flag:
+            body = self.client.post(
+                f"/api/projects/{self.team.id}/canvases/",
+                {"name": "My canvas", "channel_id": str(self.channel.id)},
+                format="json",
+            ).json()
+            assert body["progressive_fragments_enabled"] is expected
+            self._create_canvas(name="Other")
+            flag.reset_mock()
+            rows = self.client.get(f"/api/projects/{self.team.id}/canvases/").json()["results"]
+            source = self.client.get(f"/api/projects/{self.team.id}/canvases/{body['id']}/source/").json()
+        assert [row["progressive_fragments_enabled"] for row in rows] == [expected, expected]
+        assert source["canvas"]["progressive_fragments_enabled"] is expected
+        assert flag.call_count == 2
+
     def test_notebook_widget_canvas_is_hidden_from_the_canvas_api(self):
         with team_scope(self.team.id):
             notebook_canvas = Canvas.objects.create(

@@ -73,9 +73,8 @@ export function buildCanvasGenerationPrompt(input: {
   channelName: string;
   templateId?: string;
   instruction: string;
-  // The agent cannot read the team's feature flags, so the host tells it here
-  // whether the builder emits fragments. The skill treats this line as the only
-  // switch: present means build progressively, absent means one publish.
+  // A hint only. The switch the skill obeys is `progressive_fragments_enabled`
+  // on the canvas API response, which the backend evaluates per team.
   progressiveFragments?: boolean;
 }): string {
   // Only the legacy template ids name a layout the canvas skills define a shape
@@ -86,7 +85,7 @@ export function buildCanvasGenerationPrompt(input: {
       ? `\n- requested pattern: "${escapeXmlAttr(input.templateId)}"`
       : "";
   const fragments = input.progressiveFragments
-    ? `\n\nProgressive fragments: enabled. Follow the skill's "Progressive fragments" section: publish the layout with its markers first, then publish the fragments.`
+    ? `\n\nProgressive fragments: expected. Confirm with \`progressive_fragments_enabled\` on the canvas response, then follow the skill's "Progressive fragments" section: publish the layout with its markers first, then publish the fragments.`
     : "";
 
   return `${input.instruction}

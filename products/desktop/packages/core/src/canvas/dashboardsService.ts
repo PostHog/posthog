@@ -48,6 +48,7 @@ interface ApiCanvas {
   pinned_at: string | null;
   current_version_id: string | null;
   published_build_id: string | null;
+  progressive_fragments_enabled?: boolean;
   created_by?: CanvasCreator | null;
   created_at: string;
   updated_at: string;
@@ -107,6 +108,7 @@ function toRecord(api: ApiCanvas): DashboardRecord {
     pinnedAt: toEpoch(api.pinned_at),
     currentVersionId: api.current_version_id,
     publishedBuildId: api.published_build_id,
+    progressiveFragmentsEnabled: api.progressive_fragments_enabled ?? false,
   };
 }
 

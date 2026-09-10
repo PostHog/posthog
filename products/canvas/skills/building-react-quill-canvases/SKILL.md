@@ -31,8 +31,8 @@ module, so it needs no `dependencies` entry. The same object exists as the `wind
 (how existing canvases reach it); prefer the import in new code.
 
 `import { CanvasFragment } from "@posthog/canvas-sdk/fragment"` is the other platform-provided
-module. It marks where a progressive fragment renders. Use it only when the task says
-`Progressive fragments: enabled.`; see "Progressive fragments" below and the `building-canvases`
+module. It marks where a progressive fragment renders. Use it only when the canvas response has
+`progressive_fragments_enabled: true`; see "Progressive fragments" below and the `building-canvases`
 skill for the publish order.
 
 Other bare imports, dynamic `import()`, `require()`, `<script>` tags, and remote code fail
@@ -158,7 +158,7 @@ load/save failure states — are what break when improvised. Keep them; replace 
 
 ## Progressive fragments
 
-When the task says `Progressive fragments: enabled.`, the layout stays in `src/canvas.tsx` and each panel becomes its own file under `src/fragments/`.
+When the canvas has `progressive_fragments_enabled: true`, the layout stays in `src/canvas.tsx` and each panel becomes its own file under `src/fragments/`.
 A layout with two markers:
 
 ```tsx

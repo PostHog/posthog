@@ -43,7 +43,7 @@ describe("buildCanvasGenerationPrompt", () => {
         ...base,
         progressiveFragments,
       });
-      expect(prompt.includes("Progressive fragments: enabled")).toBe(told);
+      expect(prompt.includes("Progressive fragments: expected")).toBe(told);
     },
   );
 });

@@ -41,6 +41,7 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.scoping import team_scope
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.ph_client import ph_background_capture
 from posthog.storage import object_storage
@@ -999,19 +1000,26 @@ def act_on_build(canvas: Canvas, build_id: str | UUID, action: str) -> CanvasBui
     return build
 
 
-def _progressive_fragments_enabled(build: CanvasBuild) -> bool:
+def progressive_fragments_enabled(team: Team) -> bool:
+    """Whether this team's builds emit fragments. The canvas API exposes the same
+    answer, so the agent and the host read one value instead of evaluating the
+    flag themselves. Any evaluation error counts as off."""
     try:
         return bool(
             posthoganalytics.feature_enabled(
                 CANVAS_PROGRESSIVE_FRAGMENTS_FLAG,
-                str(build.team.uuid),
+                str(team.uuid),
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
             )
         )
     except Exception:
-        logger.exception("canvas_build_progressive_fragments_flag_check_failed", build_id=str(build.id))
+        logger.exception("canvas_progressive_fragments_flag_check_failed", team_id=team.id)
         return False
+
+
+def _progressive_fragments_enabled(build: CanvasBuild) -> bool:
+    return progressive_fragments_enabled(build.team)
 
 
 def run_canvas_build(team_id: int, build_id: str) -> None:
