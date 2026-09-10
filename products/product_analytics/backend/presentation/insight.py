@@ -66,6 +66,7 @@ from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import INSIGHT, AvailableFeature
+from posthog.content_disposition import attachment_disposition
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -2476,9 +2477,9 @@ When set, the specified dashboard's filters and date range override will be appl
                 export = "{}/insights/{}/\n".format(SITE_URL, request.GET["export_insight_id"]).encode() + export
 
             response = HttpResponse(export)
-            response["Content-Disposition"] = (
-                'attachment; filename="{name} ({date_from} {date_to}) from PostHog.csv"'.format(
-                    name=slugify(request.GET.get("export_name", "export")),
+            response["Content-Disposition"] = attachment_disposition(
+                "{name} ({date_from} {date_to}) from PostHog.csv".format(
+                    name=slugify(request.GET.get("export_name", "export"), allow_unicode=True),
                     date_from=filter.date_from.strftime("%Y-%m-%d -") if filter.date_from else "up until",
                     date_to=filter.date_to.strftime("%Y-%m-%d"),
                 )

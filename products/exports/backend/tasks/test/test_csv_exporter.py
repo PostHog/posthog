@@ -42,6 +42,7 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.source_authentication import assert_export_authorization
 from products.exports.backend.tasks import csv_exporter
 from products.exports.backend.tasks.csv_exporter import (
+    CSV_EXPORT_ENCODING,
     CsvWriter,
     ExcelWriter,
     UnexpectedEmptyJsonResponse,
@@ -53,6 +54,17 @@ from products.exports.backend.tasks.csv_exporter import (
 from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExceeded
 
 TEST_PREFIX = "Test-Exports"
+
+
+# Every CSV export starts with a UTF-8 BOM. TestCsvWriterEncoding asserts it; the tests
+# below are about the rows, so they drop it.
+def csv_text(content: str | bytes | memoryview | None) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content.removeprefix("\ufeff")
+    return bytes(content).decode(CSV_EXPORT_ENCODING)
+
 
 # see GitHub issue #11204
 regression_11204 = "api/projects/6642/insights/trend/?events=%5B%7B%22id%22%3A%22product%20viewed%22%2C%22name%22%3A%22product%20viewed%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&actions=%5B%5D&display=ActionsTable&insight=TRENDS&interval=day&breakdown=productName&new_entity=%5B%5D&properties=%5B%5D&step_limit=5&funnel_filter=%7B%7D&breakdown_type=event&exclude_events=%5B%5D&path_groupings=%5B%5D&include_event_types=%5B%22%24pageview%22%5D&filter_test_accounts=false&local_path_cleaning_filters=%5B%5D&date_from=-14d&offset=50"
@@ -152,8 +164,8 @@ class TestCSVExporter(APIBaseTest):
             csv_exporter.export_tabular(exported_asset)
 
             assert (
-                exported_asset.content
-                == b"id,distinct_id,properties.$browser,event,timestamp,person,elements_chain\r\ne9ca132e-400f-4854-a83c-16c151b2f145,2,Safari,event_name,2022-07-06T19:37:43.095295+00:00,,\r\n1624228e-a4f1-48cd-aabc-6baa3ddb22e4,2,Safari,event_name,2022-07-06T19:37:43.095279+00:00,,\r\n66d45914-bdf5-4980-a54a-7dc699bdcce9,2,Safari,event_name,2022-07-06T19:37:43.095262+00:00,,\r\n"
+                csv_text(exported_asset.content)
+                == "id,distinct_id,properties.$browser,event,timestamp,person,elements_chain\r\ne9ca132e-400f-4854-a83c-16c151b2f145,2,Safari,event_name,2022-07-06T19:37:43.095295+00:00,,\r\n1624228e-a4f1-48cd-aabc-6baa3ddb22e4,2,Safari,event_name,2022-07-06T19:37:43.095279+00:00,,\r\n66d45914-bdf5-4980-a54a-7dc699bdcce9,2,Safari,event_name,2022-07-06T19:37:43.095262+00:00,,\r\n"
             )
             assert exported_asset.content_location is None
 
@@ -171,7 +183,7 @@ class TestCSVExporter(APIBaseTest):
             )
 
             assert exported_asset.content_location is not None
-            content = object_storage.read(exported_asset.content_location)
+            content = csv_text(object_storage.read(exported_asset.content_location))
             assert (
                 content
                 == "id,distinct_id,properties.$browser,event,timestamp,person,elements_chain\r\ne9ca132e-400f-4854-a83c-16c151b2f145,2,Safari,event_name,2022-07-06T19:37:43.095295+00:00,,\r\n1624228e-a4f1-48cd-aabc-6baa3ddb22e4,2,Safari,event_name,2022-07-06T19:37:43.095279+00:00,,\r\n66d45914-bdf5-4980-a54a-7dc699bdcce9,2,Safari,event_name,2022-07-06T19:37:43.095262+00:00,,\r\n"
@@ -194,8 +206,8 @@ class TestCSVExporter(APIBaseTest):
             assert exported_asset.content_location is None
 
             assert (
-                exported_asset.content
-                == b"id,distinct_id,properties.$browser,event,timestamp,person,elements_chain\r\ne9ca132e-400f-4854-a83c-16c151b2f145,2,Safari,event_name,2022-07-06T19:37:43.095295+00:00,,\r\n1624228e-a4f1-48cd-aabc-6baa3ddb22e4,2,Safari,event_name,2022-07-06T19:37:43.095279+00:00,,\r\n66d45914-bdf5-4980-a54a-7dc699bdcce9,2,Safari,event_name,2022-07-06T19:37:43.095262+00:00,,\r\n"
+                csv_text(exported_asset.content)
+                == "id,distinct_id,properties.$browser,event,timestamp,person,elements_chain\r\ne9ca132e-400f-4854-a83c-16c151b2f145,2,Safari,event_name,2022-07-06T19:37:43.095295+00:00,,\r\n1624228e-a4f1-48cd-aabc-6baa3ddb22e4,2,Safari,event_name,2022-07-06T19:37:43.095279+00:00,,\r\n66d45914-bdf5-4980-a54a-7dc699bdcce9,2,Safari,event_name,2022-07-06T19:37:43.095262+00:00,,\r\n"
             )
 
     @patch("products.exports.backend.models.exported_asset.UUIDT")
@@ -213,8 +225,8 @@ class TestCSVExporter(APIBaseTest):
             assert exported_asset.content_location is None
 
             assert (
-                exported_asset.content
-                == b"id,distinct_id,properties.$browser,event,timestamp,person,elements_chain\r\ne9ca132e-400f-4854-a83c-16c151b2f145,2,Safari,event_name,2022-07-06T19:37:43.095295+00:00,,\r\n1624228e-a4f1-48cd-aabc-6baa3ddb22e4,2,Safari,event_name,2022-07-06T19:37:43.095279+00:00,,\r\n66d45914-bdf5-4980-a54a-7dc699bdcce9,2,Safari,event_name,2022-07-06T19:37:43.095262+00:00,,\r\n"
+                csv_text(exported_asset.content)
+                == "id,distinct_id,properties.$browser,event,timestamp,person,elements_chain\r\ne9ca132e-400f-4854-a83c-16c151b2f145,2,Safari,event_name,2022-07-06T19:37:43.095295+00:00,,\r\n1624228e-a4f1-48cd-aabc-6baa3ddb22e4,2,Safari,event_name,2022-07-06T19:37:43.095279+00:00,,\r\n66d45914-bdf5-4980-a54a-7dc699bdcce9,2,Safari,event_name,2022-07-06T19:37:43.095262+00:00,,\r\n"
             )
 
     @patch("products.exports.backend.models.exported_asset.UUIDT")
@@ -233,8 +245,8 @@ class TestCSVExporter(APIBaseTest):
             assert exported_asset.content_location is None
 
             assert (
-                exported_asset.content
-                == b"distinct_id,properties.$browser,event\r\n2,Safari,event_name\r\n2,Safari,event_name\r\n2,Safari,event_name\r\n"
+                csv_text(exported_asset.content)
+                == "distinct_id,properties.$browser,event\r\n2,Safari,event_name\r\n2,Safari,event_name\r\n2,Safari,event_name\r\n"
             )
 
     @patch("products.exports.backend.models.exported_asset.UUIDT")
@@ -251,7 +263,10 @@ class TestCSVExporter(APIBaseTest):
 
             assert exported_asset.content_location is None
 
-            assert exported_asset.content == b"distinct_id,properties.$browser\r\n2,Safari\r\n2,Safari\r\n2,Safari\r\n"
+            assert (
+                csv_text(exported_asset.content)
+                == "distinct_id,properties.$browser\r\n2,Safari\r\n2,Safari\r\n2,Safari\r\n"
+            )
 
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     @patch("products.exports.backend.models.exported_asset.object_storage.write_from_file")
@@ -267,7 +282,10 @@ class TestCSVExporter(APIBaseTest):
 
             assert exported_asset.content_location is None
 
-            assert exported_asset.content == b"properties.$browser,distinct_id\r\nSafari,2\r\nSafari,2\r\nSafari,2\r\n"
+            assert (
+                csv_text(exported_asset.content)
+                == "properties.$browser,distinct_id\r\nSafari,2\r\nSafari,2\r\nSafari,2\r\n"
+            )
 
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     @patch("products.exports.backend.models.exported_asset.object_storage.write_from_file")
@@ -285,8 +303,8 @@ class TestCSVExporter(APIBaseTest):
             assert exported_asset.content_location is None
 
             assert (
-                exported_asset.content
-                == b"distinct_id,properties.$browser,event,tomato\r\n2,Safari,event_name,\r\n2,Safari,event_name,\r\n2,Safari,event_name,\r\n"
+                csv_text(exported_asset.content)
+                == "distinct_id,properties.$browser,event,tomato\r\n2,Safari,event_name,\r\n2,Safari,event_name,\r\n2,Safari,event_name,\r\n"
             )
 
     @patch("products.exports.backend.models.exported_asset.UUIDT")
@@ -553,7 +571,7 @@ class TestCSVExporter(APIBaseTest):
                 == f"{TEST_PREFIX}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
             )
 
-            content = object_storage.read(exported_asset.content_location)
+            content = csv_text(object_storage.read(exported_asset.content_location))
             assert (
                 content
                 == "event\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n$pageview\r\n"
@@ -592,8 +610,8 @@ class TestCSVExporter(APIBaseTest):
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
             assert exported_asset.content_location is not None
-            content = object_storage.read(exported_asset.content_location)
-            lines = (content or "").split("\r\n")
+            content = csv_text(object_storage.read(exported_asset.content_location))
+            lines = content.split("\r\n")
             self.assertEqual(len(lines), 12)
             self.assertEqual(
                 lines[0],
@@ -637,8 +655,8 @@ class TestCSVExporter(APIBaseTest):
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
             assert exported_asset.content_location is not None
-            content = object_storage.read(exported_asset.content_location)
-            lines = (content or "").split("\r\n")
+            content = csv_text(object_storage.read(exported_asset.content_location))
+            lines = content.split("\r\n")
             self.assertEqual(len(lines), 12)
             self.assertEqual(
                 lines[0],
@@ -697,8 +715,8 @@ class TestCSVExporter(APIBaseTest):
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
             assert exported_asset.content_location is not None
-            content = object_storage.read(exported_asset.content_location)
-            lines = (content or "").strip().split("\r\n")
+            content = csv_text(object_storage.read(exported_asset.content_location))
+            lines = content.strip().split("\r\n")
             self.assertEqual(
                 lines,
                 [
@@ -740,7 +758,7 @@ class TestCSVExporter(APIBaseTest):
 
             # Verify content fell back to DB storage
             content = exported_asset.content
-            lines = (bytes(content) if content else b"").decode("utf-8").strip().split("\r\n")
+            lines = csv_text(content).strip().split("\r\n")
             self.assertEqual(lines, ["col", "value1", "value2"])
 
     @patch("products.exports.backend.models.exported_asset.object_storage.write_from_file")
@@ -844,8 +862,8 @@ class TestCSVExporter(APIBaseTest):
             with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
                 csv_exporter.export_tabular(exported_asset)
                 assert exported_asset.content_location is not None
-                content = object_storage.read(exported_asset.content_location)
-                lines = (content or "").split("\r\n")
+                content = csv_text(object_storage.read(exported_asset.content_location))
+                lines = content.split("\r\n")
                 self.assertEqual(lines[0], "error")
                 self.assertEqual(lines[1], "No data available or unable to format for export.")
 
@@ -906,8 +924,8 @@ class TestCSVExporter(APIBaseTest):
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
             assert exported_asset.content_location is not None
-            content = object_storage.read(exported_asset.content_location)
-            lines = (content or "").strip().split("\r\n")
+            content = csv_text(object_storage.read(exported_asset.content_location))
+            lines = content.strip().split("\r\n")
             self.assertEqual(
                 lines,
                 ["series,22-Mar-2024", "Formula ((B/A)*100),100.0"],
@@ -1016,9 +1034,9 @@ class TestCSVExporter(APIBaseTest):
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
-            content = object_storage.read(exported_asset.content_location)  # type: ignore
+            content = csv_text(object_storage.read(exported_asset.content_location))  # type: ignore
 
-            lines = (content or "").strip().splitlines()
+            lines = content.strip().splitlines()
 
             expected_lines = [
                 "series,$browser,21-Mar-2023,22-Mar-2023,23-Mar-2023,24-Mar-2023,25-Mar-2023,26-Mar-2023,27-Mar-2023,28-Mar-2023",
@@ -1089,8 +1107,8 @@ class TestCSVExporter(APIBaseTest):
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
-            content = object_storage.read(exported_asset.content_location)  # type: ignore
-            lines = (content or "").strip().split("\r\n")
+            content = csv_text(object_storage.read(exported_asset.content_location))  # type: ignore
+            lines = content.strip().split("\r\n")
             self.assertEqual(
                 lines,
                 [
@@ -1147,8 +1165,8 @@ class TestCSVExporter(APIBaseTest):
                 == f"{TEST_PREFIX}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
             )
 
-            content = object_storage.read(exported_asset.content_location)
-            lines = (content or "").strip().split("\r\n")
+            content = csv_text(object_storage.read(exported_asset.content_location))
+            lines = content.strip().split("\r\n")
             self.assertEqual(
                 lines,
                 [
@@ -1225,8 +1243,8 @@ class TestCSVExporter(APIBaseTest):
                 == f"{TEST_PREFIX}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
             )
 
-            content = object_storage.read(exported_asset.content_location)
-            lines = (content or "").strip().split("\r\n")
+            content = csv_text(object_storage.read(exported_asset.content_location))
+            lines = content.strip().split("\r\n")
             self.assertEqual(
                 lines,
                 [
@@ -1313,8 +1331,8 @@ class TestCSVExporter(APIBaseTest):
                 == f"{TEST_PREFIX}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
             )
 
-            content = object_storage.read(exported_asset.content_location)
-            lines = (content or "").strip().split("\r\n")
+            content = csv_text(object_storage.read(exported_asset.content_location))
+            lines = content.strip().split("\r\n")
 
             # Sort data lines for consistent comparison (order may vary)
             data_lines = sorted(lines[1:])
@@ -1385,8 +1403,8 @@ class TestCSVExporter(APIBaseTest):
                 == f"{TEST_PREFIX}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
             )
 
-            content = object_storage.read(exported_asset.content_location)
-            lines = (content or "").strip().split("\r\n")
+            content = csv_text(object_storage.read(exported_asset.content_location))
+            lines = content.strip().split("\r\n")
             data_lines = sorted(lines[1:])
 
             self.assertEqual(
@@ -1461,8 +1479,8 @@ class TestCSVExporter(APIBaseTest):
                 == f"{TEST_PREFIX}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
             )
 
-            content = object_storage.read(exported_asset.content_location)
-            lines = (content or "").strip().split("\r\n")
+            content = csv_text(object_storage.read(exported_asset.content_location))
+            lines = content.strip().split("\r\n")
             data_lines = sorted(lines[1:])
 
             self.assertEqual(
@@ -1559,8 +1577,8 @@ class TestCSVExporter(APIBaseTest):
             assert exported_asset.content_location is not None
             assert exported_asset.content is None
 
-            content = object_storage.read(exported_asset.content_location)
-            lines = (content or "").strip().split("\r\n")
+            content = csv_text(object_storage.read(exported_asset.content_location))
+            lines = content.strip().split("\r\n")
             header_row = 1
             assert lines[0] == "event,tags,meta"
             assert len(lines) == csv_export_limit + header_row
@@ -2041,5 +2059,20 @@ class TestSanitizeFormulaInjection:
             ws = wb.active
             rows = list(ws.iter_rows(min_row=2, values_only=True))
             assert rows[0][0] == "'=SUM(A1:B1)"
+        finally:
+            os.unlink(path)
+
+
+class TestCsvWriterEncoding:
+    def test_writes_utf8_with_a_bom_so_excel_reads_accented_characters(self) -> None:
+        writer = CsvWriter()
+        writer.write_header(["Käufe"])
+        writer.write_row({"Käufe": "Übersicht"})
+        path = writer.finish()
+        try:
+            with open(path, "rb") as f:
+                raw = f.read()
+            assert raw.startswith(b"\xef\xbb\xbf")
+            assert raw.decode("utf-8-sig").splitlines() == ["Käufe", "Übersicht"]
         finally:
             os.unlink(path)

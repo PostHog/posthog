@@ -188,23 +188,21 @@ class TestExportedAssetFilename(APIBaseTest):
         )
         assert asset.filename == "export-2024-06-15-103000.csv"
 
+    @parameterized.expand(
+        [
+            ("My Cohort Name", "my-cohort-name-2024-06-15-103000.csv"),
+            ("Power Users @ 50% Rollout", "power-users-50-rollout-2024-06-15-103000.csv"),
+            ("Käufe Übersicht", "käufe-übersicht-2024-06-15-103000.csv"),
+        ]
+    )
     @freeze_time("2024-06-15T10:30:00Z")
-    def test_filename_uses_custom_name_with_timestamp(self) -> None:
+    def test_filename_slugifies_custom_name(self, custom_name: str, expected: str) -> None:
         asset = ExportedAsset.objects.create(
             team=self.team,
             export_format=ExportedAsset.ExportFormat.CSV,
-            export_context={"filename": "My Cohort Name"},
+            export_context={"filename": custom_name},
         )
-        assert asset.filename == "my-cohort-name-2024-06-15-103000.csv"
-
-    @freeze_time("2024-06-15T10:30:00Z")
-    def test_filename_slugifies_special_characters(self) -> None:
-        asset = ExportedAsset.objects.create(
-            team=self.team,
-            export_format=ExportedAsset.ExportFormat.CSV,
-            export_context={"filename": "Power Users @ 50% Rollout"},
-        )
-        assert asset.filename == "power-users-50-rollout-2024-06-15-103000.csv"
+        assert asset.filename == expected
 
     @parameterized.expand(
         [
@@ -234,6 +232,22 @@ class TestDirectContentResponse(APIBaseTest):
 
         assert response.status_code == 200
         assert response.content == b""
+
+    @freeze_time("2024-06-15T10:30:00Z")
+    def test_download_keeps_accented_characters_in_the_filename(self) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={"filename": "Käufe Übersicht"},
+            content=b"a,b",
+        )
+
+        response = get_content_response(asset, download=True)
+
+        assert response["Content-Disposition"] == (
+            'attachment; filename="kufe-bersicht-2024-06-15-103000.csv"; '
+            "filename*=UTF-8''k%C3%A4ufe-%C3%BCbersicht-2024-06-15-103000.csv"
+        )
 
     @parameterized.expand(
         [

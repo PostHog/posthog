@@ -3,7 +3,7 @@ import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from django.conf import settings
 from django.db import models
@@ -16,6 +16,7 @@ from django.utils.timezone import now
 import structlog
 from rest_framework.exceptions import NotFound
 
+from posthog.content_disposition import attachment_disposition
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
 from posthog.models.utils import UUIDT
@@ -184,12 +185,12 @@ class ExportedAsset(models.Model):
         filename = "export"
 
         if self.export_context and self.export_context.get("filename"):
-            filename = slugify(str(self.export_context.get("filename")))
+            filename = slugify(str(self.export_context.get("filename")), allow_unicode=True)
         elif self.dashboard and self.dashboard.name is not None:
-            filename = f"{filename}-{slugify(self.dashboard.name)}"
+            filename = f"{filename}-{slugify(self.dashboard.name, allow_unicode=True)}"
         elif self.insight:
             insight_name = self.insight.name or self.insight.derived_name or "insight"
-            filename = f"{filename}-{slugify(insight_name)}"
+            filename = f"{filename}-{slugify(insight_name, allow_unicode=True)}"
 
         timestamp = self.created_at.strftime("%Y-%m-%d-%H%M%S") if self.created_at else ""
         if timestamp:
@@ -247,13 +248,15 @@ class ExportedAsset(models.Model):
             "is_system": bool(self.is_system),
         }
 
+    def _content_url(self, token: str) -> str:
+        # The filename can hold non-ASCII characters, so percent-encode the path segment.
+        return absolute_uri(f"/exporter/{quote(self.filename)}?token={token}")
+
     def get_public_content_url(self, expiry_delta: Optional[timedelta] = None):
-        token = get_public_access_token(self, expiry_delta)
-        return absolute_uri(f"/exporter/{self.filename}?token={token}")
+        return self._content_url(get_public_access_token(self, expiry_delta))
 
     def get_subscription_delivery_content_url(self, expiry_delta: Optional[timedelta] = None):
-        token = get_subscription_delivery_access_token(self, expiry_delta)
-        return absolute_uri(f"/exporter/{self.filename}?token={token}")
+        return self._content_url(get_subscription_delivery_access_token(self, expiry_delta))
 
     @classmethod
     def delete_expired_assets(cls):
@@ -312,8 +315,8 @@ def get_content_response(asset: ExportedAsset, download: bool = False, direct: b
     # direct=True serves the bytes instead of redirecting to a presigned object-storage URL,
     # for API clients (e.g. sandboxed agents) that can reach PostHog but not the storage host.
     direct = direct and asset.export_format in _DIRECT_CONTENT_FORMATS
+    content_disposition = attachment_disposition(asset.filename) if download else None
     if asset.content_location and not direct:
-        content_disposition = f'attachment; filename="{asset.filename}"' if download else None
         presigned_url = object_storage.get_presigned_url(
             asset.content_location,
             content_type=asset.export_format,
@@ -331,8 +334,8 @@ def get_content_response(asset: ExportedAsset, download: bool = False, direct: b
         raise NotFound()
 
     res = HttpResponse(content, content_type=asset.export_format)
-    if download:
-        res["Content-Disposition"] = f'attachment; filename="{asset.filename}"'
+    if content_disposition:
+        res["Content-Disposition"] = content_disposition
 
     if not DEBUG:
         res["Cache-Control"] = f"max-age={MAX_AGE_CONTENT}"

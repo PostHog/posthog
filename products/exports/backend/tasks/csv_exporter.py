@@ -49,6 +49,12 @@ from .failure_handler import ExcelColumnLimitExceeded
 
 logger = structlog.get_logger(__name__)
 
+# utf-8-sig writes a BOM. Excel reads a CSV in the system codepage without it, so accented
+# characters open as mojibake on a non-UTF-8 Windows locale. The BOM lands in the stored
+# artifact, which every consumer reads: the download path redirects to object storage, so
+# it cannot add one per response.
+CSV_EXPORT_ENCODING = "utf-8-sig"
+
 RESULT_LIMIT_KEYS = ("distinct_ids",)
 RESULT_LIMIT_LENGTH = 10
 QUERY_PAGE_SIZE = 10000
@@ -68,7 +74,9 @@ class TabularWriter(Protocol):
 
 class CsvWriter(TabularWriter):
     def __init__(self) -> None:
-        self._tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, newline="")
+        self._tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".csv", delete=False, newline="", encoding=CSV_EXPORT_ENCODING
+        )
         self._writer: csv.DictWriter | None = None
 
     def write_header(self, columns: list[str]) -> None:
