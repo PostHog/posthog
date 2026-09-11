@@ -740,6 +740,26 @@ describe('dataQualityCheckEditorLogic', () => {
         expect(logic.values.checkTypes).toEqual(CHECK_TYPE_CATALOG)
     })
 
+    it('drops a superseded check type request so a late failure keeps the newer catalog', async () => {
+        let failFirst: (error: unknown) => void = () => {}
+        ;(warehouseSavedQueriesChecksCheckTypesList as jest.Mock)
+            .mockImplementationOnce(() => new Promise((_resolve, reject) => (failFirst = reject)))
+            .mockResolvedValueOnce(CHECK_TYPE_CATALOG)
+        await mountLogic()
+
+        // The first request stays in flight while a subject change supersedes it.
+        logic.actions.openEditor(null, VIEW_SUBJECT, COLUMNS)
+        await expectLogic(logic, () =>
+            logic.actions.setSubject({ subjectType: 'view', subjectId: 'view-2' })
+        ).toDispatchActions(['loadCheckTypesSuccess'])
+
+        failFirst(new Error('down'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.checkTypesError).toBe(false)
+        expect(logic.values.checkTypes).toEqual(CHECK_TYPE_CATALOG)
+    })
+
     it('closes an untouched draft without asking', async () => {
         await mountLogic()
         await openWith(buildCheck())

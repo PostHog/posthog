@@ -475,7 +475,15 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
             [] as DataQualityCheckTypeApi[],
             {
                 loadCheckTypes: async (_, breakpoint) => {
-                    const checkTypes = values.subject ? await checksApi.checkTypes(values.subject) : []
+                    let checkTypes: DataQualityCheckTypeApi[]
+                    try {
+                        checkTypes = values.subject ? await checksApi.checkTypes(values.subject) : []
+                    } catch (error) {
+                        // A subject change starts a second request. Drop a superseded one so its late
+                        // failure cannot report the catalog as unavailable while the newer one runs.
+                        breakpoint()
+                        throw error
+                    }
                     breakpoint()
                     return checkTypes
                 },
