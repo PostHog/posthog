@@ -536,7 +536,11 @@ const meta: Meta = {
                                         score: 9.5,
                                         confidence: 0.88,
                                         reasoning: 'Compared plans, opened billing, invited a teammate.',
-                                        reasoning_segments: [{ kind: 'chip', timestamp_ms: 30000 }],
+                                        reasoning_segments: [
+                                            { kind: 'text', value: 'Compared plans at ' },
+                                            { kind: 'chip', timestamp_ms: 30000 },
+                                            { kind: 'text', value: ', opened billing, invited a teammate.' },
+                                        ],
                                     },
                                     signals_count: 0,
                                 },
