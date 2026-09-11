@@ -177,7 +177,7 @@ def record_coordinator_poll(
     unlabelled_meter.create_gauge(
         "logs_alerting_coordinator_last_successful_poll_timestamp_seconds",
         "Unix timestamp of the last successful logs alert coordinator poll",
-    ).set(time.time())
+    ).set(int(time.time()))
 
 
 def record_checkpoint_lag(now: dt.datetime, checkpoint: dt.datetime) -> None:
