@@ -2263,6 +2263,11 @@ class TestPrinter(BaseTest):
     def test_select_cross_join_subquery_uses_generated_alias(self, _name: str, query: str) -> None:
         self.assertIn("AS __join_1", self._select(query))
 
+    def test_select_cross_join_subquery_avoids_later_alias(self) -> None:
+        printed = self._select("SELECT 1 FROM events CROSS JOIN (SELECT 1) CROSS JOIN events AS __join_1")
+
+        self.assertIn("AS __join_2", printed)
+
     def test_left_join_team_id_in_on_clause(self):
         # LEFT JOINs should have team_id in ON clause, not WHERE, to preserve LEFT JOIN semantics
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)

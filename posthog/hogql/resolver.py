@@ -1518,7 +1518,7 @@ class Resolver(CloningVisitor):
                 if self._join_chain_has_using(node):
                     node.alias = self._synthesize_using_join_alias(scope)
                 elif node.join_type is not None:
-                    node.alias = self._synthesize_join_alias(scope)
+                    node.alias = self._synthesize_join_alias(scope, node)
 
             node.table = cast("ast.SelectQuery | ast.SelectSetQuery", super().visit(node.table))
 
@@ -1730,10 +1730,17 @@ class Resolver(CloningVisitor):
         self._synthetic_using_join_aliases.add(alias)
         return alias
 
-    def _synthesize_join_alias(self, scope: ast.SelectQueryType) -> str:
+    def _synthesize_join_alias(self, scope: ast.SelectQueryType, node: ast.JoinExpr) -> str:
         """Alias a joined sub-select because ClickHouse requires a name for it."""
+        reserved_aliases = set(scope.tables)
+        next_join = node.next_join
+        while next_join is not None:
+            if next_join.alias is not None:
+                reserved_aliases.add(next_join.alias)
+            next_join = next_join.next_join
+
         index = 1
-        while f"__join_{index}" in scope.tables:
+        while f"__join_{index}" in reserved_aliases:
             index += 1
         return f"__join_{index}"
 
