@@ -1,5 +1,4 @@
 import type { SignalReport } from "@posthog/shared/types";
-import { ReportPageContext } from "@posthog/ui/features/inbox/components/ReportPageContext";
 import { render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -41,7 +40,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [] }),
 }));
 
-import { DetailBackLink } from "./DetailBackLink";
+import { ReportBreadcrumbs } from "./ReportBreadcrumbs";
 
 const report = {
   id: "report-1",
@@ -49,7 +48,7 @@ const report = {
   status: "ready",
 } as SignalReport;
 
-describe("DetailBackLink", () => {
+describe("ReportBreadcrumbs", () => {
   beforeEach(() => {
     mocks.sourceHref = "/inbox/reports";
     mocks.triageOrigin = null;
@@ -57,11 +56,7 @@ describe("DetailBackLink", () => {
   });
 
   const renderCrumbs = () => {
-    const { container } = render(
-      <ReportPageContext value={report}>
-        <DetailBackLink to="/inbox/reports" label="Self-driving" />
-      </ReportPageContext>,
-    );
+    const { container } = render(<ReportBreadcrumbs report={report} />);
     return container.querySelectorAll("a");
   };
 
