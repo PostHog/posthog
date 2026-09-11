@@ -24,13 +24,11 @@ interface ChatThreadFooterProps {
 }
 
 /**
- * The session status footer (duration / queued / diff stats) for the new chat thread, rendered as
- * the last item in the thread. The legacy `ConversationView` renders the same `SessionFooter` the
- * same way. Context usage is not here — it sits in the composer's own toolbar.
+ * The session status footer (duration / queued / diff stats), rendered as the last item in the
+ * thread. Context usage sits in the composer's toolbar.
  *
- * Re-derives the turn / usage / queue state from `events` with the same hooks the thread uses —
- * `ChatThread` runs its own `useConversationItems`, so this is a second (incremental, memoized)
- * parse pass.
+ * Re-derives turn, usage, and queue state from `events` because `ChatThread` runs its own
+ * incremental, memoized `useConversationItems` parse pass.
  */
 export function ChatThreadFooter({
   events,
