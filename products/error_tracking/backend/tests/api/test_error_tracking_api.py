@@ -851,6 +851,23 @@ class TestErrorTracking(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([symbol_set["ref"] for symbol_set in response.json()["results"]], ["source_a"])
 
+    def test_fetching_symbol_sets_defaults_to_newest_first(self) -> None:
+        for index in range(3):
+            symbol_set = ErrorTrackingSymbolSet.objects.create(
+                ref=f"source_{index}", team=self.team, storage_ptr=f"symbolsets/source_{index}"
+            )
+            ErrorTrackingSymbolSet.objects.filter(pk=symbol_set.pk).update(
+                created_at=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(days=index)
+            )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/symbol_sets")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [symbol_set["ref"] for symbol_set in response.json()["results"]],
+            ["source_2", "source_1", "source_0"],
+        )
+
     @parameterized.expand(
         [
             ("ref_substring", "chunk-abc123", ["frontend-chunk-abc123"]),
