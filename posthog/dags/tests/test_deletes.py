@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import cast
 from uuid import UUID
@@ -13,6 +13,7 @@ from clickhouse_driver import Client
 from dagster import build_op_context
 
 from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner
+from posthog.dags.common.staged_dictionary import create_on_every_cluster
 from posthog.dags.deletes import (
     _DELETE_PREDICATE,
     AdhocEventDeletesDictionary,
@@ -788,6 +789,71 @@ def test_a_rerun_stages_over_the_previous_runs_object(cluster: ClickhouseCluster
         from_source_table = cluster.any_host(dictionary.load).result()
 
         assert from_staged_object == from_source_table
+    finally:
+        cluster.any_host(dictionary.drop).result()
+        cluster.any_host(table.drop).result()
+
+
+@pytest.mark.django_db
+def test_the_adhoc_dictionary_holds_one_row_per_key_when_the_source_has_duplicates(cluster: ClickhouseCluster):
+    # The source is a ReplacingMergeTree, so a uuid requested twice reads as two rows until a merge
+    # collapses them. A dictionary keeps one row per key either way, but a source query that emits
+    # both leaves the winner to the order the rows arrive, and that order is not stable when a host
+    # parses a staged Parquet in parallel. Two clusters then disagree and the run is blocked.
+    adhoc = AdhocEventDeletesDictionary(source=AdhocEventDeletesTable())
+    team_id = 424244
+    uuid = UUID(int=13)
+    earlier = datetime(2026, 8, 28, 9, 0, 0, tzinfo=UTC)
+    later = datetime(2026, 8, 28, 11, 0, 0, tzinfo=UTC)
+
+    def insert_duplicate_requests(client: Client) -> None:
+        client.execute(
+            "INSERT INTO adhoc_events_deletion (team_id, uuid, created_at) VALUES",
+            [(team_id, uuid, earlier), (team_id, uuid, later)],
+        )
+
+    def read_back(client: Client) -> list:
+        return client.execute(f"SELECT count(), max(created_at) FROM {adhoc.qualified_name} WHERE team_id = {team_id}")
+
+    try:
+        cluster.any_host(insert_duplicate_requests).result()
+        cluster.any_host(partial(adhoc.create, shards=1, max_execution_time=0, max_memory_usage=0)).result()
+        cluster.any_host(adhoc.load).result()
+
+        [[held, created_at]] = cluster.any_host(read_back).result()
+
+        assert held == 1
+        assert created_at == later
+    finally:
+        cluster.any_host(adhoc.drop).result()
+        cluster.any_host(
+            lambda client: client.execute(f"DELETE FROM adhoc_events_deletion WHERE team_id = {team_id}")
+        ).result()
+
+
+@pytest.mark.django_db
+def test_creating_on_a_second_cluster_points_it_at_the_staged_object(cluster: ClickhouseCluster):
+    # A cluster that shares no Keeper with the source table never receives it, so its dictionary
+    # has to read the staged object. A call site that hands it the source query instead leaves it
+    # loading from a table it cannot see, and the dictionary fails or comes back empty.
+    table = PendingDeletesTable(timestamp=datetime(2026, 8, 26, 10, 11, 14))
+    dictionary = PendingDeletesDictionary(source=table)
+    sibling = cluster.sibling(django_settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)
+    context = build_op_context()
+
+    def show_create(client: Client) -> str:
+        [[query]] = client.execute(f"SHOW CREATE DICTIONARY {dictionary.qualified_name}")
+        return query
+
+    try:
+        cluster.any_host(table.create).result()
+        cluster.any_host(partial(_insert_pending_deletes, table)).result()
+
+        create_on_every_cluster(
+            context, [cluster, sibling], dictionary, shards=1, max_execution_time=0, max_memory_usage=0
+        )
+
+        assert dictionary.staged().key in sibling.any_host(show_create).result()
     finally:
         cluster.any_host(dictionary.drop).result()
         cluster.any_host(table.drop).result()
