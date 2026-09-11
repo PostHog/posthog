@@ -933,6 +933,16 @@ export interface ContextWikiPage {
   updated_at: string;
 }
 
+export interface ContextWikiPageProposal {
+  id: string;
+  task_id: string;
+  path: string;
+  original_content: string;
+  content: string;
+  base_head: string;
+  created_at: string;
+}
+
 export interface ContextWikiHealthFinding {
   category: string;
   path: string;
@@ -3710,6 +3720,22 @@ export class PostHogAPIClient {
     return this.getContextWikiResource<ContextWikiDreamDetail>(
       `/api/organizations/@current/context_layer/dreams/${encodeURIComponent(sha)}/`,
     );
+  }
+
+  async getContextWikiProposals(): Promise<ContextWikiPageProposal[] | null> {
+    return this.getContextWikiResource<ContextWikiPageProposal[]>(
+      "/api/organizations/@current/context_layer/proposals/",
+    );
+  }
+
+  async applyContextWikiProposal(id: string): Promise<{ head_sha: string }> {
+    const path = `/api/organizations/@current/context_layer/proposals/${encodeURIComponent(id)}/apply/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+    });
+    return (await response.json()) as { head_sha: string };
   }
 
   /**

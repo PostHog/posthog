@@ -62036,6 +62036,32 @@ export namespace Schemas {
       results: WebExperimentsAPI[];
     }
 
+    export interface WikiPageProposal {
+      /** Immutable suggested edit ID. Only its author can apply it through the user API. */
+      id: string;
+      /** Task that proposed the edit. */
+      task_id: string;
+      /** Shared wiki page to review. */
+      path: string;
+      /** Page content at the revision the proposal is based on. */
+      original_content: string;
+      /** Proposed page content. This is not published wiki content. */
+      content: string;
+      /** Wiki revision the proposal is based on. */
+      base_head: string;
+      /** When the edit was proposed. */
+      created_at: string;
+    }
+
+    export interface PaginatedWikiPageProposalList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: WikiPageProposal[];
+    }
+
     /**
      * * `local` - local
      * * `cloud` - cloud
@@ -90240,6 +90266,27 @@ export namespace Schemas {
     /**
      * Request body for creating or replacing one wiki page.
      */
+    export interface WikiPageProposalWrite {
+      /**
+         * Repo-relative Markdown path inside the wiki's structure, for example `projects/12/spaces/general.md`.
+         * @maxLength 512
+         */
+      path: string;
+      /**
+         * The complete Markdown content for the page.
+         * @maxLength 1000000
+         */
+      content: string;
+      /**
+         * The head_sha returned when reading the page. Required to bind the proposed edit.
+         * @maxLength 64
+         */
+      base_head: string;
+    }
+
+    /**
+     * Request body for creating or replacing one wiki page.
+     */
     export interface WikiPageWrite {
       /**
          * Repo-relative Markdown path inside the wiki's structure, for example `projects/12/spaces/general.md`.
@@ -93316,6 +93363,17 @@ export namespace Schemas {
      * Repo-relative Markdown path of the page to read.
      */
     path: string;
+    };
+
+    export type ContextLayerProposalsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type DomainsListParams = {

@@ -165,8 +165,25 @@ tools:
             idempotent: false
         title: Update this task's context wiki page
         description: >
-            Replace a shared Markdown page under org/, areas/, or decisions/, or the current task channel's context
-            page. Read it first and pass head_sha as base_head. The server validates and commits the edit; no local Git
-            commit or scripts/publish is needed. Instruction files, generated indexes, scripts, and other channels'
-            pages cannot be edited. Shared pages must not include channel_id frontmatter.
+            Replace the current task channel's context page. Read it first and pass head_sha as base_head.
+            Shared pages require task-context-wiki-page-propose and human review. Instruction files, generated indexes,
+            scripts, and other channels' pages cannot be edited.
+        feature_flag: context-layer
+    task-context-wiki-page-propose:
+        operation: context_layer_agent_proposals_create
+        enabled: true
+        scopes:
+            - task:write
+            - internal_run:read
+            - context_layer_internal:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Suggest a shared wiki edit
+        description: >
+            Propose a correction to an existing shared Markdown page under org/, areas/, or decisions/.
+            Read it first and pass head_sha as base_head. This stores an immutable suggestion, not a published edit.
+            Ask the user to open Context > Suggested edits, review the diff, and apply it.
+            Tasks cannot approve suggestions or publish bundles. Shared pages cannot include channel_id frontmatter.
         feature_flag: context-layer

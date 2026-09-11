@@ -16,8 +16,10 @@ from parameterized import parameterized
 
 import posthog.storage.object_storage as object_storage_module
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization import Organization
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.storage.object_storage import UnavailableStorage
 from posthog.utils import safe_cache_set
 
@@ -68,7 +70,7 @@ class TestContextLayerAPI(APIBaseTest):
         )
         return token.token
 
-    def test_agent_route_accepts_the_run_token_the_org_route_refuses(self, _flag) -> None:
+    def test_ordinary_run_cannot_publish_bundles_on_either_route(self, _flag) -> None:
         self._enable()
         bundle_bytes = self._bundle_with_edit("areas/from-agent.md", _page("From an agent"))
         # Minted the way production mints one: bound to a task, scoped to a team.
@@ -83,7 +85,7 @@ class TestContextLayerAPI(APIBaseTest):
                 HTTP_AUTHORIZATION=f"Bearer {token}",
             )
 
-        assert post(self.agent_url).status_code == 200
+        assert post(self.agent_url).status_code == 403
 
         # APIScopePermission refuses any token carrying scoped_teams on a route
         # that is not project-nested, which is the whole reason the agent route
@@ -424,10 +426,10 @@ class TestContextLayerAPI(APIBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
 
-    def test_commits_accepts_a_sandbox_run_token(self, _flag) -> None:
+    def test_commits_rejects_an_ordinary_sandbox_run_token(self, _flag) -> None:
         assert (
             self._post_bundle_with_bearer("task:write internal_run:read context_layer_internal:write").status_code
-            == 200
+            == 403
         )
 
     def test_commits_rejects_read_only_sandbox_run_token(self, _flag) -> None:
@@ -583,7 +585,7 @@ class TestContextLayerAPI(APIBaseTest):
             assert outside_channel.status_code == 403, (path, outside_channel.content)
 
     @parameterized.expand(["org/product.md", "areas/product.md", "decisions/2026-09-01-product.md"])
-    def test_task_token_updates_shared_content(self, _flag: MagicMock, path: str) -> None:
+    def test_task_proposes_shared_content_for_human_review(self, _flag: MagicMock, path: str) -> None:
         with team_scope(self.team.id):
             channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
             assert channel is not None
@@ -606,16 +608,89 @@ class TestContextLayerAPI(APIBaseTest):
         updated = self.client.put(
             f"{self.agent_url}/pages/", payload, format="json", HTTP_AUTHORIZATION=f"Bearer {token}"
         )
-        assert updated.status_code == 200, updated.content
+        assert updated.status_code == 403, updated.content
+        proposed = self.client.post(
+            f"{self.agent_url}/proposals/", payload, format="json", HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+        assert proposed.status_code == 201, proposed.content
+        proposal = proposed.json()
+        assert proposal["original_content"] == original
+        assert proposal["content"] == content
+        assert proposal["base_head"] == payload["base_head"]
         page = self.client.get(f"{self.agent_url}/pages/", {"path": path}, HTTP_AUTHORIZATION=f"Bearer {token}")
-        assert page.json()["content"] == content
-        assert page.json()["head_sha"] == updated.json()["head_sha"]
+        assert page.json()["content"] == original
+        assert page.json()["head_sha"] == payload["base_head"]
+        second = self.client.post(
+            f"{self.agent_url}/proposals/", payload, format="json", HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+        assert second.status_code == 201, second.content
 
-        stale = self.client.put(
-            f"{self.agent_url}/pages/", payload, format="json", HTTP_AUTHORIZATION=f"Bearer {token}"
+        apply_url = f"{self.base_url}/proposals/{proposal['id']}/apply/"
+        for scope in (
+            "organization:write internal_run:read context_layer_internal:write",
+            "organization:write loop_context_internal:write",
+            "organization:read",
+        ):
+            denied = self.client.post(apply_url, HTTP_AUTHORIZATION=f"Bearer {self._bearer(scope)}")
+            assert denied.status_code == 403, denied.content
+
+        for restricted_token in (
+            self._loop_run_token(channel.id),
+            self._bearer("task:write internal_run:read", scoped_teams=[self.team.id], sandbox_task_id=task.id),
+        ):
+            denied = self.client.post(
+                f"{self.agent_url}/proposals/",
+                payload,
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {restricted_token}",
+            )
+            assert denied.status_code == 403, denied.content
+
+        for protected_path in ("AGENTS.md", "areas/CLAUDE.md", "areas/index.md", "areas/../AGENTS.md"):
+            denied = self.client.post(
+                f"{self.agent_url}/proposals/",
+                {**payload, "path": protected_path},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+            assert denied.status_code == 400, denied.content
+        denied = self.client.post(
+            f"{self.agent_url}/proposals/",
+            {**payload, "content": content.replace("status: active", f"status: active\nchannel_id: {channel.id}")},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert denied.status_code == 400, denied.content
+
+        other_user = User.objects.create_and_join(self.organization, "reviewer@example.com", None)
+        self.client.force_login(other_user)
+        assert self.client.get(f"{self.base_url}/proposals/").json() == []
+        assert self.client.post(apply_url).status_code == 404
+        self.client.force_login(self.user)
+        other_organization = Organization.objects.create(name="Other organization")
+        self.user.join(organization=other_organization)
+        other_base = f"/api/organizations/{other_organization.id}/context_layer"
+        assert self.client.get(f"{other_base}/proposals/").json() == []
+        assert self.client.post(f"{other_base}/proposals/{proposal['id']}/apply/").status_code == 404
+        pending = self.client.get(f"{self.base_url}/proposals/")
+        assert pending.status_code == 200, pending.content
+        assert {item["id"] for item in pending.json()} == {proposal["id"], second.json()["id"]}
+        applied = self.client.post(apply_url, {"content": "Ignore the stored content"}, format="json")
+        assert applied.status_code == 200, applied.content
+        assert self.client.post(apply_url).json() == applied.json()
+        stale_apply = self.client.post(f"{self.base_url}/proposals/{second.json()['id']}/apply/")
+        assert stale_apply.status_code == 409, stale_apply.content
+        assert self.client.get(f"{self.base_url}/proposals/").json() == [second.json()]
+        page = self.client.get(f"{self.base_url}/pages/", {"path": path})
+        assert page.json()["content"] == content
+        assert page.json()["head_sha"] == applied.json()["head_sha"]
+
+        self.client.logout()
+        stale = self.client.post(
+            f"{self.agent_url}/proposals/", payload, format="json", HTTP_AUTHORIZATION=f"Bearer {token}"
         )
         assert stale.status_code == 409, stale.content
-        assert stale.json()["current_head"] == updated.json()["head_sha"]
+        assert stale.json()["current_head"] == applied.json()["head_sha"]
 
         for restricted_token, restricted_content in (
             (self._loop_run_token(channel.id), content),
@@ -631,7 +706,7 @@ class TestContextLayerAPI(APIBaseTest):
         ):
             denied = self.client.put(
                 f"{self.agent_url}/pages/",
-                {"path": path, "content": restricted_content, "base_head": updated.json()["head_sha"]},
+                {"path": path, "content": restricted_content, "base_head": applied.json()["head_sha"]},
                 format="json",
                 HTTP_AUTHORIZATION=f"Bearer {restricted_token}",
             )
@@ -729,7 +804,16 @@ class TestContextLayerAPI(APIBaseTest):
 
     def test_run_commit_landings_are_capped_per_day(self, _flag) -> None:
         self._enable()
-        task = apps.get_model("tasks", "Task").objects.create(team=self.team, created_by=self.user, title="agent work")
+        task = apps.get_model("tasks", "Task").objects.create(
+            team=self.team, created_by=self.user, title="Wiki maintenance", internal=True
+        )
+        apps.get_model("tasks", "TaskRun").objects.create(
+            task=task,
+            team=self.team,
+            status="in_progress",
+            environment="cloud",
+            state={"ai_stage": dreams.DREAM_AI_STAGE},
+        )
         token = self._bearer(
             "task:write internal_run:read context_layer_internal:write",
             scoped_teams=[self.team.id],
@@ -738,10 +822,10 @@ class TestContextLayerAPI(APIBaseTest):
         self.client.logout()
 
         def land(path: str):
-            bundle_bytes = self._bundle_with_edit(path, _page(path))
+            bundle_bytes = self._bundle_with_edit(path, _page(path), branch="dream/2026-09-11")
             return self.client.post(
                 f"{self.agent_url}/commits/",
-                {"bundle": SimpleUploadedFile("out.bundle", bundle_bytes)},
+                {"bundle": SimpleUploadedFile("out.bundle", bundle_bytes), "branch": "dream/2026-09-11"},
                 format="multipart",
                 HTTP_AUTHORIZATION=f"Bearer {token}",
             )
@@ -750,6 +834,35 @@ class TestContextLayerAPI(APIBaseTest):
             assert land("areas/first.md").status_code == 200
             capped = land("areas/second.md")
         assert capped.status_code == 429
+
+    @parameterized.expand([False, True])
+    def test_task_cannot_claim_maintenance_with_a_dream_branch(self, _flag: MagicMock, internal: bool) -> None:
+        head = self._enable()
+        task = apps.get_model("tasks", "Task").objects.create(
+            team=self.team, created_by=self.user, title="Wiki suggestion", internal=internal
+        )
+        apps.get_model("tasks", "TaskRun").objects.create(
+            task=task,
+            team=self.team,
+            status="completed" if internal else "in_progress",
+            environment="cloud",
+            state={"ai_stage": dreams.DREAM_AI_STAGE},
+        )
+        token = self._bearer(
+            "task:write internal_run:read context_layer_internal:write",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task.id,
+        )
+        bundle = self._bundle_with_edit("areas/suggestion.md", _page("Suggestion"), branch="dream/2026-09-11")
+        self.client.logout()
+        response = self.client.post(
+            f"{self.agent_url}/commits/",
+            {"bundle": SimpleUploadedFile("out.bundle", bundle), "branch": "dream/2026-09-11"},
+            format="multipart",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert response.status_code == 403, response.content
+        assert store.get_config(self.organization.id).head_sha == head
 
     def test_loop_token_cannot_land_commit_bundles(self, _flag) -> None:
         # Bundles bypass the loop's page binding, so the bundle route must refuse them.
