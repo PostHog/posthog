@@ -11,7 +11,7 @@ description: >
 # Organizing conversations code
 
 Conversations-specific layout. Repo-wide UI rules still apply — read
-[writing-ui-components](../../../../.agents/skills/writing-ui-components/SKILL.md) for
+[writing-ui-components](../writing-ui-components/SKILL.md) for
 one-component-per-file, no barrels, and import sweeps. This skill owns _where in
 conversations_ a file goes.
 
