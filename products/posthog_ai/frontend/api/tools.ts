@@ -1,10 +1,5 @@
-export { toolRegistry, lookupToolRenderer, registerToolRenderers } from '../components/tool/toolRegistry'
-export type {
-    ToolRendererProps,
-    ToolRegistryEntry,
-    ResolvedToolRegistryEntry,
-    ToolRegistry,
-} from '../components/tool/toolRegistry'
+export { toolRegistry, lookupToolRenderer, registerToolRenderers } from './toolRegistry'
+export type { ToolRendererProps, ToolRegistryEntry, ResolvedToolRegistryEntry, ToolRegistry } from './toolRegistry'
 export { getPermissionRequestToolInput, resolveToolCall } from '../utils/toolResolver'
 export { parseToolOutputRecord, asRecord } from '../components/tool/parseToolOutput'
 export { GenericMcpToolRenderer } from '../components/tool/GenericMcpToolRenderer'

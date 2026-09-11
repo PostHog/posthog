@@ -23,7 +23,7 @@ import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
 ```
 
 **Prefer the narrowest module that does the job.** The split exists to preserve code-splitting: the
-side-effectful tool registry (`api/tools`) and the markdown/virtualization-heavy thread (`api/primitives`)
+side-effectful tool registry (`api/toolRegistry`) and the markdown/virtualization-heavy thread (`api/primitives`)
 must not leak into a bundle that only needs a status helper from `api/logics`. A status badge that imports
 a fat path drags presenters and the registry into its chunk; importing `api/logics` alone does not.
 
@@ -39,7 +39,7 @@ Pick the **lowest tier** that does the job.
 | **1 — Prepackaged surfaces**   | `api/readableRun` + `api/runSurface` + `api/runner` | `ReadonlyRunSurface` (lazy, code-split read-only embed); the `RunSurface` compound (`Root` + slots, eager) for custom layouts; `EmbeddedRunner` (lazy TaskTracker product for inline hosts)                                                                                                                                                                                      | "Just show a run" → `ReadonlyRunSurface` (inbox embeds). "Drive a run / custom layout" → `RunSurface` (tasks). "Embed the whole `/tasks` product" → `EmbeddedRunner` (Max). |
 | **2 — Compound primitives**    | `api/primitives`                                    | `Thread` + atoms (`.Message/.Markdown/.Reasoning/.Failure/.Activity/.ToolCall`), `ThreadView`, `Composer.*`, `AttachedContextBar`, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question/resource surfaces                                                                                                         | Custom layout, or a bespoke/compact thread.                                                                                                                                 |
 | **3 — Headless logic + types** | `api/logics` + `api/types`                          | `runStreamLogic`, `runInteractionLogic`, status helpers (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), thinking-message helpers, context injection (`attachedContextLogic`, `useAttachedContext`, `contextPickerLogic`), tool-stream subscriptions (`toolStreamEventsLogic`, `useToolStreamListener`); folded-thread + tool types, `AttachedContextItem`, `ToolStreamEvent` | Status badge, automation, context injection, tool-event listeners — no presenters, no registry.                                                                             |
-| **4 — Extension seam**         | `api/tools`                                         | `toolRegistry`, `registerToolRenderers`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                                                                                                                                                                                                                 | Your product renders tool cards (insights, dashboards…). Register them from your own scene.                                                                                 |
+| **4 — Extension seam**         | `api/toolRegistry` + `api/tools`                    | `toolRegistry`, `registerToolRenderers`, `lookupToolRenderer` (registry only, boot-safe); `api/tools` adds `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                                                                                                                                                                     | Your product renders tool cards (insights, dashboards…). Register them through `api/toolRegistry`; build the card itself with `api/tools` from a lazy chunk.                |
 
 The Tier 1 surfaces are built on `api/primitives` (Tier 2), which consumes the headless
 `api/logics`/`api/types` (Tier 3). Going down a tier trades convenience for control and a smaller chunk.
@@ -165,9 +165,12 @@ import { Thread } from 'products/posthog_ai/frontend/api/primitives'
 ### Register product tool renderers (Tier 4)
 
 ```tsx
-import { registerToolRenderers, type ToolRegistryEntry } from 'products/posthog_ai/frontend/api/tools'
+import { registerToolRenderers, type ToolRegistryEntry } from 'products/posthog_ai/frontend/api/toolRegistry'
 
-// Call once from your scene's entrypoint. Tools without an adapter fall through to the generic MCP card.
+// Call once from your scene's entrypoint, or from `bootApp` when a thread can show your tools before your
+// scene has loaded. Tools without an adapter fall through to the generic MCP card. Keep `Renderer` lazy
+// and import `api/tools` only inside it: `api/toolRegistry` is the only tools module a boot-time
+// registrar may import.
 registerToolRenderers([
   { key: 'my-product-tool', displayName: 'My tool', icon: <IconWrench />, Renderer: MyToolRenderer },
 ])

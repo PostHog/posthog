@@ -33,7 +33,7 @@ Import from a domain-scoped `api/<module>` entry. Never reach into `components/.
 
 ```ts
 import { useAttachedContext, useToolStreamListener } from 'products/posthog_ai/frontend/api/logics'
-import { registerToolRenderers } from 'products/posthog_ai/frontend/api/tools'
+import { registerToolRenderers } from 'products/posthog_ai/frontend/api/toolRegistry'
 ```
 
 Pick the narrowest module that does the job — the split preserves code-splitting, and a fat import drags the markdown/virtualization thread or the side-effectful tool registry into your chunk. The full tier table lives in [`frontend/README.md`](./frontend/README.md#2-which-surface-do-i-use).
@@ -123,7 +123,7 @@ From a kea logic, either listen to `toolStreamEventsLogic.actionTypes.emitToolEv
 Register a renderer so your product's tool calls display as a real card in the thread instead of the generic MCP fallback. Call it once at module load from your scene's entrypoint:
 
 ```tsx
-import { registerToolRenderers } from 'products/posthog_ai/frontend/api/tools'
+import { registerToolRenderers } from 'products/posthog_ai/frontend/api/toolRegistry'
 
 registerToolRenderers([
   {

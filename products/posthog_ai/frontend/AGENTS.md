@@ -18,18 +18,18 @@ them. There are four tiers, split along dependency/side-effect boundaries (not c
 preserves code-splitting). Consumers pick the **lowest tier** that does the job. The full decision table,
 import rule, and copy-paste recipes live in the consumer-facing [`README.md`](./README.md); the summary:
 
-| Tier                           | Module                                              | What's in it                                                                                                                                                                                |
-| ------------------------------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1 — Prepackaged surfaces**   | `api/readableRun` + `api/runSurface` + `api/runner` | `ReadonlyRunSurface` (lazy, code-split read-only embed); the `RunSurface` compound (`Root` + slots, eager) for custom layouts; `EmbeddedRunner` (lazy TaskTracker product for inline hosts) |
-| **2 — Compound primitives**    | `api/primitives`                                    | `Thread` + atoms, `ThreadView`, `Composer.*`, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question surfaces                  |
-| **3 — Headless logic + types** | `api/logics` + `api/types`                          | `runStreamLogic`, `runInteractionLogic`, status + thinking helpers; folded-thread + tool types                                                                                              |
-| **4 — Extension seam**         | `api/tools`                                         | `toolRegistry`, `registerToolRenderers`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                            |
+| Tier                           | Module                                              | What's in it                                                                                                                                                                                 |
+| ------------------------------ | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1 — Prepackaged surfaces**   | `api/readableRun` + `api/runSurface` + `api/runner` | `ReadonlyRunSurface` (lazy, code-split read-only embed); the `RunSurface` compound (`Root` + slots, eager) for custom layouts; `EmbeddedRunner` (lazy TaskTracker product for inline hosts)  |
+| **2 — Compound primitives**    | `api/primitives`                                    | `Thread` + atoms, `ThreadView`, `Composer.*`, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question surfaces                   |
+| **3 — Headless logic + types** | `api/logics` + `api/types`                          | `runStreamLogic`, `runInteractionLogic`, status + thinking helpers; folded-thread + tool types                                                                                               |
+| **4 — Extension seam**         | `api/toolRegistry` + `api/tools`                    | `toolRegistry`, `registerToolRenderers`, `lookupToolRenderer` (registry only, boot-safe); `api/tools` adds `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers |
 
 **Why the split, not one flat barrel:** the tool registry registers built-ins at module load — a top-level
 side effect that is _not_ tree-shaken. A single barrel statically re-exports it alongside the
 markdown/virtualization-heavy thread and the headless logics, so a consumer wanting only
 `isTerminalRunStatus` for a status badge would drag the registry + presenters into its chunk. Isolating the
-side-effectful registry in `api/tools` and keeping the headless lane (`api/logics` + `api/types`) free of
+side-effectful registry in `api/toolRegistry` and keeping the headless lane (`api/logics` + `api/types`) free of
 React/registry imports is what keeps each consumer's bundle to its subtree.
 
 There is deliberately **no root `index.ts` barrel**: a single aggregate that re-exports every tier would
@@ -78,9 +78,14 @@ The headline exports per module:
   deliberate, mild deviation from the "no React" reading of this lane: they import `react` + `kea` but no
   components, so the lane stays registry- and presenter-free.
 - **`api/types`** — folded-thread + tool domain types, `AttachedContextItem`, `ToolStreamEvent` (pure types).
-- **`api/tools`** — **`toolRegistry`**, **`registerToolRenderers`** (the generic per-product seam, see §2),
-  `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, and the
-  diff/exec helpers. Isolated here because importing it pulls the side-effectful registry chunk.
+- **`api/toolRegistry`** — **`toolRegistry`**, **`registerToolRenderers`** (the generic per-product seam,
+  see §2), `lookupToolRenderer` and the registry types, and nothing else. This is the module a product
+  imports to claim its tool names at app boot (`bootApp`): it carries the registry's built-ins but none of
+  the card components, so the markdown, diff and code-highlighting dependencies stay off the path every
+  page, including `/login`, downloads. `check-eager-graph` fails CI if they reach it.
+- **`api/tools`** — everything in `api/toolRegistry` plus `GenericMcpToolRenderer`, `DataToolRow`,
+  `ToolActivity`, `FilePath`, and the diff/exec helpers, for a product that builds its own card. Import it
+  only from a lazily-loaded card or scene chunk, never from a boot-time registrar.
 
 ## 2. Coupling boundary — couples to tasks runs, never to Max
 
@@ -95,7 +100,7 @@ It must stay **free of the Max scene and conversation orchestration**. Do not im
 - `runStreamLogic` keys on a generic `streamKey` (conversation id for Max, run/task id for a task
   viewer). Keep it generic — no Max-specific branching.
 - **The PostHog product data-tool renderers live in this surface and self-register — via the generic seam.**
-  `api/tools` exposes `toolRegistry` and the convenience wrapper **`registerToolRenderers(entries)`**: the
+  `api/toolRegistry` exposes `toolRegistry` and the convenience wrapper **`registerToolRenderers(entries)`**: the
   generic per-product mechanism for plugging in cards that display PostHog entities. The data-tool widgets
   (insights, dashboards, recordings, error-tracking issues, notebooks, query results) live in
   `components/tool/widgets/` and register themselves via `widgets/registerDataToolRenderers`, which
@@ -226,7 +231,8 @@ api/                # public API facade — the contract (import api/<module>, n
   primitives.ts     #   Tier 2: Composer, Thread + atoms, ThreadView, QueuedMessageList, presenters, perm/question
   logics.ts         #   Tier 3: runStreamLogic, runInteractionLogic, context store + hooks, tool-event bus (headless)
   types.ts          #   Tier 3: folded-thread + tool domain types, AttachedContextItem, ToolStreamEvent (pure types)
-  tools.ts          #   Tier 4: toolRegistry + registerToolRenderers seam (side-effectful — isolated)
+  toolRegistry.ts   #   Tier 4: toolRegistry + registerToolRenderers seam alone (side-effectful — isolated, boot-safe)
+  tools.ts          #   Tier 4: toolRegistry.ts + the card-building components and diff helpers
 components/         # RunSurfaceImpl (the RunSurface compound, heavy chunk); ReadonlyRunSurfaceImpl (prepackaged
                     #   read-only layout) + ReadonlyRunSurface (its lazy wrapper, replaces the old RunViewer.tsx);
                     #   RunLogSkeleton (shared loader), Thread, Composer, perm/question surfaces, activity, tool/;

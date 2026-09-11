@@ -2,7 +2,7 @@ import { IconBell, IconList, IconPulse, IconSearch, IconServer, IconStack, IconW
 
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
-import { registerToolRenderers, type ToolRegistryEntry } from 'products/posthog_ai/frontend/api/tools'
+import { registerToolRenderers, type ToolRegistryEntry } from 'products/posthog_ai/frontend/api/toolRegistry'
 
 // The card pulls its chunk on first use, so registering the whole family stays a strings-and-icons cost.
 const LogsQueryRenderer = lazyWithRetry(() =>
