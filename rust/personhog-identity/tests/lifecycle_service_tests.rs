@@ -11,6 +11,7 @@ use personhog_identity::config::IdentityTables;
 use personhog_identity::lifecycle::engine::{Engine, EngineConfig};
 use personhog_identity::lifecycle::validation::MAX_DELETE_BATCH_SIZE;
 use personhog_identity::lifecycle::PersonHogLifecycleService;
+use personhog_identity::pools::IdentityPools;
 use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycle;
 use personhog_proto::personhog::lifecycle::v1::DeletePersonsRequest;
 
@@ -29,7 +30,7 @@ async fn delete_status(request: DeletePersonsRequest) -> Code {
         .connect_lazy("postgres://unused:unused@localhost:1/unused")
         .expect("lazy pool never connects");
     let engine = Arc::new(Engine::new(
-        pool.clone(),
+        IdentityPools::shared(pool.clone()),
         EngineConfig {
             lease: Duration::from_secs(1),
             execute_timeout: Duration::from_secs(1),

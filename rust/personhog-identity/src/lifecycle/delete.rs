@@ -26,7 +26,6 @@ use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::postgres::PgPool;
 use tonic::Code;
 use uuid::Uuid;
 
@@ -40,7 +39,7 @@ use crate::lifecycle::engine::{
     advance_step_in_tx, complete_op_in_tx, OpDriver, OpRow, SagaError, Tx, STEP_ABORTED,
     STEP_COMPLETED,
 };
-use crate::storage::postgres::begin_timed;
+use crate::pools::{IdentityPools, Lane};
 
 /// Bound on concurrent leader calls per step, matching the merge driver.
 const LEADER_CALL_CONCURRENCY: usize = 8;
@@ -166,7 +165,7 @@ impl OpDriver for DeleteDriver {
         DeleteStep::Started.as_str()
     }
 
-    async fn run_step(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
+    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
         let step = DeleteStep::parse(&op.step).ok_or_else(|| {
             SagaError::CorruptState(format!(
                 "delete op {} is on unknown step '{}'",
@@ -174,10 +173,10 @@ impl OpDriver for DeleteDriver {
             ))
         })?;
         match step {
-            DeleteStep::Started => mark(pool, &self.tables.person, op).await,
-            DeleteStep::Marked => seal(pool, self.leader.as_ref(), op).await,
-            DeleteStep::Sealed => unmap(pool, &self.tables, op).await,
-            DeleteStep::Unmapped => complete(pool, self.leader.as_ref(), op).await,
+            DeleteStep::Started => mark(pools, &self.tables.person, op).await,
+            DeleteStep::Marked => seal(pools, self.leader.as_ref(), op).await,
+            DeleteStep::Sealed => unmap(pools, &self.tables, op).await,
+            DeleteStep::Unmapped => complete(pools, self.leader.as_ref(), op).await,
         }
     }
 }
@@ -197,10 +196,10 @@ fn parse_request(op: &OpRow) -> Result<DeleteRequest, SagaError> {
 /// `skipped_conflict`. Requested ids with no live person row get no row at
 /// all — they surface as `not_found` in the outcome. If nothing was claimed
 /// the op aborts here, before anything was mutated.
-async fn mark(pool: &PgPool, person_table: &str, op: &OpRow) -> Result<(), SagaError> {
+async fn mark(pools: &IdentityPools, person_table: &str, op: &OpRow) -> Result<(), SagaError> {
     let request = parse_request(op)?;
     let team_id = op.team_id as i32;
-    let mut tx = begin_timed(pool).await?;
+    let mut tx = pools.begin(Lane::Heavy).await?;
 
     // Rows from a previous attempt of this op (crash between the insert and
     // the advance): whatever they claimed stays claimed.
@@ -372,7 +371,11 @@ async fn mark(pool: &PgPool, person_table: &str, op: &OpRow) -> Result<(), SagaE
 /// op; unlike the merge driver's pre-flip abort, delete has no abort path
 /// past `started`, and a parked delete is an operator signal, not a stuck
 /// customer flow.
-async fn seal(pool: &PgPool, leader: &dyn LifecycleLeader, op: &OpRow) -> Result<(), SagaError> {
+async fn seal(
+    pools: &IdentityPools,
+    leader: &dyn LifecycleLeader,
+    op: &OpRow,
+) -> Result<(), SagaError> {
     let victims = sqlx::query!(
         r#"
         SELECT person_id FROM lifecycle_op_person
@@ -381,7 +384,7 @@ async fn seal(pool: &PgPool, leader: &dyn LifecycleLeader, op: &OpRow) -> Result
         "#,
         op.op_id
     )
-    .fetch_all(pool)
+    .fetch_all(pools.fast())
     .await?;
 
     let fence_calls: Vec<_> = victims
@@ -432,7 +435,7 @@ async fn seal(pool: &PgPool, leader: &dyn LifecycleLeader, op: &OpRow) -> Result
         }
     }
 
-    let mut tx = begin_timed(pool).await?;
+    let mut tx = pools.begin(Lane::Heavy).await?;
     sqlx::query!(
         r#"
         UPDATE lifecycle_op_person lop
@@ -486,9 +489,13 @@ async fn seal(pool: &PgPool, leader: &dyn LifecycleLeader, op: &OpRow) -> Result
 /// at sealed + 1 so the tombstone outranks every write the old incarnation
 /// ever produced. Revival (a later create on the same key) upserts above
 /// this version.
-async fn unmap(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), SagaError> {
+async fn unmap(
+    pools: &IdentityPools,
+    tables: &IdentityTables,
+    op: &OpRow,
+) -> Result<(), SagaError> {
     let team_id = op.team_id as i32;
-    let mut tx = begin_timed(pool).await?;
+    let mut tx = pools.begin(Lane::Heavy).await?;
 
     let mut victims: Vec<i64> = sqlx::query_scalar!(
         r#"
@@ -647,7 +654,7 @@ async fn unmap(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(),
 /// exactly when `FencePerson` sealed them, so an op sealed pre-fence (or
 /// across a kill-switch flip) completes without phantom release calls.
 async fn complete(
-    pool: &PgPool,
+    pools: &IdentityPools,
     leader: &dyn LifecycleLeader,
     op: &OpRow,
 ) -> Result<(), SagaError> {
@@ -664,7 +671,7 @@ async fn complete(
         "#,
         op.op_id
     )
-    .fetch_all(pool)
+    .fetch_all(pools.fast())
     .await?;
     let release_calls: Vec<_> = fenced
         .iter()
@@ -689,7 +696,7 @@ async fn complete(
         result.map_err(SagaError::leader)?;
     }
 
-    let mut tx = begin_timed(pool).await?;
+    let mut tx = pools.begin(Lane::Heavy).await?;
 
     sqlx::query!(
         "UPDATE lifecycle_op_person SET status = $2 WHERE op_id = $1 AND status = 'sealed'",
