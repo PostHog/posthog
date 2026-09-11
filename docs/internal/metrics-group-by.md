@@ -2,7 +2,7 @@
 
 The Group by dropdown lists attributes by series count, from highest to lowest.
 Each item shows its series count on the right.
-Hover over a count to show the "number of series" tooltip.
+Hover over a count to show the "Number of series with this attribute" tooltip.
 Attributes with the same count appear in alphabetical order.
 Search keeps this order.
 
