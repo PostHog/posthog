@@ -38,7 +38,12 @@ from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.types import ExportError
-from posthog.temporal.scheduler.admission import SchedulerClaimInvariantError
+from posthog.temporal.scheduler.admission import (
+    SchedulerAdmissionResult,
+    SchedulerClaimInvariantError,
+    SchedulerClaimRequest,
+    SchedulerClaimReservation,
+)
 from posthog.temporal.scheduler.payload import PayloadSelection
 from posthog.test.insight_queries import default_pageview_query
 
@@ -48,8 +53,13 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExceeded
 from products.exports.backend.temporal.subscriptions.activities import (
+    _ClaimRecoveryCounts,
+    _SUBSCRIPTION_RECOVERY_RPC_TIMEOUT,
+    _WorkflowClaimStatus,
+    _reconcile_expired_subscription_claims,
     _resolve_exportable_insights,
     advance_next_delivery_date,
+    advance_next_delivery_date_v2,
     advance_subscription_scheduler_cursor_activity,
     complete_subscription_scheduler_claim_activity,
     confirm_subscription_scheduler_claim_activity,
@@ -79,6 +89,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
 from products.exports.backend.temporal.subscriptions.delivery_common import deliver_email
 from products.exports.backend.temporal.subscriptions.types import (
     DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN,
+    AdvanceNextDeliveryDateInputs,
     AdvanceSubscriptionSchedulerCursorInputs,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
@@ -294,6 +305,7 @@ async def test_process_subscription_replays_claim_payload_started_on_an_old_work
                     subscription_id=1,
                     team_id=1,
                     trigger_type=SubscriptionTriggerType.SCHEDULED,
+                    scheduled_at="2026-09-09T00:00:00+00:00",
                     scheduler_claim_id=str(uuid.uuid4()),
                     scheduler_claim_token=str(uuid.uuid4()),
                 ),
@@ -555,6 +567,7 @@ SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
         generate_ai_subscription_report,
         update_delivery_record,
         advance_next_delivery_date,
+        advance_next_delivery_date_v2,
     ],
 )
 
@@ -574,6 +587,7 @@ SUBSCRIPTION_PROCESS_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
         generate_ai_subscription_report,
         update_delivery_record,
         advance_next_delivery_date,
+        advance_next_delivery_date_v2,
     ],
 )
 
@@ -1318,6 +1332,44 @@ async def test_deleted_subscription_is_inactive_across_delivery_activities(team,
     assert schedule_advanced is False
     await sync_to_async(subscription.refresh_from_db)()
     assert subscription.next_delivery_date == original_next_delivery_date
+
+
+async def test_advance_next_delivery_date_v2_is_idempotent_after_committed_retry(team, user):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="advance-v2", name="Advance once")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+    due_at = datetime(2022, 2, 2, 8, 0, tzinfo=ZoneInfo("UTC"))
+    await sync_to_async(Subscription.objects.filter(id=subscription.id).update)(next_delivery_date=due_at)
+    inputs = AdvanceNextDeliveryDateInputs(
+        subscription_id=subscription.id,
+        expected_next_delivery_date=due_at.isoformat(),
+    )
+
+    assert await ActivityEnvironment().run(advance_next_delivery_date_v2, inputs)
+    await sync_to_async(subscription.refresh_from_db)()
+    advanced_to = subscription.next_delivery_date
+    assert advanced_to is not None and advanced_to > due_at
+
+    assert await ActivityEnvironment().run(advance_next_delivery_date_v2, inputs)
+    await sync_to_async(subscription.refresh_from_db)()
+    assert subscription.next_delivery_date == advanced_to
+
+
+async def test_advance_next_delivery_date_v2_preserves_a_newer_schedule(team, user):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="advance-new", name="Preserve newer")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+    due_at = datetime(2022, 2, 2, 8, 0, tzinfo=ZoneInfo("UTC"))
+    newer_date = datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
+    await sync_to_async(Subscription.objects.filter(id=subscription.id).update)(next_delivery_date=newer_date)
+
+    assert await ActivityEnvironment().run(
+        advance_next_delivery_date_v2,
+        AdvanceNextDeliveryDateInputs(
+            subscription_id=subscription.id,
+            expected_next_delivery_date=due_at.isoformat(),
+        ),
+    )
+    await sync_to_async(subscription.refresh_from_db)()
+    assert subscription.next_delivery_date == newer_date
 
 
 @pytest.mark.asyncio
@@ -3633,8 +3685,83 @@ async def test_recover_subscription_scheduler_claims_releases_closed_workflow(te
         )
 
     assert result == {"released": 1, "renewed": 0, "retained": 0, "pruned": 0}
+    handle.describe.assert_awaited_once_with(rpc_timeout=_SUBSCRIPTION_RECOVERY_RPC_TIMEOUT)
     claim = await sync_to_async(TemporalSchedulerClaim.objects.get)(id=claim_id)
     assert claim.status == TemporalSchedulerClaim.Status.AVAILABLE
+
+
+async def test_recover_subscription_scheduler_claims_stops_at_the_pass_budget(team, user):
+    region = "claim-budget"
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="claim-budgt", name="Claim budget")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+    await sync_to_async(Subscription.objects.filter(id=subscription.id).update)(
+        next_delivery_date=datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+    )
+    fetched = await ActivityEnvironment().run(
+        fetch_claimed_due_subscriptions_activity,
+        FetchDueSubscriptionsActivityInputs(
+            buffer_minutes=15,
+            max_subscriptions_per_run=1,
+            region=region,
+            use_durable_claims=True,
+            claim_token_seed="claim-budget-run",
+        ),
+    )
+    claim_id = fetched.subscriptions[0].scheduler_claim_id
+    assert claim_id is not None
+    expired_at = timezone.now() - timedelta(minutes=1)
+    await sync_to_async(TemporalSchedulerClaim.objects.filter(id=claim_id).update)(lease_expires_at=expired_at)
+    description = MagicMock(status=WorkflowExecutionStatus.COMPLETED)
+    temporal = MagicMock()
+    temporal.get_workflow_handle.return_value = MagicMock(describe=AsyncMock(return_value=description))
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.activities.async_connect",
+            AsyncMock(return_value=temporal),
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.activities._SUBSCRIPTION_RECOVERY_ACTIVITY_BUDGET",
+            timedelta(0),
+        ),
+    ):
+        result = await ActivityEnvironment().run(
+            recover_subscription_scheduler_claims_activity,
+            RecoverSubscriptionSchedulerClaimsInputs(region=region, limit=1),
+        )
+
+    assert result == {"released": 0, "renewed": 0, "retained": 0, "pruned": 0}
+    claim = await sync_to_async(TemporalSchedulerClaim.objects.get)(id=claim_id)
+    assert claim.status == TemporalSchedulerClaim.Status.RESERVED
+    assert claim.lease_expires_at == expired_at
+
+
+def test_recover_subscription_scheduler_claims_stops_before_activity_deadline() -> None:
+    expired_claims = [
+        (uuid.uuid4(), uuid.uuid4(), "workflow-one", timezone.now()),
+        (uuid.uuid4(), uuid.uuid4(), "workflow-two", timezone.now()),
+    ]
+    statuses = [_WorkflowClaimStatus(is_open=False), _WorkflowClaimStatus(is_open=False)]
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.activities._monotonic",
+            side_effect=[0, 95],
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.activities._reconcile_expired_subscription_claim",
+            return_value=_ClaimRecoveryCounts(released=1),
+        ) as reconcile,
+    ):
+        result, unprocessed = _reconcile_expired_subscription_claims(
+            expired_claims,
+            statuses,
+            pruned=0,
+            recovery_deadline=100,
+        )
+
+    assert result == {"released": 1, "renewed": 0, "retained": 0, "pruned": 0}
+    assert unprocessed == 1
+    reconcile.assert_called_once()
 
 
 async def test_recover_subscription_scheduler_claims_defers_uncertain_claims_behind_the_page(team, user):
@@ -3891,6 +4018,79 @@ async def test_claimed_subscription_page_checkpoints_after_dispatch_with_unequal
     assert await ActivityEnvironment().run(advance_subscription_scheduler_cursor_activity, advance_inputs)
     await sync_to_async(state.refresh_from_db)()
     assert state.discovery_cursor == str(sorted_team_ids[0])
+
+
+async def test_claimed_subscription_page_refills_after_payload_trim_and_admission_rejection(team, user):
+    subscriptions: list[Subscription] = []
+    due_at = datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+    for index in range(3):
+        insight = await sync_to_async(Insight.objects.create)(
+            team=team,
+            short_id=f"refill-{index}",
+            name=f"Refill insight {index}",
+        )
+        subscriptions.append(await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user))
+    await sync_to_async(Subscription.objects.filter(id__in=[item.id for item in subscriptions]).update)(
+        next_delivery_date=due_at
+    )
+
+    selection_calls = 0
+
+    async def trim_first_probe(items: Sequence[DueSubscription], **_kwargs: Any) -> PayloadSelection[DueSubscription]:
+        nonlocal selection_calls
+        selection_calls += 1
+        selected = items[:2] if selection_calls == 1 else items
+        return PayloadSelection(
+            items=tuple(selected),
+            encoded_size_bytes=1,
+            limited_by="byte_limit" if len(selected) < len(items) else "none",
+        )
+
+    reservation_calls = 0
+
+    def reject_one_candidate(*, requests: Sequence[SchedulerClaimRequest], **_kwargs: Any) -> SchedulerAdmissionResult:
+        nonlocal reservation_calls
+        reservation_calls += 1
+        admitted_requests = requests[:1] if reservation_calls == 1 else requests
+        return SchedulerAdmissionResult(
+            reservations=tuple(
+                SchedulerClaimReservation(
+                    claim_id=uuid.uuid4(),
+                    claim_token=uuid.uuid4(),
+                    tenant_key=request.tenant_key,
+                    occurrence_key=request.occurrence_key,
+                    workflow_id=request.workflow_id,
+                )
+                for request in admitted_requests
+            ),
+            already_claimed=len(requests) - len(admitted_requests),
+            deferred_for_capacity=0,
+        )
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.activities.select_items_within_temporal_payload",
+            side_effect=trim_first_probe,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.activities.reserve_scheduler_claims",
+            side_effect=reject_one_candidate,
+        ),
+    ):
+        page = await ActivityEnvironment().run(
+            fetch_claimed_due_subscriptions_activity,
+            FetchDueSubscriptionsActivityInputs(
+                buffer_minutes=15,
+                max_subscriptions_per_run=3,
+                region="payload-refill-test",
+                use_durable_claims=True,
+                claim_token_seed="payload-refill-run",
+            ),
+        )
+
+    assert reservation_calls == 2
+    assert len(page.subscriptions) == 2
+    assert [item.subscription_id for item in page.subscriptions] == [subscriptions[0].id, subscriptions[2].id]
 
 
 async def test_claimed_subscription_pages_rotate_across_tenants_with_unequal_due_times(team, user):

@@ -9,11 +9,11 @@ from posthog.temporal.common.logger import get_write_only_logger
 
 PayloadKind = Literal["discovery", "hydrated"]
 AdmissionOutcome = Literal["reserved", "already_claimed", "deferred_capacity"]
-ClaimTransition = Literal["confirmed", "renewed", "completed", "released", "quarantined"]
+ClaimTransition = Literal["confirmed", "renewed", "recovery_deferred", "completed", "released", "quarantined"]
 
 _PAYLOAD_KINDS = {"discovery", "hydrated"}
 _ADMISSION_OUTCOMES = {"reserved", "already_claimed", "deferred_capacity"}
-_CLAIM_TRANSITIONS = {"confirmed", "renewed", "completed", "released", "quarantined"}
+_CLAIM_TRANSITIONS = {"confirmed", "renewed", "recovery_deferred", "completed", "released", "quarantined"}
 
 LOGGER = get_write_only_logger(__name__)
 
