@@ -7,9 +7,9 @@ from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 
 operations = [
     run_sql_with_exceptions(
-        "ALTER TABLE posthog.adhoc_events_deletion ADD COLUMN data_deletion_request_id Nullable(UUID) AFTER uuid",
+        "ALTER TABLE adhoc_events_deletion ADD COLUMN IF NOT EXISTS data_deletion_request_id Nullable(UUID) AFTER uuid",
         node_roles=[NodeRole.DATA],
-        sharded=True,
+        sharded=False,
         is_alter_on_replicated_table=True,
     ),
 ]
