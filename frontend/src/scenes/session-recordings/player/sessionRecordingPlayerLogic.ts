@@ -185,6 +185,12 @@ const LATE_FULL_SNAPSHOT_THRESHOLD_MS = 20000
 // Safety-net cadence for re-running syncPlayerState while buffering, since neither backed-off source polling nor the non-reactive wall-clock grace check re-triggers verdict re-evaluation on its own.
 const BUFFERING_REEVALUATION_INTERVAL_MS = 120000
 
+// a stretch of the recording playback cannot render
+export interface UnplayableSpan {
+    startTimestamp: number
+    endTimestamp: number
+}
+
 export type SeekRenderability =
     // a FullSnapshot exists at or before the timestamp for its window
     | { kind: 'renderable' }
@@ -607,6 +613,7 @@ export interface sessionRecordingPlayerLogicValues {
     fromRRWebPlayerTime: (time?: number | undefined) => number | undefined
     hasLateFullSnapshot: boolean
     hasSnapshots: boolean
+    hasUnrenderableWindow: boolean
     hoverModeIsEnabled: boolean
     isBuffering: boolean
     isCommenting: boolean
@@ -655,6 +662,8 @@ export interface sessionRecordingPlayerLogicValues {
         timestampMatchesPrevious: number
     }
     toRRWebPlayerTime: (timestamp: number) => number | undefined
+    unrenderableWindowMs: number
+    unrenderableWindowSpans: UnplayableSpan[]
     wasMarkedViewed: boolean
 }
 
@@ -1100,6 +1109,13 @@ export interface sessionRecordingPlayerLogicMeta {
             seekRenderability: (timestamp: number) => SeekRenderability
         ) => number
         hasLateFullSnapshot: (leadingUnplayableMs: number) => boolean
+        unrenderableWindowSpans: (
+            sessionPlayerData: SessionPlayerData,
+            seekRenderability: (timestamp: number) => SeekRenderability,
+            leadingUnplayableMs: number
+        ) => UnplayableSpan[]
+        unrenderableWindowMs: (unrenderableWindowSpans: UnplayableSpan[]) => number
+        hasUnrenderableWindow: (unrenderableWindowMs: number) => boolean
         isWaitingForIngestion: (
             seekRenderability: (timestamp: number) => SeekRenderability,
             currentTimestamp: number | undefined
@@ -1908,6 +1924,130 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         hasLateFullSnapshot: [
             (s) => [s.leadingUnplayableMs],
             (leadingUnplayableMs: number): boolean => leadingUnplayableMs > LATE_FULL_SNAPSHOT_THRESHOLD_MS,
+        ],
+
+        // Spans of a window that opened without ever sending its initial DOM. rrweb draws its own
+        // cursor from the incremental mouse events, so the viewer sees a pointer moving over a blank
+        // document. `leadingUnplayableMs` owns the stretch the player clamps past, so these are the
+        // spans after it, where nothing clamps and nothing explains the blank frame.
+        // One check per window is enough: once a window has a FullSnapshot, rrweb keeps its DOM for
+        // every later segment of that window.
+        unrenderableWindowSpans: [
+            (s) => [s.sessionPlayerData, s.seekRenderability, s.leadingUnplayableMs],
+            (
+                sessionPlayerData: SessionPlayerData,
+                seekRenderability: (timestamp: number) => SeekRenderability,
+                leadingUnplayableMs: number
+            ): UnplayableSpan[] => {
+                // A recording where no window ever rendered belongs to the unplayable takeover, which
+                // replaces the player instead of warning over it. Leaving it out also keeps this
+                // countable against `recording_window_missing_full_snapshot`, which skips the same
+                // recordings.
+                const someWindowHasFullSnapshot = Object.values(sessionPlayerData.snapshotsByWindowId).some((events) =>
+                    events.some((event) => event.type === EventType.FullSnapshot)
+                )
+                if (!someWindowHasFullSnapshot) {
+                    return []
+                }
+
+                const lastEndByWindow = new Map<number, number>()
+                for (const segment of sessionPlayerData.segments) {
+                    if (segment.kind === 'window' && segment.windowId !== undefined) {
+                        lastEndByWindow.set(segment.windowId, segment.endTimestamp)
+                    }
+                }
+
+                const firstWindowSegment = sessionPlayerData.segments.find((segment) => segment.kind === 'window')
+                // Where the leading span hands over. Its recovery point can be another window's
+                // FullSnapshot, so the first window can go blank again after it and still needs a span.
+                const leadingRecoveryTimestamp = (sessionPlayerData.start?.valueOf() ?? 0) + leadingUnplayableMs
+                const spans: UnplayableSpan[] = []
+                const checkedWindows = new Set<number>()
+                for (const segment of sessionPlayerData.segments) {
+                    if (segment.kind !== 'window' || segment.windowId === undefined) {
+                        continue
+                    }
+                    const windowId = segment.windowId
+                    if (
+                        windowId === firstWindowSegment?.windowId &&
+                        segment.startTimestamp < leadingRecoveryTimestamp
+                    ) {
+                        continue
+                    }
+                    if (checkedWindows.has(windowId)) {
+                        continue
+                    }
+                    if (segment.endTimestamp <= segment.startTimestamp) {
+                        // a zero-length segment shows nothing, and its start is shared with the preceding gap
+                        continue
+                    }
+                    checkedWindows.add(windowId)
+                    // Probe one millisecond in: a segment's start is also the preceding gap's end, and a gap
+                    // renders from whatever the last window left on screen. Both verdicts mean no FullSnapshot
+                    // renders this position and everything before it has loaded, so the gap in the data is
+                    // definitive rather than still arriving.
+                    const verdict = seekRenderability(segment.startTimestamp + 1)
+                    if (verdict.kind !== 'clampToFullSnapshot' && verdict.kind !== 'unplayable') {
+                        continue
+                    }
+                    const windowEvents = sessionPlayerData.snapshotsByWindowId[windowId] ?? []
+                    const recovery = windowEvents.find(
+                        (event) => event.type === EventType.FullSnapshot && event.timestamp >= segment.startTimestamp
+                    )
+                    const endTimestamp = recovery?.timestamp ?? lastEndByWindow.get(windowId) ?? segment.endTimestamp
+                    // A window that only carries Custom events over the span (e.g. a backdated
+                    // `sessionIdle`) has no content to lose, so it renders nothing either way.
+                    const hasLostContent = windowEvents.some(
+                        (event) =>
+                            event.timestamp >= segment.startTimestamp &&
+                            event.timestamp < endTimestamp &&
+                            event.type !== EventType.Custom
+                    )
+                    if (!hasLostContent) {
+                        continue
+                    }
+                    // Windows interleave when a viewer moves between tabs, so this range can hold
+                    // another window's segments, which play normally. Only the damaged window's own
+                    // segments stay blank, together with the gaps that hold it on screen.
+                    let openSpanIndex = -1
+                    for (const blankSegment of sessionPlayerData.segments) {
+                        if (blankSegment.startTimestamp >= endTimestamp) {
+                            break
+                        }
+                        if (blankSegment.endTimestamp <= segment.startTimestamp) {
+                            continue
+                        }
+                        if (blankSegment.windowId !== windowId) {
+                            continue
+                        }
+                        const spanStart = Math.max(blankSegment.startTimestamp, segment.startTimestamp)
+                        const spanEnd = Math.min(blankSegment.endTimestamp, endTimestamp)
+                        if (spanEnd <= spanStart) {
+                            continue
+                        }
+                        // consecutive segments of the damaged window read as one blank stretch
+                        if (openSpanIndex >= 0 && spans[openSpanIndex].endTimestamp === spanStart) {
+                            spans[openSpanIndex].endTimestamp = spanEnd
+                        } else {
+                            openSpanIndex = spans.length
+                            spans.push({ startTimestamp: spanStart, endTimestamp: spanEnd })
+                        }
+                    }
+                }
+                return spans
+            },
+            { resultEqualityCheck: objectsEqual },
+        ],
+
+        unrenderableWindowMs: [
+            (s) => [s.unrenderableWindowSpans],
+            (unrenderableWindowSpans: UnplayableSpan[]): number =>
+                unrenderableWindowSpans.reduce((total, span) => total + span.endTimestamp - span.startTimestamp, 0),
+        ],
+
+        hasUnrenderableWindow: [
+            (s) => [s.unrenderableWindowMs],
+            (unrenderableWindowMs: number): boolean => unrenderableWindowMs > LATE_FULL_SNAPSHOT_THRESHOLD_MS,
         ],
 
         // True while the player is buffering on a position whose FullSnapshot hasn't been
