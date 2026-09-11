@@ -5,7 +5,12 @@ from products.tasks.backend.temporal.observability import FAILURE_REASON_MAX_CHA
 
 
 def _sandbox_error(context: dict) -> SandboxExecutionError:
-    return SandboxExecutionError("Agent-server failed to start", context, cause=None)
+    return SandboxExecutionError(
+        "Agent-server failed to start",
+        context,
+        cause=RuntimeError("health check failed after retries"),
+        capture=False,
+    )
 
 
 @pytest.mark.parametrize(
