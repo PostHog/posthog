@@ -56,6 +56,9 @@ from products.customer_analytics.backend.presentation.views.account_actions impo
     handle_account_set_properties,
     handle_account_update,
 )
+from products.customer_analytics.backend.presentation.views.ownership_serializers import (
+    ExternalAccountOwnershipSerializer,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -172,10 +175,8 @@ def _authenticate_psak_team(request: Request) -> tuple[Team, None] | tuple[None,
     psak = authenticator.project_secret_api_key
 
     key_scopes = set(get_authenticator_scopes(authenticator) or [])
-    valid_scopes = {
-        EXTERNAL_ACCOUNT_READ_SCOPE,
-        EXTERNAL_ACCOUNT_READ_SCOPE.replace(":read", ":write"),
-    }
+    # A key that may write accounts may read them too; the reverse does not hold.
+    valid_scopes = {EXTERNAL_ACCOUNT_READ_SCOPE, "account:write"}
     if "*" not in key_scopes and key_scopes.isdisjoint(valid_scopes):
         return None, Response(
             {"error": f"API key missing required scope '{EXTERNAL_ACCOUNT_READ_SCOPE}'"},
@@ -218,6 +219,9 @@ class ExternalAccountSerializer(serializers.Serializer):
     properties = serializers.DictField(
         child=serializers.JSONField(help_text="Property value: a string or null."),
         help_text="Typed account properties: external-system ids. Role assignments live under `relationships`.",
+    )
+    ownership = ExternalAccountOwnershipSerializer(
+        help_text="Authority state of the account executive and customer success manager roles."
     )
     tags = serializers.ListField(
         child=serializers.CharField(), help_text="Tag names on the account, sorted alphabetically."
@@ -288,9 +292,9 @@ class ExternalAccountView(APIView):
         },
         summary="Get an external customer analytics account",
         description=(
-            "Fetch one account by external ID with its properties, tags, active relationship assignments "
-            "and custom property values. Accepts the team secret API token or a project secret API key with "
-            "the `account:read` scope."
+            "Fetch one account by external ID with its properties, commercial role ownership, tags, active "
+            "relationship assignments and custom property values. Accepts the team secret API token or a "
+            "project secret API key with the `account:read` scope."
         ),
     )
     def get(self, request: Request) -> Response:
@@ -363,6 +367,15 @@ class ExternalAccountListQuerySerializer(serializers.Serializer):
         default=False,
         help_text="Include ignored accounts. Ignored accounts are hidden by default.",
     )
+    managed_only = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "When true, return only accounts where customer analytics holds authority over at least one "
+            "commercial role, including accounts whose managed roles are cleared and accounts that are ignored. "
+            "Authority does not end when an account is ignored, so `include_ignored` is implied."
+        ),
+    )
 
     def validate_limit(self, value: int) -> int:
         return max(1, min(value, EXTERNAL_ACCOUNT_LIST_MAX_LIMIT))
@@ -396,6 +409,9 @@ class ExternalAccountListItemSerializer(serializers.Serializer):
     ignored_at = serializers.DateTimeField(
         allow_null=True,
         help_text="When Track Rules ignored the account, or null if it is tracked.",
+    )
+    ownership = ExternalAccountOwnershipSerializer(
+        help_text="Authority state of the account executive and customer success manager roles."
     )
     relationships = serializers.DictField(
         child=ExternalAccountListAssignmentSerializer(many=True),
@@ -465,9 +481,10 @@ class ExternalAccountListView(APIView):
         },
         summary="List external customer analytics accounts",
         description=(
-            "List tracked accounts with external IDs, lifecycle timestamps, and active relationship assignments. "
-            "Set `include_ignored=true` to include ignored accounts. Requires a project secret API key with the "
-            "`account:read` scope."
+            "List tracked accounts with external IDs, lifecycle timestamps, commercial role ownership, and active "
+            "relationship assignments. Set `include_ignored=true` to include ignored accounts and "
+            "`managed_only=true` to read only the accounts customer analytics holds ownership authority for. "
+            "Requires a project secret API key with the `account:read` scope."
         ),
     )
     def get(self, request: Request) -> Response:
@@ -489,6 +506,7 @@ class ExternalAccountListView(APIView):
             limit=query_data["limit"],
             assigned_only=query_data["assigned_only"],
             include_ignored=query_data["include_ignored"],
+            managed_only=query_data["managed_only"],
         )
         return Response(ExternalAccountListPageSerializer(page).data)
 

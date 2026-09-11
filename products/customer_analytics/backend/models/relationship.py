@@ -5,6 +5,8 @@ from django.utils import timezone
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
+from products.customer_analytics.backend.facade.enums import AccountRelationshipSource
+
 
 class AccountRelationshipDefinition(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
@@ -48,6 +50,15 @@ class AccountRelationship(TeamScopedRootMixin, UUIDModel, CreatedMetaFields):
     started_at = models.DateTimeField(default=timezone.now)
     ended_at = models.DateTimeField(null=True, blank=True)
 
+    source = models.CharField(max_length=32, choices=AccountRelationshipSource.choices, null=True, blank=True)
+    # Which kind of writer ended the row. A release matched to a claim is applied once because a
+    # row this source already ended reads as already released rather than as a human clear.
+    ended_source = models.CharField(max_length=32, choices=AccountRelationshipSource.choices, null=True, blank=True)
+    # For a Salesforce claim, the Task that produced the accepted decision. With the team it
+    # identifies the claim, so a Task read again on a later run is recognized even after the row
+    # has ended.
+    source_ref = models.CharField(max_length=400, null=True, blank=True)
+
     class Meta:
         indexes = [
             models.Index(
@@ -59,5 +70,12 @@ class AccountRelationship(TeamScopedRootMixin, UUIDModel, CreatedMetaFields):
                 fields=["team", "user"],
                 condition=Q(ended_at__isnull=True),
                 name="idx_active_rel_by_user",
+            ),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "source_ref"],
+                condition=Q(source=AccountRelationshipSource.SALESFORCE_CLAIM),
+                name="unique_accepted_claim_per_task",
             ),
         ]

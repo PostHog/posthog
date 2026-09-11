@@ -1,7 +1,7 @@
 from celery import shared_task
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.scoping import with_team_scope
+from posthog.models.scoping import team_scope, with_team_scope
 
 from products.customer_analytics.backend.facade.email_matching import (
     finish_email_thread_link_recalculation,
@@ -9,6 +9,8 @@ from products.customer_analytics.backend.facade.email_matching import (
 )
 from products.customer_analytics.backend.logic.announcements import send_pending_deliveries
 from products.customer_analytics.backend.logic.custom_property_sync import sync_custom_property_values
+from products.customer_analytics.backend.logic.ownership_claims import reconcile_ownership_claims
+from products.customer_analytics.backend.models import TeamCustomerAnalyticsConfig
 
 
 @shared_task(name="customer_analytics.process_custom_property_sync", ignore_result=True)
@@ -76,3 +78,18 @@ def recalculate_email_thread_account_links_for_threads(team_id: int, thread_ids:
 @with_team_scope()
 def send_announcement(announcement_id: str, team_id: int) -> None:
     send_pending_deliveries(announcement_id, team_id)
+
+
+@shared_task(name="customer_analytics.reconcile_ownership_claims", ignore_result=True)
+def reconcile_ownership_claims_task() -> None:
+    """Apply Salesforce Task decisions for every project that has claims on and a view bound. One
+    project's failure is captured and the sweep moves on, so a broken view cannot stall the rest."""
+    configs = TeamCustomerAnalyticsConfig.objects.filter(
+        ownership_claims_enabled=True, ownership_claim_saved_query__isnull=False
+    ).select_related("team")
+    for config in configs.iterator():
+        try:
+            with team_scope(config.team_id):
+                reconcile_ownership_claims(config.team)
+        except Exception as error:
+            capture_exception(error, {"team_id": config.team_id})

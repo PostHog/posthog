@@ -78,7 +78,7 @@ from products.customer_analytics.backend.facade.contracts import (
     MeetingParticipantView,
     MeetingView,
 )
-from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
+from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind, AccountRelationshipSource
 
 
 class AccountTrackRuleFieldSerializer(serializers.Serializer):
@@ -2071,11 +2071,25 @@ class AccountRelationshipSerializer(DataclassSerializer):
     ended_at = serializers.DateTimeField(
         read_only=True, allow_null=True, help_text="When this assignment ended; null while it is active."
     )
+    # The wire field is named `source`. DRF pops declared fields off the class, so only the stubs
+    # see a clash with `Field.source`.
+    source = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=AccountRelationshipSource.choices,
+        read_only=True,
+        allow_null=True,
+        help_text="Which kind of writer made this assignment; null on rows older than provenance tracking.",
+    )
+    ended_source = serializers.ChoiceField(
+        choices=AccountRelationshipSource.choices,
+        read_only=True,
+        allow_null=True,
+        help_text="Which kind of writer ended this assignment; null while active or on rows older than tracking.",
+    )
 
     class Meta:
         dataclass = AccountRelationship
         ref_name = "AccountRelationship"
-        fields = ["id", "definition", "user", "started_at", "ended_at"]
+        fields = ["id", "definition", "user", "started_at", "ended_at", "source", "ended_source"]
 
 
 class AccountRelationshipWriteSerializer(serializers.Serializer):

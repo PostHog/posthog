@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.apps import apps
 from django.core.cache import cache
+from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -13,6 +14,7 @@ from rest_framework.test import APIClient
 
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import generate_random_token_secret
 from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.persons import create_group
@@ -24,6 +26,7 @@ from products.customer_analytics.backend.models import (
     CustomPropertySource,
     CustomPropertyValue,
     DisplayType,
+    TeamCustomerAnalyticsConfig,
 )
 from products.customer_analytics.backend.models.account import AccountProperties
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
@@ -195,6 +198,67 @@ class TestExternalAccountAPI(APIBaseTest):
             {"CSM": [{"user_id": self.user.id, "email": self.user.email}]},
         )
 
+    def _bind_csm(self) -> None:
+        config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
+        config.csm_relationship_definition = self.csm_definition
+        config.save(update_fields=["csm_relationship_definition"])
+
+    def _manage_csm(self) -> None:
+        self.account.csm_ownership_controlled_at = datetime(2026, 1, 1, tzinfo=UTC)
+        self.account.save(update_fields=["csm_ownership_controlled_at"])
+
+    @parameterized.expand(
+        [
+            ("unmanaged_bound", True, False, None, "unmanaged", []),
+            ("unmanaged_with_legacy_holder", True, False, "member", "unmanaged", []),
+            ("assigned", True, True, "member", "assigned", []),
+            ("cleared", True, True, None, "cleared", []),
+            ("blocked_unbound", False, True, None, "blocked", ["role_unbound"]),
+            ("blocked_non_member", True, True, "outsider", "blocked", ["holder_not_in_organization"]),
+            ("blocked_inactive", True, True, "inactive", "blocked", ["holder_inactive"]),
+        ]
+    )
+    def test_get_account_ownership_state(self, _name, bound, managed, holder_kind, state, diagnostics):
+        if bound:
+            self._bind_csm()
+        if managed:
+            self._manage_csm()
+        holder = None
+        if holder_kind == "member":
+            holder = self.user
+        elif holder_kind == "outsider":
+            holder = User.objects.create_user("outsider@example.com", None, "")
+        elif holder_kind == "inactive":
+            holder = self._create_user("inactive@posthog.com", is_active=False)
+        relationship = self._assign_csm(holder) if holder is not None else None
+
+        response = self._get()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        csm = response.json()["ownership"]["csm"]
+        self.assertEqual(csm["state"], state)
+        self.assertEqual(csm["diagnostics"], diagnostics)
+        self.assertEqual(csm["definition_id"], self.csm_key if bound else None)
+        self.assertEqual(csm["controlled_at"], "2026-01-01T00:00:00Z" if managed else None)
+        self.assertEqual(csm["relationship_id"], str(relationship.id) if relationship else None)
+        if holder is None:
+            self.assertIsNone(csm["holder"])
+        else:
+            self.assertEqual(csm["holder"]["user_id"], holder.id)
+            self.assertEqual(csm["holder"]["is_organization_member"], holder_kind != "outsider")
+            self.assertEqual(csm["holder"]["is_active"], holder_kind != "inactive")
+            self.assertEqual(csm["holder"]["email"], None if holder_kind == "outsider" else holder.email)
+
+    def test_get_account_ownership_identity(self):
+        with override_settings(CLOUD_DEPLOYMENT="US"):
+            response = self._get()
+
+        ownership = response.json()["ownership"]
+        self.assertEqual(ownership["account_id"], str(self.account.id))
+        self.assertEqual(ownership["external_id"], "acme-1")
+        self.assertEqual(ownership["region"], "us")
+        self.assertEqual(ownership["ae"]["state"], "unmanaged")
+
     def test_get_account_returns_custom_properties(self):
         plan = create_custom_property_definition(team_id=self.team.id, name="Plan", display_type=DisplayType.TEXT)
         create_custom_property_definition(team_id=self.team.id, name="Seats", display_type=DisplayType.NUMBER)
@@ -270,6 +334,16 @@ class TestExternalAccountAPI(APIBaseTest):
             response.json()["relationships"],
             {"CSM": [{"user_id": self.user.id, "email": self.user.email}]},
         )
+        self.assertEqual(self._active_csm_user_ids(), [self.user.id])
+
+    def test_patch_cannot_change_a_managed_commercial_role(self):
+        self._assign_csm(self.user)
+        self._bind_csm()
+        self._manage_csm()
+
+        response = self._patch({"external_id": "acme-1", "relationships": {self.csm_key: None}})
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT, response.json())
         self.assertEqual(self._active_csm_user_ids(), [self.user.id])
 
     def test_patch_null_ends_active_assignment(self):
