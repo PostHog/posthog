@@ -128,6 +128,13 @@ _HOST_RESOLUTION_RETRY_MESSAGE = (
 
 PostgresErrors = {
     "password authentication failed for user": _INVALID_CREDENTIALS_VALIDATION_ERROR,
+    # A proxy/pooler in front of some providers rejects bad credentials during its own
+    # database-identification step instead of libpq's "password authentication failed for user",
+    # wrapping the rejection in its own sentence ("Failed to identify your database: Your Postgres
+    # credentials are incorrect. Please check your username and password and try again."). None of
+    # the password keys here substring-match it, so without this key validation falls through to
+    # `capture_exception` and a generic fallback message. Match the stable, self-contained sentence.
+    "Your Postgres credentials are incorrect": _INVALID_CREDENTIALS_VALIDATION_ERROR,
     # The bounded lookup in front of the connect reports a stalled resolver and a "try again"
     # answer as psycopg errors. Neither is a verdict on the host, so validation asks for a retry
     # rather than capturing a self-recovering failure.
@@ -510,6 +517,13 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # credential mismatch only the customer can fix. Match the stable, wording-independent
             # fragment shared by both forms.
             "password authentication failed": _INVALID_CREDENTIALS_ERROR,
+            # Twin of the `PostgresErrors` (validation-time) key above: a proxy/pooler in front of
+            # some providers rejects bad credentials during its own database-identification step
+            # instead of libpq's "password authentication failed for user" ("Failed to identify your
+            # database: Your Postgres credentials are incorrect. Please check your username and
+            # password and try again."). None of the password keys above substring-match it, so
+            # without this key Temporal keeps retrying a credential mismatch only the customer can fix.
+            "Your Postgres credentials are incorrect": _INVALID_CREDENTIALS_ERROR,
             # AWS RDS Proxy reports bad credentials with its own wording instead of PostgreSQL's
             # "password authentication failed for user" — it validates against Secrets Manager and
             # returns "The password that was provided for the role <role> is wrong." None of the
