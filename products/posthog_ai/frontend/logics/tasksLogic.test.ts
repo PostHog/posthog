@@ -11,6 +11,7 @@ import { initKeaTests } from '~/test/init'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { OriginProduct, Task } from '../types/taskTypes'
+import { taskHistoryLogic } from './taskHistoryLogic'
 import { tasksLogic } from './tasksLogic'
 
 const createMockTask = (id: string): Task => ({
@@ -167,6 +168,26 @@ describe('tasksLogic', () => {
 
             expect(logic.values.tasksNext).toBeNull()
             expect(logic.values.tasksLoadingMore).toBe(false)
+        })
+    })
+
+    describe('deleteTask', () => {
+        // Regression coverage: archiving from the shared navigation used to leave the row on the
+        // panel history, which loads its own list and never hears about the delete.
+        it('drops the task from a mounted panel history', async () => {
+            jest.spyOn(api, 'delete').mockResolvedValueOnce({})
+            const historyLogic = taskHistoryLogic()
+            historyLogic.mount()
+            // Let the mount-time load land first, or it overwrites the seeded history.
+            await expectLogic(historyLogic).toDispatchActions(['loadHistorySuccess'])
+            const task = createMockTask('task-1')
+            historyLogic.actions.loadHistorySuccess([task, createMockTask('task-2')])
+
+            logic.actions.deleteTask({ taskId: task.id })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(historyLogic.values.history.map((t) => t.id)).toEqual(['task-2'])
+            historyLogic.unmount()
         })
     })
 })
