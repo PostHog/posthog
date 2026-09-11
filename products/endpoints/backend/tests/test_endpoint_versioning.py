@@ -386,15 +386,8 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         old_saved_query_id = old_saved_query.id
 
         # Mock Temporal-related functions to avoid connection errors
-        with (
-            patch(
-                "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.schedule_materialization"
-            ),
-            patch(
-                "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
-                return_value=False,
-            ),
-            patch("products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule"),
+        with patch(
+            "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.schedule_materialization"
         ):
             # Update query (which should create new version with its own materialization)
             new_query = {"kind": "HogQLQuery", "query": "SELECT * FROM events WHERE timestamp > now() - INTERVAL 1 DAY"}

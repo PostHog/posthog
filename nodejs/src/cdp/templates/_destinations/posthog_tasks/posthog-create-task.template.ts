@@ -67,16 +67,16 @@ if (inputs.reply_in_slack_thread != false and event.event == '$slack_message_rec
 
 let response := postHogCreateTask(payload)
 
-if (response.status == 409) {
-  print(f'Task not created: {apiErrorMessage(response)}')
-  return { 'skipped': true, 'reason': apiErrorMessage(response) }
-}
-
 if (response.status >= 400) {
   throw Error(f'Failed to create task ({response.status}): {apiErrorMessage(response)}')
 }
 
-return response.body
+let task := response.body
+if (not empty(task.run_id)) {
+  // Park the workflow step until the run finishes: the tasks runtime cap plus slack for its wake.
+  task.await := { 'max_wait': '190m', 'label': 'task' }
+}
+return task
 `,
     inputs_schema: [
         {
@@ -169,9 +169,8 @@ return response.body
                 'The agent posts its updates as replies in the Slack thread that started this workflow. Replies in that thread are sent to the agent. The run stays open for about 2 minutes after the agent finishes so replies can reach it.',
         },
         {
-            // The engine treats a 4xx as a step failure before the code above runs, unless the
-            // status is listed here. 409 is the "task limit reached" reply, which the code turns
-            // into a graceful skip.
+            // Allow 409 through to the template so it can surface the API's detailed limit
+            // message as the step error rather than the executor's generic fetch failure.
             key: 'non_failure_status_codes',
             type: 'non_failure_status_codes',
             label: 'Non-failure status codes',

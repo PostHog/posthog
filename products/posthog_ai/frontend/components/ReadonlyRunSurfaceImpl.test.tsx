@@ -24,7 +24,6 @@ jest.mock('../logics/runStreamLogic', () => ({
 jest.mock('../logics/taskLogic', () => ({ taskLogic: jest.fn(() => ({ __mock: 'taskLogic' })) }))
 
 jest.mock('./ThreadView', () => ({ ThreadView: () => <div data-attr="thread" /> }))
-jest.mock('./ResourcesBar', () => ({ ResourcesBar: () => <div data-attr="resources" /> }))
 jest.mock('./ContextUsageBar', () => ({ ContextUsageBar: () => <div data-attr="context" /> }))
 jest.mock('./PermissionInput', () => ({ PermissionInput: () => <div data-attr="permission" /> }))
 jest.mock('./QuestionInput', () => ({ QuestionInput: () => <div data-attr="question" /> }))
@@ -58,17 +57,15 @@ describe('ReadonlyRunSurfaceImpl', () => {
     it('renders only the thread in read-only mode — no meta bars, composer, or prompt', () => {
         render(<ReadonlyRunSurfaceImpl taskId="task-1" runId="run-1" interaction="read-only" />)
         expect(screen.getByTestId('thread')).toBeInTheDocument()
-        expect(screen.queryByTestId('resources')).not.toBeInTheDocument()
         expect(screen.queryByTestId('context')).not.toBeInTheDocument()
         expect(screen.queryByTestId('composer')).not.toBeInTheDocument()
         expect(screen.queryByTestId('permission')).not.toBeInTheDocument()
         expect(screen.queryByTestId('question')).not.toBeInTheDocument()
     })
 
-    it('renders the thread plus the resources bar for a live run, but never a composer or approval prompt', () => {
+    it('renders the thread for a live run, but never a composer or approval prompt', () => {
         render(<ReadonlyRunSurfaceImpl taskId="task-1" runId="run-1" interaction="live" />)
         expect(screen.getByTestId('thread')).toBeInTheDocument()
-        expect(screen.getByTestId('resources')).toBeInTheDocument()
         // Context usage now rides the thread footer (inside ThreadView), not a standalone bar.
         expect(screen.queryByTestId('context')).not.toBeInTheDocument()
         expect(screen.queryByTestId('composer')).not.toBeInTheDocument()

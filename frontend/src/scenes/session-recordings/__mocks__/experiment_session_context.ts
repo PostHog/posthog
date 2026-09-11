@@ -131,7 +131,8 @@ export const experimentSessionContextResponse: ExperimentSessionContextResponseA
             flag_key: 'search-bar-placement',
             variant: 'control',
             variants_seen: ['control'],
-            // Exposure captured just before the recording's playable range — seen, but nothing to jump to.
+            // Exposure captured before the recording's first frame. Renders a negative offset that
+            // jumps to the first frame.
             first_exposure_timestamp: '2023-05-01T14:45:00.000000Z',
         }),
         makeExperimentSessionContextItem({

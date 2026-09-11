@@ -3,7 +3,7 @@ import type {
   GridPlacement,
   LayoutOperation,
 } from "@posthog/core/canvas/gridLayoutSchemas";
-import { Button, Spinner, Text } from "@posthog/quill";
+import { Button, Text } from "@posthog/quill";
 import { canvasCommentTaskId } from "@posthog/ui/features/canvas/freeform/canvasCommentTask";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import {
@@ -12,6 +12,8 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useGenerateFreeformCanvas } from "@posthog/ui/features/canvas/hooks/useGenerateFreeformCanvas";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { useCallback, useMemo, useState } from "react";
 import { GridChatPanel, type GridChatTarget } from "./GridChatPanel";
@@ -201,11 +203,7 @@ export function GridCanvasView({
   );
 
   if (isLoading || !layout || !placements || !dashboard) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner />
-      </div>
-    );
+    return <LoadingState />;
   }
   return (
     <div className="flex h-full">
@@ -213,25 +211,27 @@ export function GridCanvasView({
         {interactive ? (
           // The freeform canvas's toolbar shape: version info on the left,
           // panel controls on the right, in the bar rather than floating.
-          <div className="flex h-10 shrink-0 items-center justify-between border-(--gray-5) border-b px-3">
-            <div className="flex items-center gap-1">
-              {versionText ? (
-                <Text size="sm" className="text-(--gray-9)">
-                  {versionText}
-                </Text>
-              ) : null}
-            </div>
-            {collapsed && !widgetTarget ? (
-              <Button
-                variant="default"
-                size="icon"
-                aria-label="Show chat"
-                onClick={() => setCollapsed(false)}
-              >
-                <SidebarSimpleIcon size={16} />
-              </Button>
+          <ChromeBar
+            inset="even"
+            actions={
+              collapsed && !widgetTarget ? (
+                <Button
+                  variant="default"
+                  size="icon"
+                  aria-label="Show chat"
+                  onClick={() => setCollapsed(false)}
+                >
+                  <SidebarSimpleIcon size={16} />
+                </Button>
+              ) : null
+            }
+          >
+            {versionText ? (
+              <Text size="sm" className="text-(--gray-9)">
+                {versionText}
+              </Text>
             ) : null}
-          </div>
+          </ChromeBar>
         ) : null}
         <GridSurface
           grid={layout.grid}

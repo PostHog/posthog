@@ -1,0 +1,573 @@
+from __future__ import annotations
+
+from collections.abc import Iterable
+from datetime import datetime
+from typing import cast
+from uuid import UUID
+
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
+from django.db.models import Case, CharField, F, IntegerField, Q, QuerySet, Value, When
+from django.db.models.functions import Coalesce, Concat, Lower, NullIf, Trim
+from django.utils import timezone
+
+from posthog.dataclasses import frozen
+from posthog.models import OrganizationMembership, Team, User
+
+from products.access_control.backend.facade import (
+    api as access_control_api,
+    contracts as access_control_contracts,
+)
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.customer_analytics.backend.facade import contracts
+from products.customer_analytics.backend.facade.contracts import (
+    CustomerTaskAccessDenied,
+    CustomerTaskAccountNotFound,
+    CustomerTaskArchived,
+    CustomerTaskAssigneeCannotViewAccount,
+    CustomerTaskAssigneeInvalid,
+    CustomerTaskInvalidTransition,
+)
+from products.customer_analytics.backend.models import Account, CustomerTask, CustomerTaskActivity
+from products.customer_analytics.backend.models.customer_task import CustomerTaskActivityType, CustomerTaskStatus
+
+CUSTOMER_TASK_ACTIVITY_TYPE_CHOICES = CustomerTaskActivityType.choices
+CUSTOMER_TASK_STATUS_CHOICES = CustomerTaskStatus.choices
+
+
+@frozen
+class _CustomerTaskActivityPage:
+    activities: list[CustomerTaskActivity]
+    total_count: int
+    visible_account_ids: frozenset[str]
+
+
+_ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
+    CustomerTaskStatus.OPEN.value: frozenset(
+        {CustomerTaskStatus.IN_PROGRESS.value, CustomerTaskStatus.COMPLETED.value, CustomerTaskStatus.CANCELED.value}
+    ),
+    CustomerTaskStatus.IN_PROGRESS.value: frozenset(
+        {CustomerTaskStatus.OPEN.value, CustomerTaskStatus.COMPLETED.value, CustomerTaskStatus.CANCELED.value}
+    ),
+    CustomerTaskStatus.COMPLETED.value: frozenset({CustomerTaskStatus.OPEN.value}),
+    CustomerTaskStatus.CANCELED.value: frozenset({CustomerTaskStatus.OPEN.value}),
+}
+
+
+def _task_queryset(team_id: int) -> QuerySet[CustomerTask]:
+    return CustomerTask.objects.for_team(team_id).select_related("account", "assigned_to", "completed_by", "created_by")
+
+
+def _visible_account_queryset(team_id: int, user_access_control: UserAccessControl) -> QuerySet[Account]:
+    accounts = Account.objects.for_team(team_id)
+    return user_access_control.filter_queryset_by_access_level(accounts, resource="account")
+
+
+def _task_by_id(queryset: QuerySet[CustomerTask], task_id: UUID | str) -> CustomerTask | None:
+    try:
+        return queryset.filter(id=task_id).first()
+    except (DjangoValidationError, ValueError):
+        return None
+
+
+def _visible_task_queryset(team_id: int, user_access_control: UserAccessControl) -> QuerySet[CustomerTask]:
+    visible_account_ids = _visible_account_queryset(team_id, user_access_control).values("id")
+    account_filter = Q(account__isnull=True) | Q(account_id__in=visible_account_ids)
+    return user_access_control.filter_queryset_by_access_level(
+        _task_queryset(team_id), resource="customer_task"
+    ).filter(account_filter)
+
+
+def _account_for_write(team_id: int, account_id: UUID | None, user_access_control: UserAccessControl) -> Account | None:
+    if account_id is None:
+        return None
+    account = _visible_account_queryset(team_id, user_access_control).filter(id=account_id).first()
+    if account is None:
+        raise CustomerTaskAccountNotFound()
+    return account
+
+
+def _validate_assignee(
+    *,
+    team: Team,
+    account: Account | None,
+    assignee_id: int | None,
+) -> User | None:
+    if assignee_id is None:
+        return None
+    membership_exists = OrganizationMembership.objects.filter(
+        organization_id=team.organization_id, user_id=assignee_id
+    ).exists()
+    if not membership_exists:
+        raise CustomerTaskAssigneeInvalid()
+    assignee = User.objects.filter(id=assignee_id).first()
+    if assignee is None:
+        raise CustomerTaskAssigneeInvalid()
+    assignee_access = UserAccessControl(user=assignee, team=team)
+    if not assignee_access.check_access_level_for_object(team, required_level="member"):
+        raise CustomerTaskAssigneeInvalid()
+    if account is not None and not assignee_access.check_access_level_for_object(account, required_level="viewer"):
+        raise CustomerTaskAssigneeCannotViewAccount()
+    return assignee
+
+
+def _set_customer_task_assignee_access(
+    *,
+    task: CustomerTask,
+    organization_id: UUID,
+    before_assignee: User | None,
+    after_assignee: User | None,
+    actor: User | None,
+) -> None:
+    if before_assignee == after_assignee:
+        return
+
+    for assignee, access_level in ((before_assignee, None), (after_assignee, "editor")):
+        if assignee is None:
+            continue
+        membership_id = (
+            OrganizationMembership.objects.filter(organization_id=organization_id, user_id=assignee.id)
+            .values_list("id", flat=True)
+            .first()
+        )
+        if membership_id is None:
+            if access_level is not None:
+                raise CustomerTaskAssigneeInvalid()
+            continue
+        access_control_api.set_object_access_control(
+            team_id=task.team_id,
+            input=access_control_contracts.SetObjectAccessControlInput(
+                resource="customer_task",
+                resource_id=str(task.id),
+                organization_member_id=membership_id,
+                access_level=access_level,
+                created_by_id=actor.id if actor is not None else None,
+            ),
+        )
+
+
+def can_edit_customer_task(task: CustomerTask, user_access_control: UserAccessControl) -> bool:
+    return task.archived_at is None and user_access_control.check_access_level_for_object(task, "editor")
+
+
+def can_restore_customer_task(task: CustomerTask, user_access_control: UserAccessControl) -> bool:
+    return task.archived_at is not None and user_access_control.check_access_level_for_object(task, "editor")
+
+
+def _timestamp(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return value.isoformat().replace("+00:00", "Z")
+
+
+def _snapshot_account(account: Account | None) -> dict[str, object] | None:
+    if account is None:
+        return None
+    return {"id": str(account.id), "name": account.name}
+
+
+def _snapshot_user(user: User | None) -> dict[str, object] | None:
+    if user is None:
+        return None
+    return {"id": user.id, "email": user.email, "first_name": user.first_name, "last_name": user.last_name}
+
+
+def _changes(
+    *,
+    before_account: Account | None,
+    after_account: Account | None,
+    before_name: str | None,
+    after_name: str | None,
+    before_description: str | None,
+    after_description: str | None,
+    before_status: str | None,
+    after_status: str | None,
+    before_assignee: User | None,
+    after_assignee: User | None,
+    before_due_at: datetime | None,
+    after_due_at: datetime | None,
+) -> list[dict[str, object | None]]:
+    values: Iterable[tuple[str, object | None, object | None]] = (
+        ("account", _snapshot_account(before_account), _snapshot_account(after_account)),
+        ("name", before_name, after_name),
+        ("description", before_description, after_description),
+        ("status", before_status, after_status),
+        ("assigned_to", _snapshot_user(before_assignee), _snapshot_user(after_assignee)),
+        ("due_at", _timestamp(before_due_at), _timestamp(after_due_at)),
+    )
+    before_account_id = str(before_account.id) if before_account is not None else None
+    after_account_id = str(after_account.id) if after_account is not None else None
+    changes: list[dict[str, object | None]] = []
+    for field, before, after in values:
+        if before == after:
+            continue
+        change: dict[str, object | None] = {"field": field, "before": before, "after": after}
+        if field != "account":
+            change["before_account_id"] = before_account_id
+            change["after_account_id"] = after_account_id
+        changes.append(change)
+    return changes
+
+
+def _record_activity(
+    *, task: CustomerTask, activity_type: str, actor: User | None, changes: list[dict[str, object | None]]
+) -> None:
+    CustomerTaskActivity.objects.for_team(task.team_id).create(
+        team_id=task.team_id,
+        task=task,
+        actor=actor,
+        activity_type=activity_type,
+        changes=changes,
+    )
+
+
+def _order_by_annotation(queryset: QuerySet[CustomerTask], annotation: str, descending: bool) -> QuerySet[CustomerTask]:
+    ordering = F(annotation).desc(nulls_last=True) if descending else F(annotation).asc(nulls_last=True)
+    return queryset.order_by(ordering, "id")
+
+
+def _apply_ordering(queryset: QuerySet[CustomerTask], ordering: str) -> QuerySet[CustomerTask]:
+    descending = ordering.startswith("-")
+    field = ordering.removeprefix("-")
+    if field == "status":
+        queryset = queryset.alias(
+            _ordering_status=Case(
+                When(status=CustomerTaskStatus.OPEN, then=Value(0)),
+                When(status=CustomerTaskStatus.IN_PROGRESS, then=Value(1)),
+                When(status=CustomerTaskStatus.COMPLETED, then=Value(2)),
+                When(status=CustomerTaskStatus.CANCELED, then=Value(3)),
+                default=Value(4),
+                output_field=IntegerField(),
+            )
+        )
+        return _order_by_annotation(queryset, "_ordering_status", descending)
+    if field == "assigned_to":
+        queryset = queryset.alias(
+            _ordering_assigned_to=Lower(
+                Coalesce(
+                    NullIf(Trim(Concat("assigned_to__first_name", Value(" "), "assigned_to__last_name")), Value("")),
+                    "assigned_to__email",
+                    output_field=CharField(),
+                )
+            )
+        )
+        return _order_by_annotation(queryset, "_ordering_assigned_to", descending)
+    if field == "account":
+        queryset = queryset.alias(_ordering_account=Lower("account__name"))
+        return _order_by_annotation(queryset, "_ordering_account", descending)
+    if field == "name":
+        queryset = queryset.alias(_ordering_name=Lower("name"))
+        return _order_by_annotation(queryset, "_ordering_name", descending)
+    return _order_by_annotation(queryset, field, descending)
+
+
+def remove_customer_task_assignee_access_for_account(*, team: Team, account_id: UUID) -> None:
+    tasks = _task_queryset(team.id).filter(account_id=account_id, assigned_to__isnull=False)
+    for task in tasks.iterator():
+        _set_customer_task_assignee_access(
+            task=task,
+            organization_id=team.organization_id,
+            before_assignee=task.assigned_to,
+            after_assignee=None,
+            actor=None,
+        )
+
+
+def list_customer_tasks(
+    *,
+    team_id: int,
+    user_access_control: UserAccessControl,
+    filters: contracts.CustomerTaskListFilters,
+    offset: int,
+    limit: int,
+) -> tuple[list[CustomerTask], int]:
+    queryset = _visible_task_queryset(team_id, user_access_control)
+    if filters.search:
+        queryset = queryset.filter(Q(name__icontains=filters.search) | Q(description__icontains=filters.search))
+    if filters.account_id is not None:
+        queryset = queryset.filter(account_id=filters.account_id)
+    if filters.assigned_to == "me":
+        queryset = queryset.filter(assigned_to_id=user_access_control.user.id)
+    elif filters.assigned_to == "unassigned":
+        queryset = queryset.filter(assigned_to_id__isnull=True)
+    elif filters.assigned_to:
+        queryset = queryset.filter(assigned_to_id=int(filters.assigned_to))
+    if filters.statuses:
+        queryset = queryset.filter(status__in=filters.statuses)
+    if filters.archive_state == "active":
+        queryset = queryset.filter(archived_at__isnull=True)
+    elif filters.archive_state == "archived":
+        queryset = queryset.filter(archived_at__isnull=False)
+    if filters.due_after is not None:
+        queryset = queryset.filter(due_at__gte=filters.due_after)
+    if filters.due_before is not None:
+        queryset = queryset.filter(due_at__lt=filters.due_before)
+    if filters.has_due_at is not None:
+        queryset = queryset.filter(due_at__isnull=not filters.has_due_at)
+
+    if filters.ordering is None:
+        queryset = queryset.order_by(F("due_at").asc(nulls_last=True), "-updated_at", "id")
+    else:
+        queryset = _apply_ordering(queryset, filters.ordering)
+    count = queryset.count()
+    return list(queryset[offset : offset + limit]), count
+
+
+def get_customer_task(
+    *, team_id: int, task_id: UUID | str, user_access_control: UserAccessControl
+) -> CustomerTask | None:
+    return _task_by_id(_visible_task_queryset(team_id, user_access_control), task_id)
+
+
+def _task_for_write(
+    *, team_id: int, task_id: UUID | str, user_access_control: UserAccessControl
+) -> CustomerTask | None:
+    queryset = _visible_task_queryset(team_id, user_access_control).select_for_update(of=("self",))
+    return _task_by_id(queryset, task_id)
+
+
+def create_customer_task(
+    *,
+    team: Team,
+    input: contracts.CreateCustomerTaskInput,
+    actor: User | None,
+    user_access_control: UserAccessControl,
+) -> CustomerTask:
+    account = _account_for_write(team.id, input.account_id, user_access_control)
+    assignee = _validate_assignee(team=team, account=account, assignee_id=input.assigned_to_id)
+    completed_at = timezone.now() if input.status == CustomerTaskStatus.COMPLETED else None
+    completed_by = actor if completed_at is not None and actor is not None else assignee if completed_at else None
+    with transaction.atomic():
+        task = CustomerTask.objects.for_team(team.id).create(
+            team_id=team.id,
+            account=account,
+            name=input.name,
+            description=input.description,
+            assigned_to=assignee,
+            due_at=input.due_at,
+            status=input.status,
+            completed_at=completed_at,
+            completed_by=completed_by,
+            created_by=actor,
+        )
+        _set_customer_task_assignee_access(
+            task=task,
+            organization_id=team.organization_id,
+            before_assignee=None,
+            after_assignee=assignee,
+            actor=actor,
+        )
+        _record_activity(
+            task=task,
+            activity_type=CustomerTaskActivityType.CREATED,
+            actor=actor,
+            changes=_changes(
+                before_account=None,
+                after_account=account,
+                before_name=None,
+                after_name=task.name,
+                before_description=None,
+                after_description=task.description,
+                before_status=None,
+                after_status=task.status,
+                before_assignee=None,
+                after_assignee=assignee,
+                before_due_at=None,
+                after_due_at=task.due_at,
+            ),
+        )
+    return task
+
+
+def update_customer_task(
+    *,
+    team: Team,
+    task_id: UUID | str,
+    input: contracts.UpdateCustomerTaskInput,
+    actor: User | None,
+    user_access_control: UserAccessControl,
+) -> CustomerTask | None:
+    with transaction.atomic():
+        task = _task_for_write(team_id=team.id, task_id=task_id, user_access_control=user_access_control)
+        if task is None:
+            return None
+        if not can_access_customer_task_object(task=task, user_access_control=user_access_control, write=True):
+            raise CustomerTaskAccessDenied()
+        if task.archived_at is not None:
+            raise CustomerTaskArchived()
+
+        before_account = task.account
+        before_name = task.name
+        before_description = task.description
+        before_status = task.status
+        before_assignee = task.assigned_to
+        before_due_at = task.due_at
+        semantic_change = (
+            (input.account_id_provided and input.account_id != task.account_id)
+            or (input.name_provided and input.name != task.name)
+            or (input.description_provided and input.description != task.description)
+            or (input.assigned_to_id_provided and input.assigned_to_id != task.assigned_to_id)
+            or (input.due_at_provided and input.due_at != task.due_at)
+            or (input.status_provided and input.status != task.status)
+        )
+        if not semantic_change:
+            return task
+
+        account = _account_for_write(
+            team.id, input.account_id if input.account_id_provided else task.account_id, user_access_control
+        )
+        assignee_id = input.assigned_to_id if input.assigned_to_id_provided else task.assigned_to_id
+        assignee = _validate_assignee(team=team, account=account, assignee_id=assignee_id)
+        requested_status = input.status if input.status_provided else task.status
+        if requested_status is None:
+            raise CustomerTaskInvalidTransition(task.status, "")
+        if (
+            input.status_provided
+            and requested_status != task.status
+            and requested_status not in _ALLOWED_TRANSITIONS[task.status]
+        ):
+            raise CustomerTaskInvalidTransition(task.status, requested_status)
+
+        if requested_status == CustomerTaskStatus.COMPLETED and task.status != CustomerTaskStatus.COMPLETED:
+            completed_at = timezone.now()
+            completed_by = actor if actor is not None else assignee
+        elif requested_status == CustomerTaskStatus.OPEN and task.status == CustomerTaskStatus.COMPLETED:
+            completed_at = None
+            completed_by = None
+        else:
+            completed_at = task.completed_at
+            completed_by = task.completed_by
+
+        task.account = account
+        if input.name_provided:
+            task.name = cast(str, input.name)
+        task.description = input.description if input.description_provided else task.description
+        task.assigned_to = assignee
+        task.due_at = input.due_at if input.due_at_provided else task.due_at
+        task.status = requested_status
+        task.completed_at = completed_at
+        task.completed_by = completed_by
+        task.save()
+        _set_customer_task_assignee_access(
+            task=task,
+            organization_id=team.organization_id,
+            before_assignee=before_assignee,
+            after_assignee=assignee,
+            actor=actor,
+        )
+        changes = _changes(
+            before_account=before_account,
+            after_account=task.account,
+            before_name=before_name,
+            after_name=task.name,
+            before_description=before_description,
+            after_description=task.description,
+            before_status=before_status,
+            after_status=task.status,
+            before_assignee=before_assignee,
+            after_assignee=task.assigned_to,
+            before_due_at=before_due_at,
+            after_due_at=task.due_at,
+        )
+        if changes:
+            _record_activity(task=task, activity_type=CustomerTaskActivityType.UPDATED, actor=actor, changes=changes)
+        return task
+
+
+def archive_customer_task(
+    *, team_id: int, task_id: UUID | str, actor: User | None, user_access_control: UserAccessControl
+) -> CustomerTask | None:
+    with transaction.atomic():
+        task = _task_for_write(team_id=team_id, task_id=task_id, user_access_control=user_access_control)
+        if task is None:
+            return None
+        if not can_access_customer_task_object(task=task, user_access_control=user_access_control, write=True):
+            raise CustomerTaskAccessDenied()
+        if task.archived_at is None:
+            task.archived_at = timezone.now()
+            task.save(update_fields=["archived_at", "updated_at"])
+            _record_activity(task=task, activity_type=CustomerTaskActivityType.ARCHIVED, actor=actor, changes=[])
+        return task
+
+
+def restore_customer_task(
+    *, team_id: int, task_id: UUID | str, actor: User | None, user_access_control: UserAccessControl
+) -> CustomerTask | None:
+    with transaction.atomic():
+        task = _task_for_write(team_id=team_id, task_id=task_id, user_access_control=user_access_control)
+        if task is None:
+            return None
+        if not can_access_customer_task_object(task=task, user_access_control=user_access_control, write=True):
+            raise CustomerTaskAccessDenied()
+        if task.archived_at is not None:
+            task.archived_at = None
+            task.save(update_fields=["archived_at", "updated_at"])
+            _record_activity(task=task, activity_type=CustomerTaskActivityType.RESTORED, actor=actor, changes=[])
+        return task
+
+
+def _list_visible_historical_account_ids(
+    *,
+    team_id: int,
+    activities: list[CustomerTaskActivity],
+    user_access_control: UserAccessControl,
+) -> frozenset[str]:
+    historical_account_ids: set[UUID] = set()
+    for activity in activities:
+        for change in activity.changes:
+            if not isinstance(change, dict):
+                continue
+            for context_key in ("before_account_id", "after_account_id"):
+                account_id = change.get(context_key)
+                if not isinstance(account_id, str):
+                    continue
+                try:
+                    historical_account_ids.add(UUID(account_id))
+                except ValueError:
+                    continue
+            if change.get("field") != "account":
+                continue
+            for key in ("before", "after"):
+                snapshot = change.get(key)
+                if not isinstance(snapshot, dict) or not isinstance(snapshot.get("id"), str):
+                    continue
+                try:
+                    historical_account_ids.add(UUID(snapshot["id"]))
+                except ValueError:
+                    continue
+    if not historical_account_ids:
+        return frozenset()
+    visible_ids = _visible_account_queryset(team_id, user_access_control).filter(id__in=historical_account_ids)
+    return frozenset(str(account_id) for account_id in visible_ids.values_list("id", flat=True))
+
+
+def list_customer_task_activities(
+    *, team_id: int, task_id: UUID | str, user_access_control: UserAccessControl, offset: int, limit: int
+) -> _CustomerTaskActivityPage | None:
+    task = get_customer_task(team_id=team_id, task_id=task_id, user_access_control=user_access_control)
+    if task is None or not can_access_customer_task_object(
+        task=task, user_access_control=user_access_control, write=False
+    ):
+        return None
+    queryset = CustomerTaskActivity.objects.for_team(team_id).filter(task_id=task.id).select_related("actor")
+    count = queryset.count()
+    activities = list(queryset.order_by("-created_at", "-id")[offset : offset + limit])
+    visible_account_ids = _list_visible_historical_account_ids(
+        team_id=team_id,
+        activities=activities,
+        user_access_control=user_access_control,
+    )
+    return _CustomerTaskActivityPage(
+        activities=activities,
+        total_count=count,
+        visible_account_ids=visible_account_ids,
+    )
+
+
+def can_access_customer_task_object(*, task: CustomerTask, user_access_control: UserAccessControl, write: bool) -> bool:
+    if (
+        task.account_id is not None
+        and not _visible_account_queryset(task.team_id, user_access_control).filter(id=task.account_id).exists()
+    ):
+        return False
+    return user_access_control.check_access_level_for_object(task, "editor" if write else "viewer")

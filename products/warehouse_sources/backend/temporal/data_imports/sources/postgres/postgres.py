@@ -34,7 +34,6 @@ from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_ta
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.psycopg_helpers import resolve_psycopg_hostaddr_with_timeout
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -59,7 +58,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     incremental_type_to_initial_value,
     incremental_type_to_operator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    open_ssh_tunnel,
+    pinned_host_kwargs,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     Column,
     Table,
@@ -163,6 +165,23 @@ _MAX_INITIAL_READ_DROP_RETRIES = 5
 _MAX_INITIAL_READ_LOCK_TIMEOUT_RETRIES = 5
 
 
+def new_source_requires_ssl(source_config: Any = None) -> bool:
+    """Return whether a source created now must connect over SSL/TLS.
+
+    A source created now is always past the cutoff date, so only the SSH tunnel opt-out can
+    relax the requirement. Shares that branch with `source_requires_ssl` so the credential
+    check the wizard runs cannot drift from the connection the sync later opens.
+    """
+    if source_config is not None:
+        # Not every source config carries an SSH tunnel (e.g. Snowflake), and the param is typed
+        # `Any` — only the tunnel opt-out can relax the SSL requirement, so its absence means "required".
+        ssh_tunnel = getattr(source_config, "ssh_tunnel", None)
+        if ssh_tunnel is not None and ssh_tunnel.enabled and not ssh_tunnel.require_tls.enabled:
+            return False
+
+    return True
+
+
 def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -> bool:
     """Return whether this source must connect over SSL/TLS.
 
@@ -173,14 +192,7 @@ def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -
     if source.created_at < SSL_REQUIRED_AFTER_DATE:
         return False
 
-    if source_config is not None:
-        # Not every source config carries an SSH tunnel (e.g. Snowflake), and the param is typed
-        # `Any` — only the tunnel opt-out can relax the SSL requirement, so its absence means "required".
-        ssh_tunnel = getattr(source_config, "ssh_tunnel", None)
-        if ssh_tunnel is not None and ssh_tunnel.enabled and not ssh_tunnel.require_tls.enabled:
-            return False
-
-    return True
+    return new_source_requires_ssl(source_config)
 
 
 class SSLRequiredError(Exception):
@@ -819,16 +831,22 @@ def _is_invalid_ssl_negotiation_response(error: BaseException) -> bool:
     return _INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING in " ".join(str(arg) for arg in error.args).lower()
 
 
-_resolve_hostaddr_with_timeout = resolve_psycopg_hostaddr_with_timeout
+def _open_connection(*, team_id: int | None = None, **connect_kwargs: Any) -> psycopg.Connection:
+    """The one `psycopg.connect` in this module. Every connection to a source database opens
+    here so that `pinned_host_kwargs` decides what gets dialed.
 
-
-def _connect_with_options_fallback(**connect_kwargs: Any) -> psycopg.Connection:
-    """`psycopg.connect` that retries without the libpq `options` startup parameter when the
-    server rejects it.
-
-    See `_OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS` for why transaction-mode poolers reject
+    Retries without the libpq `options` startup parameter when the server rejects it. See
+    `_OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS` for why transaction-mode poolers reject
     `options` and why dropping it is safe.
     """
+    connect_kwargs.update(
+        pinned_host_kwargs(
+            connect_kwargs["host"],
+            port=connect_kwargs.get("port", 5432),
+            connect_timeout=connect_kwargs.get("connect_timeout", 15),
+            team_id=team_id,
+        )
+    )
     try:
         return psycopg.connect(**connect_kwargs)
     except psycopg.OperationalError as e:
@@ -849,6 +867,7 @@ def _connect_to_postgres(
     password: str,
     require_ssl: bool = False,
     connect_timeout: int = 15,
+    team_id: int | None = None,
     **kwargs: Any,
 ) -> psycopg.Connection:
     sslmode = _get_sslmode(require_ssl)
@@ -859,19 +878,9 @@ def _connect_to_postgres(
     # cleanly. We always force UTF8 and append any caller-supplied `options` after it.
     caller_options = kwargs.pop("options", None)
     options = f"{FORCE_UTF8_CLIENT_ENCODING} {caller_options}" if caller_options else FORCE_UTF8_CLIENT_ENCODING
-    # Bound psycopg's Python-side DNS lookup in production (see `_resolve_hostaddr_with_timeout`).
-    # Dev/test connect to local or fake hosts, so skip the real lookup there — mirrors `_get_sslmode`.
-    if not (settings.TEST or settings.DEBUG or settings.E2E_TESTING):
-        addresses = _resolve_hostaddr_with_timeout(host, port, connect_timeout)
-        if addresses:
-            # A comma-separated `host`/`hostaddr` pair of matching length is how psycopg/libpq
-            # represent multiple attempts (see `split_attempts` in psycopg/_conninfo_utils.py) — this
-            # keeps its per-address failover intact for a dual-stack host instead of pinning the
-            # connection to whichever single address `getaddrinfo` happened to return first.
-            host = ",".join([host] * len(addresses))
-            kwargs["hostaddr"] = ",".join(addresses)
     try:
-        return _connect_with_options_fallback(
+        return _open_connection(
+            team_id=team_id,
             host=host,
             port=port,
             dbname=database,
@@ -912,10 +921,17 @@ def pg_connection(
     user: str,
     password: str,
     require_ssl: bool = False,
+    team_id: int | None = None,
 ) -> Iterator[psycopg.Connection]:
     """Context manager that opens a postgres connection and ensures it is closed on exit."""
     conn = _connect_to_postgres(
-        host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+        host=host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        require_ssl=require_ssl,
+        team_id=team_id,
     )
     try:
         yield conn
@@ -1409,13 +1425,20 @@ def get_postgres_row_count(
     password: str,
     schema: str | None,
     require_ssl: bool = False,
+    team_id: int | None = None,
     names: list[str] | None = None,
 ) -> dict[str, int]:
     if _normalize_selected_schema(schema) is None and not names:
         return {}
     try:
         with pg_connection(
-            host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+            require_ssl=require_ssl,
+            team_id=team_id,
         ) as connection:
             return _row_counts_from_conn(connection, schema, names)
     except:
@@ -1533,6 +1556,7 @@ def get_schemas(
     schema: str | None,
     port: int,
     require_ssl: bool = False,
+    team_id: int | None = None,
     names: list[str] | None = None,
 ) -> dict[str, PostgresDiscoveredSchema]:
     """Get all tables from PostgreSQL source schemas to sync."""
@@ -1556,7 +1580,13 @@ def get_schemas(
     # `_is_dropped_or_connection_limit` matches only these known-transient conditions.
     def _connect_and_discover() -> dict[str, PostgresDiscoveredSchema]:
         connection = _connect_to_postgres(
-            host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+            require_ssl=require_ssl,
+            team_id=team_id,
         )
         try:
             return _schemas_from_conn(connection, schema, names)
@@ -1580,13 +1610,20 @@ def get_primary_keys_for_schemas(
     port: int,
     table_names: list[str],
     require_ssl: bool = False,
+    team_id: int | None = None,
 ) -> dict[str, list[str] | None]:
     """Detect primary keys for all tables in a single query."""
     result: dict[str, list[str] | None] = dict.fromkeys(table_names)
 
     try:
         with pg_connection(
-            host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+            require_ssl=require_ssl,
+            team_id=team_id,
         ) as connection:
             pks = get_primary_key_columns(connection, schema, table_names)
             for table_name, pk_cols in pks.items():
@@ -1673,11 +1710,18 @@ def get_foreign_keys(
     schema: str | None,
     port: int,
     require_ssl: bool = False,
+    team_id: int | None = None,
     names: list[str] | None = None,
 ) -> dict[str, list[tuple[str, str, str]]]:
     """Get foreign keys for tables in the selected PostgreSQL schema."""
     with pg_connection(
-        host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+        host=host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        require_ssl=require_ssl,
+        team_id=team_id,
     ) as connection:
         return _foreign_keys_from_conn(connection, schema, names)
 
@@ -1689,9 +1733,16 @@ def get_connection_metadata(
     password: str,
     port: int,
     require_ssl: bool = False,
+    team_id: int | None = None,
 ) -> dict[str, Any]:
     with pg_connection(
-        host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+        host=host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        require_ssl=require_ssl,
+        team_id=team_id,
     ) as connection:
         with connection.cursor() as cursor:
             cursor.execute("SELECT current_database(), version()")
@@ -2069,6 +2120,18 @@ def build_incremental_condition(
     )
 
 
+def _offset_paging_tiebreak(keys: list[str]) -> sql.Composed:
+    """Trailing ORDER BY terms that make an offset-paged read totally ordered.
+
+    `LIMIT/OFFSET` paging issues one statement per chunk, so every chunk re-evaluates the ORDER BY
+    from scratch. Any order that leaves rows tied lets Postgres return the tied rows in a different
+    sequence per chunk, and the pages then overlap and skip. A full-table scan has no ORDER BY at
+    all, `xmin` repeats across every row one transaction wrote, and an incremental cursor repeats
+    across rows sharing a timestamp, so each needs the primary key appended to break the ties.
+    """
+    return sql.SQL(", ").join(sql.SQL("{col} ASC").format(col=sql.Identifier(key)) for key in keys)
+
+
 def _build_query(
     schema: str,
     table_name: str,
@@ -2085,6 +2148,7 @@ def _build_query(
     primary_keys: Optional[list[str]] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
     xmin_bounds: Optional[XminBounds] = None,
+    offset_paging_keys: Optional[list[str]] = None,
 ) -> sql.Composed:
     projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
     select_clause: sql.Composable = (
@@ -2096,7 +2160,13 @@ def _build_query(
 
     if xmin_bounds is not None:
         return _build_xmin_query(
-            schema, table_name, select_clause, xmin_bounds, row_filter_conditions, add_sampling=bool(add_sampling)
+            schema,
+            table_name,
+            select_clause,
+            xmin_bounds,
+            row_filter_conditions,
+            add_sampling=bool(add_sampling),
+            offset_paging_keys=offset_paging_keys,
         )
 
     if not should_use_incremental_field:
@@ -2125,6 +2195,8 @@ def _build_query(
         )
         if row_filter_conditions:
             query = query + sql.SQL(" WHERE ") + and_join(row_filter_conditions)
+        if offset_paging_keys:
+            query = query + sql.SQL(" ORDER BY ") + _offset_paging_tiebreak(offset_paging_keys)
         return query
 
     if incremental_field is None or incremental_field_type is None:
@@ -2185,7 +2257,17 @@ def _build_query(
     if row_filter_conditions:
         query = query + sql.SQL(" AND ") + and_join(row_filter_conditions)
 
-    return query + sql.SQL(" ORDER BY {field} ASC").format(field=sql.Identifier(incremental_field))
+    ordered = query + sql.SQL(" ORDER BY {field} ASC").format(field=sql.Identifier(incremental_field))
+    tiebreak = [key for key in offset_paging_keys or [] if key != incremental_field]
+    if tiebreak:
+        ordered = ordered + sql.SQL(", ") + _offset_paging_tiebreak(tiebreak)
+    return ordered
+
+
+# The `xmin` system column cast to a sortable, comparable integer, because no ordering operators
+# exist on raw `xid`. The window predicate, the projection and the seek must all compare the same
+# expression, so they share this one.
+_XMIN_CURSOR = sql.SQL("xmin::text::bigint")
 
 
 def _xmin_predicate(bounds: XminBounds) -> sql.Composed:
@@ -2193,7 +2275,7 @@ def _xmin_predicate(bounds: XminBounds) -> sql.Composed:
     if bounds.full_scan:
         # No window is safe across wraparound epochs (see `_capture_xmin_ceiling`), so read it all.
         return sql.SQL("TRUE").format()
-    xmin_expr = sql.SQL("xmin::text::bigint")
+    xmin_expr = _XMIN_CURSOR
     if bounds.wraparound_or_range:
         return sql.SQL("({xmin} >= {lo} OR {xmin} < {hi})").format(
             xmin=xmin_expr, lo=sql.Literal(bounds.lower), hi=sql.Literal(bounds.upper)
@@ -2211,11 +2293,12 @@ def _build_xmin_query(
     row_filter_conditions: list[sql.Composable],
     *,
     add_sampling: bool,
+    offset_paging_keys: Optional[list[str]] = None,
 ) -> sql.Composed:
     # `_ph_xmin` is force-projected (system columns never come back from `SELECT *`) and kept out of
     # `compute_projected_columns` so it can't collide with the user's incremental-field machinery.
-    select = sql.SQL("xmin::text::bigint AS {alias}, {cols}").format(
-        alias=sql.Identifier(XMIN_PROJECTED_COLUMN), cols=select_clause
+    select = sql.SQL("{cursor} AS {alias}, {cols}").format(
+        cursor=_XMIN_CURSOR, alias=sql.Identifier(XMIN_PROJECTED_COLUMN), cols=select_clause
     )
     query = sql.SQL("SELECT {cols} FROM {table} WHERE {predicate}").format(
         cols=select, table=sql.Identifier(schema, table_name), predicate=_xmin_predicate(bounds)
@@ -2223,8 +2306,11 @@ def _build_xmin_query(
     if row_filter_conditions:
         query = query + sql.SQL(" AND ") + and_join(row_filter_conditions)
 
-    # ORDER BY the cast cursor so the offset-resume path stays correct on a connection drop.
-    ordered = query + sql.SQL(" ORDER BY xmin::text::bigint ASC")
+    # The cast cursor orders the read, but every row one transaction wrote shares it, so an
+    # offset-paged read needs the tiebreak below before its order survives per-chunk re-evaluation.
+    ordered = query + sql.SQL(" ORDER BY {cursor} ASC").format(cursor=_XMIN_CURSOR)
+    if offset_paging_keys:
+        ordered = ordered + sql.SQL(", ") + _offset_paging_tiebreak(offset_paging_keys)
     if add_sampling:
         return ordered + sql.SQL(" LIMIT 1000")
     return ordered
@@ -2258,22 +2344,35 @@ def _build_keyset_query(
     incremental_field: Optional[str] = None,
     enabled_columns: Optional[list[str]] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
+    xmin_bounds: Optional[XminBounds] = None,
 ) -> sql.Composed:
-    """One page of a full-table read, seeking past the last primary key already read.
+    """One page of a full-table or xmin read, seeking past the last key already read.
 
     A full-table read has no ORDER BY, so LIMIT/OFFSET cannot page it: every page is its own scan
     and may come back in a different order, which both repeats and drops rows. Ordering by the
     primary key gives the pages one sequence to walk, and seeking past the last key keeps each page
     an index range scan. The key must be unique, or a page boundary inside a run of equal keys
     drops the rest of that run.
+
+    An xmin read does order itself, but every row one transaction wrote carries the same `xmin`, so
+    a bulk-loaded table is one long run of equal keys. Its cursor therefore leads the primary key in
+    the seek instead of replacing it, which makes the pair unique again.
     """
     projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
     select_clause: sql.Composable = (
         sql.SQL("*") if projected is None else sql.SQL(", ").join(sql.Identifier(c) for c in projected)
     )
-    key_columns = sql.SQL(", ").join(sql.Identifier(key) for key in primary_keys)
+    key_expressions: list[sql.Composable] = [sql.Identifier(key) for key in primary_keys]
+    if xmin_bounds is not None:
+        select_clause = sql.SQL("{cursor} AS {alias}, {cols}").format(
+            cursor=_XMIN_CURSOR, alias=sql.Identifier(XMIN_PROJECTED_COLUMN), cols=select_clause
+        )
+        key_expressions.insert(0, _XMIN_CURSOR)
+    key_columns = sql.SQL(", ").join(key_expressions)
 
     conditions = render_psycopg_row_filter_conditions(row_filters or [])
+    if xmin_bounds is not None:
+        conditions.insert(0, _xmin_predicate(xmin_bounds))
     if after is not None:
         conditions.append(
             sql.SQL("({keys}) > ({values})").format(
@@ -3244,6 +3343,7 @@ def postgres_source(
     xmin_last_value: Optional[int] = None,
     xmin_num_wraparound: Optional[int] = None,
     byte_bounded_extraction: bool = False,
+    activity_attempt: int = 1,
 ) -> SourceResponse:
     table_name = table_names[0]
     if not table_name:
@@ -3255,7 +3355,8 @@ def postgres_source(
 
         def _open_setup_connection() -> psycopg.Connection:
             try:
-                conn = _connect_with_options_fallback(
+                conn = _open_connection(
+                    team_id=team_id,
                     host=host,
                     port=port,
                     dbname=database,
@@ -3625,7 +3726,8 @@ def postgres_source(
 
             def get_connection():
                 try:
-                    connection = _connect_with_options_fallback(
+                    connection = _open_connection(
+                        team_id=team_id,
                         host=host,
                         port=port,
                         dbname=database,
@@ -3735,9 +3837,19 @@ def postgres_source(
                     primary_keys=primary_keys,
                     row_filters=row_filters,
                     xmin_bounds=xmin_bounds,
+                    offset_paging_keys=primary_keys,
                 )
 
                 last_key: tuple[Any, ...] | None = None
+                # An xmin read leads its seek with the cursor, which comes back under the projected
+                # alias rather than a column name, so the two lists differ for it.
+                keyset_result_columns: list[str] = []
+                if keyset_primary_keys is not None:
+                    keyset_result_columns = (
+                        [XMIN_PROJECTED_COLUMN, *keyset_primary_keys]
+                        if xmin_bounds is not None
+                        else keyset_primary_keys
+                    )
 
                 def build_page_query() -> sql.Composed:
                     if keyset_primary_keys is not None:
@@ -3749,6 +3861,7 @@ def postgres_source(
                             incremental_field=incremental_field,
                             enabled_columns=enabled_columns,
                             row_filters=row_filters,
+                            xmin_bounds=xmin_bounds,
                         )
                         return page + sql.SQL(" LIMIT {limit}").format(limit=sql.Literal(chunk_size))
                     return query + sql.SQL(" LIMIT {limit} OFFSET {offset}").format(
@@ -3815,7 +3928,7 @@ def postgres_source(
                                 break
 
                             if keyset_primary_keys is not None:
-                                key_positions = [column_names.index(key) for key in keyset_primary_keys]
+                                key_positions = [column_names.index(key) for key in keyset_result_columns]
                                 last_key = tuple(rows[-1][position] for position in key_positions)
                             else:
                                 offset += len(rows)
@@ -4016,6 +4129,26 @@ def postgres_source(
                 else None
             )
 
+            # A server cursor idles in an open transaction through every Delta merge, and a replica
+            # that cancels reads during that idle kills each attempt at the same place. The handler
+            # below cannot resume past the first row, because the cursor's order is arbitrary, so
+            # it re-raises for a restart, and a restart on another cursor repeats the failure. The
+            # seek pages in autocommit, so nothing idles and a conflict resumes at the last key.
+            # Only from the second attempt, so a replica that never cancels keeps one snapshot.
+            if (
+                activity_attempt > 1
+                and using_read_replica
+                and keyset_primary_keys is not None
+                and not should_use_incremental_field
+                and xmin_bounds is None
+            ):
+                logger.debug(
+                    f"Attempt {activity_attempt} of a full-table read on a read replica. Seeking from the "
+                    f"start instead of reopening a server cursor. keys = {keyset_primary_keys}"
+                )
+                yield from offset_chunking(0, chunk_size, keyset_primary_keys=keyset_primary_keys)
+                return
+
             initial_read_drop_retries = 0
             initial_read_lock_timeout_retries = 0
             while True:
@@ -4069,28 +4202,32 @@ def postgres_source(
                 except psycopg.errors.SerializationFailure as e:
                     # If we hit a SerializationFailure and we're reading from a read replica, we fallback to offset chunking
                     if using_read_replica and "conflict with recovery" in "".join(e.args):
-                        # Paging by OFFSET needs a query that orders its rows, the precondition the
+                        # Paging by OFFSET needs a query whose order is total, the precondition the
                         # connection-dropped handler below also enforces. A full-table read orders
-                        # nothing, so seek on the primary key instead, and only from the start,
-                        # because rows already yielded are already written.
-                        if not should_use_incremental_field and xmin_bounds is None:
-                            if keyset_primary_keys is None:
-                                raise _unorderable_read_abort_error(schema, table_name) from e
-                            if offset > 0:
+                        # nothing, and an xmin read orders on a cursor that every row of one
+                        # transaction shares, so both seek on the primary key instead. Seeking can
+                        # only start from the top, because rows already yielded are already written.
+                        if not should_use_incremental_field:
+                            if keyset_primary_keys is not None and offset == 0:
+                                logger.debug(
+                                    f"Falling back to keyset chunking for table due to SerializationFailure error: {e}."
+                                )
+                                yield from offset_chunking(
+                                    0,
+                                    chunk_size,
+                                    from_recovery_conflict=True,
+                                    keyset_primary_keys=keyset_primary_keys,
+                                )
+                                return
+                            # An xmin read still has its cursor to page on, and it appends, so
+                            # restarting it would duplicate the rows it already wrote. Keep paging.
+                            if xmin_bounds is None:
+                                if keyset_primary_keys is None:
+                                    raise _unorderable_read_abort_error(schema, table_name) from e
                                 # Retryable, so Temporal restarts the read and the load overwrites
                                 # from the first batch. The next attempt can conflict before any row
                                 # is out, where seeking takes over.
                                 raise
-                            logger.debug(
-                                f"Falling back to keyset chunking for table due to SerializationFailure error: {e}."
-                            )
-                            yield from offset_chunking(
-                                0,
-                                chunk_size,
-                                from_recovery_conflict=True,
-                                keyset_primary_keys=keyset_primary_keys,
-                            )
-                            return
 
                         logger.debug(
                             f"Falling back to offset chunking for table due to SerializationFailure error: {e}."
@@ -4214,9 +4351,10 @@ class PostgresImplementation(SQLSourceImplementation[PostgresSourceConfig, psyco
         config: PostgresSourceConfig,
         *,
         require_ssl: bool = False,
+        team_id: int | None = None,
     ) -> Iterator[psycopg.Connection]:
         """Open a single psycopg connection (through the SSH tunnel if configured)."""
-        with open_ssh_tunnel(config) as (host, port):
+        with open_ssh_tunnel(config, team_id) as (host, port):
             with pg_connection(
                 host=host,
                 port=port,
@@ -4224,6 +4362,7 @@ class PostgresImplementation(SQLSourceImplementation[PostgresSourceConfig, psyco
                 user=config.user,
                 password=config.password,
                 require_ssl=require_ssl,
+                team_id=team_id,
             ) as conn:
                 yield conn
 

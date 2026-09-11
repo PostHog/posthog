@@ -49,6 +49,8 @@ import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSug
 import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
 import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
 import { CyclotronJobInputIntegrationMulti } from './integrations/CyclotronJobInputIntegrationMulti'
+import { declaresFieldScopes } from './integrations/fieldScopes'
+import { MissingScopesHint } from './integrations/MissingScopesHint'
 import { CyclotronJobInputConfiguration } from './types'
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
@@ -162,27 +164,29 @@ export function CyclotronJobInputs({
                 }}
             >
                 <SortableContext disabled={!showSource} items={inputSchemaIds} strategy={verticalListSortingStrategy}>
-                    {configuration.inputs_schema
-                        ?.filter((i: CyclotronJobInputSchemaType) => !i.hidden)
-                        .map((schema: CyclotronJobInputSchemaType) => {
-                            return (
-                                <CyclotronJobInputWithSchema
-                                    key={schema.key}
-                                    schema={schema}
-                                    configuration={configuration}
-                                    parentConfiguration={parentConfiguration}
-                                    onInputSchemaChange={onInputSchemaChange}
-                                    onInputChange={onInputChange}
-                                    showSource={showSource}
-                                    sampleGlobalsWithInputs={sampleGlobalsWithInputs}
-                                    errors={errors}
-                                    warnings={warnings}
-                                    emailFieldErrors={emailFieldErrors}
-                                    emailLiveChanges={emailLiveChanges}
-                                    emailSaveIndicator={emailSaveIndicator}
-                                />
-                            )
-                        })}
+                    <div className="flex flex-col gap-3">
+                        {configuration.inputs_schema
+                            ?.filter((i: CyclotronJobInputSchemaType) => !i.hidden)
+                            .map((schema: CyclotronJobInputSchemaType) => {
+                                return (
+                                    <CyclotronJobInputWithSchema
+                                        key={schema.key}
+                                        schema={schema}
+                                        configuration={configuration}
+                                        parentConfiguration={parentConfiguration}
+                                        onInputSchemaChange={onInputSchemaChange}
+                                        onInputChange={onInputChange}
+                                        showSource={showSource}
+                                        sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                                        errors={errors}
+                                        warnings={warnings}
+                                        emailFieldErrors={emailFieldErrors}
+                                        emailLiveChanges={emailLiveChanges}
+                                        emailSaveIndicator={emailSaveIndicator}
+                                    />
+                                )
+                            })}
+                    </div>
                 </SortableContext>
             </DndContext>
         </>
@@ -981,13 +985,23 @@ function CyclotronJobInputWithSchema({
         >
             {!editing ? (
                 <LemonField.Pure
+                    className="gap-1"
                     error={error}
                     help={
-                        typeof schema.description === 'string' ? (
-                            <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
-                                {schema.description}
-                            </LemonMarkdown>
-                        ) : undefined
+                        <>
+                            {typeof schema.description === 'string' ? (
+                                <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
+                                    {schema.description}
+                                </LemonMarkdown>
+                            ) : null}
+                            {declaresFieldScopes(schema) ? (
+                                <MissingScopesHint
+                                    schema={schema}
+                                    configuration={configuration}
+                                    parentConfiguration={parentConfiguration}
+                                />
+                            ) : null}
+                        </>
                     }
                 >
                     <>

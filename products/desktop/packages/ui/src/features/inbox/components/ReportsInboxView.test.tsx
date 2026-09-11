@@ -7,6 +7,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   activeReports: [] as SignalReport[],
+  setupStatusLoading: false,
+  setupConfigured: true,
+  navigateToSettings: vi.fn(),
   navigateToInboxReportDetail: vi.fn(),
   prefetchReport: vi.fn(),
   prefetchRoute: vi.fn(),
@@ -120,6 +123,13 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxSectionCounts", () => ({
   }),
 }));
 
+vi.mock("@posthog/ui/features/inbox/hooks/useSelfDrivingSetupStatus", () => ({
+  useSelfDrivingSetupStatus: () => ({
+    isLoading: mocks.setupStatusLoading,
+    isConfigured: mocks.setupConfigured,
+  }),
+}));
+
 vi.mock("@posthog/ui/features/inbox/hooks/useTrackReportsInboxViewed", () => ({
   useTrackReportsInboxViewed: () => undefined,
 }));
@@ -139,7 +149,7 @@ vi.mock(
 );
 
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
-  navigateToAgents: vi.fn(),
+  navigateToSettings: mocks.navigateToSettings,
   navigateToInboxReportDetail: mocks.navigateToInboxReportDetail,
 }));
 
@@ -180,6 +190,11 @@ vi.mock("@posthog/ui/features/inbox/components/InboxScopeSelect", () => ({
   InboxScopeSelect: () => null,
 }));
 
+vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
+  useChannelsLayout: () => false,
+}));
+
+import { InboxTriagePane } from "./InboxTriagePane";
 import { ReportsInboxView } from "./ReportsInboxView";
 
 function archivedReport(id: string, title: string): SignalReport {
@@ -209,6 +224,8 @@ describe("ReportsInboxView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.activeReports = [];
+    mocks.setupStatusLoading = false;
+    mocks.setupConfigured = true;
     mocks.searchQuery = "checkout";
     mocks.triageFocusEnabled = false;
     mocks.triageProps = null;
@@ -247,10 +264,22 @@ describe("ReportsInboxView", () => {
     ).toEqual(["ready", "ready,pending_input", "resolved,suppressed"]);
   });
 
-  it("shows the empty state when no selected reports exist", () => {
+  it("offers agent configuration when no reports or agents exist", async () => {
+    mocks.setupConfigured = false;
+    render(<ReportsInboxView />);
+
+    expect(screen.getByText("Ship fixes while you sleep")).toBeTruthy();
+    expect(screen.getAllByText("Configure agents")).toHaveLength(1);
+    await userEvent.click(screen.getByText("Configure agents"));
+    expect(mocks.navigateToSettings).toHaveBeenCalledWith("agents");
+  });
+
+  it("shows the plain empty state instead of the welcome when something is configured", () => {
+    mocks.setupConfigured = true;
     render(<ReportsInboxView />);
 
     expect(screen.getByText("Nothing to review")).toBeTruthy();
+    expect(screen.queryByText("Ship fixes while you sleep")).toBeNull();
   });
 
   it("opens a report on the first click without preloading its route", async () => {
@@ -347,7 +376,7 @@ describe("ReportsInboxView", () => {
     ).toBe(true);
   });
 
-  it("returns to the same report in triage mode", () => {
+  it("resumes triage on the report it opened", () => {
     mocks.activeReports = [
       {
         ...activeReport("merge-report", "Merge report"),
@@ -361,7 +390,7 @@ describe("ReportsInboxView", () => {
       inboxTriageOrigin: { reportId: "second-report" },
     };
 
-    render(<ReportsInboxView />);
+    render(<InboxTriagePane />);
 
     expect(mocks.triageProps?.initialReportId).toBe("second-report");
     expect(mocks.triageProps?.reports.map((report) => report.id)).toEqual([

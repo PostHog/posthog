@@ -17,6 +17,8 @@ class LogsViewColumnType(models.TextChoices):
     SOURCE = "source", "source"
     TRACE_ID = "trace_id", "trace_id"
     SPAN_ID = "span_id", "span_id"
+    PERSON = "person", "person"
+    SESSION = "session", "session"
     PATTERN = "pattern", "pattern"
     MESSAGE = "message", "message"
     CUSTOM = "custom", "custom"

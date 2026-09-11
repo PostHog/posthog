@@ -1,7 +1,7 @@
 import math
 from datetime import datetime
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 from posthog.schema import CompareFilter, DateRange, WebOverviewQuery
@@ -27,7 +27,7 @@ class TestWebOverviewStateTransform(ClickhouseTestMixin, APIBaseTest):
     def _create_events(self, data, event="$pageview"):
         person_result = []
         for id, timestamps in data:
-            with freeze_time(timestamps[0][0]):
+            with time_machine.travel(timestamps[0][0], tick=False):
                 person_result.append(
                     _create_person(
                         team_id=self.team.pk,
@@ -67,7 +67,7 @@ class TestWebOverviewStateTransform(ClickhouseTestMixin, APIBaseTest):
         compare: bool = False,
     ):
         """Run the web overview query and return both original and state-transformed results."""
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             query = WebOverviewQuery(
                 dateRange=DateRange(date_from=date_from, date_to=date_to),
                 properties=[],

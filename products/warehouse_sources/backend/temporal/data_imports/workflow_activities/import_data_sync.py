@@ -74,6 +74,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.his
     history_start_for_schema,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import TemporaryHostResolutionError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
     RESTClientRetryableError,
@@ -145,8 +146,19 @@ WAREHOUSE_READABLE_PARENT_SYNC_TYPES = frozenset(
 )
 
 
+# Opening the parent's Delta table costs a few seconds that paging the vendor listing does not:
+# resolve the table, read the transaction log, start the scan. That cost is fixed, while the
+# listing it replaces grows with the parent, so a small parent pays more than it saves. Measured
+# after the conversion shipped, the swap costs ~3s a run against a listing of ~0.5s per 100-row
+# page, putting break-even near 700 rows. This floor sits above it with margin.
+MIN_WAREHOUSE_PARENT_ROWS = 1_000
+
+
 def _parent_unusable_reason(parent: ExternalDataSchema | None) -> str | None:
-    """Why a fan-out child can't read this parent from the warehouse, or None when it can."""
+    """Why a fan-out child can't read this parent from the warehouse, or None when it can.
+
+    Reads the parent's row count, so callers have to run this where a query is allowed.
+    """
     if parent is None:
         return "missing"
     if not parent.should_sync:
@@ -155,6 +167,11 @@ def _parent_unusable_reason(parent: ExternalDataSchema | None) -> str | None:
         return "unsupported_sync_type"
     if not parent.initial_sync_complete:
         return "no_initial_sync"
+    parent_rows = parent.table.row_count if parent.table else None
+    if parent_rows is None or parent_rows < MIN_WAREHOUSE_PARENT_ROWS:
+        # An unknown count is treated as too small: it cannot be shown to pay for the read, and
+        # the API path it falls back to is what the child does today anyway.
+        return "parent_too_small"
     return None
 
 
@@ -184,7 +201,7 @@ async def _warehouse_parent_reuse_available(
 
     for parent_name in required_parents:
         parent = await database_sync_to_async_pool(get_schema_if_exists)(parent_name, team_id, source_id)
-        unusable_reason = _parent_unusable_reason(parent)
+        unusable_reason = await database_sync_to_async_pool(_parent_unusable_reason)(parent)
         if unusable_reason is not None:
             await logger.ainfo(
                 "data_imports.fanout_parent_unusable",
@@ -425,7 +442,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         if delta_rebuild_pending:
             await logger.adebug("Ignoring the incremental cursor: a corrupt-delta revive rebuilds the table this run")
 
-        if reset_pipeline is not True and not delta_rebuild_pending:
+        use_stored_cursors = reset_pipeline is not True and not delta_rebuild_pending
+        if use_stored_cursors:
             processed_incremental_last_value = process_incremental_value(
                 schema.sync_type_config.get("incremental_field_last_value"),
                 schema.sync_type_config.get("incremental_field_type"),
@@ -504,6 +522,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 else None,
                 db_incremental_field_last_value_before_lookback=incremental_last_value_before_lookback,
                 history_start=history_start,
+                last_synced_at=schema.last_synced_at if use_stored_cursors else None,
                 logger=logger,
                 job_id=inputs.run_id,
                 reset_pipeline=reset_pipeline,
@@ -515,6 +534,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
                 byte_bounded_extraction=byte_bounded_extraction,
+                activity_attempt=activity.info().attempt if activity.in_activity() else 1,
             )
 
             try:
@@ -789,6 +809,15 @@ async def _handle_import_error(
         await logger.awarning(error_msg)
         await logger.adebug("REST client exhausted its retries - re-raising for Temporal retry")
         raise error
+
+    # The host policy's own lookup answered "try again" rather than a verdict on the host, so the
+    # source is fine and a fresh attempt recovers. Classify it by type: every SQL source reaches
+    # this through the shared tunnel layer, and the message carries the host, so no source could
+    # list it in get_retryable_errors.
+    if isinstance(error, TemporaryHostResolutionError):
+        await logger.awarning(error_msg)
+        await logger.adebug("Temporary host resolution failure - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
 
     # A transient S3/object-store hiccup talking to our own data-warehouse bucket (IMDS/STS
     # blip, SlowDown throttling) that surfaced during this run — e.g. resetting or opening the
