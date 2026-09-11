@@ -2,22 +2,16 @@
 
 from collections.abc import Mapping
 from enum import Enum
-from typing import Any, Literal, NotRequired, Protocol, TypedDict, get_args
+from typing import Any, Literal, NotRequired, TypedDict, get_args
 
 from posthog.dataclasses import frozen
-
-from products.feature_flags.backend.facade.config import ConfigV2
 
 ManagementWarningCode = Literal[
     "RULE_ORDER_CHANGES_TRAFFIC",
     "UNREACHABLE_LOWER_RULE",
     "ROLLOUT_MISS_CAN_ENTER_LOWER_RULE",
     "ASSIGNMENT_RESET_CHANGES_TRAFFIC",
-    "EXPERIMENT_VALUE_COLLISION",
     "CONCLUSION_EXPANDS_POPULATION",
-    "SDK_REMOTE_FALLBACK_REQUIRED",
-    "SDK_EXPERIMENT_CONTEXT_MISSING",
-    "LEGACY_PROJECTION_LIMITED",
 ]
 
 
@@ -68,18 +62,3 @@ def parse_management_warning(value: Mapping[str, Any]) -> ManagementWarning:
         raise ValueError("Management warning detail must be a string")
     # Construction validates the member types and the closed code set.
     return ManagementWarning(code=value["code"], detail=value.get("detail"), attr=value.get("attr", _Absent.VALUE))
-
-
-class WarningDetector(Protocol):
-    def __call__(self, config: ConfigV2, previous: ConfigV2 | None = None) -> list[ManagementWarning]: ...
-
-
-class ManagementWarningValidator:
-    def __init__(self) -> None:
-        self._detectors: list[WarningDetector] = []
-
-    def register(self, detector: WarningDetector) -> None:
-        self._detectors.append(detector)
-
-    def __call__(self, config: ConfigV2, previous: ConfigV2 | None = None) -> list[ManagementWarning]:
-        return [warning for detector in self._detectors for warning in detector(config, previous)]
