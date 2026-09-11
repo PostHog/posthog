@@ -121,7 +121,10 @@ import {
   useTurnFeedback,
 } from "@posthog/ui/features/sessions/sessionViewStore";
 import { useThreadScrollRequest } from "@posthog/ui/features/sessions/threadNavigationStore";
-import type { UserMessageAttachment } from "@posthog/ui/features/sessions/userMessageTypes";
+import {
+  NO_ATTACHMENTS,
+  type UserMessageAttachment,
+} from "@posthog/ui/features/sessions/userMessageTypes";
 import {
   SessionTaskIdProvider,
   useSessionTaskId,
@@ -154,8 +157,6 @@ import {
 import { useHotkeys } from "react-hotkeys-hook";
 
 type SessionUpdateItem = Extract<ConversationItem, { type: "session_update" }>;
-
-const NO_ATTACHMENTS: UserMessageAttachment[] = [];
 
 function isToolCallItem(item: ConversationItem): item is SessionUpdateItem {
   return (

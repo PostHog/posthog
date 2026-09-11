@@ -4,7 +4,10 @@ import { motion } from "framer-motion";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Tooltip } from "../../../../primitives/Tooltip";
 import { MarkdownRenderer } from "../../../editor/components/MarkdownRenderer";
-import type { UserMessageAttachment } from "../../userMessageTypes";
+import {
+  NO_ATTACHMENTS,
+  type UserMessageAttachment,
+} from "../../userMessageTypes";
 import { UserMessageAttachments } from "../UserMessageAttachments";
 import { CollapsibleMessageContent } from "./CollapsibleMessageContent";
 import { InjectedBlockChips } from "./InjectedBlockChips";
@@ -26,8 +29,6 @@ interface UserMessageProps {
   taskId?: string;
   keyboardFocused?: boolean;
 }
-
-const NO_ATTACHMENTS: UserMessageAttachment[] = [];
 
 function formatTimestamp(ts: number): string {
   return new Date(ts).toLocaleString([], {

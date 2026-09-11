@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  extractImageFileTags,
   extractPromptDisplayContent,
   makeAttachmentUri,
   parseAttachmentUri,
+  resolveMessageAttachments,
 } from "./promptContent";
 
 describe("promptContent", () => {
@@ -107,37 +107,61 @@ describe("promptContent", () => {
     ]);
   });
 
+  const clipboardImage = {
+    id: "file:///tmp/posthog-code-clipboard/attachment-abc/clipboard.png",
+    label: "clipboard.png",
+  };
+
   it.each([
     {
       name: "lifts a composer image tag out of the text",
       text: 'look at this <file path="/tmp/posthog-code-clipboard/attachment-abc/clipboard.png" />',
-      expected: {
-        text: "look at this",
-        attachments: [
-          {
-            id: "file:///tmp/posthog-code-clipboard/attachment-abc/clipboard.png",
-            label: "clipboard.png",
-          },
-        ],
-      },
+      given: [],
+      expected: { text: "look at this", attachments: [clipboardImage] },
     },
     {
       name: "keeps images outside the composer folder inline",
-      text: 'see <file path="/Users/me/Pictures/secret.png" /> and <file path="src/logo.png" />',
+      text: 'see <file path="/Users/me/Pictures/secret.png" />',
+      given: [],
       expected: {
-        text: 'see <file path="/Users/me/Pictures/secret.png" /> and <file path="src/logo.png" />',
+        text: 'see <file path="/Users/me/Pictures/secret.png" />',
+        attachments: [],
+      },
+    },
+    {
+      name: "keeps network share paths inline",
+      text: 'see <file path="\\\\host\\share\\posthog-code-clipboard\\attachment-a\\x.png" />',
+      given: [],
+      expected: {
+        text: 'see <file path="\\\\host\\share\\posthog-code-clipboard\\attachment-a\\x.png" />',
         attachments: [],
       },
     },
     {
       name: "keeps non-image composer files inline",
       text: 'see <file path="/tmp/posthog-code-clipboard/attachment-abc/notes.md" />',
+      given: [],
       expected: {
         text: 'see <file path="/tmp/posthog-code-clipboard/attachment-abc/notes.md" />',
         attachments: [],
       },
     },
-  ])("extractImageFileTags $name", ({ text, expected }) => {
-    expect(extractImageFileTags(text)).toEqual(expected);
+    {
+      name: "drops a summary that names only the shown files",
+      text: "Attached files: clipboard.png",
+      given: [clipboardImage],
+      expected: { text: "", attachments: [clipboardImage] },
+    },
+    {
+      name: "keeps a summary that names a file it does not show",
+      text: "hello\n\nAttached files: other.png",
+      given: [clipboardImage],
+      expected: {
+        text: "hello\n\nAttached files: other.png",
+        attachments: [clipboardImage],
+      },
+    },
+  ])("resolveMessageAttachments $name", ({ text, given, expected }) => {
+    expect(resolveMessageAttachments(text, given)).toEqual(expected);
   });
 });

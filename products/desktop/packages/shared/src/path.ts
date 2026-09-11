@@ -58,16 +58,19 @@ export function getFileExtension(filePath: string): string {
 export const CLIPBOARD_ATTACHMENT_DIR_NAME = "posthog-code-clipboard";
 export const CLIPBOARD_ATTACHMENT_PREFIX = "attachment-";
 
-const CLIPBOARD_ATTACHMENT_PATH_REGEX = new RegExp(
-  `[\\\\/]${CLIPBOARD_ATTACHMENT_DIR_NAME}[\\\\/]${CLIPBOARD_ATTACHMENT_PREFIX}[^\\\\/]+[\\\\/][^\\\\/]+$`,
-);
-
-/** True for a file the composer saved, at `<tmp>/posthog-code-clipboard/attachment-*\/<name>`. */
+/** True for a path shaped like a composer-saved file: `<dir>/posthog-code-clipboard/attachment-*\/<name>`. */
 export function isClipboardAttachmentPath(filePath: string): boolean {
+  const normalized = filePath.replaceAll("\\", "/");
+  if (!isAbsolutePath(filePath) || normalized.startsWith("//")) return false;
+  const segments = normalized.split("/");
+  const [dir, folder, name] = segments.slice(-3);
   return (
-    isAbsolutePath(filePath) &&
-    CLIPBOARD_ATTACHMENT_PATH_REGEX.test(filePath) &&
-    !filePath.split(/[\\/]/).includes("..")
+    dir === CLIPBOARD_ATTACHMENT_DIR_NAME &&
+    folder !== undefined &&
+    folder.length > CLIPBOARD_ATTACHMENT_PREFIX.length &&
+    folder.startsWith(CLIPBOARD_ATTACHMENT_PREFIX) &&
+    !!name &&
+    !segments.includes("..")
   );
 }
 

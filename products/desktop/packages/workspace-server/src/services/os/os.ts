@@ -29,6 +29,7 @@ import {
   CLIPBOARD_ATTACHMENT_DIR_NAME,
   CLIPBOARD_ATTACHMENT_PREFIX,
   IMAGE_MIME_TYPES,
+  isClipboardAttachmentPath,
   isRasterImageFile,
 } from "@posthog/shared";
 import { inject, injectable } from "inversify";
@@ -54,6 +55,17 @@ const CLIPBOARD_TEMP_DIR = path.join(
   CLIPBOARD_ATTACHMENT_DIR_NAME,
 );
 const claudeSettingsPath = path.join(os.homedir(), ".claude", "settings.json");
+
+async function isInsideClipboardTempDir(filePath: string): Promise<boolean> {
+  const [realFile, realDir] = await Promise.all([
+    fsPromises.realpath(filePath),
+    fsPromises.realpath(CLIPBOARD_TEMP_DIR),
+  ]);
+  const relative = path.relative(realDir, realFile);
+  return (
+    relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative)
+  );
+}
 
 // User-level agent instruction files as path segments under the home
 // directory, most-preferred first: AGENTS.md (the cross-agent convention) from
@@ -493,6 +505,13 @@ export class OsService {
     maxSizeBytes: number,
   ): Promise<string | null> {
     try {
+      // Message text can name a clipboard-shaped path, so it must resolve inside the real folder.
+      if (
+        isClipboardAttachmentPath(filePath) &&
+        !(await isInsideClipboardTempDir(filePath))
+      ) {
+        return null;
+      }
       const stat = await fsPromises.stat(filePath);
       if (stat.size > maxSizeBytes) return null;
 
