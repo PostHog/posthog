@@ -16,6 +16,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
+import { isUUIDLike } from 'lib/utils/guards'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -54,9 +55,11 @@ interface MaxProps {
 export const scene: SceneExport<MaxProps> = {
     component: Max,
     logic: maxLogic,
-    paramsToProps: ({ searchParams }) => ({
-        taskId: typeof searchParams.task === 'string' ? searchParams.task : undefined,
-    }),
+    paramsToProps: ({ searchParams }) => {
+        const taskId = searchParams.task
+
+        return { taskId: typeof taskId === 'string' && isUUIDLike(taskId) ? taskId : undefined }
+    },
 }
 
 export function Max({ tabId, taskId }: MaxProps): JSX.Element {
