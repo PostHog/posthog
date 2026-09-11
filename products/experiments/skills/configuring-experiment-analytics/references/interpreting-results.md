@@ -9,6 +9,18 @@ Each entry carries per-variant exposures, counts, means, credible intervals, cha
 The run also carries `query_to`, the data freshness cutoff the numbers were computed against.
 Use `query_to` to tell the user how fresh the results are.
 
+The entries are keyed by `metric_uuid`.
+They do not carry the metric name, its primary or secondary role, or its goal direction.
+Call `experiment-get` and map each `metric_uuid` to its metric before you interpret the numbers.
+
+- Name and role: the `metrics` array holds the primary metrics, and `metrics_secondary` holds the secondary ones.
+  A saved metric's role is in `saved_metrics[].metadata.type`.
+- Goal: each metric's `goal` is `increase` or `decrease`.
+  It says which direction is an improvement.
+
+Without the goal you cannot tell an improvement from a regression.
+A decrease on a `decrease` metric is a win, not a loss.
+
 Read two fields before you report anything:
 
 - `active_run`: a run is executing now, and the numbers you got come from the previous run.
