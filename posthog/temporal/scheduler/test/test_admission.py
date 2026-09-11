@@ -195,6 +195,7 @@ class TestReserveSchedulerClaims(TestCase):
             tenant_key="team:1",
             occurrence_key="one",
             workflow_id="workflow-one",
+            source_due_at=datetime(2026, 9, 10, tzinfo=UTC),
             claim_token=claim_token,
         )
 
@@ -225,6 +226,7 @@ class TestReserveSchedulerClaims(TestCase):
             tenant_key="team:1",
             occurrence_key="one",
             workflow_id="workflow-one",
+            source_due_at=datetime(2026, 9, 10, tzinfo=UTC),
             claim_token=owner_token,
         )
         first = reserve_scheduler_claims(
