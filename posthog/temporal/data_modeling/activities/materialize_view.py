@@ -34,6 +34,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseError,
     get_client as get_clickhouse_client,
 )
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_modeling.activities.incremental_write import (
@@ -170,7 +171,7 @@ class EmptyHogQLResponseColumnsError(Exception):
         super().__init__("After running a HogQL query, no columns were returned")
 
 
-class DuplicateOutputColumnError(Exception):
+class DuplicateOutputColumnError(NonReportableError):
     """Both consumers of the probe address a column by name: the type wrapper rebuilds the select
     list from it, and the arrow transform looks it up on the batch. Neither can say which of two
     same-named columns is meant, so the repeat is refused rather than resolved arbitrarily."""

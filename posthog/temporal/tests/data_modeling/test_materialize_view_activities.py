@@ -22,6 +22,7 @@ from posthog.hogql.resolver import ResolverFactory
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseError
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.data_modeling.activities import (
     CreateDataModelingJobInputs,
     FailMaterializationInputs,
@@ -1705,6 +1706,8 @@ class TestHogqlTableDuplicateOutputColumns:
         assert error.value.duplicates == ["event"]
         assert '"event"' in str(error.value)
         assert client.arrow_query_calls == 0
+        # a broken saved query is the customer's to fix, so the refusal must not reach error tracking
+        assert isinstance(error.value, NonReportableError)
 
 
 class _SlowDescribeClient(_EmptyArrowClient):
