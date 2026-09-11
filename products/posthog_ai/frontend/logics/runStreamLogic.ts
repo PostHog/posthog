@@ -378,6 +378,8 @@ function normalizeNotificationEntry(entry: unknown): StoredLogEntry | null {
         type: 'notification',
         ...(typeof entry.timestamp === 'string' ? { timestamp: entry.timestamp } : {}),
         ...(typeof entry.source_run_id === 'string' ? { source_run_id: entry.source_run_id } : {}),
+        ...(typeof entry.event_id === 'string' ? { event_id: entry.event_id } : {}),
+        ...(typeof entry.first_event_id === 'string' ? { first_event_id: entry.first_event_id } : {}),
         notification: entry.notification,
     } as StoredLogEntry
 }
@@ -915,18 +917,17 @@ function isResumeContextPrompt(text: string): boolean {
     return text.startsWith(RESUME_CONTEXT_PREFIX)
 }
 
-/**
- * One-shot multiset reconciliation of the bootstrap seam (port of the reference client's
- * `drainBufferedLogBatches`). While the S3 history loads we connect the live SSE first and buffer
- * its frames; some buffered frames are the same logical entries the history already contains (the
- * live stream and the S3 log overlap around the connect cutoff). This drops each buffered frame a
- * historical frame accounts for, keyed on the ACP `notification` payload — the only field identical
- * across both copies. The SSE `id` is the Redis stream id (absent from S3), and the envelope
- * `timestamp` is stamped independently on the persist and the live-publish paths, so neither can be
- * part of the key. A *multiset* (counts, not a set) so N genuine repeats of an identical payload
- * survive: each historical copy absorbs exactly one buffered copy, and any buffered surplus passes
- * through. Steady-state live frames after the drain are appended directly and never deduped.
- */
+function parseAgentEventId(eventId: string): { boot: string; sequence: number } | null {
+    const match = /^(.+)-(\d+)$/.exec(eventId)
+    if (!match) {
+        return null
+    }
+    const sequence = Number(match[2])
+    return Number.isSafeInteger(sequence) ? { boot: match[1], sequence } : null
+}
+
+// The persisted log coalesces chunks and strips adapter fields, so payload equality cannot identify
+// modern overlap. Agent event IDs survive both paths; SSE IDs and timestamps do not.
 function dedupeBufferedAgainstHistory(buffered: StoredLogEntry[], history: StoredLogEntry[]): StoredLogEntry[] {
     const seamKey = (entry: StoredLogEntry): string =>
         JSON.stringify([
@@ -936,17 +937,67 @@ function dedupeBufferedAgainstHistory(buffered: StoredLogEntry[], history: Store
                 : undefined,
             entry.notification,
         ])
-    const historicalCounts = new Map<string, number>()
-    for (const entry of history) {
+    const historicalEntries = new Map<string, number[]>()
+    const eventIds = new Map<string, number>()
+    const eventRanges = new Map<string, { first: number; last: number; index: number }[]>()
+    const hasEventId = (entry: StoredLogEntry): entry is StoredLogEntry & { event_id: string } =>
+        typeof entry.event_id === 'string' && entry.event_id !== ''
+    for (const [index, entry] of history.entries()) {
         const key = seamKey(entry)
-        historicalCounts.set(key, (historicalCounts.get(key) ?? 0) + 1)
+        const entries = historicalEntries.get(key) ?? []
+        entries.push(index)
+        historicalEntries.set(key, entries)
+        if (!hasEventId(entry) || !entry.source_run_id) {
+            continue
+        }
+        eventIds.set(JSON.stringify([entry.source_run_id, entry.event_id]), index)
+        if (typeof entry.first_event_id !== 'string' || !entry.first_event_id) {
+            continue
+        }
+        eventIds.set(JSON.stringify([entry.source_run_id, entry.first_event_id]), index)
+        const first = parseAgentEventId(entry.first_event_id)
+        const last = parseAgentEventId(entry.event_id)
+        if (first && last && first.boot === last.boot && first.sequence <= last.sequence) {
+            const rangeKey = JSON.stringify([entry.source_run_id, first.boot])
+            const ranges = eventRanges.get(rangeKey) ?? []
+            ranges.push({ first: first.sequence, last: last.sequence, index })
+            eventRanges.set(rangeKey, ranges)
+        }
     }
+    const consumedHistory = new Set<number>()
     const survivors: StoredLogEntry[] = []
     for (const entry of buffered) {
+        let coveredIndex = hasEventId(entry)
+            ? eventIds.get(JSON.stringify([entry.source_run_id, entry.event_id]))
+            : undefined
+        if (coveredIndex === undefined && hasEventId(entry)) {
+            const parsed = parseAgentEventId(entry.event_id)
+            if (parsed) {
+                coveredIndex = eventRanges
+                    .get(JSON.stringify([entry.source_run_id, parsed.boot]))
+                    ?.find(({ first, last }) => first <= parsed.sequence && parsed.sequence <= last)?.index
+            }
+        }
+        if (coveredIndex !== undefined) {
+            consumedHistory.add(coveredIndex)
+            continue
+        }
+
+        // Legacy overlap remains a multiset: each historical copy absorbs only one live copy.
+        // Different stable IDs establish distinct events even when their payloads are identical.
         const key = seamKey(entry)
-        const remaining = historicalCounts.get(key) ?? 0
-        if (remaining > 0) {
-            historicalCounts.set(key, remaining - 1)
+        const matchingIndex = historicalEntries
+            .get(key)
+            ?.find(
+                (index) =>
+                    !consumedHistory.has(index) &&
+                    (!hasEventId(entry) || !hasEventId(history[index])) &&
+                    (!entry.source_run_id ||
+                        !history[index].source_run_id ||
+                        entry.source_run_id === history[index].source_run_id)
+            )
+        if (matchingIndex !== undefined) {
+            consumedHistory.add(matchingIndex)
             continue
         }
         survivors.push(entry)
