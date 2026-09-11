@@ -174,7 +174,9 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
                 if bound_idx < len(bounds) and bounds[bound_idx] == bound and bound_idx < len(row_counts):
                     counts[bound_idx][column] += int(row_counts[bound_idx])
 
-        return MetricsHistogramQueryResponse(times=grid_times, bounds=[float(b) for b in bounds], counts=counts)
+        # The base response requires `results`; the heatmap grid lives in times/bounds/counts,
+        # so `results` is returned as null.
+        return MetricsHistogramQueryResponse(results=None, times=grid_times, bounds=[float(b) for b in bounds], counts=counts)
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> None:
         if dashboard_filter.date_from or dashboard_filter.date_to:

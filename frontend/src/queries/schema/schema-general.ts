@@ -4676,6 +4676,8 @@ export interface MetricsHistogramQuery extends DataNode<MetricsHistogramQueryRes
 }
 
 export interface MetricsHistogramQueryResponse extends AnalyticsQueryResponseBase {
+    /** The grid lives in `times`/`bounds`/`counts`; the base `results` array is unused and the
+     * runner returns it as null. */
     /** Bucket start per column (x axis), ISO 8601, ascending. */
     times: string[]
     /** Upper bound per row (y axis), ascending. */
