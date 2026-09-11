@@ -6,7 +6,7 @@ import type {
   AgentConversationEvent,
   McpToolPermissionRequest,
 } from "@posthog/shared";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   type PiConversationEventContext,
   PiOperationError,
@@ -85,6 +85,87 @@ function createSession(): PiSession {
 }
 
 describe("PiSessionController", () => {
+  afterEach(() => vi.useRealTimers());
+  it("publishes a burst once, deduplicates chunks, and flushes before completion", async () => {
+    vi.useFakeTimers();
+    const session = createSession();
+    let receive: (event: AgentConversationEvent) => void = () => {};
+    vi.mocked(session.onConversationEvent).mockImplementation((handler) => {
+      receive = handler;
+      return () => {};
+    });
+    const controller = createController(session);
+    await controller.connect("task-1");
+    await controller.submit("task-1", "continue", false, "steer");
+    const published = vi.fn();
+    controller.store.subscribe(published);
+    const chunks: AgentConversationEvent[] = Array.from(
+      { length: 100 },
+      (_, i) => ({
+        type: "assistant_message_chunk",
+        timestamp: i + 1,
+        sourceId: `chunk-${i}`,
+        content: { type: "text", text: `part ${i}` },
+      }),
+    );
+    for (const chunk of chunks) receive(chunk);
+    receive(chunks[0]);
+    expect(published).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(16);
+    expect(published).toHaveBeenCalledOnce();
+    expect(controller.store.getState().sessions["task-1"].events).toEqual(
+      chunks,
+    );
+    const tail: AgentConversationEvent = {
+      type: "assistant_thought_chunk",
+      timestamp: 101,
+      content: { type: "text", text: "done" },
+      sourceId: "tail",
+    };
+    const completion: AgentConversationEvent = {
+      type: "turn_completed",
+      timestamp: 102,
+    };
+    receive(tail);
+    receive(completion);
+    expect(controller.store.getState().sessions["task-1"].events).toEqual([
+      ...chunks,
+      tail,
+      completion,
+    ]);
+    receive(chunks[0]);
+    vi.advanceTimersByTime(16);
+    expect(
+      controller.store.getState().sessions["task-1"].status?.isStreaming,
+    ).toBe(false);
+    expect(controller.store.getState().sessions["task-1"].events).toHaveLength(
+      102,
+    );
+  });
+
+  it("cancels buffered text on disconnect without repopulating released history", async () => {
+    vi.useFakeTimers();
+    const session = createSession();
+    let receive: (event: AgentConversationEvent) => void = () => {};
+    vi.mocked(session.onConversationEvent).mockImplementation((handler) => {
+      receive = handler;
+      return () => {};
+    });
+    const controller = createController(session);
+    await controller.connect("task-1");
+    receive({
+      type: "assistant_message_chunk",
+      timestamp: 1,
+      content: { type: "text", text: "pending" },
+    });
+    controller.disconnect("task-1");
+    vi.advanceTimersByTime(100);
+    expect(controller.store.getState().sessions["task-1"].events).toEqual([]);
+    expect(controller.store.getState().sessions["task-1"].connectionState).toBe(
+      "disconnected",
+    );
+  });
+
   it("queues concurrent MCP permission requests", async () => {
     const session = createSession();
     let onRequest: ((request: McpToolPermissionRequest) => void) | undefined;
@@ -698,6 +779,7 @@ describe("PiSessionController", () => {
   });
 
   it("keeps a backgrounded Pi turn subscribed until it completes", async () => {
+    vi.useFakeTimers();
     let onEvent: (event: AgentConversationEvent) => void = () => {};
     const unsubscribe = vi.fn();
     const session = createSession();
@@ -710,6 +792,7 @@ describe("PiSessionController", () => {
     await controller.connect("task-1");
     await controller.submit("task-1", "continue", false, "steer");
     controller.release("task-1");
+    vi.advanceTimersByTime(16);
 
     expect(unsubscribe).not.toHaveBeenCalled();
 
@@ -1384,6 +1467,7 @@ describe("PiSessionController", () => {
   });
 
   it("does not briefly duplicate retained events during reconnect snapshots", async () => {
+    vi.useFakeTimers();
     const retainedEvent: AgentConversationEvent = {
       type: "assistant_message_chunk",
       timestamp: 1,
@@ -1414,6 +1498,7 @@ describe("PiSessionController", () => {
       expect(session.onConversationEvent).toHaveBeenCalledTimes(2),
     );
     onEvent(retainedEvent);
+    vi.advanceTimersByTime(16);
 
     expect(controller.store.getState().sessions["task-1"].events).toEqual([
       retainedEvent,
