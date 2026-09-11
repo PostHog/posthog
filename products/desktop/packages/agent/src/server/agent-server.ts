@@ -156,6 +156,7 @@ const agentErrorClassificationSchema = z.enum([
   "upstream_connection_error",
   "upstream_timeout",
   "upstream_provider_failure",
+  "upstream_capacity",
   "content_block_rejection",
   "turn_ended_without_response",
   "subscription_usage_limit",
@@ -201,6 +202,28 @@ export const SSE_KEEPALIVE_INTERVAL_MS = 25_000;
 // cut once, without letting a hard upstream outage loop forever.
 const MAX_UPSTREAM_TURN_RETRIES = 2;
 const UPSTREAM_TURN_RETRY_DELAY_MS = 5_000;
+// A capacity refusal clears when the provider's queue for the requested
+// service tier drains, which takes longer than a dropped socket recovers.
+// Retry it further apart, and more often, so a burst does not kill the run.
+const MAX_UPSTREAM_CAPACITY_RETRIES = 4;
+const UPSTREAM_CAPACITY_RETRY_BASE_DELAY_MS = 15_000;
+
+function upstreamRetryBudget(classification: AgentErrorClassification): number {
+  return classification === "upstream_capacity"
+    ? MAX_UPSTREAM_CAPACITY_RETRIES
+    : MAX_UPSTREAM_TURN_RETRIES;
+}
+
+function upstreamRetryDelayMs(
+  classification: AgentErrorClassification,
+  attempt: number,
+): number {
+  if (classification !== "upstream_capacity") {
+    return UPSTREAM_TURN_RETRY_DELAY_MS;
+  }
+  return UPSTREAM_CAPACITY_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+}
+
 const PENDING_ARTIFACT_MAX_ATTEMPTS = 4;
 const PENDING_ARTIFACT_RETRY_DELAY_MS = 500;
 
@@ -2597,7 +2620,7 @@ export class AgentServer {
         const accumulatedUsage = mergeUsage(retryUsage, usage);
         const retryable =
           isRetryableUpstreamErrorClassification(classification);
-        if (!retryable || retries >= MAX_UPSTREAM_TURN_RETRIES) {
+        if (!retryable || retries >= upstreamRetryBudget(classification)) {
           if (recordFailedUsage && this.session === originatingSession) {
             await this.recordTurnUsage(
               accumulatedUsage,
@@ -2630,7 +2653,7 @@ export class AgentServer {
           },
         );
         await new Promise((resolve) =>
-          setTimeout(resolve, UPSTREAM_TURN_RETRY_DELAY_MS),
+          setTimeout(resolve, upstreamRetryDelayMs(classification, retries)),
         );
         if (this.session !== originatingSession) {
           throw new Error(

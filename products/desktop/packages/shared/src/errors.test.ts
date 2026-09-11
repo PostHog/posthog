@@ -170,6 +170,12 @@ describe("classifyPromptFailure", () => {
     ["Rate limit exceeded", undefined, "usage_limit", false],
     ["Cloud usage limit reached", undefined, "usage_limit", false],
     ["API Error: 529 overloaded", undefined, "transient", true],
+    [
+      "Selected model is at capacity. Please try a different model.",
+      undefined,
+      "transient",
+      true,
+    ],
     ["boom", "upstream_timeout", "transient", true],
     [
       "[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null",
@@ -268,6 +274,7 @@ describe("isTransientUpstreamError", () => {
     "socket connection closed",
     "Internal error: API Error: Content block not found",
     "Internal error: API Error: Content block is not a thinking block",
+    "The agent stopped before completing this request: Selected model is at capacity. Please try a different model.",
   ])("recognises %j", (message) => {
     expect(isTransientUpstreamError(message)).toBe(true);
   });
