@@ -18,6 +18,8 @@ import {
 } from "@posthog/platform/url-launcher";
 import {
   type BackoffOptions,
+  DEV_CALLBACK_PORT,
+  DEV_REDIRECT_URI,
   getCloudUrlFromRegion,
   getOauthClientIdFromRegion,
   OAUTH_SCOPES,
@@ -35,7 +37,6 @@ import { type OAuthTokenResponse, oAuthTokenResponse } from "./schemas";
 
 const OAUTH_TIMEOUT_MS = 180_000; // 3 minutes
 const TOKEN_FETCH_TIMEOUT_MS = 30_000;
-const DEV_CALLBACK_PORT = 8237;
 
 const NETWORK_ERROR_MESSAGE =
   "Could not connect to PostHog. Please check your internet connection and try again.";
@@ -136,7 +137,7 @@ export class OAuthService {
    */
   private getRedirectUri(): string {
     return this.host.isDev
-      ? `http://localhost:${DEV_CALLBACK_PORT}/callback`
+      ? DEV_REDIRECT_URI
       : `${this.deepLinkService.getProtocol()}://callback`;
   }
 

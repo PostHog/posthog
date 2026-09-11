@@ -46,6 +46,8 @@ class ExternalDataFailureCheck(HealthCheck):
     policy = DEFAULT_EXECUTION_POLICY
     schedule = "15 7 * * *"
     active_since_days = 30
+    # Payloads carry source pipeline names and errors.
+    access_controlled_resource = "external_data_source"
     remediation = Remediation(
         human="""
             Open the Pipeline status page (Data pipeline / Data warehouse → Sources). Find the failing

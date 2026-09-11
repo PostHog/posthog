@@ -13,8 +13,8 @@ import { MessageTemplate } from '../messages/MessageTemplate'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ProgressStep, ThreadItem } from '../types/streamTypes'
 import { resolveToolCall } from '../utils/toolResolver'
-import { RunActivity } from './RunActivity'
-import { RunAlertActivity } from './RunAlertActivity'
+import { Activity } from './ActivityPrimitives'
+import { RunErrorRow } from './RunErrorRow'
 import { CompactBoundaryItem, ConversationClearedItem, StatusItem, TaskNotificationItem } from './ThreadItems'
 import { ToolCallCard } from './tool/ToolCallCard'
 
@@ -81,13 +81,14 @@ function ProgressItem({ item }: { item: ThreadItem }): JSX.Element | null {
     const state = resolveProgressState(steps)
 
     return (
-        <RunActivity
+        <Activity
             id={item.id}
-            content={headline}
+            title={headline}
             substeps={substeps}
-            state={state}
+            status={state}
             icon={<IconWrench />}
             showCompletionIcon={true}
+            autoExpand={false}
         />
     )
 }
@@ -100,6 +101,8 @@ export interface ThreadRowProps {
     toolInvocations: ToolInvocations
     turnComplete: boolean
     turnCancelled: boolean
+    /** The current run reached a terminal status; only then is the last error the run's ending. */
+    runEnded?: boolean
 }
 
 /**
@@ -113,6 +116,7 @@ export const ThreadRow = memo(function ThreadRow({
     toolInvocations,
     turnComplete,
     turnCancelled,
+    runEnded = true,
 }: ThreadRowProps): JSX.Element | null {
     if (item.type === 'human_message') {
         return (
@@ -123,7 +127,7 @@ export const ThreadRow = memo(function ThreadRow({
     }
     if (item.type === 'assistant_message') {
         return (
-            <MessageTemplate type="ai">
+            <MessageTemplate type="ai" wrapperClassName="max-w-4/5">
                 <MarkdownMessage content={item.text ?? ''} id={item.id} />
             </MessageTemplate>
         )
@@ -147,13 +151,7 @@ export const ThreadRow = memo(function ThreadRow({
         return <ToolCallCard message={message} turnComplete={turnComplete} turnCancelled={turnCancelled} />
     }
     if (item.type === 'error') {
-        return (
-            <RunAlertActivity
-                id={item.id}
-                kind={item.variant === 'crash' ? 'agent_crash' : 'agent_error'}
-                message={item.errorMessage}
-            />
-        )
+        return <RunErrorRow item={item} isLast={isLast && runEnded} />
     }
     if (item.type === 'status') {
         return <StatusItem item={item} />

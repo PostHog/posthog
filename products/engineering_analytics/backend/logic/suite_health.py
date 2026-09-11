@@ -64,11 +64,8 @@ def build_flaky_tests(
 
 
 def build_trunk_quarantine(*, curated: CuratedGitHubSource) -> TrunkQuarantineDebt:
-    # Owners come from the span roster over the widest window the flaky queue allows: older stamps
-    # have aged out of Traces retention anyway, and a stale owner beats 'unowned'.
     return query_trunk_quarantine_debt(
         curated=curated,
-        owner_window_from=_parse_date(curated.team, f"-{MAX_FLAKY_WINDOW_DAYS}d"),
         ttl_days=TRUNK_QUARANTINE_TTL_DAYS,
         now=datetime.now(UTC),
     )

@@ -1,3 +1,7 @@
+import posthog from 'posthog-js'
+
+import { SELF_DRIVING_ONBOARDING_EVENT_PROPS } from 'scenes/onboarding/onboardingEventUsageLogic'
+
 import { NodeKind } from '~/queries/schema/schema-general'
 import type {
     ExperimentFunnelMetric,
@@ -8,11 +12,53 @@ import type {
     ExperimentTrendsQuery,
     Node,
 } from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
 import { BaseMathType, BehavioralEventType, FilterLogicalOperator, PropertyFilterType } from '~/types'
 
-import { getEventPropertiesForMetric, sanitizeQuery } from './eventUsageLogic'
+import {
+    type OnboardingEventProperties,
+    eventUsageLogic,
+    getEventPropertiesForMetric,
+    sanitizeQuery,
+} from './eventUsageLogic'
 
 describe('eventUsageLogic', () => {
+    describe('onboarding funnel events', () => {
+        let capture: jest.SpyInstance
+
+        beforeEach(() => {
+            initKeaTests()
+            eventUsageLogic.mount()
+            capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        })
+
+        afterEach(() => {
+            capture.mockRestore()
+        })
+
+        const cases: [string, OnboardingEventProperties | undefined, string][] = [
+            ['legacy', undefined, 'product_selection'],
+            ['self-driving', SELF_DRIVING_ONBOARDING_EVENT_PROPS, 'welcome'],
+        ]
+
+        it.each(cases)('stamps the %s entry point on every funnel event', (_, properties, entryPoint) => {
+            eventUsageLogic.actions.reportOnboardingStarted(properties)
+            eventUsageLogic.actions.reportOnboardingStepCompleted('install', undefined, properties)
+            eventUsageLogic.actions.reportOnboardingStepSkipped('install', undefined, properties)
+            eventUsageLogic.actions.reportOnboardingCompleted('product_analytics', properties)
+
+            for (const event of [
+                'onboarding started',
+                'onboarding step completed',
+                'onboarding step skipped',
+                'onboarding completed',
+            ]) {
+                const call = capture.mock.calls.find(([name]) => name === event)
+                expect(call?.[1]).toMatchObject({ entry_point: entryPoint })
+            }
+        })
+    })
+
     describe('ExperimentMetric (new format)', () => {
         it('extracts funnel metric properties', () => {
             const metric: ExperimentFunnelMetric = {

@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 
 from products.experiments.backend.facade import create_experiment
@@ -33,6 +33,8 @@ class TestCreateExperiment(APIBaseTest):
         experiment = Experiment.objects.get(id=result.id)
         assert experiment.name == "Test Experiment"
         assert experiment.feature_flag.key == "test-flag"
+        assert experiment.feature_flag_rule_id is None
+        assert experiment.feature_flag_rule_snapshot is None
 
     def test_create_experiment_with_description(self):
         """Test creating experiment with description."""
@@ -61,7 +63,7 @@ class TestCreateExperiment(APIBaseTest):
         experiment = Experiment.objects.get(id=result.id)
         assert experiment.parameters == {"variant_notes": {"control": "baseline", "test": "new checkout"}}
 
-    @freeze_time("2025-01-01 12:00:00")
+    @time_machine.travel("2025-01-01 12:00:00", tick=False)
     def test_create_experiment_with_start_date(self):
         """Test creating launched (non-draft) experiment."""
         start_date = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)

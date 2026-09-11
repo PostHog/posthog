@@ -119,7 +119,7 @@ export function NotificationsPanel(): JSX.Element {
               ]
 
     return (
-        <PanelLayoutPanel searchField={header} panelActionsNewSceneLayout={panelActions}>
+        <PanelLayoutPanel panelName="notifications" searchField={header} panelActionsNewSceneLayout={panelActions}>
             <ScrollableShadows
                 direction="vertical"
                 styledScrollbars

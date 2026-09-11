@@ -142,14 +142,13 @@ describe('proxyLogic — shouldShowCloudflareOptIn', () => {
 })
 
 describe('proxyLogic — root redirect', () => {
-    it.each<[string, boolean, ProxyRecord, boolean]>([
-        ['supported valid proxy', true, mockProxyRecord(), true],
-        ['supported warning proxy', true, mockProxyRecord({ status: 'warning' }), true],
-        ['legacy proxy', true, mockProxyRecord({ root_redirect_supported: false }), false],
-        ['disabled feature', false, mockProxyRecord(), false],
-        ['proxy that is not ready', true, mockProxyRecord({ status: 'waiting' }), false],
-    ])('allows configuration for a %s when expected', (_name, featureEnabled, record, expected) => {
-        expect(canConfigureRootRedirect(record, featureEnabled)).toBe(expected)
+    it.each<[string, ProxyRecord, boolean]>([
+        ['supported valid proxy', mockProxyRecord(), true],
+        ['supported warning proxy', mockProxyRecord({ status: 'warning' }), true],
+        ['legacy proxy', mockProxyRecord({ root_redirect_supported: false }), false],
+        ['proxy that is not ready', mockProxyRecord({ status: 'waiting' }), false],
+    ])('allows configuration for a %s when expected', (_name, record, expected) => {
+        expect(canConfigureRootRedirect(record)).toBe(expected)
     })
 
     it('updates the record from the PATCH response', async () => {
@@ -175,6 +174,32 @@ describe('proxyLogic — root redirect', () => {
         })
             .toDispatchActions(['updateRootRedirectSuccess'])
             .toMatchValues({ proxyRecords: [updatedRecord] })
+
+        logic.unmount()
+    })
+})
+
+describe('proxyLogic — delete record', () => {
+    it('reloads the records when the delete request fails', async () => {
+        const record = mockProxyRecord()
+        useMocks({
+            get: {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/`]: proxyRecordsResponse([record]),
+            },
+            delete: {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/${record.id}/`]: () => [500, {}],
+            },
+        })
+        initKeaTests()
+        organizationLogic.mount()
+
+        const logic = proxyLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.deleteRecord(record.id)
+        }).toDispatchActions(['deleteRecordFailure', 'loadRecords'])
 
         logic.unmount()
     })

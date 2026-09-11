@@ -52,9 +52,32 @@ Because of this, all editing behavior must be dispatched from root-level handler
 - `handleRootEditableKeyDown` (canvas `onKeyDown`) — Tab indentation, Enter splits, Backspace/Delete semantics, ArrowDown below a trailing code block
 - the native `beforeinput` capture listener — `insertParagraph`/`insertLineBreak` (inside code blocks these insert a literal `\n` through the model, since the browser default inserts `<br>` elements that are invisible to `textContent`), `deleteContent*`, `historyUndo/Redo`, and a last-resort guard that cancels any unclaimed native range edit crossing inline-editable boundaries — the browser would otherwise restructure React-managed elements in place (e.g. merge two `<li>`s) and the next React commit would crash with `removeChild` DOM exceptions
 - `handleRootEditableInput` (canvas `onInput`) — syncing typed text back into the document model
-- `handleNotebookKeyDown` (notebook root `onKeyDownCapture`) — Cmd/Ctrl shortcuts: bold/italic/underline (`B`/`I`/`U`), strikethrough (`Shift+X`), scoped select-all (`A`), copy of a focused component (`C`)
+- `handleNotebookKeyDown` (notebook root `onKeyDownCapture`) — Cmd/Ctrl shortcuts: bold/italic/underline (`B`/`I`/`U`), strikethrough (`Shift+X`), scoped select-all (`A`), copy of a focused component (`C`), save (`S`), and `Alt+Up`/`Alt+Down` to move the active block past its neighbour
 
 These resolve the affected block with `getInlineEditableElementForSelection` and the `data-markdown-notebook-*` attributes. Do **not** add keyboard handlers to inner block components: they only fire in JSDOM tests (where events are dispatched directly on inner elements), so they create behavior that passes tests but never runs in the app.
+
+Two of the root shortcuts sit either side of the guard that skips native editable elements (`input`, `textarea`, `select`, `.monaco-editor`), and the order is the behavior. `Cmd/Ctrl+S` is claimed **before** it, so saving works inside a code editor too — left to the browser there, it opens the "save page" dialog over the notebook. `Alt+Up`/`Alt+Down` sits **after** it, so a code editor keeps the same keys for moving a line.
+
+`Cmd/Ctrl+S` calls the host's `onSaveRequested`; without that prop the key stays with the browser. The notebooks scene points it at `notebookLogic`'s `saveNotebookNow`, which skips the autosave debounce and applies the gates the autosave path already applies.
+
+## Cell keys
+
+A component block that publishes a run handler (`usePublishNotebookComponentRunHandler`, from `componentRunHandlers.ts`) is a **cell**, and `NotebookComponentShell` gives it notebook keys on top of the document keys every block has. The SQL, Python, and generated-widget blocks publish one; the legacy code blocks do not, so they keep the document keys alone. The generic editor never learns what SQL or Python is: the block's toolbar control publishes `run()` and the `disabledReason` guarding it, so a shortcut can never start a run the Run button would refuse — an in-flight run included, since a second one races the poller and strands the spinner.
+
+| Key              | Where it works       | What it does                                    |
+| ---------------- | -------------------- | ----------------------------------------------- |
+| `Cmd/Ctrl+Enter` | anywhere in the cell | Runs the cell                                   |
+| `Shift+Enter`    | anywhere in the cell | Runs the cell and moves focus to the next block |
+| `Escape`         | inside the editor    | Moves focus out to the cell                     |
+| `Enter`          | on the cell          | Moves focus back into the editor                |
+
+The run keys reach the whole cell so a run still starts with focus on the results or on a collapsed cell, where there is no editor on screen. Monaco binds its own `Cmd+Enter` and stops the event there, so a run from inside the editor never reaches the shell twice; `Shift+Enter` it treats as a plain newline, which `Enter` already gives you. `Escape` arrives only once Monaco has nothing left to dismiss (its suggestion list, its find box), which is what makes it safe to take.
+
+The shell only handles keys that happened inside its own DOM. A block that renders a modal or a menu portals that DOM out of the shell, and React still bubbles its events here through the component tree, so without the check a source editor in a modal would run the cell on `Shift+Enter` instead of taking the newline.
+
+`Escape`/`Enter` apply to cells alone. On every other block `Enter` keeps adding a paragraph below it, which is the document behavior. A cell therefore gives that up: add a block after one from the insert boundary instead.
+
+`Enter` focuses the element Monaco actually reads keystrokes from, and which one that is depends on the build. An EditContext-based Monaco uses `.native-edit-context` and renders a second textarea only for IME, so focusing that textarea puts the caret nowhere. The selector tries the EditContext element first and keeps the bare `textarea` last for older builds. `NotebookComponentShell.test.tsx` covers both shapes, because JSDOM alone cannot tell them apart.
 
 ## Sync model
 

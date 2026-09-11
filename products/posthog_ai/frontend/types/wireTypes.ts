@@ -28,6 +28,10 @@ export interface AcpNotification {
  */
 export interface StoredLogEntry {
     type: 'notification'
+    event_id?: string
+    first_event_id?: string
+    /** Client-side ownership; the shared backend log payload stays unchanged. */
+    source_run_id?: string
     timestamp?: string
     notification: AcpNotification
 }
@@ -152,6 +156,7 @@ export interface SessionUpdateToolCall {
     kind?: string
     status?: string
     rawInput?: Record<string, unknown>
+    rawOutput?: unknown
     input?: Record<string, unknown>
     locations?: { path: string; line?: number }[]
     content?: unknown[]
@@ -173,6 +178,7 @@ export interface SessionUpdateClaudeCodeMeta {
 }
 
 export interface SessionUpdateToolCallMeta {
+    posthog?: { toolName: string; mcp?: { server: string; tool: string }; parentToolCallId?: string }
     claudeCode?: SessionUpdateClaudeCodeMeta
 }
 
@@ -397,6 +403,8 @@ export interface PosthogRunStartedParams {
 export interface PosthogTurnCompleteParams {
     sessionId?: string
     stopReason?: string
+    /** The turn's gateway trace id, when the agent's traceparent hook reported one. */
+    traceId?: string
 }
 
 export interface PosthogNotificationParamsByMethod {

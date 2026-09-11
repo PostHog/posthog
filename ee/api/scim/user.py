@@ -7,6 +7,7 @@ from django_scim import constants
 from django_scim.adapters import SCIMUser
 from scim2_filter_parser.attr_paths import AttrPath
 
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
@@ -136,9 +137,11 @@ class PostHogSCIMUser(SCIMUser):
         if self.display_name:
             base_dict["displayName"] = self.display_name
 
-        role_memberships = RoleMembership.objects.filter(
-            user=self.obj, role__organization=self._config.organization
-        ).select_related("role")
+        role_memberships = (
+            RoleMembership.objects.filter(user=self.obj, role__organization=self._config.organization)
+            .valid_for_authorization()
+            .select_related("role")
+        )
         base_dict["groups"] = [
             {
                 "value": str(rm.role.id),
@@ -235,7 +238,7 @@ class PostHogSCIMUser(SCIMUser):
 
         with transaction.atomic():
             # Do not allow changing email to another user's email
-            existing_user_with_email = User.objects.filter(email__iexact=email).exclude(id=self.obj.id).first()
+            existing_user_with_email = EmailLookupHandler.users_matching_email(email).exclude(id=self.obj.id).first()
             if existing_user_with_email:
                 raise ValueError("Email belongs to another user")
 
@@ -351,7 +354,7 @@ class PostHogSCIMUser(SCIMUser):
         return None
 
     def _apply_email(self, email: str) -> None:
-        if User.objects.filter(email__iexact=email).exclude(id=self.obj.id).exists():
+        if EmailLookupHandler.users_matching_email(email).exclude(id=self.obj.id).exists():
             raise ValueError("Email belongs to another user")
         _validate_email_domain_is_verified(email, self._config.organization)
         # Org must also own the current email domain to prevent cross-tenant account takeover

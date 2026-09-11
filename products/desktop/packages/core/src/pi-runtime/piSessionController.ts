@@ -5,6 +5,7 @@ import type {
   PiPersistedSessionConfig,
   PiQueueSnapshot,
   PiThinkingLevel,
+  PiUsageStats,
   RpcExtensionUIResponse,
 } from "@posthog/agent/pi/types";
 import {
@@ -78,6 +79,7 @@ export interface PiSession {
     id: string,
   ): Promise<void>;
   health(): Promise<PiRuntimeHealth>;
+  usageStats?(): PiUsageStats | undefined;
   getConversation(): Promise<AgentConversationEvent[]>;
   onConversationEvent(
     onEvent: (
@@ -662,6 +664,7 @@ export class PiSessionController {
             if (context) {
               this.notifier?.notify({
                 kind: "needs_input",
+                trigger: "pi_mcp_permission_request",
                 taskId,
                 taskTitle: context.taskTitle,
                 isTaskAuthor: context.isTaskAuthor,
@@ -723,7 +726,7 @@ export class PiSessionController {
         session.getConversation(),
         session.client.getState(),
         session.getQueue(),
-        session.client.getSessionStats().catch(() => retainedStats),
+        this.loadStats(session, retainedStats),
       ]);
       if (this.getSessionVersion(taskId) !== connectedSessionVersion) {
         return;
@@ -1020,6 +1023,7 @@ export class PiSessionController {
       : undefined;
     this.notifier?.notify({
       kind: "turn_completed",
+      trigger: "pi_turn_completed",
       taskId,
       taskTitle: notificationContext.taskTitle,
       stopReason,
@@ -1045,12 +1049,22 @@ export class PiSessionController {
     this.updateSession(taskId, { cloudStatus });
   }
 
+  private async loadStats(
+    session: PiSession,
+    retained?: PiUsageStats,
+  ): Promise<PiUsageStats | undefined> {
+    const liveStats = await session.client
+      .getSessionStats()
+      .catch(() => undefined);
+    return liveStats ?? session.usageStats?.() ?? retained;
+  }
+
   private async refreshStats(taskId: string): Promise<void> {
     const sessionVersion = this.getSessionVersion(taskId);
     try {
       const session = await this.getPiSession(taskId);
-      const stats = await session.client.getSessionStats();
-      if (this.getSessionVersion(taskId) === sessionVersion) {
+      const stats = await this.loadStats(session);
+      if (stats && this.getSessionVersion(taskId) === sessionVersion) {
         this.updateSession(taskId, { stats });
       }
     } catch {
@@ -1177,7 +1191,9 @@ export class PiSessionController {
     failure: PromptFailure,
   ): string {
     if (failure.kind === "usage_limit") {
-      return "Usage limit reached";
+      return failure.limitCause === "model_unavailable"
+        ? "Model not available"
+        : "Usage limit reached";
     }
     if (failure.kind === "transient") {
       return "Provider temporarily unavailable";

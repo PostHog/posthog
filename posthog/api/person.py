@@ -1,5 +1,4 @@
 import re
-import json
 import uuid
 import builtins
 import dataclasses
@@ -39,13 +38,15 @@ from posthog.api.fields import CoercedStringListField
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import action
+from posthog.api.utils import action, parse_actor_property_filters
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET
 from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import get_request_analytics_properties
 from posthog.helpers.impersonation import is_impersonated
+from posthog.hogql_queries.properties_timeline import PropertiesTimeline
+from posthog.hogql_queries.serialized_actors import get_serialized_people
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
@@ -69,8 +70,6 @@ from posthog.models.person.util import (
     get_persons_mapped_by_distinct_id,
 )
 from posthog.personhog_client.caller_tag import personhog_caller_tag
-from posthog.queries.actor_base_query import get_serialized_people
-from posthog.queries.properties_timeline import PropertiesTimeline
 from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
 from posthog.renderers import SafeJSONRenderer
 from posthog.slo.context import JsonValue, SloSpec, slo_operation
@@ -649,14 +648,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner  # noqa: PLC0415
 
-        person_properties: list[dict] = []
-        raw_properties = request.GET.get("properties")
-        if raw_properties:
-            for prop in json.loads(raw_properties):
-                # Legacy person filters default to the "exact" operator; ActorsQuery requires it explicitly.
-                if prop.get("type") != "cohort":
-                    prop.setdefault("operator", "exact")
-                person_properties.append(prop)
+        person_properties: list[dict] = parse_actor_property_filters(request.GET.get("properties"))
         if filter.email:
             person_properties.append({"type": "person", "key": "email", "value": filter.email, "operator": "exact"})
 

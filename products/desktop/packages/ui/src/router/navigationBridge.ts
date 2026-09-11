@@ -1,5 +1,11 @@
 import type { NotificationTarget } from "@posthog/platform/notifications";
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
+import {
+  navigationSourceHref,
+  reportNavigationState,
+  settingsSourceHref,
+  sourceHrefFromSearch,
+} from "./reportNavigation";
 import { getRouterOrNull } from "./routerRef";
 
 // This bridge isolates imperative router calls behind a stable API and, by
@@ -13,8 +19,22 @@ import { getRouterOrNull } from "./routerRef";
 // (early boot, unit tests). These are renderer conveniences — they must never
 // throw just because the router singleton hasn't been created.
 
+// A plain navigation never changes which tab you are in; the tab strip
+// re-stamps the new history entry with the active tab after the fact (see
+// decideTabNavigation). The new-task screens key their composer session on
+// `state.tabId` (getTaskInputSessionId) and remount on that key, so an entry
+// born unstamped flips the key mid-mount and the remounted composer finds the
+// one-shot prefill already consumed — silently dropping prompts handed to
+// openTaskInput (posthog-code://new?prompt= deep links, show_actions compose
+// buttons). Carrying the tag forward matches what the strip would stamp, so
+// the session key never changes under the composer. Only the tag: the other
+// state keys (loopListOrigin, inboxBackOrigin) describe the route being left.
+const keepTabTag = (prev: { tabId?: string }): { tabId?: string } => ({
+  tabId: prev.tabId,
+});
+
 export function navigateToNewTask(): void {
-  void getRouterOrNull()?.navigate({ to: "/new" });
+  void getRouterOrNull()?.navigate({ to: "/new", state: keepTabTag });
 }
 
 export function navigateToTaskDetail(taskId: string): void {
@@ -28,13 +48,6 @@ export function navigateToPullRequestView(prUrl: string): void {
   void getRouterOrNull()?.navigate({
     to: "/pr",
     search: { prUrl },
-  });
-}
-
-export function navigateToTaskPending(key: string): void {
-  void getRouterOrNull()?.navigate({
-    to: "/tasks/pending/$key",
-    params: { key },
   });
 }
 
@@ -82,6 +95,7 @@ export function navigateToChannelNewTask(channelId: string): void {
   void getRouterOrNull()?.navigate({
     to: "/spaces/$channelId/new",
     params: { channelId },
+    state: keepTabTag,
   });
 }
 
@@ -139,68 +153,49 @@ export function navigateToInboxReports(): void {
   void getRouterOrNull()?.navigate({ to: "/inbox/reports" });
 }
 
-export function navigateToInboxPullRequestDetail(reportId: string): void {
-  void getRouterOrNull()?.navigate({
-    to: "/inbox/pulls/$reportId",
+export function navigateToReport(
+  reportId: string,
+  options?: { preserveSource?: boolean; returnToTriage?: boolean },
+): void {
+  const router = getRouterOrNull();
+  if (!router) return;
+  if (options?.returnToTriage) {
+    const location = router.history.location;
+    router.history.replace(location.href, {
+      ...location.state,
+      inboxTriageOrigin: { reportId },
+    });
+  }
+  const from =
+    options?.preserveSource === false ? undefined : navigationSourceHref();
+  void router.navigate({
+    to: "/reports/$reportId",
     params: { reportId },
+    search: from ? { from } : {},
+    state: reportNavigationState,
   });
+}
+
+export function navigateToInboxPullRequestDetail(reportId: string): void {
+  navigateToReport(reportId);
 }
 
 export function navigateToInboxReportDetail(
   reportId: string,
   options?: { returnToTriage?: boolean },
 ): void {
-  const router = getRouterOrNull();
-  if (!router) return;
-
-  const inboxTriageOrigin = options?.returnToTriage ? { reportId } : undefined;
-  if (inboxTriageOrigin) {
-    const location = router.history.location;
-    router.history.replace(location.href, {
-      ...location.state,
-      inboxTriageOrigin,
-    });
-  }
-
-  void router.navigate({
-    to: "/inbox/reports/$reportId",
-    params: { reportId },
-    state: inboxTriageOrigin
-      ? (previous) => ({ ...previous, inboxTriageOrigin })
-      : undefined,
-  });
+  navigateToReport(reportId, options);
 }
 
 export function navigateToInboxDismissedDetail(reportId: string): void {
-  void getRouterOrNull()?.navigate({
-    to: "/inbox/dismissed/$reportId",
-    params: { reportId },
-  });
+  navigateToReport(reportId);
 }
 
 export function navigateToChannelReportDetail(
-  channelId: string,
+  _channelId: string,
   reportId: string,
 ): void {
-  void getRouterOrNull()?.navigate({
-    to: "/spaces/$channelId/reports/$reportId",
-    params: { channelId, reportId },
-  });
-}
-
-export function navigateToScoutDetail(
-  skillSlug: string,
-  findingId?: string,
-): void {
-  void getRouterOrNull()?.navigate({
-    to: "/agents/scouts/$skillName",
-    params: { skillName: skillSlug },
-    search: findingId ? { finding: findingId } : {},
-  });
-}
-
-export function navigateToScoutFindings(): void {
-  void getRouterOrNull()?.navigate({ to: "/agents/scouts/findings" });
+  navigateToReport(reportId);
 }
 
 export function navigateToLoops(options?: { ignoreBlocker?: boolean }): void {
@@ -224,10 +219,6 @@ export function navigateToLoopDetail(
     search: options?.edit ? { edit: true } : {},
     ignoreBlocker: options?.ignoreBlocker,
   });
-}
-
-export function navigateToAgents(): void {
-  void getRouterOrNull()?.navigate({ to: "/agents" });
 }
 
 export function navigateToArchived(): void {
@@ -261,12 +252,11 @@ export function navigateToSettings(
   category: SettingsCategory,
   options?: { replace?: boolean },
 ): void {
+  const from = settingsSourceHref();
   void getRouterOrNull()?.navigate({
     to: "/settings/$category",
     params: { category },
-    // Switching categories within settings should replace, not stack, so a
-    // single history.back() (closeSettings) exits to the app rather than
-    // walking back through every category that was visited.
+    search: from ? { from } : {},
     replace: options?.replace,
   });
 }
@@ -284,6 +274,17 @@ export function isOnSettingsRoute(): boolean {
       isSettingsRouteId(m.routeId),
     ) ?? false
   );
+}
+
+export function leaveSettingsRoute(): void {
+  const router = getRouterOrNull();
+  if (!router) return;
+  const from = sourceHrefFromSearch(router.state.location);
+  if (!from) {
+    void router.navigate({ to: "/new", state: keepTabTag });
+    return;
+  }
+  router.history.push(from, { tabId: router.history.location.state.tabId });
 }
 
 export function goBackInHistory(): void {

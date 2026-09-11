@@ -43,6 +43,7 @@ describe("clone_repo", () => {
     await git(["config", "user.name", "PostHog Code test"], sourcePath);
     await git(["config", "user.email", "test@posthog.com"], sourcePath);
     await git(["config", "commit.gpgsign", "false"], sourcePath);
+    await git(["config", "tag.gpgsign", "false"], sourcePath);
     await writeFile(path.join(sourcePath, "README.md"), "master\n");
     await git(["add", "README.md"], sourcePath);
     await git(["commit", "-m", "initial commit"], sourcePath);

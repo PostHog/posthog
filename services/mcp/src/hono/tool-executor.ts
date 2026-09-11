@@ -28,12 +28,14 @@ import {
     formatInputValidationError,
     parseExecCallInnerArgs,
     parseExecCallInnerToolName,
+    rewrapFlattenedArguments,
     type ExecCommandMeta,
     type ExecInnerCallTracker,
 } from '@/tools/exec'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import { skillAnalyticsProperties } from '@/tools/skills/analytics'
+import { formatSkillLookupMiss } from '@/tools/skills/notFound'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import {
@@ -41,12 +43,14 @@ import {
     trackToolCall,
     trackToolSpan,
     trackToolsList,
-    type ToolCallIntentMeta,
+    type ToolCallAnalyticsMeta,
 } from './analytics'
 import type { InstructionsBuilder } from './instructions'
 import { getEffectiveMCPClientContext } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
+import type { SkillCatalogService } from './skill-catalog-service'
+import { buildSkillsSessionState } from './skills-session'
 import type { ToolCatalog } from './tool-catalog'
 
 interface ResolvedTool {
@@ -60,6 +64,11 @@ interface ExecMetricState {
     innerToolName: string | undefined
     /** What the agent asked for, merged onto the event whichever verb ran. */
     commandMeta: ExecCommandMeta | undefined
+    /**
+     * The inner call's failure when the dispatcher recovered from it and returned
+     * a normal result, so the canonical event still records the failure.
+     */
+    innerFailure: { error: unknown } | undefined
 }
 
 /**
@@ -77,11 +86,10 @@ interface ExecMetricState {
  *
  * MCP gives the executor no way to prove that a call came from the app, so this reads
  * connection state instead of call provenance. In tools mode the model calls tools
- * directly, which makes the two indistinguishable, so suppression still applies there and
- * a UI app loaded that way still gets nothing. To fix that case, pass `forceUiDataToMeta`
- * and `includeUiResponseMeta` together, which moves the app payload to `_meta` instead of
- * widening what the model reads. `buildToolResultPayload` writes that payload only when
- * both flags are set.
+ * directly, which makes the two indistinguishable, so suppression still applies there.
+ * A UI app loaded that way still renders, because `buildToolResultPayload` moves the app
+ * payload to the app-only `_meta` key whenever it suppresses `structuredContent` for a
+ * tool that has a UI resource, without widening what the model reads.
  */
 function shouldSuppressStructuredContent(args: {
     isCliModeEnabled: boolean
@@ -95,14 +103,20 @@ function shouldSuppressStructuredContent(args: {
 export class ToolExecutor {
     private readonly catalog: ToolCatalog
     private readonly instructionsBuilder: InstructionsBuilder
+    private readonly skillCatalogService: SkillCatalogService | undefined
 
-    constructor(catalog: ToolCatalog, instructionsBuilder: InstructionsBuilder) {
+    constructor(
+        catalog: ToolCatalog,
+        instructionsBuilder: InstructionsBuilder,
+        skillCatalogService?: SkillCatalogService
+    ) {
         this.catalog = catalog
         this.instructionsBuilder = instructionsBuilder
+        this.skillCatalogService = skillCatalogService
     }
 
     async handleToolsList(state: ResolvedState): Promise<ListToolsResult> {
-        const tools = this.injectContext(this.buildAdvertisedTools(state))
+        const tools = this.injectAnalyticsParameters(this.buildAdvertisedTools(state))
 
         void trackToolsList(
             tools.map((t) => t.name),
@@ -112,12 +126,8 @@ export class ToolExecutor {
         return { tools }
     }
 
-    // Inject the `context` argument into every advertised tool so agents can state
-    // what they're trying to do (`handleToolCall` strips it before validation and
-    // surfaces it as `$mcp_intent` — the same injection `instrument()` does for
-    // SDK-wrapped servers). Guarded: analytics must never break `tools/list`, so
-    // any failure falls back to the un-augmented tools.
-    private injectContext(tools: ListToolsResult['tools']): ListToolsResult['tools'] {
+    // Guarded because analytics must never break `tools/list`.
+    private injectAnalyticsParameters(tools: ListToolsResult['tools']): ListToolsResult['tools'] {
         try {
             return getPostHogClient().prepareToolList(tools)
         } catch {
@@ -145,17 +155,38 @@ export class ToolExecutor {
         })
     }
 
+    private findOriginalTool(toolName: string, state: ResolvedState): ListToolsResult['tools'][number] | undefined {
+        if (state.useSingleExec) {
+            if (toolName === 'exec') {
+                return this.instructionsBuilder.buildExecToolEntry(state)
+            }
+            if (toolName === 'render-ui' && state.renderUiEnabled) {
+                return this.instructionsBuilder.buildRenderUiToolEntry(state) ?? undefined
+            }
+            return undefined
+        }
+
+        return this.buildAdvertisedTools(state).find((tool) => tool.name === toolName)
+    }
+
     async handleToolCall(params: Record<string, unknown> | undefined, state: ResolvedState): Promise<unknown> {
         const toolName = params?.name as string
         if (!toolName) {
             return { content: [{ type: 'text', text: 'Missing tool name' }], isError: true }
         }
 
-        const { intentMeta, args } = this.extractIntent(toolName, (params?.arguments ?? {}) as Record<string, unknown>)
+        const rawArgs = (params?.arguments ?? {}) as Record<string, unknown>
+        const originalTool = this.findOriginalTool(toolName, state)
+        const rawRequestMeta = params?._meta
+        const requestMeta =
+            rawRequestMeta && typeof rawRequestMeta === 'object' && !Array.isArray(rawRequestMeta)
+                ? (rawRequestMeta as Record<string, unknown>)
+                : undefined
+        const { analyticsMeta, args } = this.extractAnalyticsMetadata(toolName, rawArgs, originalTool, requestMeta)
         const callParams = { ...params, arguments: args }
 
         if (toolName === 'exec') {
-            return this.callExecTool(callParams, state, intentMeta)
+            return this.callExecTool(callParams, state, analyticsMeta)
         }
 
         if (toolName === 'render-ui') {
@@ -164,7 +195,7 @@ export class ToolExecutor {
                 toolCallsTotal.inc({ tool: toolName, status: 'error' })
                 return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
             }
-            return this.callRenderUiTool(callParams, state, intentMeta)
+            return this.callRenderUiTool(callParams, state, analyticsMeta)
         }
 
         if (!state.allTools.some((t) => t.name === toolName)) {
@@ -188,7 +219,7 @@ export class ToolExecutor {
             },
             callParams,
             state,
-            intentMeta
+            analyticsMeta
         )
     }
 
@@ -204,23 +235,27 @@ export class ToolExecutor {
         return undefined
     }
 
-    // Pull the agent's stated intent off the injected `context` arg and strip it so
-    // tool schemas/handlers never see it (validation is `.strict()` in places). The
-    // intent rides through to `$mcp_intent` on the captured event. Guarded: analytics
-    // must never break `tools/call`, so on failure we fall back to the raw args —
-    // safe because `context` is only present when the matching injection succeeded.
-    private extractIntent(
+    // Guarded because analytics must never break `tools/call`. The SDK only strips
+    // fields whose ownership it recorded while preparing the tool list.
+    private extractAnalyticsMetadata(
         toolName: string,
-        rawArgs: Record<string, unknown>
-    ): { intentMeta: ToolCallIntentMeta; args: Record<string, unknown> } {
+        rawArgs: Record<string, unknown>,
+        originalTool: ListToolsResult['tools'][number] | undefined,
+        requestMeta: Record<string, unknown> | undefined
+    ): { analyticsMeta: ToolCallAnalyticsMeta; args: Record<string, unknown> } {
         try {
-            const prepared = getPostHogClient().prepareToolCall(toolName, rawArgs)
+            const prepared = getPostHogClient().prepareToolCall(toolName, rawArgs, { originalTool, requestMeta })
             return {
-                intentMeta: { intent: prepared.intent, intentSource: prepared.intentSource },
+                analyticsMeta: {
+                    intent: prepared.intent,
+                    intentSource: prepared.intentSource,
+                    llmModel: prepared.llmModel,
+                    llmModelSource: prepared.llmModelSource,
+                },
                 args: prepared.args ?? rawArgs,
             }
         } catch {
-            return { intentMeta: {}, args: rawArgs }
+            return { analyticsMeta: {}, args: rawArgs }
         }
     }
 
@@ -228,13 +263,18 @@ export class ToolExecutor {
         tool: ResolvedTool,
         params: Record<string, unknown> | undefined,
         state: ResolvedState,
-        intentMeta?: ToolCallIntentMeta
+        analyticsMeta?: ToolCallAnalyticsMeta
     ): Promise<unknown> {
-        const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
-        const validation = tool.schema.safeParse(toolArgs, { reportInput: true })
+        const rawToolArgs = (params?.arguments ?? {}) as Record<string, unknown>
+        const firstPass = tool.schema.safeParse(rawToolArgs, { reportInput: true })
+        const rewrapped = firstPass.success
+            ? undefined
+            : rewrapFlattenedArguments(firstPass.error, rawToolArgs, tool.schema)
+        const toolArgs = rewrapped ?? rawToolArgs
+        const validation = rewrapped ? tool.schema.safeParse(toolArgs, { reportInput: true }) : firstPass
         if (!validation.success) {
             toolCallsTotal.inc({ tool: tool.name, status: 'validation_error' })
-            const message = formatInputValidationError(tool.name, validation.error)
+            const message = formatInputValidationError(tool.name, validation.error, toolArgs, tool.schema)
             // Emit the same errored `$mcp_tool_call` the exec path emits for an
             // identical rejection. Without it, direct-mode ('tools') schema
             // rejections are absent from analytics entirely — so every
@@ -251,7 +291,7 @@ export class ToolExecutor {
                 true,
                 state,
                 errorAnalyticsProperties(classifyToolError(rejection, tool.name), rejection),
-                intentMeta,
+                analyticsMeta,
                 this.servedToolDescription(tool.name)
             )
             return {
@@ -299,6 +339,7 @@ export class ToolExecutor {
                     toolMeta: tool._meta,
                     toolName: tool.name,
                     params: validation.data,
+                    includeAppData: state.clientProfile.consumer === 'posthog_ai',
                     suppressStructuredContentForFormattedResults: shouldSuppressStructuredContent({
                         isCliModeEnabled: state.clientProfile.isCliModeEnabled(),
                         useSingleExec: state.useSingleExec,
@@ -318,7 +359,7 @@ export class ToolExecutor {
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
                 },
-                intentMeta,
+                analyticsMeta,
                 this.servedToolDescription(tool.name)
             )
 
@@ -328,7 +369,7 @@ export class ToolExecutor {
                     validation.data,
                     state,
                     { durationMs: duration, isError: false },
-                    intentMeta
+                    analyticsMeta
                 )
             }
 
@@ -351,7 +392,7 @@ export class ToolExecutor {
                 true,
                 state,
                 errorAnalyticsProperties(classification, error),
-                intentMeta,
+                analyticsMeta,
                 this.servedToolDescription(tool.name)
             )
 
@@ -365,7 +406,7 @@ export class ToolExecutor {
                         isError: true,
                         errorMessage: error instanceof Error ? error.message : String(error),
                     },
-                    intentMeta
+                    analyticsMeta
                 )
             }
 
@@ -376,6 +417,17 @@ export class ToolExecutor {
                 input: validation.data,
             })
 
+            // A skill lookup that misses is not a failure the agent should read as
+            // one. The exec dispatcher rewrites the same miss, and a tools-mode
+            // client reaching this path must get the same answer — otherwise the
+            // behavior changes with the client. Telemetry above already recorded
+            // the 404, and `handleToolError` adds nothing to a 4xx that is lost
+            // here: no recovery hint, no exception capture.
+            const lookupMiss = formatSkillLookupMiss(tool.name, error, validation.data as Record<string, unknown>)
+            if (lookupMiss) {
+                return { content: [{ type: 'text', text: lookupMiss }] }
+            }
+
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
             return handleToolError(error, tool.name, state.distinctId, sessionUuid)
         }
@@ -384,10 +436,14 @@ export class ToolExecutor {
     private async callExecTool(
         params: Record<string, unknown> | undefined,
         state: ResolvedState,
-        intentMeta?: ToolCallIntentMeta
+        analyticsMeta?: ToolCallAnalyticsMeta
     ): Promise<unknown> {
-        const execMetrics: ExecMetricState = { innerToolName: undefined, commandMeta: undefined }
-        const resolved = this.resolveExecTool(state, execMetrics, intentMeta)
+        const execMetrics: ExecMetricState = {
+            innerToolName: undefined,
+            commandMeta: undefined,
+            innerFailure: undefined,
+        }
+        const resolved = this.resolveExecTool(state, execMetrics, analyticsMeta)
 
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
         const validation = resolved.schema.safeParse(toolArgs, { reportInput: true })
@@ -435,19 +491,28 @@ export class ToolExecutor {
                       distinctId: undefined,
                   })
 
+            // A handler can return normally for a call that failed: a skill lookup
+            // miss is rewritten so the agent does not read it as an outage. The
+            // canonical event still records the failure, and must not stamp a skill
+            // the store never delivered — a miss is not a read.
+            const innerFailure = execMetrics.innerFailure
+            const failureShape = innerFailure
+                ? errorAnalyticsProperties(classifyToolError(innerFailure.error, execToolName()), innerFailure.error)
+                : undefined
+
             void trackToolCall(
                 execToolName(),
                 duration,
-                false,
+                failureShape !== undefined,
                 state,
                 {
                     ...execShape,
-                    ...execSkillShape,
+                    ...(failureShape ?? execSkillShape),
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
                     ...execMetrics.commandMeta,
                 },
-                intentMeta,
+                analyticsMeta,
                 this.servedToolDescription(execToolName())
             )
 
@@ -467,7 +532,7 @@ export class ToolExecutor {
                 true,
                 state,
                 { ...execShape, ...errorAnalyticsProperties(classification, error), ...execMetrics.commandMeta },
-                intentMeta,
+                analyticsMeta,
                 this.servedToolDescription(metricTool)
             )
 
@@ -501,7 +566,7 @@ export class ToolExecutor {
     private resolveExecTool(
         state: ResolvedState,
         execMetrics: ExecMetricState,
-        intentMeta?: ToolCallIntentMeta
+        analyticsMeta?: ToolCallAnalyticsMeta
     ): ResolvedTool {
         const commandReference = this.instructionsBuilder.buildExecCommandReference(state)
 
@@ -512,6 +577,9 @@ export class ToolExecutor {
             // event (now relabelled to the inner tool name, with the inner tool's category
             // derived from it) already carries this call, so a second emit would double-count.
             execMetrics.innerToolName = toolName
+            if (!properties.success) {
+                execMetrics.innerFailure = { error: properties.error }
+            }
             const status = properties.success ? 'success' : properties.validation_error ? 'validation_error' : 'error'
             toolCallsTotal.inc({ tool: toolName, status })
             // Mirror the native path: schema rejections never start a handler, so
@@ -530,7 +598,7 @@ export class ToolExecutor {
                         isError: !properties.success,
                         errorMessage: properties.error_message,
                     },
-                    intentMeta
+                    analyticsMeta
                 )
             }
             void trackToolSpan(toolName, state, {
@@ -558,14 +626,21 @@ export class ToolExecutor {
         const execTool = createExecTool(
             execTools,
             state.context,
-            this.instructionsBuilder.buildExecToolDescription(),
+            this.instructionsBuilder.buildExecToolDescription(state),
             commandReference,
             clientContext.mcpConsumer,
             trackInnerCall,
             state.scopeGatedTools,
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
-                helpCatalog: this.instructionsBuilder.buildExecHelpCatalog(state),
+                learnCatalog: this.instructionsBuilder.buildExecLearnCatalog(
+                    state,
+                    this.skillCatalogService?.getCatalog()
+                ),
+                flagGatedTools: state.flagGatedTools,
+                skillsSession: this.instructionsBuilder.execSkillsEnabled(state)
+                    ? buildSkillsSessionState(state.reqCtx, state.requestContext.mcpSessionId)
+                    : undefined,
                 ...(state.gatewayToolsEnabled ? { gatewayToolsProvider: () => this.gatewayToolsFor(state) } : {}),
                 // A verb-only report lands first; `search` then reports again with its query
                 // and counts. Merge so the richer report wins without losing the verb.
@@ -586,7 +661,7 @@ export class ToolExecutor {
     private async callRenderUiTool(
         params: Record<string, unknown> | undefined,
         state: ResolvedState,
-        intentMeta?: ToolCallIntentMeta
+        analyticsMeta?: ToolCallAnalyticsMeta
     ): Promise<unknown> {
         const renderUiTool = createRenderUiTool(state.allTools, state.context)
         if (!renderUiTool) {
@@ -609,7 +684,7 @@ export class ToolExecutor {
             const handlerResult = await renderUiTool.handler(state.context, validation.data)
             toolCallsTotal.inc({ tool: 'render-ui', status: 'success' })
             stop({ status: 'success' })
-            void trackToolCall('render-ui', Date.now() - startMs, false, state, undefined, intentMeta)
+            void trackToolCall('render-ui', Date.now() - startMs, false, state, undefined, analyticsMeta)
             // The handler always returns an exec-built payload (UI resourceUri + structuredContent).
             return handlerResult
         } catch (error: unknown) {
@@ -622,7 +697,7 @@ export class ToolExecutor {
                 true,
                 state,
                 errorAnalyticsProperties(classification, error),
-                intentMeta
+                analyticsMeta
             )
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
             return handleToolError(error, 'render-ui', state.distinctId, sessionUuid)
@@ -859,7 +934,10 @@ function execCommandAnalyticsProperties(execArgs: unknown, state: ResolvedState)
     }
     const { verb, targetTool } = describeExecCommand(
         command,
-        (name) => state.allTools.some((t) => t.name === name) || state.scopeGatedTools.some((t) => t.name === name)
+        (name) =>
+            state.allTools.some((t) => t.name === name) ||
+            state.scopeGatedTools.some((t) => t.name === name) ||
+            state.flagGatedTools.some((t) => t.name === name)
     )
     return {
         ...(verb !== undefined ? { $mcp_exec_verb: verb } : {}),

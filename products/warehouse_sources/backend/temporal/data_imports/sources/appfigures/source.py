@@ -10,6 +10,7 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures.appfigures import (
+    PRODUCTS_PATH,
     AppfiguresResumeConfig,
     appfigures_source,
     check_credentials,
@@ -56,8 +57,10 @@ class AppfiguresSource(ResumableSource[AppfiguresSourceConfig, AppfiguresResumeC
 
 Create an API client and Personal Access Token at [appfigures.com/developers/keys](https://appfigures.com/developers/keys). When creating the client, grant the data sets you want to sync:
 - `products:read` — Products
-- `public:read` — Reviews
-- `private:read` — Sales and Revenue reports
+- `public:read` — Reviews, Ranks, Ratings report, ASO keywords and stats
+- `private:read` — Sales, Revenue, Subscriptions, Ads, Ad spend, and Payments reports
+
+Stores, Categories, and Countries are reference tables that need no data set granted. The ASO tables only return rows for the apps and countries you track keywords for in Appfigures.
 """,
             iconPath="/static/services/appfigures.png",
             docsUrl="https://posthog.com/docs/cdp/sources/appfigures",
@@ -71,6 +74,15 @@ Create an API client and Personal Access Token at [appfigures.com/developers/key
                         required=True,
                         placeholder="pat_...",
                         secret=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="aso_countries",
+                        label="ASO keyword countries (optional)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="US, GB, DE",
+                        secret=False,
+                        caption="Country codes to pull tracked keyword positions for, comma-separated. Appfigures takes one country per request, so each code adds a request per app. Only the ASO keywords and ASO stats tables use it. They cover the United States when left blank.",
                     ),
                 ],
             ),
@@ -130,9 +142,10 @@ Create an API client and Personal Access Token at [appfigures.com/developers/key
     ) -> tuple[bool, str | None]:
         # Probe the endpoint the requested schema actually hits (so per-table scope checks are
         # accurate), or the cheap products catalog at source-create.
-        path = "/products/mine"
+        path = PRODUCTS_PATH
         if schema_name and schema_name in APPFIGURES_ENDPOINTS:
-            path = APPFIGURES_ENDPOINTS[schema_name].path
+            endpoint_config = APPFIGURES_ENDPOINTS[schema_name]
+            path = endpoint_config.probe_path or endpoint_config.path
 
         status = check_credentials(config.personal_access_token, path)
         if status is None:
@@ -167,4 +180,5 @@ Create an API client and Personal Access Token at [appfigures.com/developers/key
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            aso_countries=config.aso_countries,
         )

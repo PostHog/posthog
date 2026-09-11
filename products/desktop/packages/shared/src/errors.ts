@@ -74,9 +74,20 @@ const RATE_LIMIT_PATTERNS = [
   "[429]",
 ] as const;
 
-export type GatewayLimitCause = "model_gate" | "org_limit";
+export type GatewayLimitCause =
+  | "model_gate"
+  | "model_unavailable"
+  | "org_limit";
+
+const MODEL_GATE_CODE_REGEX = /"code"\s*:\s*"model_gate"/;
+const MODEL_UNAVAILABLE_REASON_REGEX = /"reason"\s*:\s*"model_not_available"/;
 
 const MODEL_GATE_PATTERNS = ["needs a paid posthog plan"] as const;
+
+const MODEL_UNAVAILABLE_PATTERNS = [
+  "is not available for your account",
+  "is not available. choose another model. (rate_limit)",
+] as const;
 
 const ORG_LIMIT_PATTERNS = [
   "cloud usage limit reached",
@@ -98,6 +109,16 @@ const FATAL_SESSION_ERROR_PATTERNS = [
   "session not found",
 ] as const;
 
+const REQUEST_SIZE_ERROR_PATTERNS = [
+  "this conversation is too large to continue",
+  "request body too large",
+  "payload too large",
+  "prompt is too long",
+  "exceeded this model context window limit",
+] as const;
+
+const REQUEST_SIZE_ERROR_REGEX = /API Error:\s*413\b/i;
+
 /**
  * Transient upstream provider failures, as surfaced by agent adapters in
  * "API Error: …" result strings (kept in sync with classifyAgentError in
@@ -116,6 +137,10 @@ const UPSTREAM_TRANSIENT_ERROR_REGEXES = [
   /socket connection (?:was )?closed/i,
   /API Error:.*\b(?:timed out|timeout)\b/i,
   /API Error:\s*(?:429|5\d\d)\b/i,
+  // The provider refuses a turn whose transcript content blocks do not line up
+  // ("Content block not found", "Content block is not a thinking block"). The
+  // wording changes with the provider, so match the family, not each string.
+  /API Error:\s*Content block\b/i,
 ] as const;
 
 const TURN_ENDED_WITHOUT_RESPONSE_REGEX =
@@ -146,7 +171,17 @@ export function classifyGatewayLimitError(
 ): GatewayLimitCause | null {
   const matches = (patterns: readonly string[]) =>
     includesAny(errorMessage, patterns) || includesAny(errorDetails, patterns);
-  if (matches(MODEL_GATE_PATTERNS)) return "model_gate";
+  const matchesRegex = (regex: RegExp) =>
+    regex.test(errorMessage) || (!!errorDetails && regex.test(errorDetails));
+  if (
+    matchesRegex(MODEL_UNAVAILABLE_REASON_REGEX) ||
+    matches(MODEL_UNAVAILABLE_PATTERNS)
+  ) {
+    return "model_unavailable";
+  }
+  if (matchesRegex(MODEL_GATE_CODE_REGEX) || matches(MODEL_GATE_PATTERNS)) {
+    return "model_gate";
+  }
   if (matches(ORG_LIMIT_PATTERNS)) return "org_limit";
   return null;
 }
@@ -250,10 +285,18 @@ export function isFatalSessionError(
   errorMessage: string,
   errorDetails?: string,
 ): boolean {
+  if (
+    includesAny(errorMessage, REQUEST_SIZE_ERROR_PATTERNS) ||
+    includesAny(errorDetails, REQUEST_SIZE_ERROR_PATTERNS) ||
+    REQUEST_SIZE_ERROR_REGEX.test(errorMessage) ||
+    REQUEST_SIZE_ERROR_REGEX.test(errorDetails ?? "")
+  ) {
+    return false;
+  }
   if (isRateLimitError(errorMessage, errorDetails)) return false;
   if (isTurnEndedWithoutResponseError(errorMessage, errorDetails)) return false;
   if (isTransientUpstreamError(errorMessage, errorDetails)) return false;
-  if (classifyGatewayLimitError(errorMessage, errorDetails) === "model_gate") {
+  if (classifyGatewayLimitError(errorMessage, errorDetails) !== null) {
     return false;
   }
   return (

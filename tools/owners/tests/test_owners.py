@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+import json
 import subprocess
 from pathlib import Path
 
@@ -282,6 +284,11 @@ def test_teams_registry_is_root_only(tmp_path: Path) -> None:
         ("teams:\n  team-a: '#a'\n", "entry must be a mapping"),
         ("teams:\n  '@alice':\n    slack: '#a'\n", "not @handles"),
         ("teams:\n  123:\n    slack: '#a'\n", "slug must be a string"),
+        ("teams:\n  team-a:\n    slack:\n      stamphog: false\n", "takes a single channel"),
+        ("teams:\n  team-a:\n    notifications:\n      nosuchbot: false\n", "unknown producer 'nosuchbot'"),
+        ("teams:\n  team-a:\n    notifications:\n      stamphog: 'no-hash'\n", "'stamphog' must be a string"),
+        ("teams:\n  team-a:\n    notifications:\n      visual_review: 'no-hash'\n", "'visual_review' must be a string"),
+        ("teams:\n  team-a:\n    notifications: {}\n", "mapping names no producer"),
     ],
 )
 def test_teams_registry_invalid_shapes(tmp_path: Path, teams_yaml: str, needle: str) -> None:
@@ -316,10 +323,40 @@ def test_team_channel_falls_back_by_purpose(
     assert (resolved.channel, resolved.declared) == (channel, declared)
 
 
+@pytest.mark.parametrize(
+    "notifications,producer,channel,declared",
+    [
+        # Silencing one producer leaves every other reader on the people channel, which is the
+        # whole point of the per-producer form over `notifications: false`.
+        ({"stamphog": False}, "stamphog", None, True),
+        ({"stamphog": False}, None, "#team-a", True),
+        ({"stamphog": "#bots-a"}, "stamphog", "#bots-a", True),
+        # A scalar answers every producer, so naming one must not move the channel.
+        ("#bots-a", "stamphog", "#bots-a", True),
+        (False, "stamphog", None, True),
+    ],
+)
+def test_team_channel_resolves_per_producer(
+    notifications: str | bool | dict[str, str | bool], producer: str | None, channel: str | None, declared: bool
+) -> None:
+    entry = TeamEntry(slack="#team-a", notifications=notifications)
+    resolved = team_channel("team-a", {"team-a": entry}, "notifications", producer)
+    assert (resolved.channel, resolved.declared) == (channel, declared)
+
+
 def test_team_channel_derives_for_an_unregistered_slug() -> None:
     assert team_channel("team-b", {"team-a": TeamEntry(slack="#a")}, "notifications") == team_channel(
         "team-b", {}, "notifications"
     )
+
+
+def test_an_unreadable_producer_map_registers_as_silence(tmp_path: Path) -> None:
+    # Dropping the key instead would fall through to the derived channel, so a typo in a repo our
+    # lint never reads would post the digest the team asked to be left out of.
+    text = "version: 1\nowners: []\nteams:\n  team-a:\n    notifications:\n      stamphogg: false\n"
+    file, errors = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
+    assert any("unknown producer" in e for e in errors)
+    assert file is not None and file.teams == {"team-a": TeamEntry(notifications=False)}
 
 
 def test_teams_registry_pins_file_as_non_simple(tmp_path: Path) -> None:
@@ -680,6 +717,22 @@ def test_live_scope_ignores_stale_owners_outside_the_diff() -> None:
     assert "team-bogus" not in _live_scope(_OWNERS_BY_FILE, ("owners.yaml",))
 
 
+def test_resolver_reads_through_an_injected_source() -> None:
+    files = {
+        "owners.yaml": "version: 1\nowners: [team-root]\n",
+        "posthog/temporal/owners.yaml": "version: 1\nowners: [team-batch]\n",
+    }
+
+    class DictSource:
+        def read(self, path: str) -> str | None:
+            return files.get(path)
+
+    resolver = OwnersResolver(source=DictSource())
+    assert resolver.resolve("posthog/temporal/test_run.py").owners == ["team-batch"]
+    assert resolver.resolve("posthog/other.py").owners == ["team-root"]
+    assert resolver.resolve("posthog/temporal/test_run.py").source == "posthog/temporal/owners.yaml"
+
+
 def test_census_counts_test_files_per_team_and_folds_gaps_into_unowned(tmp_path: Path) -> None:
     _write(tmp_path, "owners.yaml", "version: 1\nowners: []\n")
     _write(tmp_path, "products/a/owners.yaml", "version: 1\nowners: [team-a]\n")
@@ -705,3 +758,57 @@ def test_first_team_owner_skips_handles() -> None:
     assert first_team_owner(["@someone", "team-a"]) == "team-a"
     assert first_team_owner(["@someone"]) == ""
     assert first_team_owner(None) == ""
+
+
+def _run_entrypoint(repo: Path, *args: str, stdin: str = "") -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "posthog_owners", *args],
+        cwd=repo,
+        input=stdin,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_json_entrypoint_resolves_against_an_explicit_repo_root(registry_repo: Path) -> None:
+    # The fixture must have no .git, or the git rev-parse default could answer instead of the flag.
+    assert not (registry_repo / ".git").exists()
+
+    result = _run_entrypoint(registry_repo, "--repo-root", str(registry_repo), "reg/x.py")
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "reg/x.py": {
+            "owners": ["team-registry"],
+            "status": "active",
+            "slack": "#registry-chan",
+            "source": "reg/owners.yaml",
+        }
+    }
+
+
+def test_json_entrypoint_repo_root_reads_stdin_paths_and_honors_purpose(registry_repo: Path) -> None:
+    result = _run_entrypoint(
+        registry_repo,
+        "--repo-root",
+        str(registry_repo),
+        "--purpose",
+        "notifications",
+        stdin="split/x.py\nderive/x.py\n",
+    )
+
+    assert result.returncode == 0, result.stderr
+    wire = json.loads(result.stdout)
+    assert wire["split/x.py"]["slack"] == "#split-bots"
+    assert wire["derive/x.py"]["slack"] == "#team-nonreg"
+
+
+@pytest.mark.parametrize("root", ["nope", ""], ids=["missing", "empty"])
+def test_json_entrypoint_rejects_a_repo_root_that_is_not_a_directory(registry_repo: Path, root: str) -> None:
+    # An empty root is the unset "$VAR" case: Path("") is Path("."), which would
+    # otherwise resolve against the working directory rather than fail.
+    result = _run_entrypoint(registry_repo, "--repo-root", str(registry_repo / root) if root else "", "reg/x.py")
+
+    assert result.returncode == 2
+    assert "--repo-root" in result.stderr
+    assert result.stdout == ""

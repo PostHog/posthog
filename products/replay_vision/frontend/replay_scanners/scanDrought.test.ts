@@ -22,7 +22,7 @@ function marker(version: number): ObservationVersionMarkerApi {
         prompt: 'Did the user struggle?',
         scanner_config: { prompt: 'Did the user struggle?' },
         scanner_type: 'monitor',
-        model: 'gemini-3.7-flash',
+        model: 'gemini-3.8-flash',
         provider: 'google',
         emits_signals: false,
         query: null,
