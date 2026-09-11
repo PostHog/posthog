@@ -182,7 +182,9 @@ async def create_schedule_all_subscriptions_schedule(client: Client):
         ),
         spec=ScheduleSpec(cron_expressions=["25,55 * * * *"]),  # Run shortly before :30 and :00 deliveries
         policy=SchedulePolicy(
-            overlap=ScheduleOverlapPolicy.SKIP,
+            # Durable claims and deterministic child IDs make concurrent coordinators safe. ALLOW_ALL
+            # also avoids a slow pre-deploy coordinator suppressing discovery after this schedule updates.
+            overlap=ScheduleOverlapPolicy.ALLOW_ALL,
             catchup_window=timedelta(minutes=30),
             pause_on_failure=False,
         ),
