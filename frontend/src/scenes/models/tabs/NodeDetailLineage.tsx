@@ -63,7 +63,12 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
     }
 
     if (nodes.length <= 1) {
-        return <p className="mb-0 text-secondary">No upstream or downstream dependencies found.</p>
+        return (
+            <p className="mb-0 text-secondary">
+                No upstream or downstream models found in this graph. Insights and dashboards aren't included, so they
+                may still use this view.
+            </p>
+        )
     }
 
     return (
