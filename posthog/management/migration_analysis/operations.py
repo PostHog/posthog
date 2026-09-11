@@ -170,10 +170,15 @@ class RemoveFieldAnalyzer(OperationAnalyzer):
             score=5,
             reason="Dropping column breaks backwards compatibility and can't rollback",
             details={"model": op.model_name, "field": op.name},
-            guidance=f"""Use SeparateDatabaseAndState for multi-phase column drops:
-1. Remove field from Django state (state_operations only, column stays in DB)
-2. Wait at least one full deployment cycle
-3. Drop the column with RunSQL: ALTER TABLE ... DROP COLUMN IF EXISTS
+            guidance=f"""Django names every model field in every SELECT it writes, so this drops the column in the same deploy that stops the code asking for it. Pods still on the old release fail every query against the table.
+
+Consider leaving the column in place. An unused column costs little and keeps its data.
+
+To retire the field, take it out of the ORM first and leave the column:
+- `deprecate_field(...)` from `posthog.migration_helpers` keeps the field on the model and writes no migration. Not for a foreign key: with no migration there is nowhere to drop the constraint
+- `untrack_field(...)` from `posthog.migration_helpers` replaces this RemoveField with a state-only migration. A foreign key needs this one, with `DropForeignKey(...)` beside it
+
+To drop the column for real, use `untrack_field(...)` here, then `RunSQL ... DROP COLUMN IF EXISTS` in a following migration. This analyzer validates that shape on its own.
 
 [See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
         )
@@ -976,6 +981,35 @@ class SafeAddIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
 
 class SafeRemoveIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
     operation_type = "SafeRemoveIndexConcurrently"
+
+
+class DropForeignKeyAnalyzer(OperationAnalyzer):
+    """The constraint drop that rides along with a state-only removal of a column or table.
+
+    Dropping a foreign key is a catalog change. It holds ACCESS EXCLUSIVE on the referenced
+    parent for microseconds and scans nothing, so it scores with `ADD CONSTRAINT ... NOT
+    VALID` rather than with the operations that rewrite a table.
+    """
+
+    operation_type = "DropForeignKey"
+    default_score = 1
+
+    def analyze(self, op) -> OperationRisk:
+        return OperationRisk(
+            type=self.operation_type,
+            score=1,
+            reason="DROP CONSTRAINT on a foreign key is a catalog change (brief lock on the parent, no table scan)",
+            details={
+                "table": getattr(op, "table", None),
+                "column": getattr(op, "column", None),
+                "to_table": getattr(op, "to_table", None),
+            },
+            guidance=f"""Required beside a state-only removal of the column or table this foreign key sits on. Django stops cascading into a relation it cannot see, and the deferred constraint then fails the parent delete at COMMIT.
+
+Irreversible. Add the constraint back with `AddForeignKeyNotValid` in a new migration rather than by unapplying this one.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
+        )
 
 
 class AddConstraintNotValidAnalyzer(OperationAnalyzer):

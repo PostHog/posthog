@@ -4,6 +4,7 @@ import {
   BookOpenTextIcon,
   BrainIcon,
   EnvelopeSimple,
+  FileTextIcon,
   GearIcon,
   PlugsConnectedIcon,
   RepeatIcon,
@@ -19,6 +20,7 @@ export type TabAppView = Extract<
   | "activity"
   | "home"
   | "inbox"
+  | "report"
   | "agents"
   | "loops"
   | "archived"
@@ -39,6 +41,7 @@ export const TAB_APP_VIEW_META: Record<
   },
   home: { label: "Home", icon: <SquaresFourIcon size={14} /> },
   inbox: { label: "Self-driving", icon: <TrayIcon size={14} /> },
+  report: { label: "Report", icon: <FileTextIcon size={14} /> },
   agents: { label: "Agents", icon: <RobotIcon size={14} /> },
   loops: { label: "Loops", icon: <RepeatIcon size={14} /> },
   archived: { label: "Archived", icon: <ArchiveIcon size={14} /> },
@@ -59,18 +62,25 @@ export function isTabAppView(value: string): value is TabAppView {
   return Object.hasOwn(TAB_APP_VIEW_META, value);
 }
 
-interface ActivityReportTabContext {
+interface ReportTabContext {
   title: string | null | undefined;
 }
 
+const REPORT_TITLED_VIEWS: readonly TabAppView[] = ["activity", "report"];
+
 export function resolveTabAppViewDisplay(
   appView: TabAppView,
-  activityReport: ActivityReportTabContext | null,
+  report: ReportTabContext | null,
 ): { label: string; icon: ReactNode } {
-  if (appView === "activity" && activityReport) {
+  if (report && REPORT_TITLED_VIEWS.includes(appView)) {
     return {
-      label: activityReport.title?.trim() || TAB_APP_VIEW_META.activity.label,
-      icon: <EnvelopeSimple size={14} />,
+      label: report.title?.trim() || TAB_APP_VIEW_META[appView].label,
+      icon:
+        appView === "report" ? (
+          <FileTextIcon size={14} />
+        ) : (
+          <EnvelopeSimple size={14} />
+        ),
     };
   }
   return TAB_APP_VIEW_META[appView];

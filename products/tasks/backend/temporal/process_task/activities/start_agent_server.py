@@ -89,6 +89,12 @@ def _emit_agent_server_log_tail(ctx: TaskProcessingContext, sandbox: SandboxBase
     log_tail = result.stdout.strip()
     if log_tail:
         emit_agent_log(ctx.run_id, "debug", f"agent-server log tail:\n{log_tail}")
+    else:
+        emit_agent_log(
+            ctx.run_id,
+            "debug",
+            "agent-server log tail: empty. The agent-server wrote nothing to /tmp/agent-server.log.",
+        )
 
 
 def _resolve_protected_base_branch(ctx: TaskProcessingContext) -> str | None:
@@ -545,6 +551,7 @@ def _invoke_start_agent_server(
             provider=ctx.provider,
             model=ctx.model,
             reasoning_effort=ctx.reasoning_effort,
+            service_tier=ctx.service_tier,
             context_window=ctx.context_window,
             fast_mode=ctx.fast_mode,
             initial_permission_mode=ctx.initial_permission_mode,

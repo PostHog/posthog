@@ -254,6 +254,43 @@ describe("SessionLogWriter", () => {
       },
     );
 
+    // The double-prefixed form is what extNotification puts on the wire.
+    it.each(["_posthog/console", "__posthog/usage_update"])(
+      "keeps a streamed message whole across an interleaved %s",
+      async (method) => {
+        const sessionId = "s1";
+        logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("agent_message_chunk", {
+            content: { type: "text", text: "dashboards still" },
+          }),
+        );
+        logWriter.appendRawLine(
+          sessionId,
+          JSON.stringify({ jsonrpc: "2.0", method, params: {} }),
+        );
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("agent_message_chunk", {
+            content: { type: "text", text: " use that field filter" },
+          }),
+        );
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("tool_call", { toolCallId: "tc1" }),
+        );
+
+        await logWriter.flush(sessionId);
+
+        // A split here would reach the Slack relay as only the second half.
+        expect(logWriter.getAgentResponseParts(sessionId)).toEqual([
+          "dashboards still use that field filter",
+        ]);
+      },
+    );
+
     it("stamps the coalesced entry with the covered chunk id range", async () => {
       const sessionId = "s1";
       logWriter.register(sessionId, { taskId: "t1", runId: sessionId });

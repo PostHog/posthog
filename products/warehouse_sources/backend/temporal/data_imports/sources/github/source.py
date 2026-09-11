@@ -351,7 +351,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             # Deterministic credential/config errors from _get_access_token and OAuthMixin.
             # These never resolve on retry — the source needs reconfiguring or reconnecting.
             "Missing GitHub integration ID": "No GitHub account is connected. Connect a GitHub account and try again.",
-            "Missing personal access token": "GitHub personal access token is not configured. Please update the source configuration.",
+            "Missing personal access token": "No GitHub personal access token is set. Enter one, or switch the authentication type to OAuth and connect a GitHub account.",
             "No repositories configured": "No repositories are selected for this source. Please update the source configuration.",
             "resolve to the same warehouse table": "Two selected repositories resolve to the same warehouse table. Please remove or rename one.",
             "Too many repositories configured": "Too many repositories are selected for this source. Please reduce the list and try again.",
@@ -958,7 +958,6 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             inputs.s3_folder_name if isinstance(inputs.s3_folder_name, str) and inputs.s3_folder_name else None
         )
         response_name = NamingConvention.normalize_identifier(storage_key or inputs.schema_name)
-
         return github_source(
             personal_access_token=access_token,
             repository=repository,
@@ -970,6 +969,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             if inputs.should_use_incremental_field
             else None,
             incremental_field=inputs.incremental_field,
+            reconcile_since=inputs.last_synced_at,
             webhook_source_manager=webhook_source_manager,
             egress_identity=egress_identity,
             response_name=response_name,

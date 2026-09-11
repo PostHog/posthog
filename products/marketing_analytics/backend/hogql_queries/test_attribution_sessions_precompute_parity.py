@@ -4,6 +4,8 @@ from typing import Optional
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -15,16 +17,22 @@ from posthog.schema import (
 )
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
+from products.analytics_platform.backend.models import PreaggregationJob
+from products.marketing_analytics.backend.hogql_queries import attribution_sessions_read
 from products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner import (
     MarketingAnalyticsAttributionQueryRunner,
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_sessions_precompute import (
-    SESSION_FORWARD_PAD_MINUTES,
+    SESSION_READ_REACHBACK_DAYS,
     ensure_marketing_sessions_precomputed,
+)
+from products.marketing_analytics.backend.tasks.lazy_precompute_revalidation import (
+    revalidate_marketing_analytics_precompute,
 )
 
 GOAL_ID = "goal-1"
@@ -104,7 +112,12 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         )
 
     def _run(
-        self, breakdown: MarketingAnalyticsAttributionBreakdown, *, precomputed: bool, exclude_direct: bool = False
+        self,
+        breakdown: MarketingAnalyticsAttributionBreakdown,
+        *,
+        precomputed: bool,
+        exclude_direct: bool = False,
+        allow_multiple_conversions: bool | None = None,
     ) -> tuple[dict[str, tuple[int, int]], bool]:
         query = MarketingAnalyticsAttributionQuery(
             dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
@@ -112,6 +125,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
             conversionGoalId=GOAL_ID,
             properties=[],
             excludeDirectTraffic=exclude_direct,
+            allowMultipleConversionsPerVisitor=allow_multiple_conversions,
         )
         runner = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team)
         runner.config.sessions_precomputation_enabled = precomputed
@@ -124,7 +138,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         # has its chunk built.
         result = ensure_marketing_sessions_precomputed(
             self.team,
-            WINDOW_START - timedelta(minutes=SESSION_FORWARD_PAD_MINUTES),
+            WINDOW_START - timedelta(days=SESSION_READ_REACHBACK_DAYS),
             datetime(2023, 1, 20, 23, 59, 59, tzinfo=UTC),
         )
         assert result.ready, result.errors
@@ -236,9 +250,12 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
 
     # Both paths hold their own reference to the ceiling, so both have to be lowered for the fixture
     # to stay small enough to read.
+    @parameterized.expand([("repeat", True), ("first_only", False)])
     @patch("products.marketing_analytics.backend.hogql_queries.attribution_base.MAX_CONVERSIONS_PER_PERSON", 2)
     @patch("products.marketing_analytics.backend.hogql_queries.attribution_sessions_read.MAX_CONVERSIONS_PER_PERSON", 2)
-    def test_a_person_over_the_conversion_ceiling_is_attributed_the_same_on_both_paths(self) -> None:
+    def test_a_person_over_the_conversion_ceiling_is_attributed_the_same_on_both_paths(
+        self, _name: str, allow_multiple_conversions: bool
+    ) -> None:
         # The live path caps how many of one person's conversions can earn credit, because the two
         # downstream ARRAY JOINs multiply without bound otherwise. A precomputed read that skipped the
         # cap would both diverge here and reopen that growth.
@@ -248,9 +265,17 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
             self._conversion("heavy", datetime(2023, 1, 12, hour, 0, tzinfo=UTC))
         flush_persons_and_events()
 
-        live, live_used = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=False)
+        live, live_used = self._run(
+            MarketingAnalyticsAttributionBreakdown.CAMPAIGN,
+            precomputed=False,
+            allow_multiple_conversions=allow_multiple_conversions,
+        )
         self._materialize()
-        pre, pre_used = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=True)
+        pre, pre_used = self._run(
+            MarketingAnalyticsAttributionBreakdown.CAMPAIGN,
+            precomputed=True,
+            allow_multiple_conversions=allow_multiple_conversions,
+        )
 
         assert not live_used
         assert pre_used, "the precomputed path was not used, so this proves nothing"
@@ -337,3 +362,58 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         rows, used = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=True, exclude_direct=True)
         assert used, "the precomputed path was not used, so this proves nothing"
         assert "was_a_campaign" not in rows, f"the superseded campaign survived the exclusion: {rows}"
+
+    def test_session_starting_before_reachback_falls_back_without_losing_reach(self) -> None:
+        create_person(team=self.team, distinct_ids=["long-session"])
+        self._session(
+            "long-session", WINDOW_START - timedelta(hours=48), campaign="long", event_offsets_minutes=[0, 49 * 60]
+        )
+        self._conversion("long-session", datetime(2023, 1, 12, 12, tzinfo=UTC))
+        flush_persons_and_events()
+        live, _ = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=False)
+        self._materialize()
+        pre, used = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=True)
+        assert not used
+        assert live.get("long") == (1, 0)
+        assert pre == live
+
+    def test_expired_jobs_are_served_with_grace_and_revalidation_rebuilds_them(self) -> None:
+        create_person(team=self.team, distinct_ids=["stale-session"])
+        self._session(
+            "stale-session", datetime(2023, 1, 11, 9, tzinfo=UTC), campaign="stale", event_offsets_minutes=[0]
+        )
+        self._conversion("stale-session", datetime(2023, 1, 12, 12, tzinfo=UTC))
+        flush_persons_and_events()
+        original = self._materialize()
+        PreaggregationJob.objects.filter(team=self.team, id__in=original.job_ids).update(
+            expires_at=timezone.now() - timedelta(hours=1)
+        )
+        with patch.object(attribution_sessions_read, "serve_stale_enabled", return_value=False):
+            live, used = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=True)
+            assert not used
+        with (
+            patch.object(attribution_sessions_read, "serve_stale_enabled", return_value=True),
+            patch.object(attribution_sessions_read, "handle_stale_served") as enqueue,
+        ):
+            stale, used = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=True)
+            assert used
+            assert stale == live
+            enqueue.assert_called_once()
+            query = enqueue.call_args.kwargs["query"]
+            runner = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team)
+            runner.config.sessions_precomputation_enabled = True
+            with (
+                tags_context(),
+                patch(
+                    "products.marketing_analytics.backend.tasks.lazy_precompute_revalidation.get_query_runner",
+                    return_value=runner,
+                ),
+            ):
+                revalidate_marketing_analytics_precompute(self.team.pk, query.model_dump())
+            assert runner._sessions_precompute_used
+            assert set(runner._sessions_precompute_jobs or []).isdisjoint(map(str, original.job_ids))
+            enqueue.assert_called_once()
+        with patch.object(attribution_sessions_read, "serve_stale_enabled", return_value=False):
+            fresh, used = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=True)
+        assert used
+        assert fresh == live

@@ -85,26 +85,12 @@ export function AccountDetailTabs({
                 {
                     key: 'usage',
                     label: 'Usage',
-                    content: (
-                        <AccountBillingExpansion
-                            accountId={accountId}
-                            externalId={externalId}
-                            kind="usage"
-                            embedded={embedded}
-                        />
-                    ),
+                    content: <AccountBillingExpansion accountId={accountId} externalId={externalId} kind="usage" />,
                 },
                 {
                     key: 'spend',
                     label: 'Spend',
-                    content: (
-                        <AccountBillingExpansion
-                            accountId={accountId}
-                            externalId={externalId}
-                            kind="spend"
-                            embedded={embedded}
-                        />
-                    ),
+                    content: <AccountBillingExpansion accountId={accountId} externalId={externalId} kind="spend" />,
                 },
                 {
                     key: 'opportunities',

@@ -16,20 +16,30 @@ import structlog
 from posthog.schema import MarketingAnalyticsAttributionBreakdown
 
 from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
+from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.access_control.backend.facade.api import team_has_property_access_rules
+from products.analytics_platform.backend.lazy_computation.stale_policy import resolve_stale_while_revalidate_seconds
 from products.marketing_analytics.backend.hogql_queries.marketing_sessions_precompute import (
-    PRECOMPUTE_WINDOW_DAYS,
-    SESSION_FORWARD_PAD_MINUTES,
+    SESSION_READ_REACHBACK_DAYS,
     ensure_marketing_sessions_precomputed,
+    precompute_window_days,
 )
 
 from .attribution_base import MAX_CONVERSIONS_PER_PERSON, MAX_TOUCHPOINTS_PER_PERSON, PERSON_CONVERSION_COUNT
 from .constants import UNKNOWN_CHANNEL
+from .marketing_lazy_precompute import (
+    BACKGROUND_WARMING_TRIGGERS,
+    REVALIDATION_TRIGGER,
+    STALE_WHILE_REVALIDATE_SECONDS,
+    handle_stale_served,
+    serve_stale_enabled,
+)
 from .session_breakdown_base import UNATTRIBUTED_SESSION_VALUES
 
 if TYPE_CHECKING:
@@ -38,11 +48,6 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 TABLE = "marketing_sessions_dimensional_preaggregated"
-
-# The widest lookback-extended window this path will read. Derived from what the scheduled job keeps
-# warm, minus the day of session pad the read asks for on top: a query past this can never be ready,
-# so it fails the gate instead of falling back on every request.
-MAX_WINDOW_DAYS = PRECOMPUTE_WINDOW_DAYS - 1
 
 BREAKDOWN_COLUMNS: dict[MarketingAnalyticsAttributionBreakdown, str] = {
     MarketingAnalyticsAttributionBreakdown.CHANNEL: "channel_type",
@@ -88,7 +93,9 @@ def ineligible_reason(runner: "AttributionQueryRunnerBase", date_range: QueryDat
         return "test_account_filters"
 
     read = window(runner, date_range)
-    if (read.end - read.start).total_seconds() > MAX_WINDOW_DAYS * 86400:
+    if (read.end - read.start).total_seconds() > (
+        precompute_window_days(runner.team) - SESSION_READ_REACHBACK_DAYS
+    ) * 86400:
         return "window_over_max"
 
     return None
@@ -140,15 +147,43 @@ def _resolve(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange) -
         # chunk holding its start, so a session that opened earlier and ran into the window lives in
         # the preceding chunk. Reading the window alone leaves that row unwritten, and bounding by
         # event time cannot recover a row that was never built.
-        ensure_start = read.start - timedelta(minutes=SESSION_FORWARD_PAD_MINUTES)
-        # Check-only: a read must never materialize a cold window on the request thread. A miss
-        # falls through to the live path and the scheduled job warms the window instead.
-        result = ensure_marketing_sessions_precomputed(runner.team, ensure_start, read.end, run_inserts=False)
+        ensure_start = read.start - timedelta(days=SESSION_READ_REACHBACK_DAYS)
+        revalidating = get_query_tag_value("trigger") == REVALIDATION_TRIGGER
+        grace = (
+            resolve_stale_while_revalidate_seconds(STALE_WHILE_REVALIDATE_SECONDS, BACKGROUND_WARMING_TRIGGERS)
+            if serve_stale_enabled(runner.team)
+            else None
+        )
+        # Only the dedicated revalidation task may rebuild; cold user reads keep the live fallback.
+        result = ensure_marketing_sessions_precomputed(
+            runner.team,
+            ensure_start,
+            read.end,
+            run_inserts=revalidating,
+            stale_while_revalidate_seconds=grace,
+        )
+        if not result.job_ids or not result.ready:
+            return None
+        # Custom session IDs have no maximum duration. Do not silently omit their earlier start chunks.
+        coverage = execute_hogql_query(
+            query="SELECT 1 FROM sessions WHERE $start_timestamp < {ensure_start} AND $end_timestamp >= {read_start} LIMIT 1",
+            team=runner.team,
+            user=runner.user,
+            placeholders={
+                "ensure_start": ast.Constant(value=ensure_start),
+                "read_start": ast.Constant(value=read.start),
+            },
+            modifiers=runner.modifiers,
+            query_type="marketing_attribution_session_coverage",
+            context=runner._shared_hogql_context,
+        )
+        if coverage.results is None or coverage.results:
+            return None
     except Exception:
         logger.exception("attribution_sessions_precompute_failed", team_id=runner.team.pk)
         return None
-    if not result.job_ids or not result.ready:
-        return None
+    if result.stale:
+        handle_stale_served(team=runner.team, query=runner.query)
     return [str(j) for j in result.job_ids]
 
 
@@ -343,6 +378,9 @@ def build_person_arrays(runner: "AttributionQueryRunnerBase", date_range: QueryD
     read = window(runner, date_range)
 
     conv = _conversions_per_person(runner, date_range)
+    # The session join only needs conversion bounds, so do not build revenue arrays twice.
+    converters = runner._build_converters_select(date_range, with_bounds=True)
+    converters.select[0] = ast.Alias(alias="conv_person_id", expr=converters.select[0])
     session_start = ast.Call(name="toUnixTimestamp", args=[_field("start_timestamp")])
     # A touchpoint outside [first conversion - window, last conversion] cannot be credited by any of
     # this person's conversions. In single-conversion mode only the first one is kept, so nothing
@@ -373,7 +411,7 @@ def build_person_arrays(runner: "AttributionQueryRunnerBase", date_range: QueryD
             table=ast.Field(chain=["posthog", TABLE]),
             next_join=ast.JoinExpr(
                 join_type="INNER JOIN",
-                table=_conversions_per_person(runner, date_range),
+                table=converters,
                 alias="conv",
                 constraint=ast.JoinConstraint(
                     expr=ast.CompareOperation(
