@@ -37956,12 +37956,14 @@
                 },
                 "reduce": {
                     "$ref": "#/definitions/MetricsReducer",
+                    "default": "last",
                     "description": "How scalar panels and legend calcs collapse a series to one number."
                 },
                 "statSummary": {
                     "$ref": "#/definitions/MetricsStatSummary",
                     "default": "latest",
-                    "description": "`stat` display only: which summary the headline value shows. Deprecated: use `reduce`."
+                    "deprecated": "Use `reduce`.",
+                    "description": "`stat` display only: which summary the headline value shows."
                 },
                 "thresholds": {
                     "description": "Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter.",
@@ -37989,34 +37991,13 @@
             "enum": ["line", "area", "bar", "stat", "gauge", "bargauge", "table", "heatmap"],
             "type": "string"
         },
+        "MetricsFilterOp": {
+            "enum": ["eq", "neq", "regex", "not_regex"],
+            "type": "string"
+        },
         "MetricsNullMode": {
             "description": "How a null bucket renders on a time-series chart.",
             "enum": ["gap", "zero", "connect"],
-            "type": "string"
-        },
-        "MetricsReducer": {
-            "description": "How a series collapses to one number for the scalar panels and legend calcs.",
-            "enum": ["last", "mean", "min", "max", "sum", "delta"],
-            "type": "string"
-        },
-        "MetricsThreshold": {
-            "additionalProperties": false,
-            "description": "A threshold band: `color` applies from `value` up to the next step.",
-            "properties": {
-                "value": {
-                    "description": "Lower bound of this band. The lowest step is the base color below every other step.",
-                    "type": "number"
-                },
-                "color": {
-                    "description": "A named color token (e.g. \"green\", \"red\"), never raw hex, so light and dark themes both work.",
-                    "type": "string"
-                }
-            },
-            "required": ["value", "color"],
-            "type": "object"
-        },
-        "MetricsFilterOp": {
-            "enum": ["eq", "neq", "regex", "not_regex"],
             "type": "string"
         },
         "MetricsOtelType": {
@@ -38250,10 +38231,32 @@
             "required": ["labels", "points"],
             "type": "object"
         },
+        "MetricsReducer": {
+            "description": "How a series collapses to one number for the scalar panels and legend calcs.",
+            "enum": ["last", "mean", "min", "max", "sum", "delta"],
+            "type": "string"
+        },
         "MetricsStatSummary": {
+            "deprecated": "Use `MetricsDisplaySettings.reduce`. Kept so saved insights keep working.",
             "description": "Which summary the `stat` display's headline value shows.",
             "enum": ["latest", "average", "total"],
             "type": "string"
+        },
+        "MetricsThreshold": {
+            "additionalProperties": false,
+            "description": "A threshold band: `color` applies from `value` up to the next step.",
+            "properties": {
+                "color": {
+                    "description": "A named color token (e.g. \"green\", \"red\"), never raw hex, so light and dark themes both work.",
+                    "type": "string"
+                },
+                "value": {
+                    "description": "Lower bound of this band. The lowest step is the base color below every other step.",
+                    "type": "number"
+                }
+            },
+            "required": ["value", "color"],
+            "type": "object"
         },
         "MetricsYAxisSettings": {
             "additionalProperties": false,
