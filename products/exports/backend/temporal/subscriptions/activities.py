@@ -114,6 +114,9 @@ _SUBSCRIPTION_RECOVERY_STATUS_BUDGET = _SUBSCRIPTION_RECOVERY_ACTIVITY_BUDGET - 
 # One stalled Temporal frontend response must not consume the status-check budget.
 _SUBSCRIPTION_RECOVERY_RPC_TIMEOUT = dt.timedelta(seconds=5)
 _SUBSCRIPTION_CANDIDATE_LIMIT = _SUBSCRIPTION_MAX_IN_FLIGHT + MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN + 1
+# A mostly-claimed page can otherwise shrink each refill to a handful of rows
+# and serialize hundreds of transactions on the global permit-pool lock.
+_SUBSCRIPTION_MAX_ADMISSION_ROUNDS = 16
 _monotonic = time.monotonic
 
 # Used only as the recipient_results error message — `no_assets` doesn't auto-disable
@@ -656,8 +659,11 @@ async def _fetch_due_subscriptions(
     if inputs.use_durable_claims:
         claimed_subscriptions: list[DueSubscription] = []
         candidate_index = 0
-        while len(claimed_subscriptions) < inputs.max_subscriptions_per_run and candidate_index < len(
-            page.subscriptions
+        admission_rounds = 0
+        while (
+            len(claimed_subscriptions) < inputs.max_subscriptions_per_run
+            and candidate_index < len(page.subscriptions)
+            and admission_rounds < _SUBSCRIPTION_MAX_ADMISSION_ROUNDS
         ):
             remaining = inputs.max_subscriptions_per_run - len(claimed_subscriptions)
             candidates = page.subscriptions[candidate_index : candidate_index + remaining]
@@ -679,6 +685,7 @@ async def _fetch_due_subscriptions(
                 break
             safe_candidates = candidates[:safe_candidate_count]
             candidate_index += safe_candidate_count
+            admission_rounds += 1
             reservation_result = await reserve_candidates(safe_candidates)
             examined_team_ids.update(candidate.team_id for candidate in safe_candidates)
             for candidate in safe_candidates:
@@ -691,6 +698,14 @@ async def _fetch_due_subscriptions(
                             scheduler_claim_token=claim[1],
                         )
                     )
+        if admission_rounds >= _SUBSCRIPTION_MAX_ADMISSION_ROUNDS and candidate_index < len(page.subscriptions):
+            await LOGGER.awarning(
+                "subscription_scheduler.admission_round_limit_reached",
+                admission_rounds=admission_rounds,
+                candidates_examined=candidate_index,
+                candidates_remaining=len(page.subscriptions) - candidate_index,
+                subscriptions_claimed=len(claimed_subscriptions),
+            )
         subscriptions_for_payload = claimed_subscriptions
     else:
         subscriptions_for_payload = page.subscriptions

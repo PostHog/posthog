@@ -4181,6 +4181,56 @@ async def test_claimed_subscription_page_refills_after_payload_trim_and_admissio
     assert [item.subscription_id for item in page.subscriptions] == [subscriptions[0].id, subscriptions[2].id]
 
 
+async def test_claimed_subscription_refill_bounds_serial_admission_rounds(team, user):
+    subscriptions: list[Subscription] = []
+    due_at = datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+    for index in range(5):
+        insight = await sync_to_async(Insight.objects.create)(
+            team=team,
+            short_id=f"bounded-refill-{index}",
+            name=f"Bounded refill insight {index}",
+        )
+        subscriptions.append(await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user))
+    await sync_to_async(Subscription.objects.filter(id__in=[item.id for item in subscriptions]).update)(
+        next_delivery_date=due_at
+    )
+
+    reservation_calls = 0
+
+    def reject_all_candidates(*, requests: Sequence[SchedulerClaimRequest], **_kwargs: Any) -> SchedulerAdmissionResult:
+        nonlocal reservation_calls
+        reservation_calls += 1
+        return SchedulerAdmissionResult(
+            reservations=(),
+            already_claimed=len(requests),
+            deferred_for_capacity=0,
+        )
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.activities._SUBSCRIPTION_MAX_ADMISSION_ROUNDS",
+            2,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.activities.reserve_scheduler_claims",
+            side_effect=reject_all_candidates,
+        ),
+    ):
+        page = await ActivityEnvironment().run(
+            fetch_claimed_due_subscriptions_activity,
+            FetchDueSubscriptionsActivityInputs(
+                buffer_minutes=15,
+                max_subscriptions_per_run=2,
+                region="bounded-refill-test",
+                use_durable_claims=True,
+                claim_token_seed="bounded-refill-run",
+            ),
+        )
+
+    assert reservation_calls == 2
+    assert page.subscriptions == []
+
+
 async def test_claimed_subscription_page_refills_past_a_quarantined_occurrence(team, user):
     due_at = datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
     subscriptions: list[Subscription] = []
