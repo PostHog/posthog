@@ -91,7 +91,7 @@ Read the result against three cases:
   Nothing is running.
   Tell the user which scouts exist and that they're all off — and say who switched each one off, which `status` carries: `paused_by_user` means a person (or a launch seed posture) turned it off, `paused_by_system` means an automatic pause with its cause in `pause_reason` (`no_output` / `ignored` / `repeated_failures`).
   Either kind resumes with `enabled: true` via `scout-config-update`.
-  A `repeated_failures` pause is the failure breaker (five consecutive failed runs spanning at least twelve hours; `consecutive_failure_count` shows the streak) — it is half-open, so the coordinator probes the scout once per cooldown and resumes it on a clean run; read the newest run's `failure_reason` to say what kept failing.
+  A `repeated_failures` pause is the failure breaker: the streak (`consecutive_failure_count`) ran one failure past what the schedule fits in twelve hours, clamped to 5–25 (daily: 5, hourly: 13). It is half-open, so the coordinator probes the scout once a day and resumes it on a clean run; read the newest run's `failure_reason` to say what kept failing.
 - **At least one `enabled: true`** — the fleet is registered and that scout is allowed to run.
   For each enabled scout note its cadence (`run_cron_schedule` when set, else `run_interval_minutes` — the cron wins), `emit` (false = **dry-run**, runs but writes nothing to the inbox), and `last_run_at`.
   A `status` of `pending_pause` means the scout still runs but the system has flagged it to pause soon (cause in `pause_reason`); any config edit clears the warning.

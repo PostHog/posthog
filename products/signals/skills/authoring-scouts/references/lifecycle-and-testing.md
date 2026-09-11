@@ -20,7 +20,7 @@ How scouts get discovered, scheduled, and dispatched; the two distribution paths
   `last_run_at` advances for everything dispatched.
 - **Run.** Each dispatched scout becomes one sandboxed agent run with a hard budget of 15 minutes; a run still going at the wall is killed and its row marked failed.
   The body is the system prompt; the agent orients, explores, files reports or remembers, and writes a one-paragraph summary to the run row.
-  Five consecutive failures spanning at least twelve hours trip a breaker that pauses the scout (`pause_reason=repeated_failures`); the coordinator then probes it once per cooldown and resumes it on a clean run.
+  A streak of consecutive failures longer than a twelve-hour outage could explain trips a breaker that pauses the scout (`pause_reason=repeated_failures`): the threshold is one more than the runs the schedule fits in twelve hours, clamped to 5–25 (five for a daily scout, thirteen for an hourly one). The coordinator then probes it once a day and resumes it on a clean run.
 
 Pausing a scout = `enabled=false`.
 That records `status=paused_by_user`, which automatic lifecycle sweeps never resume or re-pause; `enabled=true` resumes from any pause, including a system-applied one (`status=paused_by_system`, cause in the read-only `pause_reason`).
