@@ -54,14 +54,14 @@ function SkeletonRow({
             <div className="flex min-w-0 flex-1 flex-col gap-2 py-0.5">
                 <LemonSkeleton className="h-3.5 w-3/5" />
                 <LemonSkeleton className="h-3 w-4/5" />
-                <div className="flex items-center gap-1.5 pt-0.5">
+                <div className="flex items-center gap-2.5 pt-0.5">
                     <LemonSkeleton className="h-3.5 w-16" />
                     <LemonSkeleton className="h-3.5 w-20" />
+                    <LemonSkeleton className="ml-auto h-3 w-14" />
                 </div>
             </div>
-            <div className="flex shrink-0 items-center gap-2 self-center">
-                <LemonSkeleton className="h-3 w-10" />
-                <LemonSkeleton className="h-7 w-16 rounded" />
+            <div className="flex shrink-0 items-center self-stretch border-l border-primary pl-3">
+                <LemonSkeleton className="h-8 w-24 rounded" />
             </div>
         </div>
     )
