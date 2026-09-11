@@ -14,7 +14,7 @@ class TestBulkDeletionDisabled(APIBaseTest):
         super().setUp()
         self.additional_team = Team.objects.create(organization=self.organization, name="Test Team for Deletion")
 
-    @patch("posthog.api.team.settings.DISABLE_BULK_DELETES", True)
+    @patch("posthog.api.team.viewsets.settings.DISABLE_BULK_DELETES", True)
     def test_team_deletion_disabled(self):
         """Test that team deletion returns 400 when DISABLE_BULK_DELETES is True."""
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -28,7 +28,7 @@ class TestBulkDeletionDisabled(APIBaseTest):
         self.assertTrue(Team.objects.filter(id=self.additional_team.id).exists())
 
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
-    @patch("posthog.api.team.settings.DISABLE_BULK_DELETES", False)
+    @patch("posthog.api.team.viewsets.settings.DISABLE_BULK_DELETES", False)
     def test_team_deletion_enabled(self, mock_start_deletion):
         """Test that team deletion is allowed (hands off to Temporal) when DISABLE_BULK_DELETES is False."""
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
