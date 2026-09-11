@@ -377,26 +377,48 @@ class TestReportChartsSection(SimpleTestCase):
 
 
 class TestPromptCacheablePrefix(SimpleTestCase):
-    def test_per_team_and_per_run_values_render_only_in_the_trailing_block(self) -> None:
+    @parameterized.expand(
+        [
+            ("signal_canonical", [], "canonical", False, False),
+            ("signal_custom_knowledge", [], "custom", False, True),
+            ("report_both_custom", ["emit_report", "edit_report"], "custom", False, False),
+            ("report_both_canonical_github_knowledge", ["emit_report", "edit_report"], "canonical", True, True),
+            ("report_emit_only_github", ["emit_report"], "custom", True, False),
+            ("report_edit_only_canonical_knowledge", ["edit_report"], "canonical", False, True),
+        ]
+    )
+    def test_per_team_and_per_run_values_render_only_in_the_trailing_block(
+        self,
+        _name: str,
+        allowed_tools: list[str],
+        origin: str,
+        github_read_access: bool,
+        business_knowledge_maintained: bool,
+    ) -> None:
         # Both runtimes cache on prefix, so one interpolated value above the trailing block leaves
         # every stable section after it uncacheable, and the fleet pays for the whole body again on
         # the first turn of every run. The regression is a section drifting back up the prompt,
         # which changes nothing a reader would notice, so assert on the split itself.
+        # The channel, report-tool, skill-origin, `gh` and business-knowledge forks each swap
+        # sections into the prose above the block, so a value added inside one of them renders for
+        # only some scouts — one shape would leave the other shapes' sections unchecked.
         prompt = build_run_prompt(
             LoadedSkill(
                 name="signals-scout-prefix-probe",
                 version=7,
                 body="watch",
                 description="d",
-                allowed_tools=["emit_report", "edit_report"],
+                allowed_tools=allowed_tools,
                 files=[],
                 skill_id="skill-1",
-                origin="custom",
+                origin=origin,  # type: ignore[arg-type]
                 authors=[],
             ),
             run_id="00000000-0000-0000-0000-000000000abc",
             team_id=987654,
             started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            github_read_access=github_read_access,
+            business_knowledge_maintained=business_knowledge_maintained,
             governed_metric_names=["mrr_probe_metric"],
             write_scopes=["dashboard:write"],
             structured_output_schema={"type": "object", "properties": {"verdict": {"type": "string"}}},
