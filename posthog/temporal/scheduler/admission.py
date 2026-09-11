@@ -48,8 +48,9 @@ class SchedulerClaimRequest:
     occurrence_key: str
     workflow_id: str
     # Callers that perform non-transactional side effects before receiving the
-    # result can supply a stable token so an activity retry recovers its own
-    # RESERVED claim instead of treating it as somebody else's work.
+    # result can supply a stable ownership token so an activity retry recovers
+    # its own RESERVED claim. This is a seed, not the persisted fencing token:
+    # every AVAILABLE -> RESERVED transition derives a new fence from it.
     claim_token: uuid.UUID | None = None
 
 
@@ -111,6 +112,10 @@ def _resolve_time(value: datetime | None) -> datetime:
     if timezone.is_naive(resolved):
         raise ValueError("scheduler admission datetimes must be timezone-aware")
     return resolved
+
+
+def _derive_claim_fencing_token(owner_token: uuid.UUID | None, attempt_count: int) -> uuid.UUID:
+    return uuid.uuid5(owner_token, str(attempt_count)) if owner_token is not None else uuid.uuid4()
 
 
 def _deduplicate_requests(requests: Sequence[SchedulerClaimRequest]) -> tuple[list[_HashedRequest], Counter[str]]:
@@ -241,10 +246,13 @@ def reserve_scheduler_claims(
             request_count = multiplicities[item.occurrence_hash]
             existing = existing_claims.get(item.occurrence_hash)
             if existing is not None and existing.status != TemporalSchedulerClaim.Status.AVAILABLE:
+                expected_fencing_token = _derive_claim_fencing_token(request.claim_token, existing.attempt_count)
                 if (
                     existing.status == TemporalSchedulerClaim.Status.RESERVED
                     and request.claim_token is not None
-                    and existing.claim_token == request.claim_token
+                    # Accept direct-token claims created before fencing tokens were
+                    # derived. Once released, the next attempt always rotates.
+                    and existing.claim_token in {request.claim_token, expected_fencing_token}
                 ):
                     reservations.append(
                         SchedulerClaimReservation(
@@ -264,8 +272,8 @@ def reserve_scheduler_claims(
                 deferred_for_capacity += request_count
                 continue
 
-            claim_token = request.claim_token or uuid.uuid4()
             if existing is None:
+                claim_token = _derive_claim_fencing_token(request.claim_token, 1)
                 claim = TemporalSchedulerClaim(
                     scheduler=scheduler,
                     region=region,
@@ -280,9 +288,10 @@ def reserve_scheduler_claims(
                 new_claims.append(claim)
             else:
                 claim = existing
+                claim.attempt_count += 1
+                claim_token = _derive_claim_fencing_token(request.claim_token, claim.attempt_count)
                 claim.claim_token = claim_token
                 claim.status = TemporalSchedulerClaim.Status.RESERVED
-                claim.attempt_count += 1
                 claim.lease_expires_at = lease_expires_at
                 claim.completed_at = None
                 claim.last_error = ""

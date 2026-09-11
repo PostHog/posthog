@@ -25,6 +25,7 @@ from posthog.models.temporal_scheduler import TemporalSchedulerState
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.scheduler.admission import (
+    SCHEDULER_LOCK_TIMEOUT_MS,
     SchedulerAdmissionLimits,
     SchedulerClaimInvariantError,
     SchedulerClaimRequest,
@@ -57,6 +58,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     AI_PROMPT_RESOURCE_TYPE,
     DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN,
     MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN,
+    AdvanceNextDeliveryDateInputs,
     AdvanceSubscriptionSchedulerCursorInputs,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
@@ -101,13 +103,15 @@ _SUBSCRIPTION_UNCERTAIN_RECOVERY_BACKOFF = dt.timedelta(minutes=5)
 _SUBSCRIPTION_MAX_IN_FLIGHT = MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN
 _SUBSCRIPTION_MAX_IN_FLIGHT_PER_TENANT = DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN
 _SUBSCRIPTION_RECOVERY_CONCURRENCY = 20
-# Per-describe cap. The whole recovery pass is all-or-nothing under a 2-minute activity
-# timeout, so one Temporal frontend that stalls mid-response must not discard the page.
-_SUBSCRIPTION_RECOVERY_DESCRIBE_RPC_TIMEOUT = dt.timedelta(seconds=5)
-# Wall-clock cap on one pass. The activity timeout does not interrupt the sync reconcile thread,
-# which would keep taking the global permit-pool lock this run's own reservation step needs.
-_SUBSCRIPTION_RECOVERY_BUDGET = dt.timedelta(seconds=90)
+SUBSCRIPTION_RECOVERY_ACTIVITY_TIMEOUT = dt.timedelta(minutes=2)
+# Finish status checks and synchronous reconciliation before Temporal's activity
+# timeout: timing out does not interrupt an executor thread that is holding DB locks.
+_SUBSCRIPTION_RECOVERY_ACTIVITY_BUDGET = SUBSCRIPTION_RECOVERY_ACTIVITY_TIMEOUT - dt.timedelta(seconds=20)
+_SUBSCRIPTION_RECOVERY_STATUS_BUDGET = _SUBSCRIPTION_RECOVERY_ACTIVITY_BUDGET - dt.timedelta(seconds=20)
+# One stalled Temporal frontend response must not consume the status-check budget.
+_SUBSCRIPTION_RECOVERY_RPC_TIMEOUT = dt.timedelta(seconds=5)
 _SUBSCRIPTION_CANDIDATE_LIMIT = _SUBSCRIPTION_MAX_IN_FLIGHT + MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN + 1
+_monotonic = time.monotonic
 
 # Used only as the recipient_results error message — `no_assets` doesn't auto-disable
 # (it indicates a transient resolve failure that retries can recover from).
@@ -230,6 +234,44 @@ def _reconcile_expired_subscription_claim(
         )
         _defer_subscription_claim_after_recovery_error(claim_id, claim_token, lease_expires_at, error)
     return _ClaimRecoveryCounts(retained=1)
+
+
+def _reconcile_expired_subscription_claims(
+    expired_claims: list[tuple[uuid.UUID, uuid.UUID, str, dt.datetime]],
+    statuses: list[_WorkflowClaimStatus | None],
+    *,
+    pruned: int,
+    recovery_deadline: float,
+) -> tuple[dict[str, int], int]:
+    released = 0
+    renewed = 0
+    retained = 0
+    processed = 0
+    transition_headroom = 2 * SCHEDULER_LOCK_TIMEOUT_MS / 1000
+    for (claim_id, claim_token, _, lease_expires_at), status in zip(expired_claims, statuses, strict=True):
+        if status is None or _monotonic() + transition_headroom >= recovery_deadline:
+            LOGGER.warning(
+                "subscription_scheduler.claim_recovery_budget_exhausted",
+                reconciled=processed,
+                remaining=len(expired_claims) - processed,
+            )
+            break
+        counts = _reconcile_expired_subscription_claim(
+            claim_id,
+            claim_token,
+            lease_expires_at,
+            status,
+        )
+        released += counts.released
+        renewed += counts.renewed
+        retained += counts.retained
+        processed += 1
+    return {
+        "released": released,
+        "renewed": renewed,
+        "retained": retained,
+        "pruned": pruned,
+    }, len(expired_claims) - processed
 
 
 def _resolve_scheduler_region(region: str) -> str:
@@ -623,8 +665,6 @@ async def _fetch_due_subscriptions(
                             scheduler_claim_token=claim[1],
                         )
                     )
-            if safe_candidate_count < len(candidates):
-                break
         subscriptions_for_payload = claimed_subscriptions
     else:
         subscriptions_for_payload = page.subscriptions
@@ -746,11 +786,12 @@ async def advance_subscription_scheduler_cursor_activity(
 async def recover_subscription_scheduler_claims_activity(
     inputs: RecoverSubscriptionSchedulerClaimsInputs,
 ) -> dict[str, int]:
+    recovery_started_at = _monotonic()
+    recovery_deadline = recovery_started_at + _SUBSCRIPTION_RECOVERY_ACTIVITY_BUDGET.total_seconds()
+    status_deadline = recovery_started_at + _SUBSCRIPTION_RECOVERY_STATUS_BUDGET.total_seconds()
     inputs = dataclasses.replace(inputs, region=_resolve_scheduler_region(inputs.region))
     if not 1 <= inputs.limit <= MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN:
         raise ValueError(f"limit must be between 1 and {MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN}")
-    started_at = time.monotonic()
-
     @database_sync_to_async(thread_sensitive=False)
     def load_expired_claims() -> _ExpiredSchedulerClaimsSnapshot:
         now = tz.now()
@@ -781,11 +822,14 @@ async def recover_subscription_scheduler_claims_activity(
     temporal = await async_connect()
     semaphore = asyncio.Semaphore(_SUBSCRIPTION_RECOVERY_CONCURRENCY)
 
-    async def workflow_is_open(workflow_id: str) -> _WorkflowClaimStatus:
+    async def workflow_is_open(workflow_id: str) -> _WorkflowClaimStatus | None:
         async with semaphore:
+            remaining_status_budget = status_deadline - _monotonic()
+            if remaining_status_budget <= 0:
+                return None
             try:
                 description = await temporal.get_workflow_handle(workflow_id).describe(
-                    rpc_timeout=_SUBSCRIPTION_RECOVERY_DESCRIBE_RPC_TIMEOUT
+                    rpc_timeout=min(_SUBSCRIPTION_RECOVERY_RPC_TIMEOUT, dt.timedelta(seconds=remaining_status_budget))
                 )
             except RPCError as error:
                 if error.status == RPCStatusCode.NOT_FOUND:
@@ -797,36 +841,13 @@ async def recover_subscription_scheduler_claims_activity(
 
     statuses = await asyncio.gather(*(workflow_is_open(workflow_id) for _, _, workflow_id, _ in expired_claims))
 
-    @database_sync_to_async(thread_sensitive=False)
-    def reconcile_claims() -> dict[str, int]:
-        released = 0
-        renewed = 0
-        retained = 0
-        deadline = started_at + _SUBSCRIPTION_RECOVERY_BUDGET.total_seconds()
-        for index, ((claim_id, claim_token, _, lease_expires_at), status) in enumerate(
-            zip(expired_claims, statuses, strict=True)
-        ):
-            if time.monotonic() >= deadline:
-                # Untouched claims stay expired, so the next pass re-queries and continues.
-                LOGGER.warning(
-                    "subscription_scheduler.claim_recovery_budget_exhausted",
-                    reconciled=index,
-                    remaining=len(expired_claims) - index,
-                )
-                break
-            counts = _reconcile_expired_subscription_claim(
-                claim_id,
-                claim_token,
-                lease_expires_at,
-                status,
-            )
-            released += counts.released
-            renewed += counts.renewed
-            retained += counts.retained
-        return {"released": released, "renewed": renewed, "retained": retained, "pruned": pruned}
-
-    result = await reconcile_claims()
-    await LOGGER.ainfo("Recovered subscription scheduler claims", **result)
+    result, unprocessed = await database_sync_to_async(_reconcile_expired_subscription_claims, thread_sensitive=False)(
+        expired_claims,
+        statuses,
+        pruned=pruned,
+        recovery_deadline=recovery_deadline,
+    )
+    await LOGGER.ainfo("Recovered subscription scheduler claims", **result, unprocessed=unprocessed)
     return result
 
 
@@ -1311,3 +1332,36 @@ async def advance_next_delivery_date(subscription_id: int) -> bool:
         next_delivery_date=subscription.next_delivery_date,
     )
     return True
+
+
+@temporalio.activity.defn
+async def advance_next_delivery_date_v2(inputs: AdvanceNextDeliveryDateInputs) -> bool:
+    expected_next_delivery_date = dt.datetime.fromisoformat(inputs.expected_next_delivery_date)
+    if tz.is_naive(expected_next_delivery_date):
+        raise ValueError("expected_next_delivery_date must be timezone-aware")
+
+    @database_sync_to_async(thread_sensitive=False)
+    def advance_if_current() -> tuple[bool, dt.datetime | None, str]:
+        with transaction.atomic():
+            subscription = Subscription.objects.select_for_update().get(pk=inputs.subscription_id)
+            if not subscription.enabled or subscription.deleted:
+                return False, subscription.next_delivery_date, "inactive"
+            if subscription.next_delivery_date is None:
+                return True, None, "already_advanced"
+            if subscription.next_delivery_date < expected_next_delivery_date:
+                return False, subscription.next_delivery_date, "schedule_changed"
+            if subscription.next_delivery_date > expected_next_delivery_date:
+                return True, subscription.next_delivery_date, "already_advanced"
+
+            subscription.set_next_delivery_date(expected_next_delivery_date)
+            subscription.save(update_fields=["next_delivery_date"])
+            return True, subscription.next_delivery_date, "advanced"
+
+    advanced, next_delivery_date, outcome = await advance_if_current()
+    await LOGGER.ainfo(
+        "advance_next_delivery_date_v2.finished",
+        subscription_id=inputs.subscription_id,
+        next_delivery_date=next_delivery_date,
+        outcome=outcome,
+    )
+    return advanced

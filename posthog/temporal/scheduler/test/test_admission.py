@@ -128,6 +128,34 @@ class TestReserveSchedulerClaims(TestCase):
             1,
         )
 
+    def test_reusing_released_claim_with_same_owner_token_rotates_fencing_token(self) -> None:
+        owner_token = uuid.uuid4()
+        request = SchedulerClaimRequest(
+            tenant_key="team:1",
+            occurrence_key="one",
+            workflow_id="workflow-one",
+            claim_token=owner_token,
+        )
+        first = reserve_scheduler_claims(
+            scheduler=SCHEDULER,
+            region=REGION,
+            requests=[request],
+            limits=_limits(),
+        ).reservations[0]
+        self.assertTrue(release_scheduler_claim(first.claim_id, first.claim_token))
+
+        second = reserve_scheduler_claims(
+            scheduler=SCHEDULER,
+            region=REGION,
+            requests=[request],
+            limits=_limits(),
+        ).reservations[0]
+
+        self.assertEqual(second.claim_id, first.claim_id)
+        self.assertNotEqual(second.claim_token, first.claim_token)
+        self.assertFalse(release_scheduler_claim(second.claim_id, first.claim_token))
+        self.assertTrue(release_scheduler_claim(second.claim_id, second.claim_token))
+
     def test_duplicate_deferred_requests_are_all_counted_as_deferred(self) -> None:
         reserve_scheduler_claims(
             scheduler=SCHEDULER,
@@ -559,6 +587,7 @@ class TestSchedulerClaimLifecycle(TestCase):
         expected_lease = TemporalSchedulerClaim.objects.get(id=self.reservation.claim_id).lease_expires_at
         assert expected_lease is not None
 
+        metrics = MagicMock()
         with patch("posthog.temporal.scheduler.admission._set_scheduler_lock_timeout") as set_lock_timeout:
             self.assertTrue(
                 defer_scheduler_claim_recovery(
@@ -568,10 +597,12 @@ class TestSchedulerClaimLifecycle(TestCase):
                     error="Temporal status unavailable",
                     expected_lease_expires_at=expected_lease,
                     now=self.now,
+                    metrics=metrics,
                 )
             )
 
         set_lock_timeout.assert_called_once_with()
+        metrics.record_claim_transition.assert_called_once_with(SCHEDULER, REGION, "recovery_deferred")
 
     def test_recovery_deferral_is_not_counted_as_a_lease_renewal(self) -> None:
         expected_lease = TemporalSchedulerClaim.objects.get(id=self.reservation.claim_id).lease_expires_at

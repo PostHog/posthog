@@ -1,5 +1,6 @@
 from products.exports.backend.temporal.subscriptions.activities import (
     advance_next_delivery_date,
+    advance_next_delivery_date_v2,
     advance_subscription_scheduler_cursor_activity,
     complete_subscription_scheduler_claim_activity,
     confirm_subscription_scheduler_claim_activity,
@@ -46,6 +47,7 @@ ACTIVITIES = [
     notify_subscription_delivery_failure,
     generate_ai_subscription_report,
     advance_next_delivery_date,
+    advance_next_delivery_date_v2,
     create_delivery_record,
     update_delivery_record,
     snapshot_subscription_insights,
