@@ -10,7 +10,6 @@ import { Avatar, AvatarFallback, Badge, Button, cn } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { UserBasic } from "@posthog/shared/domain-types";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
-import { ActivityRowSurface } from "@posthog/ui/features/canvas/components/ActivityRowSurface";
 import {
   type AgentActivityIconKind,
   activityPresentation,
@@ -22,6 +21,7 @@ import {
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import { RailListItem } from "@posthog/ui/features/sidebar/components/RailListItem";
 import { track } from "@posthog/ui/shell/analytics";
 import type { ReactElement } from "react";
 
@@ -45,11 +45,6 @@ function AgentActivityIcon({
     }
   }
 }
-
-// How much of the row's right edge its actions take, by how many it is showing.
-// They overlay the row — it is a button, so they can't sit inside it — and the
-// title and metadata need a lane clear of them.
-const ACTION_LANE_CLASS = ["pr-8", "pr-14", "pr-20"];
 
 interface ActivityRowProps {
   item: TaskActivityItem;
@@ -109,101 +104,99 @@ export function ActivityRow({
   };
 
   return (
-    <div className="group relative">
-      <ActivityRowSurface
-        type="button"
-        asOption={asOption}
-        optionValue={optionValue}
-        onClick={openTask}
-        aria-label={`${item.taskTitle} ${presentation.metadata}${presentation.spaceLabel ? ` ${presentation.spaceLabel}` : ""}`}
-        left
-        className={cn(
-          compact ? "py-1.5" : "py-2",
-          ACTION_LANE_CLASS[actionCount - 1],
-          isSelected && "bg-fill-selected",
-        )}
-      >
-        <span className="mt-0.5 shrink-0">
-          {presentation.agentIcon ? (
-            <Avatar
-              size="xs"
-              className={cn(agentIconWrapperClassName, compact && "size-4")}
-            >
-              <AvatarFallback>
-                <AgentActivityIcon
-                  kind={presentation.agentIcon}
-                  className={agentIconClassName}
-                />
-              </AvatarFallback>
-            </Avatar>
-          ) : (
-            <span className="mt-1 flex shrink-0">
-              <UserAvatar
-                user={item.author ?? currentUser}
-                size="xs"
-                className={compact ? "size-4" : undefined}
+    <RailListItem
+      leading={
+        presentation.agentIcon ? (
+          <Avatar
+            size="xs"
+            className={cn(agentIconWrapperClassName, compact && "size-4")}
+          >
+            <AvatarFallback>
+              <AgentActivityIcon
+                kind={presentation.agentIcon}
+                className={agentIconClassName}
               />
-            </span>
-          )}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="flex items-baseline gap-2">
-            <span
-              className={`truncate text-[13px] ${item.isUnread ? "font-semibold" : "font-medium"}`}
-            >
-              {item.taskTitle}
-            </span>
-            {item.isUnread && !compact && <Badge variant="info">New</Badge>}
-          </span>
-          <span className="flex min-w-0 items-center gap-1 text-muted-foreground text-xxs">
-            <span className="truncate">{presentation.metadata}</span>
-            {presentation.spaceLabel && (
-              <Badge
-                variant="default"
-                className="min-w-0 shrink rounded-xs bg-muted/70 p-0"
-                title={presentation.spaceLabel}
-              >
-                <span className="truncate">{presentation.spaceLabel}</span>
-              </Badge>
-            )}
-          </span>
-          {item.snippet && !compact && (
-            <MentionText
-              content={item.snippet}
-              currentUserEmail={currentUser?.email}
-              className="mt-1 block whitespace-pre-wrap break-words text-xs"
+            </AvatarFallback>
+          </Avatar>
+        ) : (
+          <span className="mt-1 flex shrink-0">
+            <UserAvatar
+              user={item.author ?? currentUser}
+              size="xs"
+              className={compact ? "size-4" : undefined}
             />
+          </span>
+        )
+      }
+      title={item.taskTitle}
+      emphasized={item.isUnread}
+      titleAccessory={
+        item.isUnread && !compact && <Badge variant="info">New</Badge>
+      }
+      meta={
+        <>
+          <span className="truncate">{presentation.metadata}</span>
+          {presentation.spaceLabel && (
+            <Badge
+              variant="default"
+              className="min-w-0 shrink rounded-xs bg-muted/70 p-0"
+              title={presentation.spaceLabel}
+            >
+              <span className="truncate">{presentation.spaceLabel}</span>
+            </Badge>
           )}
-        </span>
-      </ActivityRowSurface>
-      {/* An open menu keeps the cluster visible after the pointer has left the
-          row, which the trigger already states as data-popup-open. */}
-      <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 has-[[data-popup-open]]:opacity-100">
-        {item.isUnread && (
-          <Button
-            variant="default"
-            size="icon-xs"
-            aria-label="Mark as read"
-            title="Mark as read"
-            onClick={() => onMarkRead(item)}
-          >
-            <CheckIcon size={14} />
-          </Button>
-        )}
-        {canCopyLink && (
-          <Button
-            variant="default"
-            size="icon-xs"
-            aria-label="Copy thread link"
-            onClick={() =>
-              void copyChannelLink(channelId, "activity", item.taskId)
-            }
-          >
-            <LinkIcon size={14} />
-          </Button>
-        )}
-        <TaskRowDropdownMenu menu={menu} />
-      </div>
-    </div>
+        </>
+      }
+      detail={
+        presentation.lastTurn ? (
+          <>
+            <span className="font-medium text-foreground/80">
+              {presentation.lastTurn.speaker}:
+            </span>{" "}
+            <MentionText
+              content={presentation.lastTurn.text}
+              currentUserEmail={currentUser?.email}
+              className="inline"
+            />
+          </>
+        ) : undefined
+      }
+      clampDetail={compact}
+      actions={
+        <>
+          {item.isUnread && (
+            <Button
+              variant="default"
+              size="icon-xs"
+              aria-label="Mark as read"
+              title="Mark as read"
+              onClick={() => onMarkRead(item)}
+            >
+              <CheckIcon size={14} />
+            </Button>
+          )}
+          {canCopyLink && (
+            <Button
+              variant="default"
+              size="icon-xs"
+              aria-label="Copy thread link"
+              onClick={() =>
+                void copyChannelLink(channelId, "activity", item.taskId)
+              }
+            >
+              <LinkIcon size={14} />
+            </Button>
+          )}
+          <TaskRowDropdownMenu menu={menu} />
+        </>
+      }
+      actionCount={actionCount}
+      asOption={asOption}
+      optionValue={optionValue}
+      compact={compact}
+      isSelected={isSelected}
+      onClick={openTask}
+      aria-label={`${item.taskTitle} ${presentation.metadata}${presentation.spaceLabel ? ` ${presentation.spaceLabel}` : ""}`}
+    />
   );
 }

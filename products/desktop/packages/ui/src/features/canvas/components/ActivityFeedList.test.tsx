@@ -109,8 +109,8 @@ vi.mock("@posthog/ui/features/canvas/components/ActivityActionsMenu", () => ({
   ),
 }));
 vi.mock("@posthog/ui/features/canvas/components/ActivityRow", async () => {
-  const { ActivityRowSurface } = await import(
-    "@posthog/ui/features/canvas/components/ActivityRowSurface"
+  const { RailListItem } = await import(
+    "@posthog/ui/features/sidebar/components/RailListItem"
   );
   return {
     ActivityRow: ({
@@ -126,25 +126,25 @@ vi.mock("@posthog/ui/features/canvas/components/ActivityRow", async () => {
       asOption?: boolean;
       optionValue?: string;
     }) => (
-      <ActivityRowSurface
+      <RailListItem
         asOption={asOption}
         optionValue={optionValue}
         onClick={() => {
           onMarkRead(item);
           onActivate(item);
         }}
-      >
-        <span>Activity row</span>
-        <span>{item.taskTitle}</span>
-      </ActivityRowSurface>
+        leading={null}
+        title={item.taskTitle}
+        meta={<span>Activity row</span>}
+      />
     ),
   };
 });
 vi.mock(
   "@posthog/ui/features/canvas/components/InboxActivityOverflowRow",
   async () => {
-    const { ActivityRowSurface } = await import(
-      "@posthog/ui/features/canvas/components/ActivityRowSurface"
+    const { RailListItem } = await import(
+      "@posthog/ui/features/sidebar/components/RailListItem"
     );
     return {
       InboxActivityOverflowRow: ({
@@ -158,20 +158,20 @@ vi.mock(
         asOption?: boolean;
         optionValue?: string;
       }) => (
-        <ActivityRowSurface
+        <RailListItem
           asOption={asOption}
           optionValue={optionValue}
           onClick={onOpened}
-        >
-          View {count} more reports
-        </ActivityRowSurface>
+          leading={null}
+          title={`View ${count} more reports`}
+        />
       ),
     };
   },
 );
 vi.mock("@posthog/ui/features/canvas/components/InboxActivityRow", async () => {
-  const { ActivityRowSurface } = await import(
-    "@posthog/ui/features/canvas/components/ActivityRowSurface"
+  const { RailListItem } = await import(
+    "@posthog/ui/features/sidebar/components/RailListItem"
   );
   return {
     InboxActivityRow: ({
@@ -187,7 +187,7 @@ vi.mock("@posthog/ui/features/canvas/components/InboxActivityRow", async () => {
       optionValue?: string;
       onActivate?: (report: SignalReport) => void;
     }) => (
-      <ActivityRowSurface
+      <RailListItem
         asOption={asOption}
         optionValue={optionValue}
         onClick={() => {
@@ -198,9 +198,9 @@ vi.mock("@posthog/ui/features/canvas/components/InboxActivityRow", async () => {
           }
           onOpened?.();
         }}
-      >
-        Report row {report.id}
-      </ActivityRowSurface>
+        leading={null}
+        title={`Report row ${report.id}`}
+      />
     ),
   };
 });

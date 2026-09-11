@@ -1,4 +1,5 @@
 import type {
+  SignalReport,
   SignalReportActionability,
   SignalReportStatus,
 } from "@posthog/shared/types";
@@ -261,4 +262,51 @@ export function splitReportSummary(
     });
   }
   return { lede: lede.join("\n").trim(), sections };
+}
+
+export type ReportPrState = "draft" | "open" | "merged" | "shipped";
+
+export interface ReportPrPresentation {
+  pr: ParsedPrUrl;
+  state: ReportPrState;
+}
+
+type ReportPrFields = Pick<
+  SignalReport,
+  | "status"
+  | "implementation_pr_url"
+  | "implementation_pr_state"
+  | "implementation_pr_merged"
+  | "dismissal_reason"
+>;
+
+/**
+ * The pull request a list row shows for a report, or null when it has none
+ * worth a link. GitHub keeps a draft PR in the `open` state, so the draft flag
+ * alone separates a PR ready for review from one the agent is still writing;
+ * a terminal report has no work left either way, so its stale draft flag says
+ * nothing and reads as plain open or merged.
+ */
+export function describeReportPr(
+  report: ReportPrFields,
+): ReportPrPresentation | null {
+  const pr = report.implementation_pr_url
+    ? parsePrUrl(report.implementation_pr_url)
+    : null;
+  if (!pr) return null;
+  const isTerminal =
+    report.status === "resolved" || report.status === "suppressed";
+  const merged =
+    report.implementation_pr_merged === true ||
+    report.dismissal_reason === "pr_merged";
+  if (merged) {
+    return {
+      pr,
+      state: report.status === "resolved" ? "shipped" : "merged",
+    };
+  }
+  if (!isTerminal && report.implementation_pr_state === "draft") {
+    return { pr, state: "draft" };
+  }
+  return { pr, state: "open" };
 }
