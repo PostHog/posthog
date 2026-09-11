@@ -45,9 +45,6 @@ use crate::lifecycle::engine::{
 };
 use crate::storage::postgres::begin_timed;
 
-/// Bound on concurrent leader calls per step, matching the merge driver.
-const LEADER_CALL_CONCURRENCY: usize = 8;
-
 /// Stands in for "the fence reported no partition" inside the seal
 /// update's int array, since a nullable array cannot be bound there.
 const NO_PARTITION: i32 = -1;
@@ -154,12 +151,21 @@ fn record_outcomes(outcome: &Value) {
 pub struct DeleteDriver {
     leader: Arc<dyn LifecycleLeader>,
     tables: IdentityTables,
+    leader_call_concurrency: usize,
 }
 
 impl DeleteDriver {
-    pub fn new(leader: Arc<dyn LifecycleLeader>, tables: IdentityTables) -> Self {
+    pub fn new(
+        leader: Arc<dyn LifecycleLeader>,
+        tables: IdentityTables,
+        leader_call_concurrency: usize,
+    ) -> Self {
         tables.validate().expect("invalid identity table set");
-        Self { leader, tables }
+        Self {
+            leader,
+            tables,
+            leader_call_concurrency: leader_call_concurrency.max(1),
+        }
     }
 }
 
@@ -182,9 +188,13 @@ impl OpDriver for DeleteDriver {
         })?;
         match step {
             DeleteStep::Started => mark(pool, &self.tables.person, op).await,
-            DeleteStep::Marked => seal(pool, self.leader.as_ref(), op).await,
+            DeleteStep::Marked => {
+                seal(pool, self.leader.as_ref(), op, self.leader_call_concurrency).await
+            }
             DeleteStep::Sealed => unmap(pool, &self.tables, op).await,
-            DeleteStep::Unmapped => complete(pool, self.leader.as_ref(), op).await,
+            DeleteStep::Unmapped => {
+                complete(pool, self.leader.as_ref(), op, self.leader_call_concurrency).await
+            }
         }
     }
 }
@@ -381,7 +391,12 @@ async fn mark(pool: &PgPool, person_table: &str, op: &OpRow) -> Result<(), SagaE
 /// op; unlike the merge driver's pre-flip abort, delete has no abort path
 /// past `started`, and a parked delete is an operator signal, not a stuck
 /// customer flow.
-async fn seal(pool: &PgPool, leader: &dyn LifecycleLeader, op: &OpRow) -> Result<(), SagaError> {
+async fn seal(
+    pool: &PgPool,
+    leader: &dyn LifecycleLeader,
+    op: &OpRow,
+    leader_call_concurrency: usize,
+) -> Result<(), SagaError> {
     let victims = sqlx::query!(
         r#"
         SELECT person_id FROM lifecycle_op_person
@@ -407,7 +422,7 @@ async fn seal(pool: &PgPool, leader: &dyn LifecycleLeader, op: &OpRow) -> Result
         })
         .collect();
     let fence_results: Vec<_> = stream::iter(fence_calls)
-        .buffer_unordered(LEADER_CALL_CONCURRENCY)
+        .buffer_unordered(leader_call_concurrency)
         .collect()
         .await;
 
@@ -674,6 +689,7 @@ async fn complete(
     pool: &PgPool,
     leader: &dyn LifecycleLeader,
     op: &OpRow,
+    leader_call_concurrency: usize,
 ) -> Result<(), SagaError> {
     let request = parse_request(op)?;
 
@@ -701,7 +717,7 @@ async fn complete(
             partition: row.partition.and_then(|p| u32::try_from(p).ok()),
         })
         .collect();
-    release_fenced(leader, op, &victims).await?;
+    release_fenced(leader, op, &victims, leader_call_concurrency).await?;
 
     let mut tx = begin_timed(pool).await?;
 
@@ -775,6 +791,7 @@ async fn release_fenced(
     leader: &dyn LifecycleLeader,
     op: &OpRow,
     victims: &[FencedVictim],
+    leader_call_concurrency: usize,
 ) -> Result<(), SagaError> {
     let mut by_partition: BTreeMap<u32, Vec<&FencedVictim>> = BTreeMap::new();
     let mut singles: Vec<&FencedVictim> = Vec::new();
@@ -802,7 +819,7 @@ async fn release_fenced(
         })
         .collect();
     let batch_results: Vec<Result<Vec<&FencedVictim>, Status>> = stream::iter(batch_calls)
-        .buffer_unordered(LEADER_CALL_CONCURRENCY)
+        .buffer_unordered(leader_call_concurrency)
         .collect()
         .await;
     for result in batch_results {
@@ -817,7 +834,7 @@ async fn release_fenced(
         })
         .collect();
     let single_results: Vec<_> = stream::iter(single_calls)
-        .buffer_unordered(LEADER_CALL_CONCURRENCY)
+        .buffer_unordered(leader_call_concurrency)
         .collect()
         .await;
     for result in single_results {

@@ -43,6 +43,7 @@ async fn delete_status(request: DeletePersonsRequest) -> Code {
         engine,
         Arc::new(SimLeader::new(pool, tables.person.clone())),
         tables,
+        8,
     );
     service
         .delete_persons(Request::new(request))

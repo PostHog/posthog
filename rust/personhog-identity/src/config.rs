@@ -65,6 +65,12 @@ pub struct Config {
     #[envconfig(default = "250")]
     pub max_batch_size: usize,
 
+    /// Leader calls one delete op keeps in flight while it fences and
+    /// releases its victims. Raising it past what the leaders' fallback
+    /// pool serves only deepens the queue in front of that pool.
+    #[envconfig(default = "32")]
+    pub lifecycle_leader_call_concurrency: usize,
+
     /// Maximum accepted distinct_id length in bytes. Must not exceed the
     /// posthog_persondistinctid.distinct_id column limit (varchar(400)).
     #[envconfig(default = "400")]
