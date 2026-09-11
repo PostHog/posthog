@@ -14,6 +14,7 @@ from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.models import Metric
@@ -21,6 +22,7 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade import api
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckSeverity, CheckType, SubjectType
 from products.data_quality.backend.logic import checks as checks_logic
+from products.data_quality.backend.logic.metric_schedules import MetricScheduleKey, MetricSchedules
 from products.data_quality.backend.logic.runner import run_check
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from products.data_quality.backend.presentation.serializers import DataQualitySuiteRunSerializer
@@ -47,9 +49,8 @@ class TestMetricCheckAPI(APIBaseTest):
             referenced_table_names=[],
         )
         self.temporal = schedule_client()
-        self.enterContext(
-            patch("products.data_quality.backend.logic.schedules.async_connect", AsyncMock(return_value=self.temporal))
-        )
+        self.connect = AsyncMock(return_value=self.temporal)
+        self.enterContext(patch("products.data_quality.backend.logic.schedules.async_connect", self.connect))
         self.url = f"/api/projects/{self.team.id}/data_catalog/metrics/{self.metric.id}/checks"
         self.suites_url = f"/api/projects/{self.team.id}/data_catalog/metrics/{self.metric.id}/check_suite_runs"
         flag = patch(FLAG, return_value=True)
@@ -156,12 +157,66 @@ class TestMetricCheckAPI(APIBaseTest):
         assert self.client.delete(f"{self.url}/{check['id']}/").status_code == 204
         assert self.client.get(f"{self.url}/schedule/").status_code == 200
 
-    def test_schedule_service_failure_is_retryable(self) -> None:
+    def test_schedule_patch_reuses_one_connection_and_records_snapshots(self) -> None:
         self._create()
-        with patch("products.data_quality.backend.logic.schedules.async_connect", AsyncMock(side_effect=TimeoutError)):
+        self.connect.reset_mock()
+
+        response = self.client.patch(f"{self.url}/schedule/", {"interval": "6hour", "enabled": False})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["interval"] == "6hour"
+        assert response.json()["enabled"] is False
+        assert self.connect.await_count == 1
+        entry = ActivityLog.objects.get(
+            team_id=self.team.id,
+            scope="DataQualityCheckSchedule",
+            activity="updated",
+        )
+        assert entry.detail is not None
+        assert entry.detail["changes"] == [
+            {
+                "type": "DataQualityCheckSchedule",
+                "field": "interval",
+                "action": "changed",
+                "before": "24hour",
+                "after": "6hour",
+            },
+            {
+                "type": "DataQualityCheckSchedule",
+                "field": "enabled",
+                "action": "changed",
+                "before": True,
+                "after": False,
+            },
+        ]
+
+    @parameterized.expand([("connection",), ("initial_read",), ("update",), ("read_after",)])
+    def test_schedule_service_failure_is_retryable(self, phase: str) -> None:
+        self._create()
+        if phase == "connection":
+            failure = patch(
+                "products.data_quality.backend.logic.schedules.async_connect", AsyncMock(side_effect=TimeoutError)
+            )
+        elif phase == "initial_read":
+            failure = patch.object(MetricSchedules, "describe", AsyncMock(side_effect=TimeoutError))
+        elif phase == "update":
+            failure = patch.object(MetricSchedules, "update", AsyncMock(side_effect=TimeoutError))
+        else:
+            original_describe = MetricSchedules.describe
+            calls = 0
+
+            async def missing_after_update(schedules: MetricSchedules, key: MetricScheduleKey) -> object:
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    return await original_describe(schedules, key)
+                return None
+
+            failure = patch.object(MetricSchedules, "describe", missing_after_update)
+        with failure:
             response = self.client.patch(f"{self.url}/schedule/", {"enabled": False})
         assert response.status_code == 503
-        assert self.client.get(f"{self.url}/schedule/").json()["enabled"] is True
+        assert self.client.get(f"{self.url}/schedule/").json()["enabled"] is (phase != "read_after")
 
     def test_schedule_history_excludes_manual_suites(self) -> None:
         self._create()
@@ -171,7 +226,7 @@ class TestMetricCheckAPI(APIBaseTest):
         DataQualitySuiteRun.objects.for_team(self.team.id).create(
             team=self.team, trigger="manual", subject_type=SubjectType.METRIC, subject_uuid=self.metric.id
         )
-        schedule = self.client.get(f"{self.url}/schedule/").json()
+        schedule = self.client.patch(f"{self.url}/schedule/", {"interval": "6hour"}).json()
         assert schedule["last_suite_run"] == str(scheduled.id)
 
     def test_schedule_history_hides_a_suite_with_revoked_reference_access(self) -> None:
@@ -203,7 +258,7 @@ class TestMetricCheckAPI(APIBaseTest):
             access_level="none",
         )
         cache.clear()
-        schedule = self.client.get(f"{self.url}/schedule/").json()
+        schedule = self.client.patch(f"{self.url}/schedule/", {"interval": "6hour"}).json()
         assert schedule["last_suite_run"] is None
         assert schedule["last_run_at"] is None
 
