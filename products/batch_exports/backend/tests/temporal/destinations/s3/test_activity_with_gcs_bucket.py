@@ -13,11 +13,12 @@ from products.batch_exports.backend.service import BatchExportModel, BatchExport
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
-    SUPPORTED_COMPRESSIONS,
     S3InsertInputs,
     s3_default_fields,
 )
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
+    SPLIT_FILE_FORMAT_COMPRESSIONS,
+    SUPPORTED_FILE_FORMAT_COMPRESSIONS,
     TEST_S3_MODELS,
     assert_clickhouse_records_in_s3,
     has_valid_gcs_credentials,
@@ -53,9 +54,8 @@ async def gcs_client(bucket_name, s3_key_prefix):
         await delete_all_from_s3(s3_client, bucket_name, key_prefix=s3_key_prefix)
 
 
-@pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)
+@pytest.mark.parametrize(("file_format", "compression"), SUPPORTED_FILE_FORMAT_COMPRESSIONS, indirect=["compression"])
 @pytest.mark.parametrize("model", TEST_S3_MODELS)
-@pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
 async def test_insert_into_s3_activity_puts_data_into_gcs(
     clickhouse_client,
     bucket_name,
@@ -84,9 +84,6 @@ async def test_insert_into_s3_activity_puts_data_into_gcs(
     Once we have these events, we pass them to the assert_clickhouse_records_in_s3 function to check
     that they appear in the expected GCS bucket and key.
     """
-
-    if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
-        pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
 
     prefix = str(uuid.uuid4())
 
@@ -156,9 +153,8 @@ async def test_insert_into_s3_activity_puts_data_into_gcs(
     )
 
 
-@pytest.mark.parametrize("compression", [*COMPRESSION_EXTENSIONS.keys(), None], indirect=True)
+@pytest.mark.parametrize(("file_format", "compression"), SPLIT_FILE_FORMAT_COMPRESSIONS, indirect=["compression"])
 @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
-@pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
 @pytest.mark.parametrize("max_file_size_mb", [None, 6])
 async def test_insert_into_s3_activity_puts_splitted_files_into_gcs(
     clickhouse_client,
@@ -182,12 +178,6 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_gcs(
 
     This test needs to generate a lot of data to ensure that the file is large enough to be split up.
     """
-
-    if file_format == "JSONLines" and compression is not None:
-        pytest.skip("Compressing large JSONLines files takes too long to run; skipping for now")
-
-    if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
-        pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
 
     prefix = str(uuid.uuid4())
 

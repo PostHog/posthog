@@ -3,13 +3,11 @@ import datetime as dt
 import pytest
 
 from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, BatchExportSchema
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
-    COMPRESSION_EXTENSIONS,
-    FILE_FORMAT_EXTENSIONS,
-    SUPPORTED_COMPRESSIONS,
-)
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
+    SUPPORTED_FILE_FORMAT_COMPRESSIONS,
     TEST_S3_MODELS,
+    TEST_S3_MODELS_AFFECTED_BY_EXCLUDE_EVENTS,
+    UNCOMPRESSED_FILE_FORMATS,
     run_s3_batch_export_workflow,
 )
 
@@ -48,9 +46,6 @@ async def test_s3_export_workflow_with_local_object_storage_with_various_models(
     will require its presence in the database when running. This model is indirectly parameterized
     by several fixtures. Refer to them for more information.
     """
-    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
-        pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
-
     await run_s3_batch_export_workflow(
         model=model,
         ateam=ateam,
@@ -69,8 +64,9 @@ async def test_s3_export_workflow_with_local_object_storage_with_various_models(
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
-@pytest.mark.parametrize("compression", [*COMPRESSION_EXTENSIONS.keys(), None], indirect=True)
-@pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys(), indirect=True)
+@pytest.mark.parametrize(
+    ("file_format", "compression"), [*SUPPORTED_FILE_FORMAT_COMPRESSIONS, *UNCOMPRESSED_FILE_FORMATS], indirect=True
+)
 async def test_s3_export_workflow_with_local_object_storage_with_various_compression_and_file_formats(
     clickhouse_client,
     object_storage_client,
@@ -88,9 +84,6 @@ async def test_s3_export_workflow_with_local_object_storage_with_various_compres
     generate_test_data,
 ):
     """Test S3BatchExport Workflow end-to-end by using a local object storage bucket and various compression and file formats."""
-
-    if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
-        pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
 
     await run_s3_batch_export_workflow(
         model=model,
@@ -111,7 +104,7 @@ async def test_s3_export_workflow_with_local_object_storage_with_various_compres
 @pytest.mark.parametrize("compression", [None], indirect=True)
 @pytest.mark.parametrize("file_format", ["JSONLines"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [["test-exclude"]], indirect=True)
-@pytest.mark.parametrize("model", TEST_S3_MODELS)
+@pytest.mark.parametrize("model", TEST_S3_MODELS_AFFECTED_BY_EXCLUDE_EVENTS)
 async def test_s3_export_workflow_with_local_object_storage_with_exclude_events(
     clickhouse_client,
     object_storage_client,
@@ -129,9 +122,6 @@ async def test_s3_export_workflow_with_local_object_storage_with_exclude_events(
     generate_test_data,
 ):
     """Test S3BatchExport Workflow end-to-end by using a local object storage bucket and excluding events."""
-    if isinstance(model, BatchExportModel) and model.name in ["persons", "sessions"]:
-        pytest.skip(f"Unnecessary test case as {model.name} batch export is not affected by 'exclude_events'")
-
     await run_s3_batch_export_workflow(
         model=model,
         ateam=ateam,
