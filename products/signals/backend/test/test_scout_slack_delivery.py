@@ -473,6 +473,48 @@ class TestScoutSlackDelivery(BaseTest):
         assert "second one" in markdown_texts[0]
         assert calls[1].kwargs["blocks"][0]["type"] == "context"
 
+    def test_threaded_report_retries_a_rate_limited_reply(self) -> None:
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Lead line.\n\n## First\nFirst body.\n\n## Second\nSecond body.",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        rate_limited = FakeSlackResponse({"error": "ratelimited"}, headers={"Retry-After": "2"})
+        fake_client.chat_postMessage.side_effect = [
+            {"ts": "1785418710.000800"},
+            SlackApiError(message="rate limited", response=rate_limited),
+            {"ts": "1785418710.000801"},
+            {"ts": "1785418710.000802"},
+            {"ts": "1785418710.000803"},
+        ]
+
+        with (
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
+            patch("products.signals.backend.scout_harness.slack_delivery.time.sleep") as sleep,
+        ):
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+                thread_reports=True,
+            )
+
+        sleep.assert_called_once_with(2)
+        first_attempt = fake_client.chat_postMessage.call_args_list[1].kwargs
+        retry = fake_client.chat_postMessage.call_args_list[2].kwargs
+        assert retry == first_attempt
+        assert "First body" in retry["blocks"][0]["text"]
+        assert fake_client.chat_postMessage.call_count == 5
+
     def test_reply_posted_regardless_of_ai_approval(self) -> None:
         # The Slack follow-up invite is unconditional — no AI-approval gate on scout output.
         self.organization.is_ai_data_processing_approved = False

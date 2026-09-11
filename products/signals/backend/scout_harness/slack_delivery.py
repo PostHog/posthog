@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Literal
@@ -129,6 +130,16 @@ def get_scout_slack_destination(output_destinations: object) -> ScoutSlackDestin
 def slack_api_error_code(exc: SlackApiError) -> str | None:
     error_code = exc.response.get("error") if exc.response else None
     return error_code if isinstance(error_code, str) else None
+
+
+def _slack_retry_after_seconds(exc: Exception) -> int | None:
+    """Return Slack's bounded retry delay for a rate-limited request."""
+    if not isinstance(exc, SlackApiError) or slack_api_error_code(exc) != "ratelimited" or exc.response is None:
+        return None
+    try:
+        return min(max(int(exc.response.headers.get("Retry-After", "1")), 1), 30)
+    except (TypeError, ValueError):
+        return 1
 
 
 def _post_scout_slack_reply(
@@ -537,22 +548,41 @@ def _post_scout_report_thread_replies(
     delivery still succeeds rather than re-posting the lead on retry."""
     if not isinstance(thread_ts, str) or not thread_ts:
         return
+
+    def _post_reply(index: int, blocks: list[dict]) -> None:
+        client.chat_postMessage(  # type: ignore[attr-defined]
+            channel=channel_id,
+            thread_ts=thread_ts,
+            blocks=blocks,
+            text=fallback,
+            # Slack rejects a client_msg_id that is not a UUID, and this loop swallows the
+            # error, so a plain `id:index` string costs every reply silently. The `reply`
+            # infix keeps the derivation clear of the one the DM fan-out uses for extra
+            # recipients (`<delivery_id>:<index>`), which would otherwise collide.
+            client_msg_id=str(uuid.uuid5(uuid.NAMESPACE_OID, f"{delivery_id}:reply:{index}")),
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+
     for index, blocks in enumerate(reply_blocks):
         try:
-            client.chat_postMessage(  # type: ignore[attr-defined]
-                channel=channel_id,
-                thread_ts=thread_ts,
-                blocks=blocks,
-                text=fallback,
-                # Slack rejects a client_msg_id that is not a UUID, and this loop swallows the
-                # error, so a plain `id:index` string costs every reply silently. The `reply`
-                # infix keeps the derivation clear of the one the DM fan-out uses for extra
-                # recipients (`<delivery_id>:<index>`), which would otherwise collide.
-                client_msg_id=str(uuid.uuid5(uuid.NAMESPACE_OID, f"{delivery_id}:reply:{index}")),
-                unfurl_links=False,
-                unfurl_media=False,
-            )
-        except Exception:
+            _post_reply(index, blocks)
+        except Exception as exc:
+            retry_after = _slack_retry_after_seconds(exc)
+            if retry_after is not None:
+                time.sleep(retry_after)
+                try:
+                    _post_reply(index, blocks)
+                    continue
+                except Exception:
+                    logger.warning(
+                        "scout_slack_report_thread_reply_failed",
+                        channel=channel_id,
+                        delivery_id=delivery_id,
+                        chunk_index=index,
+                        exc_info=True,
+                    )
+                    continue
             logger.warning(
                 "scout_slack_report_thread_reply_failed",
                 channel=channel_id,
