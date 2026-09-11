@@ -1515,10 +1515,10 @@ class Resolver(CloningVisitor):
                 # visit USING constraint before adding the table to avoid ambiguous names
                 node.constraint = self.visit_join_constraint(node.constraint)
             if node.alias is None:
-                if node.join_type is not None:
-                    node.alias = self._synthesize_join_alias(scope)
-                elif self._join_chain_has_using(node):
+                if self._join_chain_has_using(node):
                     node.alias = self._synthesize_using_join_alias(scope)
+                elif node.join_type is not None:
+                    node.alias = self._synthesize_join_alias(scope)
 
             node.table = cast("ast.SelectQuery | ast.SelectSetQuery", super().visit(node.table))
 
