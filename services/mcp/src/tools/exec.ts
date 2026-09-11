@@ -17,6 +17,7 @@ import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
+import { formatSkillLookupMiss } from './skills/notFound'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import { getToolDefinitions, type FlagGatedTool, type ScopeGatedTool } from './toolDefinitions'
 import {
@@ -84,6 +85,14 @@ export interface ExecInnerCallProperties {
     error_status?: number
     /** Input rejected by the tool's schema before dispatch — no handler ran. */
     validation_error?: boolean
+    /**
+     * The thrown value itself. The dispatcher can turn a failure into a normal
+     * return — a skill lookup miss is rewritten so the agent does not read it as
+     * an outage — and then the wrapper never sees the exception. Carrying it lets
+     * the wrapper classify and sanitize the failure exactly as it does for one
+     * that reaches its catch block, instead of recording the call as a success.
+     */
+    error?: unknown
     /**
      * Estimated input/output tokens for the inner tool call. Carried so single-exec
      * mode attributes token usage to the real tool rather than the `exec` wrapper.
@@ -1687,7 +1696,18 @@ export function createExecTool(
                                 ? { error_status: apiError instanceof PostHogApiError ? apiError.status : 400 }
                                 : {}),
                             input,
+                            error: err,
                         })
+                        // A skill lookup that misses is not a failure the agent should
+                        // read as one. Telemetry above still records the 404.
+                        const lookupMiss = formatSkillLookupMiss(tool.name, err, input)
+                        if (lookupMiss) {
+                            // The success path below serializes a string result under
+                            // `--json`, so encode this the same way. A `--json` caller
+                            // reaches for `JSON.parse`, and raw prose is the one reply
+                            // that would break in its hands.
+                            return useJson ? JSON.stringify(lookupMiss) : lookupMiss
+                        }
                         throw err
                     }
                     const durationMs = Date.now() - startedAt
