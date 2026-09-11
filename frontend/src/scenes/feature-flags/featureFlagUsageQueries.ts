@@ -8,7 +8,8 @@
 //
 // The buildFlagEvaluations* builders answer the same two questions from the flag_evaluations table
 // instead of the events table, for the organizations that read flag evaluations from there.
-import { getDefaultInterval } from 'lib/utils/dateFilters'
+import { dayjs } from 'lib/dayjs'
+import { dateMapping, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
 
 import { Noun } from '~/models/groupsModel'
 import {
@@ -26,6 +27,7 @@ import {
     AnyPropertyFilter,
     BaseMathType,
     ChartDisplayType,
+    DateMappingOption,
     GroupMathType,
     GroupTypeIndex,
     PropertyFilterType,
@@ -186,6 +188,47 @@ function enrichedSeries(event: '$feature_view' | '$feature_interaction', seriesL
 // table, so the `posthog.` prefix is part of the name. An organization without the
 // flag-evaluations-hogql-table flag has no such table, and these queries fail to resolve for it.
 const FLAG_EVALUATIONS_TABLE = 'posthog.flag_evaluations'
+
+/** How long a row stays in flag_evaluations. The events table keeps $feature_flag_called forever. */
+export const FLAG_EVALUATIONS_RETENTION_DAYS = 90
+
+/** Start of the oldest day the table still holds. */
+function earliestRetainedDay(): dayjs.Dayjs {
+    return dayjs().startOf('day').subtract(FLAG_EVALUATIONS_RETENTION_DAYS, 'day')
+}
+
+/**
+ * Pulls a date range back inside the retention window. A range that reaches further would show
+ * fewer rows than the same range on the events table, with nothing on the chart to say why.
+ */
+export function clampToFlagEvaluationsRetention(dateRange: DateRange): DateRange {
+    const earliest = earliestRetainedDay()
+    const dateFrom = dateStringToDayJs(dateRange.date_from ?? null)
+    // A null start is "all time", which reaches further than any retained day.
+    if (dateFrom && !dateFrom.isBefore(earliest)) {
+        return dateRange
+    }
+    const dateTo = dateStringToDayJs(dateRange.date_to ?? null)
+    return {
+        date_from: `-${FLAG_EVALUATIONS_RETENTION_DAYS}d`,
+        // A range that ended before the window holds nothing, and the clamped start would sit
+        // after its end. Run to now instead of showing a backwards range.
+        date_to: dateTo?.isBefore(earliest) ? null : (dateRange.date_to ?? null),
+    }
+}
+
+/** The presets that stay inside the retention window, plus the custom-range entry. */
+export function flagEvaluationsDateOptions(): DateMappingOption[] {
+    const earliest = earliestRetainedDay()
+    return dateMapping.filter(({ values }) => {
+        const dateFrom = values[0]
+        if (dateFrom === undefined) {
+            return true
+        }
+        const parsed = dateStringToDayJs(dateFrom)
+        return !!parsed && !parsed.isBefore(earliest)
+    })
+}
 
 function flagEvaluationsConditions({ aggregationGroupTypeIndex }: FlagUsageQueryOptions): string {
     // `{filters(... AS timestamp)}` binds the tab's date range to this table's own timestamp column.

@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { DateRange } from '~/queries/schema/schema-general'
-import { FeatureFlagType } from '~/types'
+import { DateMappingOption, FeatureFlagType } from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'
 import {
@@ -19,6 +19,8 @@ import {
     buildFlagCalledUniqueCallersChart,
     buildFlagEvaluationsTotalVolumeChart,
     buildFlagEvaluationsUniqueCallersChart,
+    clampToFlagEvaluationsRetention,
+    flagEvaluationsDateOptions,
 } from './featureFlagUsageQueries'
 
 // The Usage tab only renders for persisted flags, so unlike featureFlagLogic this
@@ -33,7 +35,9 @@ export interface featureFlagUsageLogicValues {
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
     featureFlags: FeatureFlagsSet // enabledFeaturesLogic
     aggregationGroupTypeIndex: number | null | undefined
+    selectedDateRange: DateRange
     dateRange: DateRange
+    dateOptions: DateMappingOption[] | undefined
     flagKey: string
     hasEnrichedAnalytics: boolean | undefined
     readsFlagEvaluationsTable: boolean
@@ -59,6 +63,8 @@ export interface featureFlagUsageLogicMeta {
         aggregationGroupTypeIndex: (featureFlag: FeatureFlagType) => number | null | undefined
         hasEnrichedAnalytics: (featureFlag: FeatureFlagType) => boolean | undefined
         readsFlagEvaluationsTable: (featureFlags: FeatureFlagsSet) => boolean
+        dateRange: (selectedDateRange: DateRange, readsFlagEvaluationsTable: boolean) => DateRange
+        dateOptions: (readsFlagEvaluationsTable: boolean) => DateMappingOption[] | undefined
         usageCharts: (
             flagKey: string,
             aggregationGroupTypeIndex: number | null | undefined,
@@ -95,7 +101,7 @@ export const featureFlagUsageLogic: LogicWrapper<featureFlagUsageLogicType> = ke
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
     }),
     reducers({
-        dateRange: [
+        selectedDateRange: [
             DEFAULT_USAGE_DATE_RANGE,
             {
                 setDates: (_, { dateFrom, dateTo }) => ({ date_from: dateFrom, date_to: dateTo }),
@@ -124,6 +130,19 @@ export const featureFlagUsageLogic: LogicWrapper<featureFlagUsageLogicType> = ke
                 !!featureFlags[FEATURE_FLAGS.FLAG_EVALUATIONS_USAGE_TAB] &&
                 !!featureFlags[FEATURE_FLAGS.FLAG_EVALUATIONS_HOGQL_TABLE],
         ],
+        // flag_evaluations holds 90 days, so a longer range would quietly show fewer rows than the
+        // same range on the events table. The clamp covers the date picker, a link someone shares,
+        // and a range typed into the URL alike.
+        dateRange: [
+            (s) => [s.selectedDateRange, s.readsFlagEvaluationsTable],
+            (selectedDateRange: DateRange, readsFlagEvaluationsTable: boolean): DateRange =>
+                readsFlagEvaluationsTable ? clampToFlagEvaluationsRetention(selectedDateRange) : selectedDateRange,
+        ],
+        dateOptions: [
+            (s) => [s.readsFlagEvaluationsTable],
+            (readsFlagEvaluationsTable: boolean): DateMappingOption[] | undefined =>
+                readsFlagEvaluationsTable ? flagEvaluationsDateOptions() : undefined,
+        ],
         usageCharts: [
             (s) => [
                 s.flagKey,
@@ -149,7 +168,7 @@ export const featureFlagUsageLogic: LogicWrapper<featureFlagUsageLogicType> = ke
                 }
                 // The enriched-analytics charts stay on the events table either way: $feature_view
                 // and $feature_interaction are not flag evaluations, so that table does not hold them.
-                const charts = readsFlagEvaluationsTable
+                const charts: FlagUsageChart[] = readsFlagEvaluationsTable
                     ? [buildFlagEvaluationsTotalVolumeChart(options), buildFlagEvaluationsUniqueCallersChart(options)]
                     : [buildFlagCalledTotalVolumeChart(options), buildFlagCalledUniqueCallersChart(options)]
                 if (hasEnrichedAnalytics) {

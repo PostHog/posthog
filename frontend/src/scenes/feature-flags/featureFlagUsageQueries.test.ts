@@ -1,5 +1,7 @@
+import { dateMapping } from 'lib/utils/dateFilters'
+
 import { Noun } from '~/models/groupsModel'
-import { DataVisualizationNode, DateRange } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, DateRange, InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 
 import {
     buildEnrichedUsageCharts,
@@ -7,9 +9,13 @@ import {
     buildFlagCalledUniqueCallersChart,
     buildFlagEvaluationsTotalVolumeChart,
     buildFlagEvaluationsUniqueCallersChart,
+    clampToFlagEvaluationsRetention,
+    flagEvaluationsDateOptions,
     FlagUsageChart,
     FlagUsageQueryOptions,
 } from './featureFlagUsageQueries'
+
+type TrendsUsageChart = FlagUsageChart<InsightVizNode<TrendsQuery>>
 
 const dateRange: DateRange = { date_from: '-30d', date_to: null }
 const userNoun: Noun = { singular: 'user', plural: 'users' }
@@ -30,12 +36,12 @@ const groupFlagOptions: FlagUsageQueryOptions = {
 
 describe('featureFlagUsageQueries', () => {
     it.each([
-        ['buildFlagCalledTotalVolumeChart', (): FlagUsageChart => buildFlagCalledTotalVolumeChart(personFlagOptions)],
+        ['buildFlagCalledTotalVolumeChart', (): TrendsUsageChart => buildFlagCalledTotalVolumeChart(personFlagOptions)],
         [
             'buildFlagCalledUniqueCallersChart',
-            (): FlagUsageChart => buildFlagCalledUniqueCallersChart(personFlagOptions),
+            (): TrendsUsageChart => buildFlagCalledUniqueCallersChart(personFlagOptions),
         ],
-        ['buildEnrichedUsageCharts', (): FlagUsageChart => buildEnrichedUsageCharts(personFlagOptions)[0]],
+        ['buildEnrichedUsageCharts', (): TrendsUsageChart => buildEnrichedUsageCharts(personFlagOptions)[0]],
     ])('%s builds an unsaved TrendsQuery with the shared envelope', (_name, build) => {
         const { query } = build()
 
@@ -79,11 +85,11 @@ describe('featureFlagUsageQueries', () => {
     it.each([
         [
             'buildFlagCalledTotalVolumeChart',
-            (options: FlagUsageQueryOptions): FlagUsageChart => buildFlagCalledTotalVolumeChart(options),
+            (options: FlagUsageQueryOptions): TrendsUsageChart => buildFlagCalledTotalVolumeChart(options),
         ],
         [
             'buildFlagCalledUniqueCallersChart',
-            (options: FlagUsageQueryOptions): FlagUsageChart => buildFlagCalledUniqueCallersChart(options),
+            (options: FlagUsageQueryOptions): TrendsUsageChart => buildFlagCalledUniqueCallersChart(options),
         ],
     ])('%s filters on $feature_flag, adding a $group_N is_set filter only for group flags', (_name, build) => {
         expect(build(personFlagOptions).query.source.properties).toEqual([
@@ -190,6 +196,41 @@ describe('featureFlagUsageQueries', () => {
             expect(query.source.query.includes("`$group_0` != ''")).toEqual(expectsGroupFilter)
         }
     )
+
+    it.each([
+        [
+            'a range inside the window is left alone',
+            { date_from: '-30d', date_to: null },
+            { date_from: '-30d', date_to: null },
+        ],
+        ['the window itself is left alone', { date_from: '-90d', date_to: null }, { date_from: '-90d', date_to: null }],
+        ['a longer range is pulled back', { date_from: '-180d', date_to: null }, { date_from: '-90d', date_to: null }],
+        ['all time is pulled back', { date_from: 'all', date_to: null }, { date_from: '-90d', date_to: null }],
+        ['a missing start is pulled back', { date_from: null, date_to: null }, { date_from: '-90d', date_to: null }],
+        [
+            'a range that ends before the window runs to now instead of backwards',
+            { date_from: '-200d', date_to: '-150d' },
+            { date_from: '-90d', date_to: null },
+        ],
+        [
+            'an end inside the window is kept',
+            { date_from: '-200d', date_to: '-10d' },
+            { date_from: '-90d', date_to: '-10d' },
+        ],
+    ])('clampToFlagEvaluationsRetention: %s', (_name, dateRange, expected) => {
+        expect(clampToFlagEvaluationsRetention(dateRange)).toEqual(expected)
+    })
+
+    it('flagEvaluationsDateOptions offers no preset older than the retention window', () => {
+        const keys = flagEvaluationsDateOptions().map((option) => option.key)
+
+        expect(keys).toContain('Last 90 days')
+        expect(keys).toContain('Last 30 days')
+        expect(keys).not.toContain('Last 180 days')
+        expect(keys).not.toContain('All time')
+        // The custom entry carries no range of its own, so it must survive the filter.
+        expect(keys).toContain(dateMapping[0].key)
+    })
 
     it('buildEnrichedUsageCharts filters on the bare feature_flag property key with no breakdown', () => {
         // A wrong property key here silently produces an empty chart, so pin the exact key.
