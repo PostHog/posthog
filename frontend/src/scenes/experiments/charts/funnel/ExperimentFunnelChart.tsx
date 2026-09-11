@@ -83,7 +83,7 @@ export function ExperimentFunnelChart({
                 isUnordered ? `Completed ${i + 1} ${i === 0 ? 'step' : 'steps'}` : getStepName(metric.series[i], i + 1)
             ),
         ]
-    }, [metric.funnel_order_type, metric.series])
+    }, [metric.funnel_order_type, metric.series, numMetricSteps])
 
     const series = useMemo<Series<VariantFunnelMeta>[]>(() => {
         const flagVariants = getExperimentVariants(experiment)
