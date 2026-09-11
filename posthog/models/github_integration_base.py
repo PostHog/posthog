@@ -770,13 +770,16 @@ class GitHubIntegrationBase:
         *,
         endpoint: str,
         json_body: Mapping[str, object],
+        headers: dict[str, str] | None = None,
         timeout: int = 10,
     ) -> requests.Response | None:
         """PATCH with installation token via :meth:`api_request`; ``None`` instead of raising, for the
         success/error-dict verbs built on top."""
         path = url.removeprefix("https://api.github.com")
         try:
-            return self.api_request("PATCH", path, endpoint=endpoint, json_body=json_body, timeout=timeout)
+            return self.api_request(
+                "PATCH", path, endpoint=endpoint, json_body=json_body, headers=headers, timeout=timeout
+            )
         except GitHubIntegrationError:
             logger.warning("GitHubIntegration: installation PATCH failed", url=url, exc_info=True)
             return None
@@ -1089,6 +1092,7 @@ class GitHubIntegrationBase:
             "additions": pr.get("additions", 0),
             "deletions": pr.get("deletions", 0),
             "changed_files": pr.get("changed_files", 0),
+            "etag": response.headers.get("ETag"),
         }
 
     def get_pull_request_from_url(self, pr_url: str) -> dict[str, Any]:
@@ -1126,6 +1130,28 @@ class GitHubIntegrationBase:
             pr = {}
 
         return {"success": True, "number": pr.get("number", pr_number), "state": pr.get("state")}
+
+    def update_pull_request_body(
+        self, repository: str, pr_number: int, body: str, *, expected_etag: str | None = None
+    ) -> dict[str, Any]:
+        """Replace a pull request's description. ``repository`` is ``owner/repo`` or a bare repo."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self._installation_authenticated_patch(
+            f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+            json_body={"body": body},
+            headers={"If-Match": expected_etag} if expected_etag else None,
+        )
+        if response is None:
+            return {"success": False, "error": "Network error updating pull request"}
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to update pull request: {response.text}",
+                "status_code": response.status_code,
+            }
+        return {"success": True, "number": pr_number}
 
     def close_pull_request_from_url(self, pr_url: str) -> dict[str, Any]:
         """Close a pull request by its HTML URL (e.g. ``https://github.com/owner/repo/pull/123``)."""
@@ -2338,6 +2364,7 @@ class GitHubIntegrationBase:
         timeout: int = 10,
         retry_transient: bool | None = None,
         priority: Priority | None = None,
+        stream: bool = False,
     ) -> requests.Response:
         """Authenticated request against ``https://api.github.com`` returning the raw response.
 
@@ -2383,6 +2410,7 @@ class GitHubIntegrationBase:
                     params=params,
                     json=json_body,
                     timeout=timeout,
+                    stream=stream,
                 )
             except requests.RequestException as exc:
                 if retry_transient and attempt == 0:
