@@ -18,6 +18,11 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
     CANCELLED_RUN_MESSAGE,
+    TRANSIENT_EGRESS_MESSAGE,
+    TRANSIENT_POOLER_MESSAGE,
+    TRANSIENT_SOURCE_CONNECTION_MESSAGE,
+    TRANSIENT_SOURCE_ERROR_MESSAGE,
+    TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
     UNEXPECTED_ERROR_MESSAGE,
     UpdateExternalDataJobStatusInputs,
     _customer_facing_error,
@@ -25,21 +30,27 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
+    _CONNECTION_LIMIT_EXHAUSTED_MESSAGE,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalSyncBlockedReason
 
 
 class TestCustomerFacingError(SimpleTestCase):
-    @parameterized.expand(
-        [
-            # Temporal wraps a retryable REST exhaustion / connection drop as an ApplicationError
-            # whose str() is "<ClassName>: <message>". The customer-facing latest_error must be the
-            # message alone, not the internal class name.
-            ("rest_retryable", "RESTClientRetryableError", "HTTP 429 for https://api.example.com/usage"),
-            ("driver_drop", "OperationalError", "connection failed: server closed the connection unexpectedly"),
-        ]
-    )
-    def test_strips_leaked_internal_exception_class_name(self, _name: str, exc_type: str, message: str) -> None:
-        assert _customer_facing_error(ApplicationError(message, type=exc_type)) == message
+    def test_strips_leaked_internal_exception_class_name(self) -> None:
+        # Temporal wraps a driver connection drop as an ApplicationError whose str() is
+        # "<ClassName>: <message>". The customer-facing latest_error must be the message alone,
+        # not the internal class name.
+        message = "connection failed: server closed the connection unexpectedly"
+        cause = ApplicationError(message, type="OperationalError")
+        assert _customer_facing_error(cause) == message
+
+    def test_retryable_rest_error_becomes_a_friendly_message(self) -> None:
+        # A REST source that exhausts its retries on an HTTP 429/5xx surfaces as an ApplicationError
+        # typed RESTClientRetryableError, whose message is a raw string like "HTTP 503 for <url>".
+        # The customer must read a friendly message, not the raw HTTP status.
+        cause = ApplicationError("HTTP 503 for https://api.example.com/usage", type="RESTClientRetryableError")
+        assert _customer_facing_error(cause) == TRANSIENT_SOURCE_ERROR_MESSAGE
 
     def test_falls_back_to_str_when_cause_has_no_message(self) -> None:
         assert _customer_facing_error(ValueError("connection reset")) == "connection reset"
@@ -334,3 +345,98 @@ def test_non_retryable_failure_records_only_a_proven_incremental_block(
     schema.refresh_from_db()
     assert schema.incremental_sync_blocked == expected_reason
     assert schema.sync_type_config["incremental_field"] == "updated_at"
+
+
+# transaction=True for the same reason as the tests above: the activity resolves the source through
+# database_sync_to_async_pool, and the pool thread's connection can't see a test transaction.
+@parameterized.expand(
+    [
+        # psycopg's connect-time wrapper around a dropped TLS session. The address is a
+        # documentation-reserved one, standing in for the host the driver echoes back.
+        (
+            "postgres_ssl_drop",
+            ExternalDataSourceType.POSTGRES,
+            'connection failed: connection to server at "198.51.100.7", port 5432 failed: '
+            "SSL SYSCALL error: EOF detected",
+            TRANSIENT_SOURCE_CONNECTION_MESSAGE,
+        ),
+        # A connect-time capacity refusal. The generic map has no entry for it, so the Postgres
+        # source's own exhaustion message fills the gap.
+        (
+            "postgres_connection_limit",
+            ExternalDataSourceType.POSTGRES,
+            'connection failed: connection to server at "198.51.100.7", port 5432 failed: '
+            "FATAL: sorry, too many clients already",
+            _CONNECTION_LIMIT_EXHAUSTED_MESSAGE,
+        ),
+        # pymysql renders a mid-query drop as a bare code/message tuple.
+        (
+            "mysql_lost_connection",
+            ExternalDataSourceType.MYSQL,
+            "(2013, 'Lost connection to MySQL server during query')",
+            TRANSIENT_SOURCE_CONNECTION_MESSAGE,
+        ),
+        # Supavisor refusing the connect after its own credential lookup failed.
+        (
+            "pooler_credential_lookup",
+            ExternalDataSourceType.POSTGRES,
+            "FATAL: (ECIRCUITBREAKER) failed to retrieve database credentials after multiple "
+            "attempts, new connections are temporarily blocked",
+            TRANSIENT_POOLER_MESSAGE,
+        ),
+        # PostHog's own egress proxy refusing the CONNECT.
+        (
+            "egress_proxy_bad_gateway",
+            ExternalDataSourceType.SALESFORCE,
+            "ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: 502 Bad gateway'))",
+            TRANSIENT_EGRESS_MESSAGE,
+        ),
+        # A REST source whose vendor stayed unavailable for longer than both retry layers.
+        (
+            "vendor_service_unavailable",
+            ExternalDataSourceType.APPLESEARCHADS,
+            "503 Server Error: Service Temporarily Unavailable for url: https://api.example.com/v1/things",
+            TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
+        ),
+    ]
+)
+@pytest.mark.django_db(transaction=True)
+def test_transient_failure_replaces_the_raw_driver_text_without_disabling_the_schema(
+    _name: str, source_type: ExternalDataSourceType, internal_error: str, expected_message: str
+) -> None:
+    org = Organization.objects.create(name="org")
+    team = Team.objects.create(organization=org, name="team")
+    source = ExternalDataSource.objects.create(team=team, source_type=source_type.value)
+    schema = ExternalDataSchema.objects.create(team=team, source=source, name="table")
+    job = ExternalDataJob.objects.create(
+        team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
+    )
+
+    env = ActivityEnvironment()
+    inputs = UpdateExternalDataJobStatusInputs(
+        team_id=team.id,
+        job_id=str(job.id),
+        schema_id=str(schema.id),
+        source_id=str(source.id),
+        status=ExternalDataJob.Status.FAILED,
+        internal_error=internal_error,
+        latest_error=internal_error,
+    )
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_rows", return_value=0
+        ),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.finish_row_tracking"),
+        mock.patch("posthoganalytics.capture"),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_should_sync"
+        ) as mock_update_should_sync,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status"
+        ) as mock_update_job_status,
+    ):
+        asyncio.run(env.run(update_external_data_job_model, inputs))
+
+    mock_update_should_sync.assert_not_called()
+    assert mock_update_job_status.call_args.kwargs["latest_error"] == expected_message

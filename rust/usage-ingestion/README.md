@@ -35,14 +35,13 @@ development. It uses structured JSON logs otherwise.
 Set `USAGE_INGESTION_REDIS_URL` to a dedicated Valkey Cluster endpoint to
 enable the lossy hourly and daily counter projection. It is disabled when the
 URL is empty, so Kafka and ClickHouse remain the only required dependencies.
-When Valkey is unavailable, the flusher retries every
-`USAGE_INGESTION_REDIS_FLUSH_INTERVAL_SECONDS` (default `15`) and drops the
-unavailable interval's deltas. Counter timestamps are limited to seven days
-behind and 24 hours ahead of the current time. Redis connections,
-flush concurrency, and the per-scope/bucket series cap default to 16 and can
-be tuned with `USAGE_INGESTION_REDIS_CONNECTIONS`,
-`USAGE_INGESTION_REDIS_FLUSH_CONCURRENCY`, and
-`USAGE_INGESTION_REDIS_MAX_SERIES_PER_BUCKET`.
+When connection setup fails, the flusher retries every
+`USAGE_INGESTION_REDIS_FLUSH_INTERVAL_SECONDS` (default `15`) and retains up to
+250,000 pending entries until it reconnects. After a write is issued, failed
+deltas are dropped because an I/O error can follow an applied transaction.
+Counter timestamps are limited to seven days behind and 24 hours ahead of the
+current time. Flush concurrency defaults to 16 and can be tuned with
+`USAGE_INGESTION_REDIS_FLUSH_CONCURRENCY`.
 
 The projection stores additive deltas, not usage record identities. Retrying
 after an accepted response or correcting a durable record can therefore
@@ -69,7 +68,8 @@ still rejects an intentionally cross-slot transaction.
 | Kafka cluster | `warpstream-shared` |
 | Topic | `clickhouse_billing_usage_records`, 8 partitions, 7-day retention |
 | ClickHouse Kafka table and MV | `NodeRole.INGESTION_SMALL` |
-| ClickHouse storage and read tables | `NodeRole.DATA` |
+| ClickHouse storage table | `NodeRole.AUX` |
+| ClickHouse read table | `NodeRole.DATA` |
 | Reachability | in-cluster only; no external proxy and no request authentication |
 | Owning team | `team-ingestion` |
 

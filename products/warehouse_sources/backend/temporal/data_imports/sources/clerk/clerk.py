@@ -238,10 +238,20 @@ _FORBIDDEN_KEY_MESSAGE = (
     "Your Clerk secret key does not have permission to access this endpoint. Please check the "
     "key's permissions in your Clerk dashboard."
 )
+_UNSUPPORTED_CHARACTER_MESSAGE = (
+    "Your Clerk secret key contains a character that can't be sent to Clerk, such as an invisible "
+    "one pasted from another app. Copy the key again from your Clerk dashboard and reconnect."
+)
 
 
 def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
     """Validate Clerk API credentials by making a test request."""
+    # The key rides in the Authorization header, which http.client encodes as latin-1. A character
+    # outside that range raises UnicodeEncodeError mid-request, so reject it as user input rather
+    # than letting the encoding error surface.
+    if not secret_key.isascii():
+        return False, _UNSUPPORTED_CHARACTER_MESSAGE
+
     url = "https://api.clerk.com/v1/users"
     headers = {
         "Authorization": f"Bearer {secret_key}",
@@ -256,7 +266,10 @@ def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
 
     if response.status_code == 200:
         return True, None
-    if response.status_code == 401:
+    if response.status_code in (400, 401):
+        # Our request (GET /v1/users?limit=1) is always well-formed, so a 400 is Clerk rejecting the
+        # credential itself — a malformed or wrong-format secret key. That is user input, like a 401
+        # revoked key, so explain it the same way instead of filing an error.
         return False, _INVALID_KEY_MESSAGE
     if response.status_code == 403:
         return False, _FORBIDDEN_KEY_MESSAGE

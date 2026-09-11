@@ -22,7 +22,9 @@ from posthog.exceptions_capture import capture_exception
 from products.data_warehouse.backend.facade.api import reconcile_mysql_schemas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    HostNotAllowedError,
     SSHTunnelMixin,
+    TemporaryHostResolutionError,
     ValidateDatabaseHostMixin,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -75,6 +77,12 @@ _VALIDATE_CONNECTION_HINTS: list[tuple[str, str]] = [
     ),
     ("Unknown database", "Database does not exist. Check the database name is correct."),
 ]
+
+# Error 1045 is the same failure the Postgres, Supabase, and Neon sources already word this
+# way. Keeping one wording means a wrong password reads the same whichever database it is.
+_INVALID_CREDENTIALS_ERROR = (
+    "The database rejected the username or password. Check the user and password for this source and try again."
+)
 
 _HOST_IS_URL_ERROR = (
     "Enter just the hostname in the host field (for example, db.example.com), not a full URL or "
@@ -200,7 +208,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # user's host grant) is wrong. Surface it as an auth failure — mirroring the Postgres
             # source — so the user fixes credentials instead of the generic "check connection
             # details" message sending them to check the host/port.
-            "Access denied for user": "Invalid user or password",
+            "Access denied for user": _INVALID_CREDENTIALS_ERROR,
             # MySQL/MariaDB error 1049 (ER_BAD_DB_ERROR): the configured database doesn't exist on
             # the server — it was renamed or dropped after the source was set up, or the connection
             # was reconfigured to point at a different server. `validate_credentials` already
@@ -298,8 +306,11 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # PostHog's connecting host, so the handshake is rejected before any credentials are
             # checked. Only a DB admin can fix this server-side (GRANT for the host, or allow our
             # egress / SSH-tunnel host) — retrying connects from the same host fails identically.
-            # Match the stable tail phrase, not the volatile host in the message prefix.
-            "is not allowed to connect to this MySQL server": "Your MySQL/MariaDB server isn't allowing connections from PostHog's host (error 1130). Ask your database admin to grant access for the connecting host (or allow our IP / SSH-tunnel host), then retry the sync.",
+            # Match the stable tail phrase, not the volatile host in the message prefix, and not the
+            # vendor name that follows it: MariaDB renders this same error as "...this MariaDB
+            # server", not "...this MySQL server", so anchoring on the vendor name missed every
+            # MariaDB server.
+            "is not allowed to connect to this": "Your MySQL/MariaDB server isn't allowing connections from PostHog's host (error 1130). Ask your database admin to grant access for the connecting host (or allow our IP / SSH-tunnel host), then retry the sync.",
             # MySQL/MariaDB error 1226 (ER_USER_LIMIT_REACHED): the connecting user account has a
             # `MAX_CONNECTIONS_PER_HOUR` resource limit set (via `CREATE USER`/`GRANT ... WITH
             # MAX_CONNECTIONS_PER_HOUR`), and this hour's quota is used up. The counter only resets
@@ -425,12 +436,19 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
     ) -> dict[str, object]:
         # `require_ssl` keeps signature parity with Postgres; MySQL SSL is governed by
         # `config.using_ssl` inside `connect`.
-        with self.get_implementation.connect(config) as conn:
+        with self.get_implementation.connect(config, team_id=team_id) as conn:
             return get_mysql_connection_metadata(conn, database=config.database)
 
     def validate_credentials(
-        self, config: MySQLSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
+        self,
+        config: MySQLSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+        require_ssl: bool = False,
     ) -> tuple[bool, str | None]:
+        # `require_ssl` keeps signature parity with Postgres; MySQL SSL is governed by
+        # `config.using_ssl` inside `connect`.
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors
@@ -438,7 +456,9 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         # A pasted URL or connection string in the host field otherwise fails DNS resolution with a
         # misleading "check the spelling" message that echoes the raw value back (which can embed
         # credentials). Catch it early with an actionable message that never reflects the input.
-        if "://" in config.host:
+        # A scheme-less paste ("db.example.com/mydb", "user:secret@db.example.com") has no "://",
+        # so match the path and userinfo separators — neither is legal in a hostname anyway.
+        if "/" in config.host or "@" in config.host:
             return False, _HOST_IS_URL_ERROR
 
         valid_host, host_errors = self.is_database_host_valid(
@@ -449,6 +469,10 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
 
         try:
             self.get_schemas(config, team_id, api_version=api_version)
+        except (HostNotAllowedError, TemporaryHostResolutionError) as e:
+            # The host policy refused the host, or its lookup never answered. Both carry their own
+            # user-facing wording and neither is a PostHog defect, so they are not captured.
+            return False, str(e)
         except BaseSSHTunnelForwarderError as e:
             # sshtunnel surfaces raw library strings (e.g. "Could not establish session to SSH
             # gateway"); map them to the friendly guidance in `get_non_retryable_errors` — which the
@@ -496,5 +520,8 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         access_method: str,
         schema_name: Optional[str] = None,
         api_version: str | None = None,
+        require_ssl: bool = False,
     ) -> tuple[bool, str | None]:
-        return self.validate_credentials(config, team_id, schema_name=schema_name, api_version=api_version)
+        return self.validate_credentials(
+            config, team_id, schema_name=schema_name, api_version=api_version, require_ssl=require_ssl
+        )

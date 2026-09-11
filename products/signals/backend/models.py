@@ -11,9 +11,9 @@ from django.utils import timezone
 from django.utils.functional import Promise
 
 from asgiref.sync import async_to_sync
-from django_deprecate_fields import deprecate_field
 from pydantic import ValidationError
 
+from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
@@ -90,14 +90,14 @@ class SignalSourceConfig(UUIDModel):
         CI_DURATION_REGRESSION = "ci_duration_regression", "CI duration regression"
         SEARCH_OPPORTUNITY = "search_opportunity", "Search opportunity"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     source_product = models.CharField(max_length=100, choices=signal_source_product_choices)
     source_type = models.CharField(max_length=100, choices=signal_source_type_choices)
     enabled = models.BooleanField(default=True)
     config = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     @classmethod
     def is_source_enabled(cls, team_id: int, source_product: str, source_type: str) -> bool:
@@ -167,6 +167,21 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     # within the project-timezone day. Once reached, the whole generation pipeline pauses until
     # local midnight (see daily_limit.py). Null means unlimited.
     max_reports_per_day = models.PositiveIntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
+    # Tracker issue per self-driving PR (see tracker_issues.py). The integration is the switch:
+    # null means the team does not want tracker issues, so there is no separate boolean that can
+    # disagree with the target. `issue_tracking_config` holds the provider target, for example
+    # {"team_id": ...} for Linear or {"repository": ...} for GitHub.
+    issue_tracking_integration = models.ForeignKey(
+        "posthog.Integration",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    issue_tracking_config = models.JSONField(default=dict, db_default={}, blank=True)
+    # Off by default, because a ready pull request runs the full CI matrix on every push, which is
+    # runner spend a team has to choose. Read only for a reviewer with no preference of their own.
+    default_open_pull_request_ready = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -208,6 +223,13 @@ class SignalUserAutonomyConfig(UUIDModel):
     # When null, every prioritized report notifies. A report with no priority then
     # notifies only on the reviewer-added path (see slack_inbox_notifications).
     slack_notification_min_priority = models.CharField(max_length=2, choices=AutonomyPriority, null=True, blank=True)
+    # Off by default because assignment is visible to everyone on the pull request, so a reviewer
+    # has to ask for it rather than be volunteered.
+    github_assign_on_pull_request = models.BooleanField(default=False, db_default=False)
+    # Null follows `SignalTeamConfig.default_open_pull_request_ready`, because the right answer
+    # differs per person: a reviewer who reads their inbox pull requests anyway gains nothing from
+    # the draft state and pays a round trip for it.
+    github_open_pull_request_ready = models.BooleanField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -246,7 +268,7 @@ class SignalReport(UUIDModel):
         POSTHOG_ONBOARDING = "posthog_onboarding", "PostHog onboarding"
         POSTHOG_SYSTEM = "posthog_system", "PostHog system"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     status = models.CharField(max_length=20, choices=Status, default=Status.POTENTIAL)
     # System billing exemption: non-null means this report's implementation PRs must never be
     # charged (PostHog-system origins, e.g. health-check scout findings). Prospective-only —
@@ -309,6 +331,11 @@ class SignalReport(UUIDModel):
     # ID de-duplication would not. Null for reports that never notified or predate the field.
     inbox_notified_at = models.DateTimeField(null=True, blank=True)
 
+    # The emit key of the scout `emit_report` call that authored this report. An emission can take
+    # minutes, so the caller can time out at a proxy while the request keeps running here, and the
+    # key is what makes the retry that follows return this report instead of authoring a second one.
+    scout_idempotency_key = models.CharField(max_length=255, null=True, blank=True)
+
     # Video segment clustering fields
     cluster_centroid = deprecate_field(
         ArrayField(
@@ -320,9 +347,6 @@ class SignalReport(UUIDModel):
     )
     cluster_centroid_updated_at = deprecate_field(models.DateTimeField(blank=True, null=True))
     # Deprecated - unused
-    conversation = deprecate_field(
-        models.ForeignKey("posthog_ai.Conversation", null=True, blank=True, on_delete=models.SET_NULL)
-    )
     relevant_user_count = deprecate_field(models.IntegerField(blank=True, null=True))
 
     class Meta:
@@ -334,6 +358,15 @@ class SignalReport(UUIDModel):
                 fields=["team", "first_visible_at"],
                 condition=models.Q(first_visible_at__isnull=False),
                 name="signals_report_first_visible",
+            ),
+        ]
+        constraints = [
+            # The barrier itself, not a lookup aid: two emits racing on one key both reach the
+            # insert, and Postgres is what lets exactly one through.
+            models.UniqueConstraint(
+                fields=["team", "scout_idempotency_key"],
+                condition=models.Q(scout_idempotency_key__isnull=False),
+                name="signals_report_scout_idem_key",
             ),
         ]
 
@@ -864,6 +897,58 @@ class SignalReportAssignment(TeamScopedRootMixin, UUIDModel):
         return SignalReportWorkState.UNCLAIMED
 
 
+class SignalReportTrackerIssue(TeamScopedRootMixin, UUIDModel):
+    """The tracker issue opened for a report's self-driving pull request.
+
+    Teams under a change-management audit cannot merge a pull request unless a tracked work item
+    points at it. One row per report records that work item, or records why we could not open one,
+    so the team can find the gaps without reading logs.
+    """
+
+    class Status(models.TextChoices):
+        # Claimed by one auto-start evaluation, which is calling the provider now. Auto-start is
+        # re-evaluated from several paths at once, and this row is what keeps two of them from each
+        # opening an issue for the same report.
+        PENDING = "pending", "Pending"
+        CREATED = "created", "Created"
+        FAILED = "failed", "Failed"
+
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.OneToOneField(SignalReport, on_delete=models.CASCADE, related_name="tracker_issue")
+
+    # SET_NULL rather than CASCADE: disconnecting the integration must not erase the audit trail of
+    # which issues self-driving already opened.
+    integration = models.ForeignKey(
+        "posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    # The integration kind at creation time, kept so the row still reads correctly once the
+    # integration row is gone.
+    provider = models.CharField(max_length=50, null=True, blank=True)
+
+    status = models.CharField(max_length=10, choices=Status)
+    # Provider identifier, in the same shape the integration clients return: {"id": "ENG-123"} for
+    # Linear, {"repository": ..., "number": ...} for GitHub, {"issue_id": ...} for GitLab,
+    # {"key": ...} for Jira.
+    external_context = models.JSONField(null=True, blank=True)
+    issue_url = models.TextField(null=True, blank=True)
+    # Short, user-facing reason the issue could not be opened. Set only when status is FAILED.
+    failure_reason = models.TextField(null=True, blank=True)
+    # When the pull request and the issue were cross-referenced. Null while the run has no PR yet.
+    pr_linked_at = models.DateTimeField(null=True, blank=True)
+    # When we closed the issue in the provider, after the report was dismissed.
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        verbose_name = "Signal report tracker issue"
+        verbose_name_plural = "Signal report tracker issues"
+
+
 class SignalEmissionRecord(UUIDModel):
     """Tracks which source records have been emitted as signals.
 
@@ -871,7 +956,7 @@ class SignalEmissionRecord(UUIDModel):
     One row per source record, upserted on emission.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     source_product = models.CharField(max_length=100)
     source_type = models.CharField(max_length=100)
     source_id = models.CharField(max_length=200)
@@ -951,7 +1036,7 @@ class SignalReportArtefact(UUIDModel):
         }
     )
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="artefacts")
     type = models.CharField(max_length=100, choices=signal_report_artefact_type_choices)
     content = models.TextField()
@@ -1206,7 +1291,7 @@ class SignalReportTask(UUIDModel):
     solely for the implementation gate during that transition.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="report_tasks")
     task = models.ForeignKey("tasks.Task", on_delete=models.CASCADE, related_name="signal_report_tasks")
     # "implementation" for the rows the gate reads; legacy rows also carry "research" /
@@ -1262,7 +1347,7 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
 
     # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating this
     # table takes no lock on those parents (app-level enforcement only).
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     # RESTRICT: hard-deleting a report must never silently destroy this financial record (it drives
     # the quota offset and refund audit). Team deletion still cascades in via the team FK above.
     report = models.OneToOneField(SignalReport, on_delete=models.RESTRICT, related_name="refund")
@@ -1329,7 +1414,7 @@ class SignalReportAction(TeamScopedRootMixin, UUIDModel):
 
     # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating this
     # table takes no lock on those parents (app-level enforcement only).
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="actions")
     # CASCADE, unlike the artefact log's SET_NULL: a row here is evidence that a specific person
     # interacted, so with the person gone it proves nothing and can go with them.
@@ -1413,7 +1498,9 @@ class SignalReportAction(TeamScopedRootMixin, UUIDModel):
 
 
 class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
-    """One row per (team, scout skill): schedule + emit posture for a `signals-scout-*` skill.
+    """One row per (team, scout skill): schedule + emit posture for a scout skill.
+
+    This row is what makes a skill a scout, so a scout may carry any valid skill name.
 
     Changes are activity-logged (they drive spend). Team-level participation in the
     dogfood program is gated by the `signals-scout` flag at the coordinator, not here.
@@ -1493,16 +1580,27 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # doesn't bake it in (most callers don't need it).
     all_teams = models.Manager()  # noqa: DJ012
 
+    # No single-column index: the constraint and index below both lead with team_id,
+    # so a team-scoped read is already served.
     team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
         related_name="signal_scout_configs",
+        db_index=False,
     )
-    # The `signals-scout-*` LLMSkill this row references (controlling only its scheduling /
+    # The LLMSkill this row references (controlling only its scheduling /
     # enablement, not the skill itself). The coordinator auto-creates a
     # row when it discovers a scout skill on a participating team, so a user authoring
-    # `signals-scout-foo` gets a row (on the default schedule) on the next tick.
+    # `signals-scout-foo` gets a row (on the default schedule) on the next tick. A bare-named
+    # skill is registered through the scout create endpoint instead.
     skill_name = models.CharField(max_length=200)
+    display_name = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Name shown in the UI. Does not change the skill name. Leave blank to use the default name.",
+    )
     # Derived from `status` (`enabled = status in RUNNABLE_STATUSES`), but kept as a real
     # column because the coordinator filters on it at SQL level and the warehouse mirrors it.
     # `save` reconciles the pair for writers that only set one side; a DB constraint backstop
@@ -1633,6 +1731,16 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # Deliberately NOT excluded from activity logging, because changing which external tools
     # a scout reaches is a security-relevant change, like `network_access`.
     mcp_gateway_server_ids = models.JSONField(default=list, db_default=[])
+    # User-facing write scopes a person granted this one scout, on top of the fleet-wide posture
+    # every scout carries. Plain scope strings (`["dashboard:write", "insight:write"]`), so adding
+    # a grantable object later is one allowlist entry rather than a new column. Empty means the
+    # scout reads the project and writes only what the fleet grants every scout.
+    # Validated against `SCOUT_GRANTABLE_WRITE_SCOPES` at the API boundary and intersected against
+    # it again when a run's token is minted, so a stored grant cannot widen a token past the
+    # allowlist. Deliberately NOT excluded from activity logging, and gated in the config API to the
+    # scout's acting user and project admins: this field decides what an unattended agent may change
+    # in the project. A dry run (`emit=False`) ignores it, so a preview never mutates the project.
+    write_scopes = models.JSONField(default=list, db_default=[])
     # Optional five-field cron expression anchoring runs to wall-clock slots (e.g. "30 9 * * *",
     # "0 9,17 * * *", "0 9 * * 1-5"). Takes precedence over the rolling `run_interval_minutes`
     # when set. The coordinator evaluates it in `team.timezone`, so scheduled times follow
@@ -1977,7 +2085,8 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # `scout_harness/derived_metadata.py` and holds booleans the harness computes from the run's
     # own output, so "what kind of run was this?" is a field lookup rather than prose parsing.
     # Both regions are server-written: nothing here is scout-authored, which is what makes the
-    # column safe to query directly.
+    # column safe to query directly. `run_note` is the exception to "resolved by the harness": it is
+    # the note a person typed when triggering the run by hand, so read it as prose, not a dimension.
     # Nullable with a `{}` db_default so the AddField stays non-blocking on the populated table.
     metadata = models.JSONField(null=True, blank=True, default=dict, db_default={})
     created_at = models.DateTimeField(auto_now_add=True)
@@ -2216,7 +2325,7 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
         db_constraint=False,
         related_name="signal_scout_notes",
     )
-    # Who the note is addressed to: a scout's skill name (`signals-scout-*`), a reserved
+    # Who the note is addressed to: a configured scout's skill name, a reserved
     # pipeline audience (`pipeline:*`), or blank for the whole fleet. A blank target is seen by
     # every reader alongside its own targeted notes.
     skill_name = models.CharField(max_length=200, blank=True, default="", db_default="")

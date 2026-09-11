@@ -38,10 +38,27 @@ exclude {
     "*_staging",
     "*_backfill",
 
-    # --- cross-cluster proxies carried by the node but owned elsewhere ---
-    # Distributed proxies into the main event cluster; owned by the data role.
-    "events_main",
-    "events_recent",
+    # --- per-customer and adhoc tables on the cloud data clusters ---
+    # A team-numbered table belongs to one customer and is not part of the cluster's
+    # schema. The bare [0-9]* glob catches the numeric-prefixed scratch tables that
+    # appear beside them. Both mirror posthog-cloud-infra's exclude.hcl.
+    "team_[0-9]*",
+    "[0-9]*",
+    ".inner_id.*",
+
+    # --- job artifacts, created and dropped out of band ---
+    # Each is named after the run that made it, so the name never repeats and no
+    # golden can track it. The undated siblings (pending_person_deletes_reporting,
+    # the clickhouse_cleanup_* tables themselves) are real schema and stay declared,
+    # which is why these globs require a digit or the _dictionary suffix.
+    "pending_deletes_*",
+    "pending_person_deletes_[0-9]*",
+    "pending_event_deletes_[0-9]*",
+    "person_distinct_id_overrides_snapshot_*",
+    "clickhouse_cleanup_*_dictionary",
+    # The part-breaker job's working tables (posthog/dags/part_breaker.py).
+    "sharded_events_part_breaker",
+    "sharded_events_part_breaker_*",
 
     # --- infra-created, never by a migration ---
     # Iceberg readers over the logs archive bucket. The bucket is per environment
@@ -59,5 +76,11 @@ exclude {
     "custom_metrics*",
     # Orphan: present on prod OPS but no migration or code creates it anywhere.
     "events_team_daily_stats",
+    # Cloud infra inventory, created outside this repo and present on a single
+    # dev node. Declaring them would put one node's inventory in every dev role.
+    "eni_inventory",
+    "flow_logs_local",
+    "k8s_node_inventory",
+    "rds_inventory",
   ]
 }

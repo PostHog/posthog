@@ -4,7 +4,7 @@ import logging
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -18,10 +18,12 @@ from posthog.models.user_integration import ReauthorizationRequired, UserGitHubI
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
 from products.mcp_store.backend.facade.api import get_installations_for_sandbox
+from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import (
     ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
+    EVAL_INTERACTION_ORIGIN,
     INITIAL_PERMISSION_MODE_CHOICES,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
@@ -32,6 +34,8 @@ from products.tasks.backend.constants import (
     is_same_run_resume_state,
 )
 from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.feature_flags import is_mcp_exec_skills_enabled
+from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
 
 # Re-exported so existing activity/workflow imports keep working after the move to
@@ -55,6 +59,9 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
     from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
+    from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
+        TaskProcessingContext,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -101,13 +108,11 @@ class ReasoningEffort(StrEnum):
     ULTRACODE = "ultracode"
 
 
-PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
-    ReasoningEffort.LOW,
-    ReasoningEffort.MEDIUM,
-    ReasoningEffort.HIGH,
-    ReasoningEffort.XHIGH,
-    ReasoningEffort.MAX,
-    ReasoningEffort.ULTRACODE,
+# Derived, not restated: this is the tuple the run serializers build their effort choices
+# from, so a tier added to the catalog and not here would have every picker offering a
+# depth the API rejects.
+PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = tuple(
+    ReasoningEffort(effort) for effort in model_catalog.REASONING_EFFORTS
 )
 
 
@@ -115,116 +120,9 @@ CONTEXT_WINDOW_CHOICES: tuple[str, ...] = ("200k", "1m")
 
 
 RUNTIME_PROVIDER_BY_ADAPTER: dict[RuntimeAdapter, LLMProvider] = {
-    RuntimeAdapter.CLAUDE: LLMProvider.ANTHROPIC,
-    RuntimeAdapter.CODEX: LLMProvider.OPENAI,
+    RuntimeAdapter(adapter): LLMProvider(provider)
+    for adapter, provider in model_catalog.PROVIDER_BY_RUNTIME_ADAPTER.items()
 }
-
-
-CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
-    # GLM 5.2 is a Cloudflare-served model driven through the `claude` runtime adapter: the LLM
-    # gateway exposes it over its Anthropic-Messages surface and translates the `@cf/` id upstream,
-    # so the derived `provider="anthropic"` is the intended routing, not a direct Anthropic call.
-    "@cf/zai-org/glm-5.2": (
-        ReasoningEffort.HIGH,
-        ReasoningEffort.MAX,
-    ),
-    "zai-org/glm-5.3": (
-        ReasoningEffort.HIGH,
-        ReasoningEffort.MAX,
-    ),
-    "zai-org/glm-5.3-flash": (
-        ReasoningEffort.HIGH,
-        ReasoningEffort.MAX,
-    ),
-    "moonshotai/kimi-k3": (),
-    "claude-opus-4-5": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-    ),
-    "claude-opus-4-6": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-        ReasoningEffort.XHIGH,
-        ReasoningEffort.MAX,
-    ),
-    "claude-opus-4-7": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-        ReasoningEffort.XHIGH,
-        ReasoningEffort.MAX,
-        ReasoningEffort.ULTRACODE,
-    ),
-    "claude-opus-4-8": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-        ReasoningEffort.XHIGH,
-        ReasoningEffort.MAX,
-        ReasoningEffort.ULTRACODE,
-    ),
-    "claude-opus-5": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-        ReasoningEffort.XHIGH,
-        ReasoningEffort.MAX,
-        ReasoningEffort.ULTRACODE,
-    ),
-    "claude-fable-5": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-        ReasoningEffort.XHIGH,
-        ReasoningEffort.MAX,
-        ReasoningEffort.ULTRACODE,
-    ),
-    "claude-fable-5-1": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-        ReasoningEffort.XHIGH,
-        ReasoningEffort.MAX,
-        ReasoningEffort.ULTRACODE,
-    ),
-    "claude-sonnet-5": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-        ReasoningEffort.XHIGH,
-        ReasoningEffort.MAX,
-        ReasoningEffort.ULTRACODE,
-    ),
-    "claude-sonnet-4-6": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-    ),
-}
-
-CODEX_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
-    ReasoningEffort.LOW,
-    ReasoningEffort.MEDIUM,
-    ReasoningEffort.HIGH,
-)
-CODEX_XHIGH_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
-    *CODEX_REASONING_EFFORTS,
-    ReasoningEffort.XHIGH,
-)
-CODEX_MAX_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
-    *CODEX_XHIGH_REASONING_EFFORTS,
-    ReasoningEffort.MAX,
-)
-CODEX_XHIGH_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.5"})
-CODEX_MAX_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"})
-
-# Canonical list of Codex models. The runtime technically accepts any
-# `gpt-*` identifier passed through, but only models on this list are
-# considered tested and surfaced in pickers. Extend when a new Codex model
-# ships.
-CODEX_MODELS: tuple[str, ...] = ("gpt-5", "gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
 
 
 def get_models_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None) -> tuple[str, ...]:
@@ -237,20 +135,25 @@ def get_models_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None)
     if runtime_adapter is None:
         return ()
     adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
-    if adapter_value == RuntimeAdapter.CLAUDE.value:
-        return tuple(CLAUDE_REASONING_EFFORTS_BY_MODEL.keys())
-    if adapter_value == RuntimeAdapter.CODEX.value:
-        return CODEX_MODELS
-    return ()
+    return model_catalog.models_for_runtime_adapter(adapter_value)
 
 
-# Applied at fire time when a loop leaves its model unset ("" / None): a blank
-# model means "let PostHog pick", so defaults can improve without rewriting
-# stored loops. Mirrored by LOOP_DEFAULT_MODELS in posthog-code's loops UI.
-DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
-    RuntimeAdapter.CLAUDE.value: "claude-sonnet-5",
-    RuntimeAdapter.CODEX.value: "gpt-5",
-}
+def runtime_adapter_serves_model(runtime_adapter: RuntimeAdapter | str | None, model: str | None) -> bool:
+    """Whether the adapter drives the model, whichever spelling the caller sends.
+
+    An allowlist wants this rather than membership of `get_models_for_runtime_adapter`,
+    which holds canonical ids and so rejects the provider-qualified spelling the gateway
+    also serves and every resolver here accepts.
+    """
+    if runtime_adapter is None:
+        return False
+    adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
+    return model_catalog.serves_model(adapter_value, model)
+
+
+# Applied at fire time when a run or loop leaves its model unset ("" / None): a blank
+# model means "let PostHog pick", so defaults can improve without rewriting stored loops.
+DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = dict(model_catalog.DEFAULT_MODEL_BY_RUNTIME_ADAPTER)
 
 
 def get_default_model_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None) -> str | None:
@@ -328,17 +231,7 @@ def get_supported_reasoning_efforts(
         return ()
 
     adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
-    if adapter_value == RuntimeAdapter.CLAUDE.value:
-        return CLAUDE_REASONING_EFFORTS_BY_MODEL.get(model, ())
-    if adapter_value == RuntimeAdapter.CODEX.value:
-        normalized_model = model.lower()
-        if normalized_model in CODEX_MAX_REASONING_MODELS:
-            return CODEX_MAX_REASONING_EFFORTS
-        if normalized_model in CODEX_XHIGH_REASONING_MODELS:
-            return CODEX_XHIGH_REASONING_EFFORTS
-        return CODEX_REASONING_EFFORTS
-
-    return ()
+    return tuple(ReasoningEffort(effort) for effort in model_catalog.reasoning_efforts_for(adapter_value, model))
 
 
 def get_reasoning_effort_error(
@@ -369,14 +262,8 @@ def get_runtime_adapter_for_model(model: str | None) -> RuntimeAdapter | None:
     deriving it is what lets callers reject a `(runtime_adapter, model)` pair that
     disagrees with itself. `None` when no adapter claims the model.
     """
-    if not model:
-        return None
-
-    normalized = model.strip().lower()
-    for adapter in RuntimeAdapter:
-        if any(known.lower() == normalized for known in get_models_for_runtime_adapter(adapter)):
-            return adapter
-    return None
+    adapter = model_catalog.runtime_adapter_for_model(model)
+    return RuntimeAdapter(adapter) if adapter else None
 
 
 def validate_model_selection(
@@ -451,6 +338,7 @@ class RunState(BaseModel, extra="allow"):
     reasoning_effort: ReasoningEffort | None = None
     context_window: str | None = None
     fast_mode: bool | None = None
+    claude_model_access: Literal["posthog-gateway", "own-subscription"] | None = None
     resume_from_run_id: str | None = None
     same_run_resume: bool = False
     same_run_resume_idle: bool = False
@@ -713,7 +601,9 @@ def get_user_mcp_server_configs(
         allowed_gateway_server_ids=allowed_gateway_server_ids,
     )
     api_base = get_sandbox_api_url().rstrip("/")
-    consumer = _resolve_mcp_consumer(interaction_origin, slack_reply_context=slack_reply_context)
+    consumer = _resolve_mcp_consumer(
+        interaction_origin, slack_reply_context=slack_reply_context, origin_product=origin_product
+    )
 
     configs: list[McpServerConfig] = []
     for installation in installations:
@@ -829,12 +719,16 @@ def get_imported_mcp_server_configs(task_run: TaskRun, existing_names: Iterable[
     return build_imported_mcp_server_configs(task_run.imported_mcp_servers, existing_names)
 
 
-def _resolve_mcp_consumer(interaction_origin: str | None, *, slack_reply_context: bool = False) -> str:
+def _resolve_mcp_consumer(
+    interaction_origin: str | None, *, slack_reply_context: bool = False, origin_product: str | None = None
+) -> str:
     """Map the task's reply context to the `x-posthog-mcp-consumer` value.
 
-    Slack reply contexts send `"slack"` and posthog_ai (Max) runs send
-    `"posthog_ai"`; everything else (the PostHog Desktop UI, API callers, missing
-    origin) is treated as PostHog Desktop. Only `"posthog-code"` is a UI-apps host
+    Slack reply contexts send `"slack"`, posthog_ai (Max) runs send `"posthog_ai"`,
+    and eval harness runs send `"eval"`; everything else (the PostHog Desktop UI,
+    API callers, missing origin) is treated as PostHog Desktop. Browser-created
+    PostHog AI runs can lack an interaction origin, so their task origin selects
+    the consumer that retains native widget data. Only `"posthog-code"` is a UI-apps host
     on the MCP server — it gates UI-apps payload emission, so `"posthog_ai"` and
     `"slack"` deliberately don't get UI apps. Keep the `"posthog-code"` literal
     in sync with `POSTHOG_CODE_CONSUMER` in
@@ -842,9 +736,25 @@ def _resolve_mcp_consumer(interaction_origin: str | None, *, slack_reply_context
     """
     if slack_reply_context or interaction_origin == "slack":
         return "slack"
-    if interaction_origin == "posthog_ai":
+    if interaction_origin == "posthog_ai" or (not interaction_origin and origin_product == "posthog_ai"):
         return "posthog_ai"
+    if interaction_origin == EVAL_INTERACTION_ORIGIN:
+        return EVAL_INTERACTION_ORIGIN
     return "posthog-code"
+
+
+def mcp_exec_skills_env_vars(ctx: TaskProcessingContext) -> dict[str, str]:
+    """Env that launches the sandbox without bundled product skills when this run gets them
+    through the MCP `learn` command instead.
+
+    Desktop runs keep their bundled skills: the MCP server excludes the `posthog-code`
+    consumer from `learn`, so stripping them there would leave the agent with no skills.
+    """
+    if _resolve_mcp_consumer(ctx.interaction_origin, origin_product=ctx.origin_product) == "posthog-code":
+        return {}
+    if not is_mcp_exec_skills_enabled(ctx.organization_id, ctx.distinct_id):
+        return {}
+    return {ENV_DISABLE_BUNDLED_SKILLS: "1"}
 
 
 # Names capabilities rather than describing the server, because the agent's tool search reads
@@ -893,7 +803,9 @@ def get_sandbox_ph_mcp_configs(
         {"name": "x-posthog-read-only", "value": str(read_only).lower()},
         {
             "name": "x-posthog-mcp-consumer",
-            "value": _resolve_mcp_consumer(interaction_origin, slack_reply_context=slack_reply_context),
+            "value": _resolve_mcp_consumer(
+                interaction_origin, slack_reply_context=slack_reply_context, origin_product=origin_product
+            ),
         },
     ]
     if task_id:
@@ -1375,6 +1287,7 @@ def build_sandbox_environment_variables(
         env_vars["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
     env_vars.update(run_gateway_env_vars(ctx, task))
+    env_vars.update(mcp_exec_skills_env_vars(ctx))
 
     if otel_telemetry_enabled:
         env_vars.update(get_sandbox_otel_env_vars())
@@ -1408,6 +1321,8 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
     context that scoped-token minting depends on. `ctx` is the run's
     TaskProcessingContext (duck-typed to avoid an import cycle); `task` the Task row.
     """
+    if ctx.claude_model_access == "own-subscription":
+        return {}
     return ai_gateway_env_vars(
         team_id=ctx.team_id,
         origin_product=ctx.origin_product,

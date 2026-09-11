@@ -75,7 +75,6 @@
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",

@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Annotated, Any, ClassVar, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from posthog.dataclasses import frozen
 
@@ -96,6 +96,12 @@ class SignalsResponse(BaseModel, frozen=True):
         ),
     )
 
+    @model_validator(mode="after")
+    def _validate_time_ranges(self) -> "SignalsResponse":
+        if any(signal.end_time < signal.start_time for signal in self.signals):
+            raise ValueError("end_time must be greater than or equal to start_time")
+        return self
+
 
 @dataclass(frozen=True)
 class MissionStep:
@@ -183,6 +189,7 @@ class BaseScanner(BaseModel, frozen=True):
         *,
         team_name: str,
         session_metadata: dict[str, Any] | None = None,
+        session_identity: dict[str, Any] | None = None,
         navigation: list[dict[str, Any]] | None = None,
         navigation_dropped: int = 0,
         events_truncated: bool = False,
@@ -190,12 +197,13 @@ class BaseScanner(BaseModel, frozen=True):
         event_descriptions: dict[str, str] | None = None,
     ) -> str:
         """The conversation's shared opening: framing, footer, events tool, calibration, navigation timeline, and
-        session metadata. `navigation` takes dumped `NavigationEntry` dicts (plain dicts keep this module free of a
-        `types.py` import, which would close an import cycle)."""
+        session metadata and identity. `navigation` and `session_identity` take dumped model dicts (plain dicts keep
+        this module free of a `types.py` import, which would close an import cycle)."""
         return render_prompt(
             self.preamble_template,
             team_name=team_name,
             session_metadata=session_metadata or {},
+            session_identity=session_identity or None,
             navigation=navigation or [],
             navigation_dropped=navigation_dropped,
             events_truncated=events_truncated,

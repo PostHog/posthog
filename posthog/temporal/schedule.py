@@ -59,7 +59,6 @@ from posthog.temporal.health_checks.schedule import create_health_check_schedule
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
 from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
 from posthog.temporal.mcp_analytics.intent_clustering.schedule import create_intent_clustering_coordinator_schedule
-from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.salesforce_enrichment.conversations_slack_workflow import ConversationsSlackEnrichmentInputs
 from posthog.temporal.salesforce_enrichment.stripe_workflow import StripeEnrichmentInputs
@@ -79,6 +78,7 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
+from products.alerts.backend.facade.temporal import create_alerts_product_check_due_schedule
 from products.billing_alerts.backend.temporal.schedule import create_schedule_due_billing_alert_checks_schedule
 from products.business_knowledge.backend.temporal.schedule import create_business_knowledge_refresh_coordinator_schedule
 from products.context_layer.backend.temporal.schedule import create_context_layer_dream_schedule
@@ -88,7 +88,10 @@ from products.customer_analytics.backend.facade.temporal import (
     create_account_track_rule_coordinator_schedule,
     create_calendar_sync_coordinator_schedule,
 )
-from products.data_quality.backend.facade.temporal import create_cleanup_data_quality_check_runs_schedule
+from products.data_quality.backend.facade.temporal import (
+    create_cleanup_data_quality_check_runs_schedule,
+    create_reconcile_metric_schedules_schedule,
+)
 from products.engineering_analytics.backend.facade.temporal import (
     create_ci_signals_coordinator_schedule,
     create_github_job_logs_coordinator_schedule,
@@ -104,9 +107,13 @@ from products.experiments.backend.temporal.schedule import (
     create_experiment_precompute_enrollment_census_schedule,
 )
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
-from products.growth.backend.temporal.signup_enrichment.schedule import create_icp_reenrichment_sweep_schedule
+from products.growth.backend.temporal.signup_enrichment.schedule import (
+    create_harmonic_status_poll_schedule,
+    create_icp_reenrichment_sweep_schedule,
+)
 from products.logs.backend.facade.temporal import create_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
+from products.product_analytics.backend.facade.temporal import UpgradeQueriesWorkflowInputs
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
@@ -921,6 +928,7 @@ schedules = [
     create_error_tracking_weekly_digest_schedule,
     create_wa_weekly_digest_schedule,
     create_wa_digest_notification_schedule,
+    create_alerts_product_check_due_schedule,
     create_logs_alert_check_schedule,
     create_logs_volume_tick_schedule,
     create_schedule_due_alert_checks_schedule,
@@ -941,6 +949,7 @@ schedules = [
     create_review_hog_finding_outcomes_schedule,
     create_ci_signals_coordinator_schedule,
     create_cleanup_data_quality_check_runs_schedule,
+    create_reconcile_metric_schedules_schedule,
 ]
 
 # AI observability summarization and clustering call the cloud-only guard in
@@ -964,6 +973,7 @@ if settings.CLOUD_DEPLOYMENT:
     # The sweep re-fetches each region's own orgs from Harmonic, and only US and EU carry the key.
     if settings.CLOUD_DEPLOYMENT in ("US", "EU"):
         schedules.append(create_icp_reenrichment_sweep_schedule)
+        schedules.append(create_harmonic_status_poll_schedule)
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)

@@ -1487,6 +1487,18 @@ def _is_stripe_webhook_limit_error(error_str: str) -> bool:
     return "maximum of" in lowered and "webhook endpoint" in lowered
 
 
+def _is_stripe_connected_account_webhook_error(error_str: str) -> bool:
+    """Detect Stripe's refusal to manage webhook endpoints on a connected account.
+
+    A Connect request (platform key plus a ``stripe_account`` header, which every OAuth
+    connection uses) can never create the endpoint on the connected account, so the message
+    carries "permission" and would otherwise land in the generic permission branch and tell the
+    user to widen a scope or reconnect. Neither can lift the restriction.
+    """
+    lowered = error_str.lower()
+    return "connected account" in lowered and "webhook endpoint" in lowered
+
+
 def create_webhook(
     api_key: str,
     stripe_account_id: str | None,
@@ -1553,6 +1565,15 @@ def create_webhook(
                 ),
             )
 
+        if _is_stripe_connected_account_webhook_error(error_str):
+            return WebhookCreationResult(
+                success=False,
+                error=(
+                    "Stripe doesn't allow creating a webhook endpoint on a connected account. "
+                    "Set up the webhook manually below, on your platform account in Stripe."
+                ),
+            )
+
         if _is_stripe_webhook_limit_error(error_str):
             return WebhookCreationResult(
                 success=False,
@@ -1565,9 +1586,11 @@ def create_webhook(
 
         if "permission" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
             if auth_method == "oauth":
+                # Stripe refuses an app manifest that requests webhook write, so reconnecting
+                # cannot grant it. Manual setup is the only route for an app-connected source.
                 return WebhookCreationResult(
                     success=False,
-                    error="Your Stripe integration doesn't have permission to create webhooks. Set up the webhook manually below, or reconnect your Stripe integration and grant webhook access.",
+                    error="The PostHog Stripe app cannot create webhooks. Set up the webhook manually below.",
                 )
             return WebhookCreationResult(
                 success=False,

@@ -61,6 +61,15 @@ _UNENCRYPTED_KEY_WITH_PASSPHRASE_MESSAGE = (
     "Remove the passphrase, or paste your encrypted private key, then {action}"
 )
 
+# Shown when `validate_credentials` hits a transient connect blip (see `get_retryable_errors`). The
+# sync path retries such a blip quietly, but interactive validation has nothing to retry
+# automatically, so it tells the user it was a brief blip and to try again rather than capturing it
+# as an unexpected bug or claiming their (correct) connection details are wrong.
+_TRANSIENT_CONNECTION_MESSAGE = (
+    "Could not reach Snowflake while checking your credentials. This is usually a brief network or "
+    "service blip rather than a configuration problem. Please try again."
+)
+
 # Snowflake rejects the login (250001 / 08001) when the account enforces multi-factor auth for the
 # connecting user. The server phrases this several ways, and the bare "MFA authentication is
 # required" variant carries the account host and vendor codes, so it must not reach the customer
@@ -324,12 +333,19 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             "but view query produces": "A Snowflake view in your source is invalid — the columns it declares no longer match the columns its query returns. Please recreate the view in Snowflake so the two agree, then resync.",
             # Snowflake connector error 290403 (ER_HTTP_GENERAL_ERROR + 403): a request to Snowflake
             # returned HTTP 403 Forbidden and kept doing so through the connector's own retry budget.
-            # The connector treats 403 as retryable and retries within the request timeout, so a
-            # ForbiddenError reaching us means the 403 is persistent — an access-denied condition
-            # (a network policy/firewall/proxy blocking PostHog, or the role's access to the data
-            # being revoked), not a transient blip. Retrying the whole sync can't fix it. The errno
-            # prefix and host are volatile, so we match the stable status text.
-            "HTTP 403: Forbidden": "Snowflake refused the request with an HTTP 403 (forbidden). This usually means a network policy or firewall on your account is blocking PostHog's access, or your role's access to the data was revoked. Check your Snowflake network access rules and role grants, then resync.",
+            # Two different conditions produce it. At connect, or early in a sync, it is access
+            # denied: a network policy, firewall, or proxy blocks PostHog, or the role's grant on
+            # the data was revoked. Hours into a sync it is instead an expired result-chunk URL,
+            # because the pre-signed URLs that `result_batch.py::_download` fetches have a limited
+            # lifetime and a slow sync outlives them.
+            #
+            # Only the first condition is truly non-retryable. A fresh attempt re-executes the
+            # query and gets a new set of chunk URLs, so the expiry case would clear on retry the
+            # same way "HTTP 400: Bad Request" does below. Both stay here until the two can be told
+            # apart, because retrying a real access-denied 403 burns the whole attempt budget
+            # against a condition that only the customer can fix. The errno prefix and host are
+            # volatile, so we match the stable status text.
+            "HTTP 403: Forbidden": "Snowflake refused a request with an HTTP 403 (forbidden). If the sync ran for several hours before failing, the temporary link Snowflake gave us to download the query results expired. Resync to get a fresh one. If it failed soon after starting, check your Snowflake role grants and network access rules, then resync.",
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -337,7 +353,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # Snowflake connector error 290400 (ER_HTTP_GENERAL_ERROR + 400): downloading a query
             # result chunk got HTTP 400, which the connector's own `is_retryable_http_code` already
             # retries with backoff before re-raising the plain `BadRequest` once its download retry
-            # budget is exhausted (`result_batch.py::_download`). Unlike the persistent-403 case
+            # budget is exhausted (`result_batch.py::_download`). Unlike the access-denied 403 case
             # above, every Temporal-level retry of `get_rows` opens a fresh connection and re-executes
             # the query from scratch, getting a brand new set of chunk URLs — a stale one from the
             # previous attempt doesn't carry over. Self-recovering, so keep retrying instead of
@@ -396,6 +412,13 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             for key, value in SnowflakeErrors.items():
                 if key in error_msg:
                     return False, value
+
+            # A transient connect blip is not a credential or config problem, so classify it the way
+            # the sync path does (`get_retryable_errors`) and surface a "try again" message instead of
+            # capturing it as an unexpected bug. Mirrors `planetscale_mysql`'s validate_credentials.
+            for pattern in self.get_retryable_errors():
+                if pattern in error_msg:
+                    return False, _TRANSIENT_CONNECTION_MESSAGE
 
             capture_exception(e)
             return False, "Could not connect to Snowflake. Please check all connection details are valid."

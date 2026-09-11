@@ -5,6 +5,7 @@ import {
 } from "@posthog/shared/domain-types";
 import { imageFailureDetail } from "@posthog/ui/features/settings/sections/environments/imageBuildWatcher";
 import { useSandboxCustomImages } from "@posthog/ui/features/settings/sections/environments/useSandboxCustomImages";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { Button, Flex, IconButton, Text } from "@radix-ui/themes";
 
@@ -58,9 +59,9 @@ export function ImageBuilderBuildButton({ taskId }: { taskId: string }) {
         size="1"
         variant="soft"
         onClick={() => buildMutation.mutate({ id: image.id })}
-        loading={buildMutation.isPending}
         disabled={inProgress || buildMutation.isPending}
       >
+        {buildMutation.isPending && <Spinner size="sm" />}
         Save & build
       </Button>
     </Flex>

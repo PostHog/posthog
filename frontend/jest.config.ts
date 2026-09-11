@@ -180,6 +180,7 @@ const config: Config = {
 
     // A map from regular expressions to module names or to arrays of module names that allow to stub out resources with a single module
     moduleNameMapper: {
+        '^kea$': '<rootDir>/src/test/keaTestModule.js',
         '^.+\\.(css|less|scss|svg|png)$': '<rootDir>/src/test/mocks/styleMock.js',
         // @posthog/brand PNG subpaths resolve to .mjs modules that build a URL via
         // `new URL("./x.png", import.meta.url)` — import.meta is unavailable under Sucrase/CJS,

@@ -1,19 +1,35 @@
-import { buildIntegerMatcher } from '~/common/config/config'
-import { DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS } from '~/ingestion/config'
+import { parseTeamsList } from '~/common/utils/env-utils'
+import { logger } from '~/common/utils/logger'
+import { buildTeamGate } from '~/ingestion/common/team-gate'
+import {
+    DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+    DEFAULT_FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS,
+} from '~/ingestion/config'
 import { PluginEvent } from '~/plugin-scaffold'
+import { ValueMatcher } from '~/types'
 
 export const FEATURE_FLAG_CALLED_EVENT = '$feature_flag_called'
 
 /**
- * Builds the team matcher for the $feature_flag_called personless default. The per-event step
- * and the batch step both gate on team eligibility and must agree, so they share this one
- * construction site — a divergent trim/star/default here would desync the two phases (the
- * batch step would insert rows the per-event step never claims, or vice versa).
+ * Builds the team matcher for the $feature_flag_called personless default (see #60581).
+ *
+ * The exclusion list holds a team back from an allowlist of '*', which is what lets the
+ * default go fleet-wide at all. A team whose running experiment breaks down by a person
+ * property that its flag-called events carry loses that breakdown once those events go
+ * personless, so it is named here instead of enumerating every other team.
  */
 export function buildFlagCalledPersonlessMatcher(
-    flagCalledPersonlessDefaultTeams: string = DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS
-): (teamId: number) => boolean {
-    return buildIntegerMatcher(flagCalledPersonlessDefaultTeams.trim(), true)
+    flagCalledPersonlessDefaultTeams: string = DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+    flagCalledPersonlessExcludedTeams: string = DEFAULT_FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS
+): ValueMatcher<number> {
+    const excludedTeams = parseTeamsList(flagCalledPersonlessExcludedTeams)
+    if (excludedTeams === '*') {
+        // An operator's '*' exclusion means "off": the escape hatch fails toward leaving
+        // person processing alone.
+        logger.warn('FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS is "*", disabling the personless default')
+        return () => false
+    }
+    return buildTeamGate(parseTeamsList(flagCalledPersonlessDefaultTeams), excludedTeams)
 }
 
 /**
@@ -33,10 +49,9 @@ export function eventHasGroups(properties: PluginEvent['properties']): boolean {
  * Whether a $feature_flag_called event should default to personless so server-side flag
  * evaluation does not create orphan person profiles (see #60581).
  *
- * `processPersonExplicitlyTrue` must be supplied by the caller because the per-event step
- * runs after normalizeProcessPerson has stripped $process_person_profile, while the batch
- * step reads it from the raw event — each reads the signal from the source valid in its
- * pipeline phase.
+ * `processPersonExplicitlyTrue` must be supplied by the caller. normalizeProcessPerson
+ * rewrites $process_person_profile before this runs, so the event no longer shows whether
+ * the client set it to true.
  */
 export function isFlagCalledPersonlessCandidate(
     event: Pick<PluginEvent, 'event' | 'properties'>,

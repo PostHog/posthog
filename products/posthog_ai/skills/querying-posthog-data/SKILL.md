@@ -47,6 +47,8 @@ Curating the catalog — creating, approving, or retiring metrics, certifying so
 
 ## Data Schema
 
+- [Customer analytics tasks (`system.customer_tasks`)](./references/models-customer-tasks.md)
+
 Schema reference for PostHog's core system models, organized by domain.
 
 Every column table below is generated from the live HogQL catalog, so it lists exactly what `execute-sql` resolves. `system.*` tables expose a curated subset of each Django model, so a field returned by a REST tool such as `insight-get` is not necessarily queryable — trust these tables over the REST response shape.
@@ -55,6 +57,7 @@ Every column table below is generated from the live HogQL catalog, so it lists e
 - [Actions](./references/models-actions.md)
 - [Alerts](./references/models-alerts.md)
 - [Annotations](./references/models-annotations.md)
+- [Autoresearch](./references/models-autoresearch.md)
 - [APM / tracing (`posthog.trace_spans`)](./references/models-apm-spans.md)
 - [Batch exports](./references/models-batch-exports.md)
 - [Early Access Features](./references/models-early-access-features.md)

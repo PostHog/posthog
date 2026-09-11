@@ -7,6 +7,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+
 from parameterized import parameterized
 from PIL import Image
 
@@ -21,10 +23,21 @@ from products.visual_review.backend.facade.enums import (
     RunType,
     SnapshotResult,
 )
-from products.visual_review.backend.logic import artifact_store, runs
-from products.visual_review.backend.models import RunSnapshot, ToleratedHash
-from products.visual_review.backend.tasks.tasks import post_approval_comment, process_run_diffs
-from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
+from products.visual_review.backend.logic import artifact_store, debt_digest, runs
+from products.visual_review.backend.models import Repo, RunSnapshot, ToleratedHash
+from products.visual_review.backend.tasks import tasks
+from products.visual_review.backend.tasks.tasks import (
+    post_approval_comment,
+    process_run_diffs,
+    send_visual_review_debt_digest,
+    send_visual_review_debt_digests,
+)
+from products.visual_review.backend.tests.conftest import (
+    PRODUCT_DATABASES,
+    VisualReviewTeamScopedTestMixin,
+    insert_background_rows,
+    make_striped_png,
+)
 
 
 def _make_png(color: tuple[int, int, int, int], size: tuple[int, int] = (10, 10)) -> bytes:
@@ -40,6 +53,56 @@ def _make_png_with_single_changed_pixel() -> bytes:
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
     return buffer.getvalue()
+
+
+# Every row has its own color, so row alignment has one answer: the page below
+# an insert moved down and nothing else changed.
+STRIPED_PAGE_ROWS = [(10 + (y * 2) % 240, 40 + y % 100, 200 - y % 150, 255) for y in range(100)]
+
+
+def _prepare_one_diff(repo, mocker, baseline_png: bytes, current_png: bytes):
+    stored_bytes = {"old_hash": baseline_png, "new_hash": current_png}
+    artifact_store.get_or_create_artifact(repo.id, "old_hash", "visual_review/old_hash")
+    artifact_store.get_or_create_artifact(repo.id, "new_hash", "visual_review/new_hash")
+    create_result = api.create_run(
+        CreateRunInput(
+            repo_id=repo.id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="main",
+            snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
+            baseline_hashes={"Button": "old_hash"},
+        ),
+        team_id=repo.team_id,
+    )
+    with (
+        patch(
+            "products.visual_review.backend.logic.baselines._resolve_baselines_with_merge_base",
+            return_value=({"Button": "old_hash"}, 0),
+        ),
+        patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
+    ):
+        runs.complete_run(create_result.run_id)
+
+    mocker.patch(
+        "products.visual_review.backend.storage.ArtifactStorage.read",
+        autospec=True,
+        side_effect=lambda _storage, content_hash: stored_bytes.get(content_hash),
+    )
+    write = mocker.patch(
+        "products.visual_review.backend.storage.ArtifactStorage.write",
+        autospec=True,
+        side_effect=lambda _storage, content_hash, content: (
+            stored_bytes.setdefault(content_hash, content) and f"visual_review/{content_hash}"
+        ),
+    )
+    return create_result.run_id, write
+
+
+def _process_one_diff(repo, mocker, baseline_png: bytes, current_png: bytes) -> RunSnapshot:
+    run_id, _write = _prepare_one_diff(repo, mocker, baseline_png, current_png)
+    assert process_diffs(run_id) == 1
+    return RunSnapshot.objects.get(run_id=run_id)
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -332,48 +395,13 @@ class TestProcessRunDiffs:
         assert compare_images.call_count == 1
 
     def test_process_diffs_counts_below_threshold_comparisons(self, repo, mocker):
-        stored_bytes = {
-            "old_hash": _make_png((255, 0, 0, 255), size=(100, 100)),
-            "new_hash": _make_png_with_single_changed_pixel(),
-        }
-        artifact_store.get_or_create_artifact(repo.id, "old_hash", "visual_review/old_hash")
-        artifact_store.get_or_create_artifact(repo.id, "new_hash", "visual_review/new_hash")
-        create_result = api.create_run(
-            CreateRunInput(
-                repo_id=repo.id,
-                run_type=RunType.STORYBOOK,
-                commit_sha="abc123",
-                branch="main",
-                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
-                baseline_hashes={"Button": "old_hash"},
-            ),
-            team_id=repo.team_id,
-        )
-        with (
-            patch(
-                "products.visual_review.backend.logic.baselines._resolve_baselines_with_merge_base",
-                return_value=({"Button": "old_hash"}, 0),
-            ),
-            patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
-        ):
-            runs.complete_run(create_result.run_id)
-
-        mocker.patch(
-            "products.visual_review.backend.storage.ArtifactStorage.read",
-            autospec=True,
-            side_effect=lambda _storage, content_hash: stored_bytes.get(content_hash),
-        )
-        mocker.patch(
-            "products.visual_review.backend.storage.ArtifactStorage.write",
-            autospec=True,
-            side_effect=lambda _storage, content_hash, content: (
-                stored_bytes.setdefault(content_hash, content) and f"visual_review/{content_hash}"
-            ),
+        snapshot = _process_one_diff(
+            repo,
+            mocker,
+            baseline_png=_make_png((255, 0, 0, 255), size=(100, 100)),
+            current_png=_make_png_with_single_changed_pixel(),
         )
 
-        assert process_diffs(create_result.run_id) == 1
-
-        snapshot = RunSnapshot.objects.get(run_id=create_result.run_id)
         assert snapshot.result == SnapshotResult.UNCHANGED
         assert snapshot.classification_reason == ClassificationReason.BELOW_THRESHOLD
         assert snapshot.diff_pixel_count is not None
@@ -386,6 +414,56 @@ class TestProcessRunDiffs:
             baseline_hash="old_hash",
             alternate_hash="new_hash",
         ).exists()
+
+    def test_absorbed_shift_survives_a_failed_diff_upload(self, repo, mocker):
+        # The diff pass runs once per run. A noise row that stayed CHANGED
+        # because its courtesy diff image did not upload would fail the gate
+        # for a change nobody can see.
+        run_id, _write = _prepare_one_diff(
+            repo,
+            mocker,
+            baseline_png=make_striped_png(STRIPED_PAGE_ROWS, width=100),
+            current_png=insert_background_rows(
+                make_striped_png(STRIPED_PAGE_ROWS, width=100), y=20, rows=1, fill=(255, 255, 255, 255)
+            ),
+        )
+        mocker.patch.object(diffing, "_write_diff_artifact", side_effect=RuntimeError("object storage down"))
+
+        assert process_diffs(run_id) == 1
+
+        snapshot = RunSnapshot.objects.get(run_id=run_id)
+        assert snapshot.result == SnapshotResult.UNCHANGED
+        assert snapshot.classification_reason == ClassificationReason.BELOW_THRESHOLD
+        assert snapshot.diff_artifact is None
+        assert snapshot.diff_metadata["row_shift"]["inserted_rows"] == 1
+
+    def test_process_diffs_absorbs_a_one_row_shift_but_keeps_its_trace(self, repo, mocker):
+        # The whole point of row alignment: a page that moved down by a row is
+        # noise, but the run still has to say what moved, and the tolerated
+        # hash has to record what the run really cost. Recording the naive
+        # percentage here would eat the flakiness headroom of a clean story.
+        snapshot = _process_one_diff(
+            repo,
+            mocker,
+            baseline_png=make_striped_png(STRIPED_PAGE_ROWS, width=100),
+            current_png=insert_background_rows(
+                make_striped_png(STRIPED_PAGE_ROWS, width=100), y=20, rows=1, fill=(255, 255, 255, 255)
+            ),
+        )
+
+        assert snapshot.result == SnapshotResult.UNCHANGED
+        assert snapshot.classification_reason == ClassificationReason.BELOW_THRESHOLD
+        assert snapshot.diff_metadata["row_shift"]["inserted_rows"] == 1
+        assert snapshot.diff_metadata["row_shift"]["raw_diff_percentage"] > snapshot.diff_percentage
+        assert snapshot.diff_artifact is not None
+
+        tolerated = ToleratedHash.objects.get(
+            repo_id=repo.id,
+            identifier="Button",
+            baseline_hash="old_hash",
+            alternate_hash="new_hash",
+        )
+        assert tolerated.diff_percentage == snapshot.diff_percentage
 
 
 class TestCountProcessedDiffs(VisualReviewTeamScopedTestMixin, BaseTest):
@@ -473,3 +551,39 @@ class TestPostApprovalCommentTask:
 
         retry_mock.assert_called_once()
         assert retry_mock.call_args.kwargs["countdown"] == 42
+
+
+class TestDebtDigestTask(VisualReviewTeamScopedTestMixin, BaseTest):
+    databases = PRODUCT_DATABASES
+
+    def test_a_held_lock_skips_the_run(self) -> None:
+        repo = Repo.objects.create(team_id=self.team.id, repo_external_id=55511, repo_full_name="org/locked")
+        cache.set(f"visual_review_debt_digest:{repo.id}", "locked", timeout=60)
+        try:
+            with patch("products.visual_review.backend.logic.debt_digest.send_debt_digest") as send:
+                send_visual_review_debt_digest(self.team.id, str(repo.id))
+        finally:
+            cache.delete(f"visual_review_debt_digest:{repo.id}")
+
+        # Nothing records what was sent, so an overlapping run would post every reminder twice.
+        assert send.call_count == 0
+
+    def test_the_fan_out_gives_each_child_a_deadline(self) -> None:
+        repo = Repo.objects.create(team_id=self.team.id, repo_external_id=55513, repo_full_name="org/fanned-out")
+
+        with patch("products.visual_review.backend.tasks.tasks.send_visual_review_debt_digest.apply_async") as enqueue:
+            send_visual_review_debt_digests()
+
+        # A child without a deadline lets a drained backlog post yesterday's digest next to today's.
+        enqueued = {(call.kwargs["args"], call.kwargs["expires"]) for call in enqueue.call_args_list}
+        assert ((repo.team_id, str(repo.id)), tasks._DEBT_DIGEST_EXPIRY_SECONDS) in enqueued
+
+    def test_the_scheduled_run_posts_rather_than_previews(self) -> None:
+        repo = Repo.objects.create(team_id=self.team.id, repo_external_id=55512, repo_full_name="org/scheduled")
+        try:
+            with patch("products.visual_review.backend.logic.debt_digest.send_debt_digest") as send:
+                send_visual_review_debt_digest(self.team.id, str(repo.id))
+        finally:
+            cache.delete(f"visual_review_debt_digest:{repo.id}")
+
+        assert send.call_args.kwargs["mode"] == debt_digest.MODE_LIVE

@@ -8,6 +8,11 @@ JSON object keyed by normalized path to stdout::
 ``--purpose notifications`` resolves ``slack`` to the team's automation channel
 (falls back to the people channel); the default is the people channel.
 
+``--repo-root`` names the directory holding the ownership files. Without it the
+resolver locates the repo with ``git rev-parse``, which needs a real worktree; a
+consumer that fetched only the ``owners.yaml`` / ``product.yaml`` files into a
+scratch directory passes the flag instead.
+
 Kept off click on purpose (stdlib + pyyaml only) so a workflow can run it with
 ``python -m posthog_owners`` after installing just pyyaml — no hogli, no
 project sync. The click CLI (``hogli owners:resolve --json``) emits the identical
@@ -19,6 +24,7 @@ from __future__ import annotations
 import sys
 import json
 import argparse
+from pathlib import Path
 from typing import cast
 
 from .matcher import normalize_path
@@ -28,11 +34,22 @@ from .resolver import DEFAULT_PURPOSE, OwnersResolver, Purpose, read_stdin_paths
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m posthog_owners")
     parser.add_argument("--purpose", choices=["slack", "notifications"], default=DEFAULT_PURPOSE)
+    parser.add_argument(
+        "--repo-root",
+        default=None,
+        help="Directory holding the ownership files; default: the enclosing git worktree",
+    )
     parser.add_argument("paths", nargs="*")
     ns = parser.parse_args()
+    # A root that is not a directory reads as a repo with no ownership files, so every path
+    # answers unowned. An empty value is Path("."), which an unset "$VAR" would resolve
+    # against the working directory instead of failing, so reject it before the conversion.
+    if ns.repo_root is not None and not (ns.repo_root and Path(ns.repo_root).is_dir()):
+        parser.error(f"--repo-root {ns.repo_root!r} is not a directory")
+    repo_root = Path(ns.repo_root) if ns.repo_root is not None else None
     paths = ns.paths or read_stdin_paths()
 
-    resolver = OwnersResolver(purpose=cast("Purpose", ns.purpose))
+    resolver = OwnersResolver(repo_root=repo_root, purpose=cast("Purpose", ns.purpose))
     result = {normalize_path(path): resolution_to_wire(resolver.resolve(path)) for path in paths}
     json.dump(result, sys.stdout)
 
