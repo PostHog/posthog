@@ -46,7 +46,7 @@ function agentMessageFrame(messageId: string, text: string): AcpFrame {
 }
 
 // A persisted `_posthog/error` frame — the synthetic backend/agent error the run log carries; `foldLogToThread`
-// folds it into an inline error card titled "Agent error".
+// folds it into an inline error card titled "Run stopped".
 function posthogErrorFrame(message: string): AcpFrame {
     return { type: 'notification', notification: { method: '_posthog/error', params: { message } } }
 }
@@ -200,7 +200,7 @@ test.describe('Task run surface', () => {
     })
 
     test('terminal replay surfaces the agent error inline', async ({ page }) => {
-        // Regression: a terminal run's persisted `_posthog/error` frame must fold into the inline "Agent error"
+        // Regression: a terminal run's persisted `_posthog/error` frame must fold into the inline "Run stopped"
         // card on replay — not be dropped, and not depend on a live SSE (a terminal run never opens one).
         await routeTasksApi(page, {
             runStatus: 'completed',
@@ -216,7 +216,7 @@ test.describe('Task run surface', () => {
 
         await openRunDeepLink(page, workspace!.team_id)
 
-        await expect(page.getByText('Agent error')).toBeVisible({ timeout: 20000 })
+        await expect(page.getByText('Run stopped')).toBeVisible({ timeout: 20000 })
     })
 
     test('refresh restores the startup queue as a draft without sending it when the agent becomes ready', async ({

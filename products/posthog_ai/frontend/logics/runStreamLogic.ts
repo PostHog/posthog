@@ -1253,6 +1253,34 @@ export function foldLogToThread(
         }
     }
 
+    // Two frames often describe one failure with the same text; keep the shorter, cleaner one.
+    const pushError = (message: string, variant: 'error' | 'crash'): void => {
+        const last = items[items.length - 1]
+        if (last?.type === 'error' && last.errorMessage && variant === 'error' && last.variant !== 'crash') {
+            const a = last.errorMessage.trim()
+            const b = message.trim()
+            if (a.includes(b) || b.includes(a)) {
+                items[items.length - 1] = { ...last, errorMessage: a.length <= b.length ? a : b }
+                return
+            }
+        }
+        // A follow-up that failed to deliver earlier in this turn was a symptom of this error, so the
+        // undelivered card folds into the real one instead of standing next to it.
+        const turnStart = items.findLastIndex((item) => item.type === 'human_message')
+        const undeliveredIdx = items.findIndex(
+            (item, index) => index > turnStart && item.type === 'error' && item.variant === 'undelivered'
+        )
+        if (undeliveredIdx !== -1) {
+            items.splice(undeliveredIdx, 1)
+        }
+        items.push({
+            id: `error-${errorSeq++}`,
+            type: 'error',
+            errorMessage: message,
+            variant,
+            ...(undeliveredIdx !== -1 ? { undeliveredMessage: true } : {}),
+        })
+    }
     for (const { entry, source } of entries) {
         entryRunId = entry.source_run_id ?? options.pendingMessage?.runId
         if (
@@ -1286,12 +1314,7 @@ export function foldLogToThread(
             continue
         }
         if (method === '_posthog/error') {
-            items.push({
-                id: `error-${errorSeq++}`,
-                type: 'error',
-                errorMessage: String(params.message ?? notification.error?.message ?? 'Agent error'),
-                variant: 'error',
-            })
+            pushError(String(params.message ?? notification.error?.message ?? 'Agent error'), 'error')
             continue
         }
         if (method === '_posthog/turn_complete') {
@@ -1308,6 +1331,24 @@ export function foldLogToThread(
             const group = stringifyOptional(params.group)
             const step = stringifyOptional(params.step)
             const label = stringifyOptional(params.label)
+            if (step === 'followup_delivery' && normalizeProgressStatus(params.status) === 'failed') {
+                // The undelivered follow-up is a consequence of the run's error, so it rides the error
+                // card instead of a second failed row. Without a preceding error it becomes the card.
+                items = items.filter((item) => !(item.type === 'progress' && item.progressGroup === group))
+                const last = items[items.length - 1]
+                if (last?.type === 'error' && last.variant !== 'crash') {
+                    items[items.length - 1] = { ...last, undeliveredMessage: true }
+                } else {
+                    items.push({
+                        id: `error-${errorSeq++}`,
+                        type: 'error',
+                        errorMessage: stringifyOptional(params.detail) ?? label ?? 'Message not delivered',
+                        variant: 'undelivered',
+                        undeliveredMessage: true,
+                    })
+                }
+                continue
+            }
             if (group && step && label) {
                 const detail = stringifyOptional(params.detail)
                 const nextStep: ProgressStep = {
@@ -1433,6 +1474,12 @@ export function foldLogToThread(
             } else {
                 renderLiveHuman(userText)
             }
+            continue
+        }
+        if (sessionUpdate === 'error') {
+            // The Claude adapter reports a stopped run only through this frame; Codex sends it and a
+            // `_posthog/error` with the same text, which `pushError` folds into one card.
+            pushError(String(update.message ?? 'The agent stopped before completing this request.'), 'error')
             continue
         }
         const content = update.content as { text?: string } | undefined

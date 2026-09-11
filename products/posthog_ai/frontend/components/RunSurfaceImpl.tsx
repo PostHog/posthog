@@ -224,15 +224,14 @@ function RunSurfaceThread({
     if (showSkeleton) {
         return <RunLogSkeleton className={className} listClassName={listClassName} rowClassName={rowClassName} />
     }
-    // Context usage rides the thread footer for live runs, but never for a
-    // scout run. An error surfaces as a `handleStreamError` item folded into the thread, so it renders here too.
-    // Turn feedback follows the same gate: only interactive, non-scout surfaces collect ratings.
+    // Context usage lives in the composer footer (`ContextUsageChip`), not under the last message.
+    // An error surfaces as a `handleStreamError` item folded into the thread, so it renders here too.
+    // Turn feedback: only interactive, non-scout surfaces collect ratings.
     return (
         <ThreadView
             className={className}
             listClassName={listClassName}
             rowClassName={rowClassName}
-            showContextUsage={interaction === 'live' && !isScout}
             renderTurnTrailer={collectsFeedback ? renderTurnTrailer : undefined}
             footerExtra={feedbackPrompt}
         />

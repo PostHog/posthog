@@ -3,7 +3,7 @@ import { type ReactNode, memo, useCallback, useEffect, useMemo, useState } from 
 
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
-import { runStreamLogic } from '../logics/runStreamLogic'
+import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ThreadItem } from '../types/streamTypes'
 import { groupThreadActivity, type ThreadDisplayItem } from '../utils/groupThreadActivity'
@@ -108,6 +108,9 @@ export function ThreadView({
         pendingPermissionRequest,
     } = useValues(runStreamLogic)
     const turnCancelled = currentRunStatus === 'cancelled'
+    // A replayed error from an earlier run in the chain is not this run's ending while a newer run is
+    // still going, so it keeps the softer title.
+    const runEnded = isTerminalRunStatus(currentRunStatus)
     const displayItems = useMemo(() => {
         const standaloneToolIds = new Set<string>()
         for (const [id, invocation] of toolInvocations) {
@@ -229,6 +232,7 @@ export function ThreadView({
                         toolInvocations={toolInvocations}
                         turnComplete={turnComplete}
                         turnCancelled={turnCancelled}
+                        runEnded={runEnded}
                     />
                 </VirtualizedThread.Row>
             )
@@ -244,6 +248,7 @@ export function ThreadView({
             turnTrailers,
             pendingPermissionRequest,
             currentRunStatus,
+            runEnded,
         ]
     )
 
