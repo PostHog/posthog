@@ -16,7 +16,6 @@ from posthog.temporal.common.logger import get_logger
 
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
-    DataModelingJobEngine,
     DataModelingJobStatus,
     DataWarehouseSavedQuery,
     Node,
@@ -197,11 +196,11 @@ async def check_duckgres_shadow_eligibility_activity(inputs: ManagedWarehouseSha
 
 
 @database_sync_to_async_pool
-def _resolve_managed_warehouse_job(job_id: str, result: "ManagedWarehouseShadowResult") -> None:
+def _resolve_managed_warehouse_job(job_id: str, result: "ManagedWarehouseShadowResult") -> str:
     """Update the managed warehouse job to its terminal state based on the result."""
     job = DataModelingJob.objects.get(id=job_id)
     if job.status in (DataModelingJobStatus.FAILED, DataModelingJobStatus.CANCELLED, DataModelingJobStatus.COMPLETED):
-        return
+        return job.engine
     if result.error is None:
         job.status = DataModelingJobStatus.COMPLETED
         job.rows_materialized = result.row_count
@@ -212,6 +211,7 @@ def _resolve_managed_warehouse_job(job_id: str, result: "ManagedWarehouseShadowR
         job.error = result.error
     job.last_run_at = dt.datetime.now(dt.UTC)
     job.save()
+    return job.engine
 
 
 async def _materialize_view_managed_warehouse(
@@ -280,12 +280,12 @@ async def _materialize_view_managed_warehouse(
             file_size_bytes=result.file_size_bytes,
             file_size_delta_bytes=result.file_size_delta_bytes,
         )
-        await _resolve_managed_warehouse_job(inputs.job_id, shadow_result)
+        job_engine = await _resolve_managed_warehouse_job(inputs.job_id, shadow_result)
         await clear_node_suspension_for_engine(
             node_id=inputs.node_id,
             team_id=inputs.team_id,
             dag_id=inputs.dag_id,
-            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+            engine=job_engine,
         )
         return shadow_result
     except Exception as e:
@@ -304,20 +304,20 @@ async def _materialize_view_managed_warehouse(
             table_name=table_name,
             error=str(e),
         )
-        await _resolve_managed_warehouse_job(inputs.job_id, shadow_result)
+        job_engine = await _resolve_managed_warehouse_job(inputs.job_id, shadow_result)
         suspended = await maybe_suspend_node_for_engine(
             node_id=inputs.node_id,
             team_id=inputs.team_id,
             dag_id=inputs.dag_id,
             saved_query_id=saved_query.id,
-            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+            engine=job_engine,
             reason=str(e),
             job_id=inputs.job_id,
         )
         if suspended:
-            get_node_suspended_metric(DataModelingJobEngine.MANAGED_WAREHOUSE.value).add(1)
+            get_node_suspended_metric(job_engine).add(1)
             await logger.ainfo(
-                f"Suspended node {inputs.node_id} (managed warehouse) after {CONSECUTIVE_FAILURES_TO_SUSPEND} consecutive failures",
+                f"Suspended node {inputs.node_id} ({job_engine}) after {CONSECUTIVE_FAILURES_TO_SUSPEND} consecutive failures",
             )
         return shadow_result
 
