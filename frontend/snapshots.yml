@@ -4,10 +4,6 @@ config:
     team: '2'
     repo: 3d760a0a-0763-477d-89ee-f1e4e92cdd78
 snapshots:
-    scenes-app-customer-analytics-accounts--many-columns--dark:
-        hash: v1.k794b7964.bbcafae15f682dd892236c17af7ae5920df61f4a14f1c2b298977ba77b6bacb2.xumXP9yIhqUxrM69J_MjvUCNMHuL2PwIgLs3u3PbCP0
-    scenes-app-customer-analytics-accounts--many-columns--light:
-        hash: v1.k794b7964.41369848fe476522e301d6e10665de13e88a1a8a64c4a17a2adc81306f24b64e.kaZ8ldUFXD5oEmnfoaB6ag8wg77wYPwSi0dCsHVX6Lk
     ai-observability-create-prompt-experiment-modal--default--dark:
         hash: v1.k794b7964.af0ce5703adcc074ea6c3afc8715d537a646698123a78625e6ec847123b26ae2.ypACU5Xagre6WeI4z7UlQ6w7oY0ieM1C-GnZs93KDkY
     ai-observability-create-prompt-experiment-modal--default--light:
@@ -6624,6 +6620,10 @@ snapshots:
         hash: v1.k794b7964.4b8d5226ee154debdf333ff93d65a90ca766bcb25951e1baf36affb8b84b548d.dWZSHssPc83RkHVE-JPJA562bJR7MUim2yfqhjfNE50
     scenes-app-customer-analytics-accounts--feature-gate-off--light:
         hash: v1.k794b7964.e8b91bf6a0dd1b5d31064f4cbb94e9791e999c210831c455a498d0c7cc7e6bbb.IkZPJrJz33sKS8zzKwoy8V3s0GvmKpe5EGYTCIljhLs
+    scenes-app-customer-analytics-accounts--many-columns--dark:
+        hash: v1.k794b7964.bbcafae15f682dd892236c17af7ae5920df61f4a14f1c2b298977ba77b6bacb2.xumXP9yIhqUxrM69J_MjvUCNMHuL2PwIgLs3u3PbCP0
+    scenes-app-customer-analytics-accounts--many-columns--light:
+        hash: v1.k794b7964.41369848fe476522e301d6e10665de13e88a1a8a64c4a17a2adc81306f24b64e.kaZ8ldUFXD5oEmnfoaB6ag8wg77wYPwSi0dCsHVX6Lk
     scenes-app-customer-analytics-accounts--row-expanded-conversations--dark:
         hash: v1.k794b7964.8ff40502a6dee9453d8bdff2350aa96b20c7c241a7ce2d69325e2d0e754f4428.LP6kVjCyhWYU85XTY8Fi5v6H_pdS8hu27wxDUCv_yCc
     scenes-app-customer-analytics-accounts--row-expanded-conversations--light:
@@ -7897,17 +7897,17 @@ snapshots:
     scenes-app-inbox-scoutsroster--roster--light:
         hash: v1.k794b7964.b00bf7fe96c22218a5ad7fc62fba676d095899f0e9bc4a5f54cffe8cb212a799.xPUahRQgcuZMoUDEt8wbSdryvS7tj6VZSKMZLXDY7FQ
     scenes-app-inbox-scoutsroster--roster-costs--dark:
-        hash: v1.k794b7964.969d671687836cca383cc874ef6f1fd9409b70ef9c603b20269733834ab87f9b.jnnwEoIm_cn6WqTo6h_zhV-q4v68hE-et_dHj5i_B-s
+        hash: v1.k794b7964.631bfee2fc44cb760e4c6ca2194293aa4b3e2f74d70e861d33df83a8889eb97c.QewtE63qQ0MOFGw-XocsPA9on4EBS1XabnS_XJTYJ5g
     scenes-app-inbox-scoutsroster--roster-costs--light:
-        hash: v1.k794b7964.40ba4f1bc70d39b69e01d4efd7cf4963886bfd550bd0d193c0124d3880ff71d8.5tYw_oD3WduDbAraiGZu-aVF1cyR2JnVa6QIjUT9zpc
+        hash: v1.k794b7964.84d575f8fd1994a847a88ad3d5721bf8d8c48757d4baa2aea3dc8bff08a6c106.msXWGAdSdgGkTxF3cHDRUoU_EQ8Up5Pp-Awwgw3Z6jM
     scenes-app-inbox-scoutsroster--roster-costs-non-staff--dark:
-        hash: v1.k794b7964.483de5b2263bf9a5a42e8931f19cb8305f9e6b6e9777564f6b560f135f04e624.eiN3lkw6UcbC3D-t7k5F5CggQ3vDGd2arRvMAOPcBZU
+        hash: v1.k794b7964.6a104e1f11d3d44a190714666d7db789d8479d6e3d0686089ead4138646f8b9d.K--bqCt042LLnR6YRVsShm9WOsdBgAdfbXmYdrd5dBk
     scenes-app-inbox-scoutsroster--roster-costs-non-staff--light:
-        hash: v1.k794b7964.1059bc4b2a13b58ecd34adb74be07f01f10c2b416ca754c4cdaf74bcc5738053.g1VDSOTrSBAsnjO1GhgA4Om_-2gEkE83uzA3PxWq7Tc
+        hash: v1.k794b7964.c54727de9306e93a3c6a20bf0f41719bdcef495e0945134201c8ad05ac2f8204.BdUoCVAR19TDO85c03ROxlPwBwhFjveixvMcvdsZfwk
     scenes-app-inbox-scoutsroster--roster-costs-table--dark:
         hash: v1.k794b7964.e413457fe157fc4119197fc4cf8155ffcd44a38f9ef89ffa928555bc796dc674.JPlNpamhAWxFX_aWQ5BBG7tCN5pTYK3wc8sqnHB6XWs
     scenes-app-inbox-scoutsroster--roster-costs-table--light:
-        hash: v1.k794b7964.9f4438c581b81c6f8d5a817cb1e7ad7804cbb017d09306269235b8d375ba962e.mhqUz-F8D7J7i4lm9umQ4-tzIRdiOKU7YTJVx1aeFLY
+        hash: v1.k794b7964.49b466a57f2d708dc7038ff2fa235a5d1f6070bfaf7587372dfded6d77bfccae.tgynCIm3V7nqUVNgHAcdLmdoQzXNZDyGQ0QnCGoIT7I
     scenes-app-inbox-scoutsroster--roster-legacy--dark:
         hash: v1.k794b7964.5339804f4cc136f9700b3329b0121ab62f3008197dcb4ff7c91d714e1fbdbbb5.peuyX_VFezfUR5E8LAdqk4e3GZWeYZ8qhq1Xp6HNLnc
     scenes-app-inbox-scoutsroster--roster-legacy--light:
