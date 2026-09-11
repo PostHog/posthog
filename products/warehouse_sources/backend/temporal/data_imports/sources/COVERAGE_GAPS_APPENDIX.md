@@ -384,7 +384,7 @@ Note: docs.appdynamics.com now serves an SPA shell and presents a broken TLS cha
 
 ## Appfigures — gaps
 
-Today (10): `categories`, `countries`, `products`, `ranks`, `ratings_report`, `revenue_report`, `reviews`, `sales_report`, `stores`, `subscriptions_report`
+Today (15): `ads_report`, `adspend_report`, `aso_keywords`, `aso_stats`, `categories`, `countries`, `payments_report`, `products`, `ranks`, `ratings_report`, `revenue_report`, `reviews`, `sales_report`, `stores`, `subscriptions_report`
 
 Diffed against: <https://docs.appfigures.com/api/reference/v2>
 
@@ -392,10 +392,10 @@ Diffed against: <https://docs.appfigures.com/api/reference/v2>
 - [x] `/reports/subscriptions` — subscription metrics (new, renewals, churn) that sales/revenue reports do not break out (high)
 - [x] `/reports/ratings` — rating counts and averages over time, the current supported replacement for /ratings (high)
 - [x] `/data/stores, /data/categories, /data/countries` — lookup tables resolving the store, category and country codes on every synced report row (high)
-- [ ] `/aso (keyword ranks and stats)` — tracked keyword positions, the other half of the ASO story with /ranks (high)
-- [ ] `/reports/adspend` — campaign spend by network, needed for ROAS against revenue_report (medium)
-- [ ] `/reports/ads` — ad publishing revenue by network, a revenue stream missing from sales_report (medium)
-- [ ] `/reports/payments` — expected payouts, reconciles revenue to cash (medium)
+- [x] `/aso (keyword ranks and stats)` — tracked keyword positions, the other half of the ASO story with /ranks (high) — synced as `aso_keywords` and `aso_stats`. /aso takes one product and one country per request and returns each keyword's latest position rather than a dated series, so both are daily snapshots fanned out over the account's products and the countries set on the source.
+- [x] `/reports/adspend` — campaign spend by network, needed for ROAS against revenue_report (medium) — synced as `adspend_report`, incremental on `date`.
+- [x] `/reports/ads` — ad publishing revenue by network, a revenue stream missing from sales_report (medium) — synced as `ads_report`, incremental on `date`.
+- [x] `/reports/payments` — expected payouts, reconciles revenue to cash (medium) — synced as `payments_report`, incremental on `date`.
 - [ ] `/reports/usage` — in-app usage metrics (DAU, sessions, crashes) per product (medium)
 - [ ] `/reports/estimates` — download/revenue estimates for competitor apps (medium)
 - [ ] `/featured` — when and where apps were featured, a step-change driver for downloads (medium)
