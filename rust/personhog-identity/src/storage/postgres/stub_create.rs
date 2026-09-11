@@ -83,7 +83,7 @@ pub(super) async fn create_person_stubs(
         .collect();
     let team_ids: Vec<i32> = stubs.iter().map(|s| s.team_id as i32).collect();
 
-    let mut tx = pool.begin().await?;
+    let mut tx = super::begin_timed(pool).await?;
 
     let mut persons =
         insert_or_revive_persons(&mut tx, &tables.person, stubs, &team_ids, &uuids).await?;
@@ -113,7 +113,9 @@ pub(super) async fn create_person_stubs(
 /// A conflict with a tombstoned row (same uuidv5 key, previously deleted) is
 /// a revival: flip is_deleted, bump the version above the tombstone so
 /// ClickHouse collapses toward the new incarnation, and reset properties.
-/// Conflicts with live rows fail the WHERE qual and return nothing here.
+/// A tombstone under a live lifecycle mark stays dead — its saga may still
+/// re-drive a release over the revival; the caller sees LostRace and
+/// retries. Conflicts with live rows fail the qual and return nothing.
 ///
 /// A returned version of 0 means fresh insert, anything else means revival
 /// (xmax can't be read back from a partitioned table).
@@ -154,6 +156,12 @@ async fn insert_or_revive_persons(
             is_identified = EXCLUDED.is_identified,
             last_seen_at = EXCLUDED.last_seen_at
             WHERE {person_table}.is_deleted = true
+              AND NOT EXISTS (
+                  SELECT 1 FROM lifecycle_op_person lop
+                  WHERE lop.team_id = {person_table}.team_id
+                    AND lop.person_id = {person_table}.id
+                    AND lop.status IN ('marked', 'sealed')
+              )
         RETURNING {person_cols}
         "#,
         person_cols = person_columns(person_table),

@@ -1,6 +1,6 @@
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, PropertyMock, patch
 
@@ -52,7 +52,7 @@ class TestDashboardWidgets(APIBaseTest):
         for patcher in self._widgets_flag_patchers:
             patcher.start()
 
-    @freeze_time("2022-04-01 12:45")
+    @time_machine.travel("2022-04-01 12:45", tick=False)
     @override_settings(IN_UNIT_TESTING=True)
     def test_can_create_widget_tile(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
@@ -484,7 +484,7 @@ class TestDashboardWidgets(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert Dashboard.objects.filter(team_id=self.team.id, deleted=False).count() == 0
 
-    @freeze_time("2022-04-01 12:45")
+    @time_machine.travel("2022-04-01 12:45", tick=False)
     @override_settings(IN_UNIT_TESTING=True)
     def test_widget_create_and_update_writes_activity_log(self) -> None:
         ActivityLog.objects.filter(team_id=self.team.id, scope="DashboardWidget").delete()

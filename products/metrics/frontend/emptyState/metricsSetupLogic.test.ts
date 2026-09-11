@@ -11,6 +11,11 @@ import { metricsSetupLogic } from './metricsSetupLogic'
 
 jest.mock('../metricsAccess', () => ({ canViewMetrics: jest.fn() }))
 jest.mock('../generated/api', () => ({ metricsHasMetricsRetrieve: jest.fn() }))
+// Real backoff waits would put the error cases over the 5s test limit; the retry policy is not what these assert.
+jest.mock('lib/utils/async', () => ({
+    ...jest.requireActual('lib/utils/async'),
+    retryWithBackoff: (fn: () => Promise<unknown>) => fn(),
+}))
 
 describe('metricsSetupLogic', () => {
     beforeEach(() => {
@@ -32,5 +37,27 @@ describe('metricsSetupLogic', () => {
         metricsSetupLogic.mount()
         await expectLogic(metricsSetupLogic).toFinishAllListeners()
         expect(productSetupStatusLogic({ productKey: ProductKey.METRICS }).values.status).toBe(expected)
+    })
+
+    it('treats a flag-gated 403 as unknown, so a fresh alpha enrollment never surfaces an error', async () => {
+        // The enrollment person property takes seconds to ingest after the user turns the
+        // preview on; until then the API denies with the feature_flag_required code. That
+        // window is not a detection failure, and the poll answers properly once it closes.
+        ;(canViewMetrics as jest.Mock).mockReturnValue(true)
+        ;(metricsHasMetricsRetrieve as jest.Mock).mockRejectedValue({ status: 403, code: 'feature_flag_required' })
+        metricsSetupLogic.mount()
+        await expectLogic(metricsSetupLogic).toFinishAllListeners()
+        expect(productSetupStatusLogic({ productKey: ProductKey.METRICS }).values.status).toBe('unknown')
+        // A clean `unknown` answer, not a detection failure: the loader's failure path would
+        // also land on `unknown`, but only after filing an error.
+        expect(metricsSetupLogic.values.detectedStatus).toBe('unknown')
+    })
+
+    it('still fails open on other errors', async () => {
+        ;(canViewMetrics as jest.Mock).mockReturnValue(true)
+        ;(metricsHasMetricsRetrieve as jest.Mock).mockRejectedValue(new Error('network down'))
+        metricsSetupLogic.mount()
+        await expectLogic(metricsSetupLogic).toFinishAllListeners()
+        expect(productSetupStatusLogic({ productKey: ProductKey.METRICS }).values.status).toBe('unknown')
     })
 })

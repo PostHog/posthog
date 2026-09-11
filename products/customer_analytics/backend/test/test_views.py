@@ -2,7 +2,7 @@ from datetime import timedelta
 from uuid import uuid4
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -1177,9 +1177,9 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertEqual(short_ids, {by_title.short_id, by_content.short_id})
 
     def test_list_orders_by_created_at(self):
-        with freeze_time("2024-01-01"):
+        with time_machine.travel("2024-01-01", tick=False):
             older = self._link_internal_notebook(title="Older", content={})
-        with freeze_time("2024-01-02"):
+        with time_machine.travel("2024-01-02", tick=False):
             newer = self._link_internal_notebook(title="Newer", content={})
 
         default_order = [n["short_id"] for n in self.client.get(self.endpoint_base).json()["results"]]
@@ -2738,9 +2738,9 @@ class TestAccountNotesViewSet(APIBaseTest):
         self.assertEqual(titles, ["Mine"])
 
     def test_list_orders_by_last_modified_desc_and_paginates(self):
-        with freeze_time("2024-01-01"):
+        with time_machine.travel("2024-01-01", tick=False):
             older = self._link_note(title="Older")
-        with freeze_time("2024-01-02"):
+        with time_machine.travel("2024-01-02", tick=False):
             newer = self._link_note(title="Newer")
 
         first_page = self.client.get(f"{self.endpoint_base}?limit=1").json()
@@ -3365,7 +3365,7 @@ class TestCalendarSyncViewSet(APIBaseTest):
         workflow_kwargs = mock_connect.return_value.start_workflow.call_args.kwargs
         self.assertEqual(workflow_kwargs["id"], f"google-calendar-sync-{integration.id}")
 
-    @freeze_time("2026-04-10T12:00:00Z")
+    @time_machine.travel("2026-04-10T12:00:00Z", tick=False)
     def test_backfill_starts_both_sources_for_an_inclusive_date_range(self) -> None:
         self._become_admin()
         integration = self._create_syncable_integration()
@@ -3404,7 +3404,7 @@ class TestCalendarSyncViewSet(APIBaseTest):
             ("reversed", "2026-04-10", "2026-04-09"),
         ]
     )
-    @freeze_time("2026-04-10T12:00:00Z")
+    @time_machine.travel("2026-04-10T12:00:00Z", tick=False)
     def test_backfill_rejects_dates_outside_the_allowed_range(self, _name: str, start_date: str, end_date: str) -> None:
         self._become_admin()
         integration = self._create_syncable_integration()
