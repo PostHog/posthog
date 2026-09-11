@@ -14,20 +14,29 @@ def load_plan(name: str) -> object:
     return json.loads((FIXTURES / f"{name}.json").read_text())
 
 
-def events_read_node(condition: str, keys: list[str], *, selected_granules: int = 1000) -> dict[str, object]:
-    return {
-        "Node Type": "ReadFromMergeTree",
-        "Description": "posthog.sharded_events",
-        "Indexes": [
+def events_read_node(
+    condition: str, keys: list[str], *, selected_granules: int = 1000, primary_keys: list[str] | None = None
+) -> dict[str, object]:
+    indexes: list[dict[str, object]] = [
+        {
+            "Type": "Min-Max",
+            "Keys": keys,
+            "Condition": condition,
+            "Initial Granules": 1000,
+            "Selected Granules": selected_granules,
+        }
+    ]
+    if primary_keys is not None:
+        indexes.append(
             {
-                "Type": "Min-Max",
-                "Keys": keys,
+                "Type": "PrimaryKey",
+                "Keys": primary_keys,
                 "Condition": condition,
-                "Initial Granules": 1000,
+                "Initial Granules": selected_granules,
                 "Selected Granules": selected_granules,
             }
-        ],
-    }
+        )
+    return {"Node Type": "ReadFromMergeTree", "Description": "posthog.sharded_events", "Indexes": indexes}
 
 
 def min_max_read(condition: str, keys: list[str]) -> list[dict[str, object]]:

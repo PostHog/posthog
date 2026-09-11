@@ -1,7 +1,13 @@
 import { QueryScanSummary, QueryScanWarning } from '~/queries/schema/schema-general'
 import { DashboardTile, InsightShortId, QueryBasedInsightModel } from '~/types'
 
-import { queryScanDashboardEntries, queryScanStatLine, queryScanTileStatLine, resolveQueryScan } from './queryScan'
+import {
+    QueryScanPollResult,
+    queryScanDashboardEntries,
+    queryScanStatLine,
+    queryScanTileStatLine,
+    resolveQueryScan,
+} from './queryScan'
 
 const SUMMARY: QueryScanSummary = {
     mode: 'show',
@@ -37,6 +43,21 @@ function slowInsight(
 describe('queryScan', () => {
     it('reads no scan off a run the team only logs', () => {
         expect(resolveQueryScan({ query_scan: { ...SUMMARY, mode: 'log_only' } }, null, null)).toBeNull()
+    })
+
+    it('ignores a poll result for another run', () => {
+        // A poll outlives the run that started it, so a result for another run must not decorate
+        // this response with a share and advice measured somewhere else.
+        const response = { query_scan: { ...SUMMARY, status: 'pending' }, cache_key: 'cache-key', warnings: [] }
+        const polled: QueryScanPollResult = {
+            cacheKey: 'another-cache-key',
+            scan: { status: 'done', warnings: [FINDING], range_share: 0.9, project_share: 0.9, killed: false },
+        }
+
+        const state = resolveQueryScan(response, null, polled)
+
+        expect(state?.summary.status).toBe('pending')
+        expect(state?.findings).toHaveLength(0)
     })
 
     it.each([

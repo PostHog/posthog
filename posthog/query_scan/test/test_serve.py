@@ -95,3 +95,16 @@ class TestServeScanSummary(BaseTest):
         assert (response.query_scan.range_share, response.query_scan.project_share) == (0.8, 0.25)
         assert folded is not None
         assert (folded["range_share"], folded["project_share"]) == (0.8, 0.25)
+
+    def test_the_prompt_describes_the_run_and_not_the_stored_analysis(self) -> None:
+        # The slot can hold the analysis of a run that finished while this one was stopped, and the
+        # other way round, so the prompt's run line follows the summary.
+        response = self._cached_response()
+        response.query_scan.killed = True
+
+        with mock.patch("posthog.query_scan.serve.get_query_scan_flag", return_value=SHOW):
+            attach_scan_slot(self.team, response)
+
+        assert response.query_scan.killed is True
+        assert response.query_scan.assistant_prompt is not None
+        assert "ClickHouse stopped this query after" in response.query_scan.assistant_prompt

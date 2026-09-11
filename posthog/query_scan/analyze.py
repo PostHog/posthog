@@ -122,7 +122,9 @@ def _findings_for_plan(
     event_filter: EventFilterOutcome | None,
 ) -> list[QueryScanWarning]:
     # A plan that reads the events table more than once is judged on its largest read, except that
-    # any read with no start bound is enough for the start-date finding.
+    # any read with no start bound is enough for the start-date finding. A lighter read with no event
+    # filter goes unmentioned even when it is nearly as large, because gating each read on its own
+    # share would cost a denominator per read.
     heaviest = plan.heaviest_events_read()
     # A plan that does not read the events table has no denominator and nothing to advise on.
     if heaviest is None:
@@ -149,7 +151,7 @@ def _findings_for_plan(
             )
         )
 
-    no_event_filter, event_reason = _no_event_filter(plan, event_filter)
+    no_event_filter, event_reason = _no_event_filter(heaviest, event_filter)
     if no_event_filter and _passes_event_gate(heaviest, range_share, flag.event_ratio):
         findings.append(
             build_warning(
@@ -174,15 +176,15 @@ def _findings_for_plan(
 
 
 def _no_event_filter(
-    plan: QueryPlan, event_filter: EventFilterOutcome | None
+    heaviest: PlanTableRead, event_filter: EventFilterOutcome | None
 ) -> tuple[bool, QueryScanFindingReason | None]:
-    """Whether the plan has no usable event filter, and the reason for the copy. The tree's verdict
-    carries the reason when the job shipped one; the plan's keys alone name none.
+    """Whether the heaviest read has no usable event filter, and the reason for the copy. The tree's
+    verdict carries the reason when the job shipped one; the read's keys alone name none.
     """
     if event_filter is not None:
         reason = QueryScanFindingReason(event_filter.reason) if event_filter.reason is not None else None
         return event_filter.classification != "usable", reason
-    return plan.event_key_used() is False, None
+    return not heaviest.uses_event_key(), None
 
 
 def _passes_event_gate(read: PlanTableRead, range_share: float | None, event_ratio: float) -> bool:

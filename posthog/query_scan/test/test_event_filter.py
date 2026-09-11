@@ -11,10 +11,25 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.query_scan.event_filter import EventFilterOutcome, classify_event_filter, combine_event_filter
 from posthog.query_scan.explain import QueryPlan, parse_query_plan
-from posthog.query_scan.test.test_explain import load_plan
+from posthog.query_scan.test.test_explain import events_read_node, load_plan
 
 _KEY_USED_PLAN = parse_query_plan(load_plan("plan_event_filter_used"))
 _KEY_UNUSED_PLAN = parse_query_plan(load_plan("plan_no_event_filter"))
+_EVENT_KEY = ["team_id", "toDate(timestamp)", "event"]
+# A join whose large read pruned on `event` while its small one did not.
+_HEAVIEST_PRUNED_PLAN = parse_query_plan(
+    [
+        {
+            "Plan": {
+                "Node Type": "Join",
+                "Plans": [
+                    events_read_node("true", [], selected_granules=5000, primary_keys=_EVENT_KEY),
+                    events_read_node("true", [], selected_granules=10),
+                ],
+            }
+        }
+    ]
+)
 
 
 class TestClassifyEventFilter(BaseTest):
@@ -62,13 +77,30 @@ class TestClassifyEventFilter(BaseTest):
                 "not_pruned",
             ),
             ("no event condition at all", "SELECT count() FROM events", "none", None),
+            (
+                "reads that agree",
+                "SELECT count() FROM events WHERE event = 'a' UNION ALL SELECT count() FROM events WHERE event = 'b'",
+                "usable",
+                None,
+            ),
+            # The tree cannot say which read is the plan's heaviest, so no verdict is pinned to it.
+            (
+                "reads that disagree",
+                "SELECT count() FROM events WHERE event = 'a' UNION ALL SELECT count() FROM events",
+                None,
+                None,
+            ),
         ]
     )
     def test_classification_reads_the_tree(
-        self, _name: str, sql: str, expected_class: str, expected_reason: str | None
+        self, _name: str, sql: str, expected_class: str | None, expected_reason: str | None
     ) -> None:
         outcome = classify_event_filter(self.prepare(sql))
 
+        if expected_class is None:
+            self.assertIsNone(outcome)
+            return
+        assert outcome is not None
         self.assertEqual(outcome.classification, expected_class)
         self.assertEqual(outcome.reason, expected_reason)
 
@@ -99,6 +131,14 @@ class TestCombineEventFilter(SimpleTestCase):
                 _KEY_UNUSED_PLAN,
                 "not_used",
                 "not_pruned",
+            ),
+            # The advice is about the heaviest read, so a lighter read that did not prune is no fault.
+            (
+                "the heaviest read's key use decides",
+                EventFilterOutcome(classification="usable"),
+                _HEAVIEST_PRUNED_PLAN,
+                "usable",
+                None,
             ),
             # No plan (EXPLAIN failed) leaves the tree verdict untouched.
             (

@@ -842,11 +842,11 @@ describe('dataNodeLogic', () => {
             await jest.advanceTimersByTimeAsync(0)
             expect(logic.values.queryScan?.summary.status).toBe('pending')
 
-            await jest.advanceTimersByTimeAsync(2000)
+            await jest.advanceTimersByTimeAsync(QUERY_SCAN_POLL_DELAYS_MS[0])
             expect(scanCalls).toBe(1)
             expect(logic.values.queryScan?.summary.status).toBe('pending')
 
-            await jest.advanceTimersByTimeAsync(4000)
+            await jest.advanceTimersByTimeAsync(QUERY_SCAN_POLL_DELAYS_MS[1])
             expect(scanCalls).toBe(2)
             expect(logic.values.queryScan?.summary.status).toBe('done')
             expect(logic.values.queryScan?.summary.range_share).toBe(0.42)
@@ -856,15 +856,55 @@ describe('dataNodeLogic', () => {
             // The analysis is done, so no more asks go out.
             await jest.advanceTimersByTimeAsync(60000)
             expect(scanCalls).toBe(2)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
 
-            // A poll outlives the run that started it, so a result for another run must not
-            // decorate this response with a share and advice measured somewhere else.
-            logic.actions.setQueryScanResult(
-                { status: 'done', warnings: [], range_share: 0.9, project_share: 0.9, killed: false },
-                'another-cache-key'
+    it('fetches the findings once for a stopped run whose analysis an earlier run stored', async () => {
+        jest.useFakeTimers()
+        try {
+            let scanCalls = 0
+            useMocks({
+                get: {
+                    [SCAN_ENDPOINT]: () => {
+                        scanCalls += 1
+                        return [200, DONE_SCAN]
+                    },
+                },
+            })
+            // The runner reports the stored analysis as done on the error, and an error carries no findings.
+            mockedQuery.mockRejectedValueOnce(
+                Object.assign(new Error('Query was cancelled'), {
+                    data: {
+                        extra: {
+                            cache_key: 'cache-key',
+                            query_scan: {
+                                mode: 'show',
+                                rows_read: 10,
+                                duration_ms: 2000,
+                                status: 'done',
+                                killed: true,
+                            },
+                        },
+                    },
+                })
             )
-            expect(logic.values.queryScan?.summary.status).toBe('pending')
-            expect(logic.values.queryScan?.findings).toHaveLength(0)
+            logic = dataNodeLogic({
+                key: testUniqueKey,
+                query: setLatestVersionsOnQuery({ kind: NodeKind.EventsQuery, select: ['*'] }),
+            })
+            logic.mount()
+
+            // Well before the first backoff step, so a poll on the backoff would not have gone out yet.
+            await jest.advanceTimersByTimeAsync(100)
+            expect(scanCalls).toBe(1)
+            expect(logic.values.queryScan?.summary.killed).toBe(true)
+            expect(logic.values.queryScan?.findings).toHaveLength(1)
+            expect(logic.values.queryScan?.assistantPrompt).toBe(DONE_SCAN.assistant_prompt)
+
+            await jest.advanceTimersByTimeAsync(60000)
+            expect(scanCalls).toBe(1)
         } finally {
             jest.useRealTimers()
         }

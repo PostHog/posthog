@@ -680,7 +680,6 @@ export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBas
      * Also carries query scan findings, see `QueryScanWarning`.
      */
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | QueryScanWarning)[]
-    query_scan?: QueryScanSummary
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -2772,7 +2771,6 @@ export interface AnalyticsQueryResponseBase {
      * Also carries query scan findings, see `QueryScanWarning`.
      */
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | QueryScanWarning)[]
-    query_scan?: QueryScanSummary
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsage[]
 }
@@ -2792,6 +2790,8 @@ interface CachedQueryResponseMixin {
     /** What triggered the calculation of the query, leave empty if user/immediate */
     calculation_trigger?: string
     query_metadata?: object
+    /** The rows and time of the run that produced these results, with its slow-query analysis once done. */
+    query_scan?: QueryScanSummary
 }
 
 type CachedQueryResponse<T> = T & CachedQueryResponseMixin
@@ -5404,7 +5404,6 @@ export interface ExperimentTrendsQueryResponse {
     credible_intervals: Record<string, [number, number]>
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
-    query_scan?: QueryScanSummary
 }
 
 export type CachedExperimentTrendsQueryResponse = CachedQueryResponse<ExperimentTrendsQueryResponse>
@@ -5422,7 +5421,6 @@ export interface ExperimentFunnelsQueryResponse {
     stats_version?: integer
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
-    query_scan?: QueryScanSummary
 }
 
 export type CachedExperimentFunnelsQueryResponse = CachedQueryResponse<ExperimentFunnelsQueryResponse>
@@ -5817,7 +5815,6 @@ export interface ExperimentQueryResponse {
 
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
-    query_scan?: QueryScanSummary
 }
 
 // Strongly typed variants of ExperimentQueryResponse for better type safety
@@ -5834,7 +5831,6 @@ export interface LegacyExperimentQueryResponse {
     credible_intervals: Record<string, [number, number]>
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
-    query_scan?: QueryScanSummary
 }
 
 export interface ExperimentActorsQuery extends InsightActorsQueryBase {
@@ -5928,7 +5924,6 @@ export interface NewExperimentQueryResponse {
     is_precomputed?: boolean
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
-    query_scan?: QueryScanSummary
 }
 
 export interface ExperimentExposureTimeSeries {
@@ -5961,7 +5956,6 @@ export interface ExperimentExposureQueryResponse {
     bias_risk?: BiasRisk
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
-    query_scan?: QueryScanSummary
 }
 
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
@@ -6814,7 +6808,6 @@ export interface SuggestedQuestionsQueryResponse {
     questions: string[]
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
-    query_scan?: QueryScanSummary
 }
 
 export type CachedSuggestedQuestionsQueryResponse = CachedQueryResponse<SuggestedQuestionsQueryResponse>
@@ -7165,7 +7158,6 @@ export interface TraceNeighborsQueryResponse {
     timings?: QueryTiming[]
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
-    query_scan?: QueryScanSummary
 }
 
 export interface TraceNeighborsQuery extends DataNode<TraceNeighborsQueryResponse> {

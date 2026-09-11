@@ -118,14 +118,6 @@ class QueryPlan:
             return None
         return max(reads, key=lambda read: read.selected_granules() or 0)
 
-    def event_key_used(self) -> bool | None:
-        """Whether every events read pruned on `event`. None when the plan has no events read,
-        so the tree's verdict is left to stand."""
-        reads = self.events_reads()
-        if not reads:
-            return None
-        return all(read.uses_event_key() for read in reads)
-
     def person_reads(self) -> tuple[PlanTableRead, ...]:
         return tuple(read for read in self.reads if read.reads_persons())
 

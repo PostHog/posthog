@@ -2092,12 +2092,32 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.pollQueryScan()
         },
         pollQueryScan: async (_, breakpoint) => {
-            // The findings can land after the response. Ask on a backoff until they are done, the run
-            // is too old to wait for, or a request fails.
-            const cacheKey = values.queryScan?.cacheKey
-            if (!cacheKey || values.queryScan?.summary.status !== 'pending') {
+            const scan = values.queryScan
+            const cacheKey = scan?.cacheKey
+            if (!scan || !cacheKey) {
                 return
             }
+            if (scan.summary.status === 'done') {
+                // A run ClickHouse stopped reports the status of the analysis an earlier run stored, and
+                // an error carries no findings, so they are fetched once by cache key.
+                if (!scan.summary.killed || values.queryScanResult?.cacheKey === cacheKey) {
+                    return
+                }
+                let stored: QueryScanResponse
+                try {
+                    stored = await api.queryScan.get(cacheKey)
+                } catch {
+                    return
+                }
+                breakpoint()
+                actions.setQueryScanResult(stored, cacheKey)
+                return
+            }
+            if (scan.summary.status !== 'pending') {
+                return
+            }
+            // The findings can land after the response. Ask on a backoff until they are done, the run
+            // is too old to wait for, or a request fails.
             const lastDelayMs = QUERY_SCAN_POLL_DELAYS_MS[QUERY_SCAN_POLL_DELAYS_MS.length - 1]
             let elapsedMs = 0
             for (let attempt = 0; ; attempt++) {

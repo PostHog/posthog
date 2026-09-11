@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework.exceptions import APIException
 
 from posthog.schema import (
@@ -304,18 +305,21 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertIn("ClickHouse error", str(context.exception))
 
+    @parameterized.expand([("this run enqueued the analysis", "pending"), ("an earlier run stored it", "done")])
     @patch("ee.hogai.context.insight.query_executor.get_query_scan_flag", return_value=_SCAN_FLAG)
     @patch("ee.hogai.context.insight.query_executor.get_query_scan_slot")
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_appends_scan_block_to_a_killed_run(
-        self, mock_process_query, mock_get_slot, _mock_flag
+        self, _name, status, mock_process_query, mock_get_slot, _mock_flag
     ):
         error = ExposedCHQueryError(_KILLED_RUN_ERROR)
         error.query_scan = {
             "mode": "show",
             "rows_read": 4_200_000_000,
             "duration_ms": 12_300,
-            "status": "pending",
+            # An earlier run of the same query can own the analysis. The runner then reports its
+            # status, and the findings come from the slot with no wait.
+            "status": status,
             "killed": True,
         }
         error.cache_key = "cache_abc"

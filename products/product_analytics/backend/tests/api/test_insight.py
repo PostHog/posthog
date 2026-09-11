@@ -5060,7 +5060,7 @@ class TestInsightQueryScan(APIBaseTest):
                 project_share=0.25,
                 killed=killed,
                 thresholds=self.FLAG.thresholds_fingerprint,
-                findings=(build_warning(kind=QueryScanFindingKind.NO_START_DATE, query_kind="TrendsQuery"),),
+                findings=(build_warning(kind=QueryScanFindingKind.NO_START_DATE, query_kind="HogQLQuery"),),
             )
         )
 

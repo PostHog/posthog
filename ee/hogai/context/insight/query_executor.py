@@ -518,7 +518,11 @@ class AssistantQueryExecutor:
         analysis is coming, or the mode hides it. The thresholds go with the read so a slot from other
         ratios is not served.
         """
-        if scan.get("status") != QueryScanStatus.PENDING:
+        status = scan.get("status")
+        # A run ClickHouse stopped reports the status of the analysis an earlier run stored, and an
+        # error carries no findings, so a finished analysis is read from the slot.
+        finished_killed = status == QueryScanStatus.DONE and bool(scan.get("killed"))
+        if status != QueryScanStatus.PENDING and not finished_killed:
             return None
         flag = get_query_scan_flag(self._team)
         if flag is None or flag.mode != "show":
@@ -530,39 +534,44 @@ class AssistantQueryExecutor:
         costs the advice, never the results.
         """
         try:
-            scan = response.get("query_scan")
-            if not isinstance(scan, dict):
-                return
-            flag = self._query_scan_poll_flag(scan)
-            if flag is None:
-                return
-            cache_key = response.get("cache_key")
-            if not isinstance(cache_key, str):
-                return
-            slot = await self._poll_query_scan_slot(cache_key, flag.thresholds_fingerprint)
-            if slot is None:
-                return
-            summary = QueryScanSummary.model_validate(scan)
-            findings = apply_slot(summary, slot, flag)
-            response["query_scan"] = summary.model_dump(mode="json", by_alias=True, exclude_none=True)
-            response["warnings"] = [
-                *(response.get("warnings") or []),
-                *(finding.model_dump(by_alias=True, exclude_none=True) for finding in findings),
-            ]
+            await self._fold_query_scan(response)
         except Exception:
             logger.warning(f"{TIMING_LOG_PREFIX} query scan poll failed", exc_info=True)
 
+    async def _fold_query_scan(self, response: dict[str, Any]) -> None:
+        """Put the stored analysis of the run behind ``response`` on it, findings included, waiting for
+        the analysis when this run enqueued it.
+        """
+        scan = response.get("query_scan")
+        cache_key = response.get("cache_key")
+        if not isinstance(scan, dict) or not isinstance(cache_key, str):
+            return
+        flag = self._query_scan_poll_flag(scan)
+        if flag is None:
+            return
+        slot = await self._poll_query_scan_slot(cache_key, flag.thresholds_fingerprint)
+        if slot is None:
+            return
+        summary = QueryScanSummary.model_validate(scan)
+        findings = apply_slot(summary, slot, flag)
+        response["query_scan"] = summary.model_dump(mode="json", by_alias=True, exclude_none=True)
+        response["warnings"] = [
+            *(response.get("warnings") or []),
+            *(finding.model_dump(by_alias=True, exclude_none=True) for finding in findings),
+        ]
+
     async def _poll_query_scan_slot(self, cache_key: str, thresholds: str) -> QueryScanSlot | None:
         deadline = time.monotonic() + self.SCAN_POLL_TIMEOUT_S
-        while time.monotonic() < deadline:
-            await asyncio.sleep(self.SCAN_POLL_INTERVAL_S)
+        while True:
             # Redis, not Postgres, but it blocks the same way, so keep it off the event loop.
             slot = await database_sync_to_async(get_query_scan_slot, thread_sensitive=True)(
                 self._team.pk, cache_key, thresholds=thresholds
             )
             if slot is not None and slot.status == QueryScanStatus.DONE:
                 return slot
-        return None
+            if time.monotonic() >= deadline:
+                return None
+            await asyncio.sleep(self.SCAN_POLL_INTERVAL_S)
 
     async def _query_scan_block_for_error(self, error: Exception) -> str:
         """The scan block for a run ClickHouse stopped, from the scan the runner put on the exception. Every
@@ -573,17 +582,8 @@ class AssistantQueryExecutor:
             cache_key = getattr(error, "cache_key", None)
             if not isinstance(scan, dict) or not isinstance(cache_key, str):
                 return ""
-            response: dict[str, Any] = {"query_scan": dict(scan), "warnings": []}
-            flag = self._query_scan_poll_flag(scan)
-            if flag is not None:
-                slot = await self._poll_query_scan_slot(cache_key, flag.thresholds_fingerprint)
-                if slot is not None:
-                    summary = QueryScanSummary.model_validate(scan)
-                    findings = apply_slot(summary, slot, flag)
-                    response["query_scan"] = summary.model_dump(mode="json", by_alias=True, exclude_none=True)
-                    response["warnings"] = [
-                        finding.model_dump(by_alias=True, exclude_none=True) for finding in findings
-                    ]
+            response: dict[str, Any] = {"query_scan": dict(scan), "cache_key": cache_key, "warnings": []}
+            await self._fold_query_scan(response)
             return format_query_scan_warnings(response, self._team, compact=True).strip()
         except Exception:
             logger.warning(f"{TIMING_LOG_PREFIX} query scan block for a killed run failed", exc_info=True)

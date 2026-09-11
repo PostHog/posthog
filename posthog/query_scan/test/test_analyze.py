@@ -16,6 +16,9 @@ _END_DATE_ONLY = "(timestamp in (-Inf, 1800000000])"
 _BOTH_BOUNDS = "and((timestamp in (-Inf, 1800000000]), (timestamp in [1700000000, +Inf)))"
 
 
+_EVENT_KEY = ["team_id", "toDate(timestamp)", "event"]
+
+
 def plan(name: str) -> QueryPlan:
     return parse_query_plan(load_plan(name))
 
@@ -98,6 +101,26 @@ class TestAnalyze(SimpleTestCase):
                 ),
                 {"event_filter": _USABLE_EVENT_FILTER},
                 ["no_start_date"],
+            ),
+            # The event filter is judged on the larger read: a small read without one stays quiet, and
+            # a large read without one is flagged whatever the small read did.
+            (
+                "a lighter read with no event filter is not flagged",
+                join_plan(
+                    events_read_node(_BOTH_BOUNDS, ["timestamp"], selected_granules=5000, primary_keys=_EVENT_KEY),
+                    events_read_node(_BOTH_BOUNDS, ["timestamp"], selected_granules=10),
+                ),
+                {"range_granules": 10_000},
+                [],
+            ),
+            (
+                "the heaviest read with no event filter is flagged",
+                join_plan(
+                    events_read_node(_BOTH_BOUNDS, ["timestamp"], selected_granules=5000),
+                    events_read_node(_BOTH_BOUNDS, ["timestamp"], selected_granules=10, primary_keys=_EVENT_KEY),
+                ),
+                {"range_granules": 10_000},
+                ["no_event_filter"],
             ),
             # An "All time" insight runs with a bound at the project's first event, so the plan alone
             # would stay quiet; the setting is what says no start date was chosen.

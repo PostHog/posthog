@@ -218,12 +218,14 @@ def _event_filter_verdict(tree: ast.Expr) -> dict[str, str | None] | None:
     """The tree's event-filter classification, JSON-safe, for the job to combine with the plan.
 
     A classifier failure ships None rather than dropping the execution, because the plan-only
-    fallback still produces a finding.
+    fallback still produces a finding. Reads that disagree ship None for the same reason.
     """
     try:
         outcome = classify_event_filter(tree)
     except Exception:
         logger.warning("query_scan_classify_failed", exc_info=True)
+        return None
+    if outcome is None:
         return None
     return {"classification": outcome.classification, "reason": outcome.reason}
 

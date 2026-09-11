@@ -93,7 +93,8 @@ def apply_slot(summary: QueryScanSummary, slot: QueryScanSlot | None, flag: Quer
     # `killed` describes the run behind the summary, so the run's own flag stands: the slot can hold
     # the analysis of an earlier run that was stopped while this one finished. Once the analysis is
     # in, the flag is spelled out rather than left absent.
-    summary.killed = bool(summary.killed)
+    killed = bool(summary.killed)
+    summary.killed = killed
     if flag.mode != QueryScanMode.SHOW:
         return []
     findings = list(slot.findings)
@@ -103,7 +104,7 @@ def apply_slot(summary: QueryScanSummary, slot: QueryScanSlot | None, flag: Quer
         duration_ms=summary.duration_ms,
         range_share=slot.range_share,
         project_share=slot.project_share,
-        killed=slot.killed,
+        killed=killed,
         fixable_only=True,
     )
     return findings

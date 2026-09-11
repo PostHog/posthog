@@ -45,9 +45,6 @@ _NOT_PRUNED_OPS = frozenset(
     }
 )
 
-# Worst first, so taking the minimum over this order picks the worst class any read reported.
-_CLASS_ORDER: tuple[EventFilterClass, ...] = ("none", "not_used", "usable")
-
 
 @frozen(eq=False)
 class EventFilterOutcome:
@@ -55,22 +52,30 @@ class EventFilterOutcome:
     reason: EventFilterReason | None = None
 
 
-def classify_event_filter(tree: ast.AST) -> EventFilterOutcome:
-    """The verdict the tree alone supports, worst across every events read; ``usable`` when there is none."""
+def classify_event_filter(tree: ast.AST) -> EventFilterOutcome | None:
+    """The verdict the tree alone supports; ``usable`` when there is no events read. None when the
+    reads disagree: the tree cannot say which of them is the plan's heaviest read, the one the advice
+    is about, so no verdict can be pinned to it.
+    """
     reads = find_events_reads(tree)
     if not reads:
         return EventFilterOutcome(classification="usable")
 
     outcomes = [_classify_read(read, collect_conditions(tree, read)) for read in reads]
-    return min(outcomes, key=lambda outcome: _CLASS_ORDER.index(outcome.classification))
+    first = outcomes[0]
+    if any((other.classification, other.reason) != (first.classification, first.reason) for other in outcomes[1:]):
+        return None
+    return first
 
 
 def combine_event_filter(outcome: EventFilterOutcome, plan: QueryPlan | None) -> EventFilterOutcome:
     """Fold the plan's key use into the tree's verdict. The plan overrules the tree, except that a
     negation enters the key condition yet prunes almost nothing, so ``negated`` stands. A key the plan
-    did not use with a tree verdict of usable is ``not_pruned``.
+    did not use with a tree verdict of usable is ``not_pruned``. The plan's side is its heaviest events
+    read, the one the advice is about.
     """
-    key_used = plan.event_key_used() if plan is not None else None
+    heaviest = plan.heaviest_events_read() if plan is not None else None
+    key_used = heaviest.uses_event_key() if heaviest is not None else None
     if key_used is True and outcome.reason != "negated":
         return EventFilterOutcome(classification="usable")
     if key_used is False and outcome.classification == "usable":

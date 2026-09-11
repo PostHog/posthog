@@ -2529,9 +2529,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             cacheable = not has_error and self.limit_context != LimitContext.EXPORT
 
             # Stored with the results, so a cache hit carries the numbers of the run that produced
-            # them. Guarded like `warnings` above.
+            # them.
             scan_skip: QueryScanSkipReason | None = "flag_off"
-            if query_scan_flag is not None and query_stats is not None and "query_scan" in CachedResponse.model_fields:
+            if query_scan_flag is not None and query_stats is not None:
                 if not is_analyzable_principal(user):
                     # The summary describes the project's data volume, which a shared-link viewer
                     # reads from outside the project, so it stays off their response.

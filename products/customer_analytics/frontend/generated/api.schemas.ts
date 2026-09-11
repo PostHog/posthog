@@ -1446,6 +1446,14 @@ export interface HogQLQueryModifiersApi {
     webAnalyticsFirstPageviewFilters?: boolean | null
 }
 
+export interface ClickhouseQueryProgressApi {
+    active_cpu_time: number
+    bytes_read: number
+    estimated_rows_total: number
+    rows_read: number
+    time_elapsed: number
+}
+
 export type QueryScanModeApi = (typeof QueryScanModeApi)[keyof typeof QueryScanModeApi]
 
 export const QueryScanModeApi = {
@@ -1476,14 +1484,6 @@ export interface QueryScanSummaryApi {
     rows_read: number
     /** Absent when the run was too fast to analyze. */
     status?: QueryScanStatusApi | null
-}
-
-export interface ClickhouseQueryProgressApi {
-    active_cpu_time: number
-    bytes_read: number
-    estimated_rows_total: number
-    rows_read: number
-    time_elapsed: number
 }
 
 export interface QueryStatusApi {
@@ -1655,7 +1655,6 @@ export interface AccountsTableQueryResponseApi {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset: number
-    query_scan?: QueryScanSummaryApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */

@@ -2619,6 +2619,17 @@ class QueryResponseAlternative7(BaseModel):
     stdout: str | None = None
 
 
+class QueryResponseAlternative79(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    questions: list[str]
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+    )
+
+
 class QueryScanWarning(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2989,6 +3000,17 @@ class SubscriptionFreeTierLimit(RootModel[Literal[5]]):
     root: Literal[5] = Field(5, description="Subscriptions a free-tier team may create.")
 
 
+class SuggestedQuestionsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    questions: list[str]
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+    )
+
+
 class SuggestedTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3037,6 +3059,30 @@ class TimelineEntry(BaseModel):
     events: list[EventType]
     recording_duration_s: float | None = Field(default=None, description="Duration of the recording in seconds.")
     sessionId: str | None = Field(default=None, description="Session ID. None means out-of-session events")
+
+
+class TraceNeighborsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    newerTimestamp: str | None = Field(default=None, description="Timestamp of the newer trace")
+    newerTraceId: str | None = Field(
+        default=None,
+        description="ID of the newer trace (chronologically after current)",
+    )
+    olderTimestamp: str | None = Field(default=None, description="Timestamp of the older trace")
+    olderTraceId: str | None = Field(
+        default=None,
+        description="ID of the older trace (chronologically before current)",
+    )
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+    )
 
 
 class TrendsFilterLegacy(BaseModel):
@@ -5244,6 +5290,22 @@ class ExperimentApiMetric(BaseModel):
     uuid: str | None = Field(default=None, description="Unique identifier. Auto-generated if omitted.")
 
 
+class ExperimentExposureQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bias_risk: BiasRisk | None = None
+    date_range: DateRange
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    sample_ratio_mismatch: SampleRatioMismatch | None = None
+    timeseries: list[ExperimentExposureTimeSeries]
+    total_exposures: dict[str, float]
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+    )
+
+
 class ExperimentMetricBaseProperties(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6642,6 +6704,22 @@ class QueryResponseAlternative10(BaseModel):
     )
 
 
+class QueryResponseAlternative21(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bias_risk: BiasRisk | None = None
+    date_range: DateRange
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    sample_ratio_mismatch: SampleRatioMismatch | None = None
+    timeseries: list[ExperimentExposureTimeSeries]
+    total_exposures: dict[str, float]
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+    )
+
+
 class QueryResponseAlternative31(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6649,6 +6727,30 @@ class QueryResponseAlternative31(BaseModel):
     data: dict[str, Any]
     error: ExternalQueryError | None = None
     status: ExternalQueryStatus
+
+
+class QueryResponseAlternative86(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    newerTimestamp: str | None = Field(default=None, description="Timestamp of the newer trace")
+    newerTraceId: str | None = Field(
+        default=None,
+        description="ID of the newer trace (chronologically after current)",
+    )
+    olderTimestamp: str | None = Field(default=None, description="Timestamp of the older trace")
+    olderTraceId: str | None = Field(
+        default=None,
+        description="ID of the older trace (chronologically before current)",
+    )
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+    )
 
 
 class QueryScanResponse(BaseModel):
@@ -7006,7 +7108,6 @@ class SessionAttributionExplorerQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -7060,7 +7161,6 @@ class SessionBatchEventsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -7120,7 +7220,6 @@ class SessionQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -7239,7 +7338,6 @@ class SessionsQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -7289,7 +7387,6 @@ class SessionsTimelineQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -7508,7 +7605,6 @@ class StickinessQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -7544,16 +7640,15 @@ class StickinessQueryResponse(BaseModel):
     )
 
 
-class SuggestedQuestionsQueryResponse(BaseModel):
+class SuggestedQuestionsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    query_scan: QueryScanSummary | None = None
-    questions: list[str]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
+    kind: Literal["SuggestedQuestionsQuery"] = "SuggestedQuestionsQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    response: SuggestedQuestionsQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class SurveyAnalysisQuestionGroup(BaseModel):
@@ -7800,7 +7895,6 @@ class TestBasicQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -7858,7 +7952,12 @@ class TestCachedBasicQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -7907,31 +8006,6 @@ class ThresholdDetectorConfig(BaseModel):
     upper_bound: float | None = Field(default=None, description="Upper bound - values above this are anomalies")
 
 
-class TraceNeighborsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    newerTimestamp: str | None = Field(default=None, description="Timestamp of the newer trace")
-    newerTraceId: str | None = Field(
-        default=None,
-        description="ID of the newer trace (chronologically after current)",
-    )
-    olderTimestamp: str | None = Field(default=None, description="Timestamp of the older trace")
-    olderTraceId: str | None = Field(
-        default=None,
-        description="ID of the older trace (chronologically before current)",
-    )
-    query_scan: QueryScanSummary | None = None
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
 class TraceQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7948,7 +8022,6 @@ class TraceQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -8000,7 +8073,6 @@ class TraceSpansAggregationQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -8052,7 +8124,6 @@ class TraceSpansAttributeBreakdownQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -8104,7 +8175,6 @@ class TraceSpansQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -8156,7 +8226,6 @@ class TraceSpansSymbolStatsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -8208,7 +8277,6 @@ class TraceSpansTreeQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -8260,7 +8328,6 @@ class TracesQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -8492,7 +8559,6 @@ class TrendsQueryResponse(BaseModel):
     hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -8562,7 +8628,6 @@ class UsageMetricsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -8614,7 +8679,6 @@ class WebAgentAnalyticsQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -8700,7 +8764,6 @@ class WebBotsTableQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -8753,7 +8816,6 @@ class WebExternalClicksTableQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -8815,7 +8877,6 @@ class WebGoalsQueryResponse(BaseModel):
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -8866,7 +8927,6 @@ class WebNotableChangesQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -8925,7 +8985,6 @@ class WebOverviewQueryResponse(BaseModel):
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -8977,7 +9036,6 @@ class WebPageURLSearchQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -9044,7 +9102,6 @@ class WebStatsTableQueryResponse(BaseModel):
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -9138,7 +9195,6 @@ class AccountsQueryResponse(BaseModel):
     )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -9195,7 +9251,6 @@ class AccountsTableQueryResponse(BaseModel):
     )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -9261,7 +9316,6 @@ class ActorsPropertyTaxonomyQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -9314,7 +9368,6 @@ class ActorsQueryResponse(BaseModel):
     missing_actors_count: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -9363,7 +9416,6 @@ class AnalyticsQueryResponseBase(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -10962,7 +11014,12 @@ class CachedAccountsQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -11030,7 +11087,12 @@ class CachedAccountsTableQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -11089,7 +11151,12 @@ class CachedActorsPropertyTaxonomyQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -11153,7 +11220,12 @@ class CachedActorsQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -11214,7 +11286,12 @@ class CachedCalendarHeatmapQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -11276,7 +11353,12 @@ class CachedDocumentSimilarityQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -11335,7 +11417,12 @@ class CachedEndpointsUsageOverviewQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -11398,7 +11485,12 @@ class CachedEndpointsUsageTableQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -11458,7 +11550,12 @@ class CachedEndpointsUsageTrendsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -11517,7 +11614,12 @@ class CachedErrorTrackingBreakdownsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -11577,7 +11679,12 @@ class CachedErrorTrackingFingerprintProjectionQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -11649,7 +11756,12 @@ class CachedErrorTrackingReleasesQueryResponse(BaseModel):
     other: ErrorTrackingReleaseSeries | None = Field(..., description="Releases past `maxReleases`, summed.")
     other_release_count: int
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -11725,7 +11837,12 @@ class CachedErrorTrackingSimilarIssuesQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -11787,7 +11904,12 @@ class CachedEventTaxonomyQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -11851,7 +11973,12 @@ class CachedEventsQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -11906,7 +12033,12 @@ class CachedExperimentExposureQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -11947,7 +12079,12 @@ class CachedFunnelCorrelationResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -12007,7 +12144,12 @@ class CachedFunnelsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -12078,7 +12220,12 @@ class CachedGroupsQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -12138,7 +12285,12 @@ class CachedLifecycleQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -12202,7 +12354,12 @@ class CachedLogsQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -12261,7 +12418,12 @@ class CachedMCPHarnessBreakdownQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -12321,7 +12483,12 @@ class CachedMCPMissingCapabilitiesQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -12384,7 +12551,12 @@ class CachedMCPModelBreakdownQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -12443,7 +12615,12 @@ class CachedMCPToolCallBreakdownQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -12502,7 +12679,12 @@ class CachedMCPToolCallsAndErrorsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -12561,7 +12743,12 @@ class CachedMCPToolCategoriesQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -12620,7 +12807,12 @@ class CachedMCPToolCategoryCountsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -12679,7 +12871,12 @@ class CachedMCPToolCategoryMapQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -12738,7 +12935,12 @@ class CachedMCPToolDailyStatsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -12797,7 +12999,12 @@ class CachedMCPToolDescriptionsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -12856,7 +13063,12 @@ class CachedMCPToolFailureOccurrencesQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -12915,7 +13127,12 @@ class CachedMCPToolFailuresQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -12974,7 +13191,12 @@ class CachedMCPToolNeighborsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -13033,7 +13255,12 @@ class CachedMCPToolQualityDailyStatsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -13092,7 +13319,12 @@ class CachedMCPToolQualityRowsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -13155,7 +13387,12 @@ class CachedMCPToolSampleIntentsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -13214,7 +13451,12 @@ class CachedMCPToolStatsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -13276,7 +13518,12 @@ class CachedMCPToolTopUsersQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -13335,7 +13582,12 @@ class CachedMarketingAnalyticsAggregatedQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -13411,7 +13663,12 @@ class CachedMarketingAnalyticsAttributionPathsQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -13489,7 +13746,12 @@ class CachedMarketingAnalyticsAttributionQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -13560,7 +13822,12 @@ class CachedMarketingAnalyticsRetentionQueryResponse(BaseModel):
         description=("How many breakdown values were folded into 'Other', so the table can say so."),
     )
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -13635,7 +13902,12 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -13696,7 +13968,12 @@ class CachedMetricsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -13755,7 +14032,12 @@ class CachedPathsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -13814,7 +14096,12 @@ class CachedPropertyValuesQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -13878,7 +14165,12 @@ class CachedRecordingsQueryResponse(BaseModel):
         description=("Cursor for the next page. Contains the ordering value and session_id from the last record."),
     )
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -13937,7 +14229,12 @@ class CachedRetentionQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -14000,7 +14297,12 @@ class CachedSessionAttributionExplorerQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -14065,7 +14367,12 @@ class CachedSessionBatchEventsQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -14136,7 +14443,12 @@ class CachedSessionQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -14199,7 +14511,12 @@ class CachedSessionsQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -14260,7 +14577,12 @@ class CachedSessionsTimelineQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -14319,7 +14641,12 @@ class CachedStickinessQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -14370,7 +14697,12 @@ class CachedSuggestedQuestionsQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -14408,7 +14740,12 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -14469,7 +14806,12 @@ class CachedTraceNeighborsQueryResponse(BaseModel):
         description="ID of the older trace (chronologically before current)",
     )
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -14511,7 +14853,12 @@ class CachedTraceQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -14574,7 +14921,12 @@ class CachedTraceSpansAggregationQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -14637,7 +14989,12 @@ class CachedTraceSpansAttributeBreakdownQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -14700,7 +15057,12 @@ class CachedTraceSpansQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -14763,7 +15125,12 @@ class CachedTraceSpansSymbolStatsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -14826,7 +15193,12 @@ class CachedTraceSpansTreeQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -14889,7 +15261,12 @@ class CachedTracesQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -14950,7 +15327,12 @@ class CachedTrendsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -15009,7 +15391,12 @@ class CachedUsageMetricsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -15068,7 +15455,12 @@ class CachedVectorSearchQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -15131,7 +15523,12 @@ class CachedWebAgentAnalyticsQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -15195,7 +15592,12 @@ class CachedWebBotsTableQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -15259,7 +15661,12 @@ class CachedWebExternalClicksTableQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -15332,7 +15739,12 @@ class CachedWebGoalsQueryResponse(BaseModel):
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -15394,7 +15806,12 @@ class CachedWebNotableChangesQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -15464,7 +15881,12 @@ class CachedWebOverviewQueryResponse(BaseModel):
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -15527,7 +15949,12 @@ class CachedWebPageURLSearchQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -15605,7 +16032,12 @@ class CachedWebStatsTableQueryResponse(BaseModel):
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -15674,7 +16106,12 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -15724,7 +16161,6 @@ class CalendarHeatmapResponse(BaseModel):
     hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -15835,7 +16271,6 @@ class Response(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -15889,7 +16324,6 @@ class Response1(BaseModel):
     missing_actors_count: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -15943,7 +16377,6 @@ class Response2(BaseModel):
     limit: int
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -16002,7 +16435,6 @@ class Response4(BaseModel):
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -16070,7 +16502,6 @@ class Response5(BaseModel):
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -16124,7 +16555,6 @@ class Response6(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -16178,7 +16608,6 @@ class Response7(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -16239,7 +16668,6 @@ class Response8(BaseModel):
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -16297,7 +16725,6 @@ class Response9(BaseModel):
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -16349,7 +16776,6 @@ class Response10(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -16402,7 +16828,6 @@ class Response11(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -16455,7 +16880,6 @@ class Response12(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -16505,7 +16929,6 @@ class Response13(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -16558,7 +16981,6 @@ class Response18(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -16610,7 +17032,6 @@ class Response20(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -16668,7 +17089,6 @@ class Response21(BaseModel):
     )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -16725,7 +17145,6 @@ class Response22(BaseModel):
     )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -16852,7 +17271,6 @@ class DocumentSimilarityQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -16917,7 +17335,6 @@ class EndpointsUsageOverviewQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -16969,7 +17386,6 @@ class EndpointsUsageTableQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17018,7 +17434,6 @@ class EndpointsUsageTrendsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17066,7 +17481,6 @@ class ErrorTrackingBreakdownsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17124,7 +17538,6 @@ class ErrorTrackingFingerprintProjectionQueryResponse(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17198,7 +17611,6 @@ class ErrorTrackingQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17274,7 +17686,6 @@ class ErrorTrackingReleasesQueryResponse(BaseModel):
     )
     other: ErrorTrackingReleaseSeries | None = Field(..., description="Releases past `maxReleases`, summed.")
     other_release_count: int
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17339,7 +17750,6 @@ class ErrorTrackingSimilarIssuesQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17390,7 +17800,6 @@ class EventTaxonomyQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17443,7 +17852,6 @@ class EventsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17502,23 +17910,6 @@ class ExperimentBreakdownResult(BaseModel):
     )
 
 
-class ExperimentExposureQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    bias_risk: BiasRisk | None = None
-    date_range: DateRange
-    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    query_scan: QueryScanSummary | None = None
-    sample_ratio_mismatch: SampleRatioMismatch | None = None
-    timeseries: list[ExperimentExposureTimeSeries]
-    total_exposures: dict[str, float]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
 class FunnelCorrelationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -17535,7 +17926,6 @@ class FunnelCorrelationResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17584,7 +17974,6 @@ class FunnelsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17638,6 +18027,12 @@ class GenericCachedQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17662,7 +18057,6 @@ class GroupsQueryResponse(BaseModel):
     limit: int
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17754,7 +18148,6 @@ class HogQLQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query: str | None = Field(default=None, description="Input query string")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17892,7 +18285,6 @@ class LifecycleQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17941,7 +18333,6 @@ class LogAttributesQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17989,7 +18380,6 @@ class LogValuesQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18042,7 +18432,6 @@ class LogsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18108,7 +18497,6 @@ class MCPHarnessBreakdownQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18157,7 +18545,6 @@ class MCPMissingCapabilitiesQueryResponse(BaseModel):
     has_next: bool = Field(..., description="Whether more reports exist past this page.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18209,7 +18596,6 @@ class MCPModelBreakdownQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18257,7 +18643,6 @@ class MCPToolCallBreakdownQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18305,7 +18690,6 @@ class MCPToolCallsAndErrorsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18353,7 +18737,6 @@ class MCPToolCategoriesQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18401,7 +18784,6 @@ class MCPToolCategoryCountsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18449,7 +18831,6 @@ class MCPToolCategoryMapQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18497,7 +18878,6 @@ class MCPToolDailyStatsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18545,7 +18925,6 @@ class MCPToolDescriptionsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18593,7 +18972,6 @@ class MCPToolFailureOccurrencesQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18641,7 +19019,6 @@ class MCPToolFailuresQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18689,7 +19066,6 @@ class MCPToolNeighborsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18737,7 +19113,6 @@ class MCPToolQualityDailyStatsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18785,7 +19160,6 @@ class MCPToolQualityRowsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18837,7 +19211,6 @@ class MCPToolSampleIntentsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18885,7 +19258,6 @@ class MCPToolStatsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18936,7 +19308,6 @@ class MCPToolTopUsersQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -18984,7 +19355,6 @@ class MarketingAnalyticsAggregatedQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -19049,7 +19419,6 @@ class MarketingAnalyticsAttributionPathsQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -19116,7 +19485,6 @@ class MarketingAnalyticsAttributionQueryResponse(BaseModel):
     models: list[AttributionMode] = Field(..., description="Model order for the column groups.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -19176,7 +19544,6 @@ class MarketingAnalyticsRetentionQueryResponse(BaseModel):
         ...,
         description=("How many breakdown values were folded into 'Other', so the table can say so."),
     )
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -19240,7 +19607,6 @@ class MarketingAnalyticsTableQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -19313,7 +19679,6 @@ class MetricsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -19375,7 +19740,6 @@ class NewExperimentQueryResponse(BaseModel):
         default=None,
         description="Whether exposures were served from the precomputation system",
     )
-    query_scan: QueryScanSummary | None = None
     variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian]
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
@@ -19434,7 +19798,6 @@ class PathsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -19510,7 +19873,6 @@ class PropertyValuesQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -19563,7 +19925,6 @@ class QueryResponseAlternative1(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -19616,7 +19977,6 @@ class QueryResponseAlternative2(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -19670,7 +20030,6 @@ class QueryResponseAlternative3(BaseModel):
     missing_actors_count: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -19724,7 +20083,6 @@ class QueryResponseAlternative4(BaseModel):
     limit: int
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -19791,7 +20149,6 @@ class QueryResponseAlternative6(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -19847,7 +20204,6 @@ class QueryResponseAlternative8(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query: str | None = Field(default=None, description="Input query string")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -19897,7 +20253,6 @@ class QueryResponseAlternative11(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -19950,7 +20305,6 @@ class QueryResponseAlternative12(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20001,7 +20355,6 @@ class QueryResponseAlternative13(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20050,7 +20403,6 @@ class QueryResponseAlternative14(BaseModel):
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20098,7 +20450,6 @@ class QueryResponseAlternative15(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20159,7 +20510,6 @@ class QueryResponseAlternative16(BaseModel):
     )
     other: ErrorTrackingReleaseSeries | None = Field(..., description="Releases past `maxReleases`, summed.")
     other_release_count: int
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20209,23 +20559,6 @@ class QueryResponseAlternative16(BaseModel):
     )
 
 
-class QueryResponseAlternative21(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    bias_risk: BiasRisk | None = None
-    date_range: DateRange
-    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    query_scan: QueryScanSummary | None = None
-    sample_ratio_mismatch: SampleRatioMismatch | None = None
-    timeseries: list[ExperimentExposureTimeSeries]
-    total_exposures: dict[str, float]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
 class QueryResponseAlternative22(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -20241,7 +20574,6 @@ class QueryResponseAlternative22(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20299,7 +20631,6 @@ class QueryResponseAlternative23(BaseModel):
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20367,7 +20698,6 @@ class QueryResponseAlternative24(BaseModel):
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20421,7 +20751,6 @@ class QueryResponseAlternative25(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20475,7 +20804,6 @@ class QueryResponseAlternative26(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20536,7 +20864,6 @@ class QueryResponseAlternative28(BaseModel):
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20594,7 +20921,6 @@ class QueryResponseAlternative29(BaseModel):
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20645,7 +20971,6 @@ class QueryResponseAlternative30(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20694,7 +21019,6 @@ class QueryResponseAlternative32(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20747,7 +21071,6 @@ class QueryResponseAlternative33(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20797,7 +21120,6 @@ class QueryResponseAlternative34(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20864,7 +21186,6 @@ class QueryResponseAlternative35(BaseModel):
     models: list[AttributionMode] = Field(..., description="Model order for the column groups.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20933,7 +21254,6 @@ class QueryResponseAlternative36(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20989,7 +21309,6 @@ class QueryResponseAlternative37(BaseModel):
         ...,
         description=("How many breakdown values were folded into 'Other', so the table can say so."),
     )
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21054,7 +21373,6 @@ class QueryResponseAlternative38(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21108,7 +21426,6 @@ class QueryResponseAlternative39(BaseModel):
     missing_actors_count: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21162,7 +21479,6 @@ class QueryResponseAlternative40(BaseModel):
     limit: int
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21219,7 +21535,6 @@ class QueryResponseAlternative41(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query: str | None = Field(default=None, description="Input query string")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21275,7 +21590,6 @@ class QueryResponseAlternative42(BaseModel):
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21343,7 +21657,6 @@ class QueryResponseAlternative43(BaseModel):
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21397,7 +21710,6 @@ class QueryResponseAlternative44(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21451,7 +21763,6 @@ class QueryResponseAlternative45(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21512,7 +21823,6 @@ class QueryResponseAlternative46(BaseModel):
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21570,7 +21880,6 @@ class QueryResponseAlternative47(BaseModel):
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21622,7 +21931,6 @@ class QueryResponseAlternative48(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21675,7 +21983,6 @@ class QueryResponseAlternative49(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21728,7 +22035,6 @@ class QueryResponseAlternative50(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21778,7 +22084,6 @@ class QueryResponseAlternative51(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21831,7 +22136,6 @@ class QueryResponseAlternative52(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21883,7 +22187,6 @@ class QueryResponseAlternative56(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21935,7 +22238,6 @@ class QueryResponseAlternative58(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21993,7 +22295,6 @@ class QueryResponseAlternative59(BaseModel):
     )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22050,7 +22351,6 @@ class QueryResponseAlternative60(BaseModel):
     )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22100,7 +22400,6 @@ class QueryResponseAlternative61(BaseModel):
     hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22148,7 +22447,6 @@ class QueryResponseAlternative62(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22203,7 +22501,6 @@ class QueryResponseAlternative63(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22251,7 +22548,6 @@ class QueryResponseAlternative64(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22299,7 +22595,6 @@ class QueryResponseAlternative65(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22347,7 +22642,6 @@ class QueryResponseAlternative66(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22399,7 +22693,6 @@ class QueryResponseAlternative68(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22453,7 +22746,6 @@ class QueryResponseAlternative70(BaseModel):
         default=None,
         description=("Cursor for the next page. Contains the ordering value and session_id from the last record."),
     )
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22506,7 +22798,6 @@ class QueryResponseAlternative71(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22555,7 +22846,6 @@ class QueryResponseAlternative72(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22603,7 +22893,6 @@ class QueryResponseAlternative73(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22651,7 +22940,6 @@ class QueryResponseAlternative74(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22703,7 +22991,6 @@ class QueryResponseAlternative75(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22755,7 +23042,6 @@ class QueryResponseAlternative76(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22807,7 +23093,6 @@ class QueryResponseAlternative77(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22859,7 +23144,6 @@ class QueryResponseAlternative78(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22895,18 +23179,6 @@ class QueryResponseAlternative78(BaseModel):
     )
 
 
-class QueryResponseAlternative79(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    query_scan: QueryScanSummary | None = None
-    questions: list[str]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
 class QueryResponseAlternative80(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -22922,7 +23194,6 @@ class QueryResponseAlternative80(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22973,7 +23244,6 @@ class QueryResponseAlternative81(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23021,7 +23291,6 @@ class QueryResponseAlternative82(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23073,7 +23342,6 @@ class QueryResponseAlternative83(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23109,31 +23377,6 @@ class QueryResponseAlternative83(BaseModel):
     )
 
 
-class QueryResponseAlternative86(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    newerTimestamp: str | None = Field(default=None, description="Timestamp of the newer trace")
-    newerTraceId: str | None = Field(
-        default=None,
-        description="ID of the newer trace (chronologically after current)",
-    )
-    olderTimestamp: str | None = Field(default=None, description="Timestamp of the older trace")
-    olderTraceId: str | None = Field(
-        default=None,
-        description="ID of the older trace (chronologically before current)",
-    )
-    query_scan: QueryScanSummary | None = None
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
 class QueryResponseAlternative87(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -23146,7 +23389,6 @@ class QueryResponseAlternative87(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23194,7 +23436,6 @@ class QueryResponseAlternative88(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23251,7 +23492,6 @@ class QueryResponseAlternative89(BaseModel):
     )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23308,7 +23548,6 @@ class QueryResponseAlternative90(BaseModel):
     )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23356,7 +23595,6 @@ class QueryResponseAlternative91(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23408,7 +23646,6 @@ class QueryResponseAlternative92(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23457,7 +23694,6 @@ class QueryResponseAlternative93(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23505,7 +23741,6 @@ class QueryResponseAlternative94(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23553,7 +23788,6 @@ class QueryResponseAlternative95(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23601,7 +23835,6 @@ class QueryResponseAlternative96(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23653,7 +23886,6 @@ class QueryResponseAlternative97(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23701,7 +23933,6 @@ class QueryResponseAlternative98(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23749,7 +23980,6 @@ class QueryResponseAlternative99(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23797,7 +24027,6 @@ class QueryResponseAlternative100(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23845,7 +24074,6 @@ class QueryResponseAlternative101(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23896,7 +24124,6 @@ class QueryResponseAlternative102(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23944,7 +24171,6 @@ class QueryResponseAlternative103(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23996,7 +24222,6 @@ class QueryResponseAlternative104(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -24044,7 +24269,6 @@ class QueryResponseAlternative105(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -24092,7 +24316,6 @@ class QueryResponseAlternative106(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -24140,7 +24363,6 @@ class QueryResponseAlternative107(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -24188,7 +24410,6 @@ class QueryResponseAlternative108(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -24236,7 +24457,6 @@ class QueryResponseAlternative109(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -24284,7 +24504,6 @@ class QueryResponseAlternative110(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -24333,7 +24552,6 @@ class QueryResponseAlternative111(BaseModel):
     has_next: bool = Field(..., description="Whether more reports exist past this page.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -24381,7 +24599,6 @@ class QueryResponseAlternative112(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -24434,7 +24651,6 @@ class RecordingsQueryResponse(BaseModel):
         default=None,
         description=("Cursor for the next page. Contains the ordering value and session_id from the last record."),
     )
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -24482,7 +24698,6 @@ class RetentionQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -24586,17 +24801,6 @@ class SidebarConfiguration(BaseModel):
     sections: SidebarSectionsConfiguration | None = None
 
 
-class SuggestedQuestionsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["SuggestedQuestionsQuery"] = "SuggestedQuestionsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    response: SuggestedQuestionsQueryResponse | None = None
-    tags: QueryLogTags | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
 class SurveyCreationSchema(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -24634,7 +24838,6 @@ class TeamTaxonomyQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -24744,7 +24947,6 @@ class VectorSearchQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -25170,7 +25372,6 @@ class WebVitalsPathBreakdownQueryResponse(BaseModel):
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -25218,7 +25419,6 @@ class WebVitalsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -25748,7 +25948,12 @@ class CachedErrorTrackingQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -25815,7 +26020,12 @@ class CachedHogQLQueryResponse(BaseModel):
     offset: int | None = None
     query: str | None = Field(default=None, description="Input query string")
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -25869,6 +26079,12 @@ class CachedInsightActorsQueryOptionsResponse(BaseModel):
     last_refresh: AwareDatetime
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -25904,7 +26120,12 @@ class CachedNewExperimentQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -25939,7 +26160,12 @@ class CachedPathsV2QueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -25998,7 +26224,12 @@ class CachedWebVitalsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -26279,7 +26510,6 @@ class Response3(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     query: str | None = Field(default=None, description="Input query string")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -26329,7 +26559,6 @@ class Response14(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -26640,7 +26869,6 @@ class ErrorTrackingIssueCorrelationQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -27953,7 +28181,6 @@ class PathsV2QueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -28084,7 +28311,6 @@ class QueryResponseAlternative17(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -28630,7 +28856,12 @@ class CachedErrorTrackingIssueCorrelationQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -28714,7 +28945,6 @@ class Response15(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -30083,7 +30313,6 @@ class ExperimentQueryResponse(BaseModel):
     )
     p_value: float | None = None
     probability: dict[str, float] | None = None
-    query_scan: QueryScanSummary | None = None
     significance_code: ExperimentSignificanceCode | None = None
     significant: bool | None = None
     stats_version: int | None = None
@@ -30107,7 +30336,6 @@ class LegacyExperimentQueryResponse(BaseModel):
     )
     p_value: float
     probability: dict[str, float]
-    query_scan: QueryScanSummary | None = None
     significance_code: ExperimentSignificanceCode
     significant: bool
     stats_version: int | None = None
@@ -30143,7 +30371,6 @@ class QueryResponseAlternative20(BaseModel):
     )
     p_value: float | None = None
     probability: dict[str, float] | None = None
-    query_scan: QueryScanSummary | None = None
     significance_code: ExperimentSignificanceCode | None = None
     significant: bool | None = None
     stats_version: int | None = None
@@ -30276,7 +30503,12 @@ class CachedExperimentQueryResponse(BaseModel):
     p_value: float | None = None
     probability: dict[str, float] | None = None
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -30314,7 +30546,12 @@ class CachedExperimentTrendsQueryResponse(BaseModel):
     p_value: float
     probability: dict[str, float]
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -30352,7 +30589,12 @@ class CachedLegacyExperimentQueryResponse(BaseModel):
     p_value: float
     probability: dict[str, float]
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -30379,7 +30621,6 @@ class Response17(BaseModel):
     kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
     p_value: float
     probability: dict[str, float]
-    query_scan: QueryScanSummary | None = None
     significance_code: ExperimentSignificanceCode
     significant: bool
     stats_version: int | None = None
@@ -30482,7 +30723,6 @@ class ExperimentTrendsQueryResponse(BaseModel):
     kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
     p_value: float
     probability: dict[str, float]
-    query_scan: QueryScanSummary | None = None
     significance_code: ExperimentSignificanceCode
     significant: bool
     stats_version: int | None = None
@@ -30535,7 +30775,6 @@ class QueryResponseAlternative18(BaseModel):
     insight: list[list[dict[str, Any]]]
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
     probability: dict[str, float]
-    query_scan: QueryScanSummary | None = None
     significance_code: ExperimentSignificanceCode
     significant: bool
     stats_version: int | None = None
@@ -30557,7 +30796,6 @@ class QueryResponseAlternative19(BaseModel):
     kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
     p_value: float
     probability: dict[str, float]
-    query_scan: QueryScanSummary | None = None
     significance_code: ExperimentSignificanceCode
     significant: bool
     stats_version: int | None = None
@@ -30578,7 +30816,6 @@ class QueryResponseAlternative54(BaseModel):
     insight: list[list[dict[str, Any]]]
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
     probability: dict[str, float]
-    query_scan: QueryScanSummary | None = None
     significance_code: ExperimentSignificanceCode
     significant: bool
     stats_version: int | None = None
@@ -30600,7 +30837,6 @@ class QueryResponseAlternative55(BaseModel):
     kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
     p_value: float
     probability: dict[str, float]
-    query_scan: QueryScanSummary | None = None
     significance_code: ExperimentSignificanceCode
     significant: bool
     stats_version: int | None = None
@@ -30855,7 +31091,12 @@ class CachedExperimentFunnelsQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     probability: dict[str, float]
     query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=(
+            "The rows and time of the run that produced these results, with its slow-query analysis once done."
+        ),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -30881,7 +31122,6 @@ class Response16(BaseModel):
     insight: list[list[dict[str, Any]]]
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
     probability: dict[str, float]
-    query_scan: QueryScanSummary | None = None
     significance_code: ExperimentSignificanceCode
     significant: bool
     stats_version: int | None = None
@@ -30940,7 +31180,6 @@ class ExperimentFunnelsQueryResponse(BaseModel):
     insight: list[list[dict[str, Any]]]
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
     probability: dict[str, float]
-    query_scan: QueryScanSummary | None = None
     significance_code: ExperimentSignificanceCode
     significant: bool
     stats_version: int | None = None
