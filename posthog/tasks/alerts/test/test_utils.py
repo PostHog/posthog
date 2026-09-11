@@ -49,7 +49,7 @@ class TestAlertUtils:
     def test_next_check_time_preserves_the_same_default_phase_across_alerts(self) -> None:
         next_check_times: set[datetime] = set()
 
-        with freeze_time("2026-04-06T14:00:00Z"):
+        with time_machine.travel("2026-04-06T14:00:00Z", tick=False):
             for alert_id in (UUID(int=0), UUID(int=1)):
                 alert = MagicMock(spec=AlertConfiguration)
                 alert.id = alert_id
