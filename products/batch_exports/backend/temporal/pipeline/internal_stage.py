@@ -34,7 +34,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseClient,
     ClickHouseClientTimeoutError,
     ClickHouseError,
-    ClickHouseMemoryLimitExceededError,
+    ClickHouseQueryMemoryLimitExceededError,
     ClickHouseQueryNotFound,
     ClickHouseQueryStatus,
     ClickHouseQueryTimeoutError,
@@ -134,12 +134,11 @@ def _raise_on_hogql_resource_limit_error(exc: ClickHouseError, model_name: str) 
             "The batch export query read too much data. Selecting fewer columns, or exporting a shorter date "
             "range may help."
         )
-    # The memory class also covers the shared ClickHouse user's budget and the whole server's, neither of which
-    # is this query's fault. Therefore, we only consider query memory limit errors as non-retryable.
-    # Since we're matching based on strings, this is rather fragile. We have an automated test in
-    # products/batch_exports/backend/tests/temporal/pipeline/test_internal_stage.py which runs
-    # against a real ClickHouse server in order to help catch any regressions.
-    elif isinstance(exc, ClickHouseMemoryLimitExceededError) and "query memory limit exceeded" in str(exc).lower():
+    # Only a breach of this query's own budget is the query's fault. The client tells that apart from
+    # pressure on the shared cluster by the wording of the ClickHouse message, which is fragile, so we
+    # have an automated test in products/batch_exports/backend/tests/temporal/pipeline/test_internal_stage.py
+    # which runs against a real ClickHouse server in order to help catch any regressions.
+    elif isinstance(exc, ClickHouseQueryMemoryLimitExceededError):
         limit_message = (
             "The batch export query needed too much memory to run. Aggregating over fewer rows, or exporting a "
             "shorter date range may help."
