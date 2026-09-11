@@ -26,7 +26,12 @@ impl TestContext {
             self.pool.clone(),
             self.tables.person.clone(),
         ));
-        PersonHogLifecycleService::new(engine, leader.clone(), self.tables.clone())
+        PersonHogLifecycleService::new(
+            engine,
+            leader.clone(),
+            self.tables.clone(),
+            common::FAN_OUT_CONCURRENCY,
+        )
     }
 
     /// (is_deleted, version, properties) of a person row.
@@ -553,7 +558,11 @@ impl FencedHarness {
         let ctx = TestContext::new().await;
         let engine = ctx.engine();
         let leader = Arc::new(SimLeader::new(ctx.pool.clone(), ctx.tables.person.clone()));
-        let driver = DeleteDriver::new(leader.clone(), ctx.tables.clone());
+        let driver = DeleteDriver::new(
+            leader.clone(),
+            ctx.tables.clone(),
+            common::FAN_OUT_CONCURRENCY,
+        );
         Self {
             ctx,
             engine,
