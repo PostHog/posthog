@@ -118,6 +118,11 @@ class TestCheckSuiteActivities(BaseTest):
         assert suite_run.subject_type == SubjectType.TABLE
         assert suite_run.subject_uuid == table_id
 
+    def test_mixed_metric_and_view_suite_has_no_single_subject(self) -> None:
+        prepared = self._prepare(metric_ids=[str(uuid4())])
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).get(id=prepared.suite_run_id)
+        assert suite.subject_uuid is None
+
     def test_an_unflagged_org_prepares_an_empty_suite(self) -> None:
         self._check()
 

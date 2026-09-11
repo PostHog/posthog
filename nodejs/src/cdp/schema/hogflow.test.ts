@@ -10,6 +10,21 @@ describe('hogflow schema', () => {
         filters: {},
     }
 
+    describe('batch account filters', () => {
+        it('preserves assignment status', () => {
+            const parsed = HogFlowActionSchema.parse({
+                ...commonActionFields,
+                type: 'trigger',
+                config: {
+                    type: 'batch',
+                    filters: { audience_type: 'accounts', properties: [], assignment_status: 'assigned' },
+                },
+            })
+
+            expect((parsed.config as any).filters.assignment_status).toBe('assigned')
+        })
+    })
+
     describe('wait_until_condition events', () => {
         const baseConfig = {
             condition: { filters: {} },

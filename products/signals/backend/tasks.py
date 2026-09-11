@@ -38,6 +38,7 @@ from products.signals.backend.report_generation.repo_activity import (
     repository_activity_needs_rebuild,
 )
 from products.signals.backend.reviewer_pr_assignment import assign_reviewers_to_pull_request
+from products.signals.backend.reviewer_pr_ready import open_pull_request_ready_for_review
 from products.signals.backend.scout_harness.inactivity import sweep_inactive_scouts
 from products.signals.backend.scout_harness.slack_delivery import (
     DELIVERABLE_REPORT_STATUSES,
@@ -406,6 +407,22 @@ def assign_reviewers_on_implementation_pr(team_id: int, report_id: str, pr_url: 
     reports its own failures and this never retries: the next pull request event queues it again.
     """
     assign_reviewers_to_pull_request(team_id=team_id, report_id=report_id, pr_url=pr_url)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.open_implementation_pr_for_review",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def open_implementation_pr_for_review(team_id: int, report_id: str, pr_url: str) -> None:
+    """Take a report's implementation PR out of draft when its suggested reviewers asked for that.
+
+    Runs on a worker for the same reason as reviewer assignment: the GitHub calls must not hold up
+    the claim, sync, or webhook that queued it. Best-effort end to end, so this never retries.
+    Unlike assignment, a retry could also fight a reviewer who redrafted the pull request in between.
+    """
+    open_pull_request_ready_for_review(team_id=team_id, report_id=report_id, pr_url=pr_url)
 
 
 def _capture_refund_sync_event(refund: SignalReportRefund, event: str, extra: dict[str, object]) -> None:
