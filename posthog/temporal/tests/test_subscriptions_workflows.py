@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 import time_machine
+from unittest import mock
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
@@ -89,6 +90,8 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
 from products.exports.backend.temporal.subscriptions.delivery_common import deliver_email
 from products.exports.backend.temporal.subscriptions.types import (
     DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN,
+    SUBSCRIPTION_CLAIM_LEASE_SAFETY_MARGIN,
+    SUBSCRIPTION_WORKFLOW_EXECUTION_TIMEOUT,
     AdvanceNextDeliveryDateInputs,
     AdvanceSubscriptionSchedulerCursorInputs,
     CreateDeliveryRecordInputs,
@@ -3652,6 +3655,42 @@ async def test_reserved_subscription_claim_expires_before_the_next_recovery_tick
     assert claim.lease_expires_at <= datetime(2026, 9, 9, 8, 50, 30, tzinfo=ZoneInfo("UTC"))
 
 
+@time_machine.travel("2026-09-09T08:25:30Z", tick=False)
+async def test_confirmed_subscription_claim_uses_the_child_absolute_deadline(team, user):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="claim-deadline", name="Claim deadline")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+    await sync_to_async(Subscription.objects.filter(id=subscription.id).update)(
+        next_delivery_date=datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+    )
+    fetched = await ActivityEnvironment().run(
+        fetch_claimed_due_subscriptions_activity,
+        FetchDueSubscriptionsActivityInputs(
+            max_subscriptions_per_run=1,
+            region="claim-deadline",
+            use_durable_claims=True,
+            claim_token_seed="claim-deadline-run",
+        ),
+    )
+    due_subscription = fetched.subscriptions[0]
+    assert due_subscription.scheduler_claim_id is not None
+    assert due_subscription.scheduler_claim_token is not None
+    lease_expires_at = datetime(2026, 9, 9, 10, 40, 30, tzinfo=ZoneInfo("UTC"))
+
+    confirmed = await ActivityEnvironment().run(
+        confirm_subscription_scheduler_claim_activity,
+        SubscriptionSchedulerClaimInputs(
+            claim_id=due_subscription.scheduler_claim_id,
+            claim_token=due_subscription.scheduler_claim_token,
+            lease_expires_at=lease_expires_at.isoformat(),
+        ),
+    )
+
+    assert confirmed is True
+    claim = await sync_to_async(TemporalSchedulerClaim.objects.get)(id=due_subscription.scheduler_claim_id)
+    assert claim.status == TemporalSchedulerClaim.Status.CONFIRMED
+    assert claim.lease_expires_at == lease_expires_at
+
+
 async def test_recover_subscription_scheduler_claims_releases_closed_workflow(team, user):
     region = "claim-test"
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="claim-rcvry", name="Claim recovery")
@@ -3692,6 +3731,49 @@ async def test_recover_subscription_scheduler_claims_releases_closed_workflow(te
     handle.describe.assert_awaited_once_with(rpc_timeout=_SUBSCRIPTION_RECOVERY_RPC_TIMEOUT)
     claim = await sync_to_async(TemporalSchedulerClaim.objects.get)(id=claim_id)
     assert claim.status == TemporalSchedulerClaim.Status.AVAILABLE
+
+
+@time_machine.travel("2026-09-09T08:25:30Z", tick=False)
+async def test_recover_subscription_scheduler_claims_renews_confirmed_open_workflow_with_a_short_lease(team, user):
+    region = "claim-renewal"
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="claim-renew", name="Claim renewal")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+    await sync_to_async(Subscription.objects.filter(id=subscription.id).update)(
+        next_delivery_date=datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+    )
+    fetched = await ActivityEnvironment().run(
+        fetch_claimed_due_subscriptions_activity,
+        FetchDueSubscriptionsActivityInputs(
+            max_subscriptions_per_run=1,
+            region=region,
+            use_durable_claims=True,
+            claim_token_seed="claim-renewal-run",
+        ),
+    )
+    due_subscription = fetched.subscriptions[0]
+    assert due_subscription.scheduler_claim_id is not None
+    expired_at = datetime(2026, 9, 9, 8, 24, 30, tzinfo=ZoneInfo("UTC"))
+    await sync_to_async(TemporalSchedulerClaim.objects.filter(id=due_subscription.scheduler_claim_id).update)(
+        status=TemporalSchedulerClaim.Status.CONFIRMED,
+        lease_expires_at=expired_at,
+    )
+    description = MagicMock(status=WorkflowExecutionStatus.RUNNING)
+    temporal = MagicMock()
+    temporal.get_workflow_handle.return_value = MagicMock(describe=AsyncMock(return_value=description))
+
+    with patch(
+        "products.exports.backend.temporal.subscriptions.activities.async_connect",
+        AsyncMock(return_value=temporal),
+    ):
+        result = await ActivityEnvironment().run(
+            recover_subscription_scheduler_claims_activity,
+            RecoverSubscriptionSchedulerClaimsInputs(region=region, limit=1),
+        )
+
+    assert result == {"released": 0, "renewed": 1, "retained": 0, "pruned": 0}
+    claim = await sync_to_async(TemporalSchedulerClaim.objects.get)(id=due_subscription.scheduler_claim_id)
+    assert claim.status == TemporalSchedulerClaim.Status.CONFIRMED
+    assert claim.lease_expires_at == datetime(2026, 9, 9, 8, 30, 30, tzinfo=ZoneInfo("UTC"))
 
 
 async def test_recover_subscription_scheduler_claims_stops_at_the_pass_budget(team, user):
@@ -3742,8 +3824,8 @@ async def test_recover_subscription_scheduler_claims_stops_at_the_pass_budget(te
 
 def test_recover_subscription_scheduler_claims_stops_before_activity_deadline() -> None:
     expired_claims = [
-        (uuid.uuid4(), uuid.uuid4(), "workflow-one", timezone.now()),
-        (uuid.uuid4(), uuid.uuid4(), "workflow-two", timezone.now()),
+        (uuid.uuid4(), uuid.uuid4(), "workflow-one", TemporalSchedulerClaim.Status.RESERVED, timezone.now()),
+        (uuid.uuid4(), uuid.uuid4(), "workflow-two", TemporalSchedulerClaim.Status.RESERVED, timezone.now()),
     ]
     statuses = [_WorkflowClaimStatus(is_open=False), _WorkflowClaimStatus(is_open=False)]
     with (
@@ -4183,15 +4265,36 @@ async def test_claimed_subscription_dispatch_ignores_duplicate_occurrences() -> 
 
     with (
         patch("temporalio.workflow.start_child_workflow", new_callable=AsyncMock) as start_child,
+        patch(
+            "temporalio.workflow.now",
+            return_value=datetime(2026, 9, 9, 8, 25, 30, tzinfo=ZoneInfo("UTC")),
+        ),
         patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as execute_activity,
         patch("temporalio.workflow.logger.info"),
         patch("temporalio.workflow.logger.warning"),
-        patch("products.exports.backend.temporal.subscriptions.workflows._record_subscription_dispatch_outcome"),
+        patch(
+            "products.exports.backend.temporal.subscriptions.workflows._record_subscription_dispatch_outcome"
+        ) as record_dispatch_outcome,
     ):
         await _start_claimed_subscription_children([subscription, subscription], "eu")
 
     start_child.assert_awaited_once()
+    child_inputs = start_child.await_args.args[1]
+    assert (
+        child_inputs.scheduler_claim_lease_expires_at
+        == (
+            datetime(2026, 9, 9, 8, 25, 30, tzinfo=ZoneInfo("UTC"))
+            + SUBSCRIPTION_WORKFLOW_EXECUTION_TIMEOUT
+            + SUBSCRIPTION_CLAIM_LEASE_SAFETY_MARGIN
+        ).isoformat()
+    )
+    assert start_child.await_args.kwargs["execution_timeout"] == SUBSCRIPTION_WORKFLOW_EXECUTION_TIMEOUT
     execute_activity.assert_not_awaited()
+    assert record_dispatch_outcome.call_args_list == [
+        mock.call("eu", "accepted", 1),
+        mock.call("eu", "already_running", 0),
+        mock.call("eu", "failed", 0),
+    ]
 
 
 async def test_claimed_subscription_pages_rotate_across_tenants_with_unequal_due_times(team, user):
