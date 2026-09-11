@@ -615,7 +615,7 @@ export interface playerInspectorLogicActions {
     startScrub: () => {
         value: true
     } // sessionRecordingPlayerLogic
-    loadMatchingEvents: () => any
+    loadMatchingEvents: (_: void) => void
     loadMatchingEventsFailure: (
         error: string,
         errorObject?: any
@@ -625,10 +625,10 @@ export interface playerInspectorLogicActions {
     }
     loadMatchingEventsSuccess: (
         matchingEvents: MatchedRecordingEvent[] | null,
-        payload?: any
+        payload?: void
     ) => {
         matchingEvents: MatchedRecordingEvent[] | null
-        payload?: any
+        payload?: void
     }
     markSkippedToFirstMatchingEvent: () => {
         value: true
@@ -974,6 +974,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         matchingEventsSettled: [
             false,
             {
+                loadMatchingEvents: () => false,
                 loadMatchingEventsSuccess: () => true,
                 loadMatchingEventsFailure: () => true,
             },
@@ -983,7 +984,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         matchingEvents: [
             [] as MatchedRecordingEvent[] | null,
             {
-                loadMatchingEvents: async () => {
+                loadMatchingEvents: async (_: void, breakpoint) => {
                     const matchingEventsMatchType = props.matchingEventsMatchType
                     const matchType = matchingEventsMatchType?.matchType
                     if (!matchingEventsMatchType || matchType === 'none' || matchType === 'name') {
@@ -1008,6 +1009,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
 
                     const response = await api.recordings.getMatchingEvents(toParams(params))
+                    // kea-loaders still dispatches success for a superseded call. Drop this response
+                    // when a newer load started while it was in flight, so that it cannot overwrite
+                    // the newer events or settle the skip on the previous filters' events.
+                    breakpoint()
                     return response.results
                 },
             },

@@ -554,6 +554,57 @@ describe('playerInspectorLogic', () => {
             playerLogic.unmount()
         })
 
+        it('waits for matching events that reload while the experiment context loads', async () => {
+            let releaseContext: () => void = () => {}
+            const contextGate = new Promise<void>((resolve) => (releaseContext = resolve))
+            useExperimentContextMock('exposure-reload', '2023-05-01T14:46:26.000Z', contextGate)
+            let releaseMatchingEvents: () => void = () => {}
+            const matchingEventsGate = new Promise<void>((resolve) => (releaseMatchingEvents = resolve))
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/session_recordings/matching_events': async () => {
+                        await matchingEventsGate
+                        return [200, { results: [{ uuid: 'current-event', timestamp: '2023-05-01T14:46:29.000Z' }] }]
+                    },
+                },
+            })
+
+            const props: PlayerInspectorLogicProps = {
+                sessionRecordingId: 'exposure-reload',
+                playerKey: 'exposure-reload',
+                exposureSkipExperimentId: EXPERIMENT_ID,
+                matchingEventsMatchType: {
+                    matchType: 'uuid',
+                    matchedEvents: [{ uuid: 'previous-event', timestamp: '2023-05-01T14:46:23.000Z' }],
+                },
+            }
+            const { playerLogic, inspectorLogic } = mount(props)
+            await expectLogic(inspectorLogic).toDispatchActions([
+                'setSkipToFirstMatchingEvent',
+                'trySkipToFirstMatchingEvent',
+            ])
+
+            // What propsChanged receives when the playlist filters change under the recording
+            playerInspectorLogic({
+                ...props,
+                matchingEventsMatchType: { matchType: 'backend', filters: DEFAULT_RECORDING_FILTERS },
+            })
+            await expectLogic(inspectorLogic).toDispatchActions(['loadMatchingEvents'])
+
+            releaseContext()
+            await expectLogic(inspectorLogic).toDispatchActions([
+                'loadExperimentContextSuccess',
+                'trySkipToFirstMatchingEvent',
+            ])
+            await expectLogic(playerLogic).toNotHaveDispatchedActions(['seekToTime'])
+
+            releaseMatchingEvents()
+            await expectLogic(playerLogic).toDispatchActions([playerLogic.actionCreators.seekToTime(5000)])
+
+            inspectorLogic.unmount()
+            playerLogic.unmount()
+        })
+
         it('ignores exposures when the player is not opened from an experiment list', async () => {
             // The replay page, notebooks and the other embeds must keep starting at the beginning.
             let releaseContext: () => void = () => {}
