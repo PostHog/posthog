@@ -5301,8 +5301,15 @@ const api = {
              * across the entire resume chain). Used to bootstrap the sandbox stream before
              * opening SSE.
              */
-            async getLogEntries(taskId: Task['id'], runId: TaskRun['id']): Promise<Record<string, any>[]> {
-                const response = await new ApiRequest().taskRun(taskId, runId).withAction('logs').getResponse()
+            async getLogEntries(
+                taskId: Task['id'],
+                runId: TaskRun['id'],
+                signal?: AbortSignal
+            ): Promise<Record<string, any>[]> {
+                const response = await new ApiRequest()
+                    .taskRun(taskId, runId)
+                    .withAction('logs')
+                    .getResponse({ signal })
                 const text = await response.text()
                 const entries: Record<string, any>[] = []
                 for (const line of text.split('\n')) {
