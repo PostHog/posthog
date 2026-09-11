@@ -2900,6 +2900,8 @@ export interface TrendsFilterApi {
     showMovingAverage?: boolean | null
     showMultipleYAxes?: boolean | null
     showPercentStackView?: boolean | null
+    /** Whether a breakdown series' label carries the series name as well as the breakdown value, for example "Signups: Chrome". Has no effect when the query defines one series, because the prefix is then the same on every breakdown value. */
+    showSeriesNameWithBreakdown?: boolean | null
     showTrendLines?: boolean | null
     showValuesOnSeries?: boolean | null
     smoothingIntervals?: number | null
@@ -4064,6 +4066,8 @@ export interface StickinessFilterApi {
     resultCustomizations?: StickinessFilterApiResultCustomizations
     showLegend?: boolean | null
     showMultipleYAxes?: boolean | null
+    /** Whether a breakdown series' label carries the series name as well as the breakdown value. */
+    showSeriesNameWithBreakdown?: boolean | null
     showValuesOnSeries?: boolean | null
     stickinessCriteria?: StickinessCriteriaApi | null
 }
