@@ -215,7 +215,7 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   credential channel: the sandbox holds the GitHub token and a PostHog personal API key, the git remote carries the
   token inline, and nothing inspected the body before it posted (the reply had the same gap on master). The posted
   body is now scrubbed of credential shapes last (`tools/redaction.py`: PostHog secret prefixes `phx_`/`phs_`/
-  `pha_`/`phr_`, GitHub `gh?_`/`github_pat_` tokens, `x-access-token` clone URLs; `phc_` project tokens are public
+  `pha_`/`phr_` and the per-run `phe_` AI gateway token, GitHub `gh?_`/`github_pat_` tokens, `x-access-token` clone URLs; `phc_` project tokens are public
   and stay), with a warning logged, and the prompt asks for a summary rather than raw command output. The review
   stage runs the same scrub over the review body and every inline finding comment (`_post_github_review`), since
   its sandboxes hold the same tokens. Comparing against live token values was ruled out as overengineering: the
