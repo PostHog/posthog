@@ -304,7 +304,7 @@ async fn resolve_issue(
 
     // Insert the fingerprint override
     let issue_override = IssueFingerprintOverride::create_or_load(
-        &mut *txn,
+        &mut txn,
         team_id,
         &fingerprint,
         &issue,
