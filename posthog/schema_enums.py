@@ -1245,6 +1245,11 @@ class UrlMatching(Enum):
     NONE_TYPE_NONE = None
 
 
+class TimeRange(StrEnum):
+    BOUNDED = "bounded"
+    OPEN = "open"
+
+
 class MultipleVariantHandling(StrEnum):
     EXCLUDE = "exclude"
     FIRST_SEEN = "first_seen"

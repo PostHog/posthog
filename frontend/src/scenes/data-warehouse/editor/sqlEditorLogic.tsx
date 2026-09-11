@@ -69,6 +69,7 @@ import {
     HogQLMetadataResponse,
     HogQLQuery,
     NodeKind,
+    PredicateIndexVerdict,
 } from '~/queries/schema/schema-general'
 import {
     AccessControlResourceType,
@@ -116,6 +117,7 @@ import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { Response } from './fixSQLErrorsLogic'
 import { IncrementalConfigFields } from './IncrementalConfigFields'
 import { findInnermostSelectAtOffset } from './multiQueryUtils'
+import { LARGE_SCAN_ROWS } from './output-pane-tabs/queryScanSummary'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { resolveSaveCandidates as resolveSaveCandidatesPure, SaveTargetCycler } from './SaveTargetCycler'
 import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
@@ -1797,6 +1799,22 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE] ? values.activeTab?.biEditorState : undefined
 
         return {
+            setMetadata: ({ metadata }) => {
+                const estimate = metadata?.events_scan_estimate
+                if (!estimate) {
+                    return
+                }
+                // pinned: analytics event name, the cost planner's adoption insight reads it
+                posthog.capture('sql editor scan estimate shown', {
+                    estimated_rows: estimate.rows,
+                    estimated_days: estimate.days,
+                    time_range: estimate.time_range,
+                    large_scan: estimate.rows >= LARGE_SCAN_ROWS,
+                    filters_reading_every_row: (metadata?.index_usage ?? []).filter(
+                        (predicate) => predicate.verdict !== PredicateIndexVerdict.Indexed
+                    ).length,
+                })
+            },
             fixErrorsSuccess: ({ response }) => {
                 actions.setSuggestedQueryInput(response.query, 'hogql_fixer')
 

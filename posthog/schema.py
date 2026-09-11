@@ -282,6 +282,7 @@ from posthog.schema_enums import (
     TextMatching as TextMatching,
     Theme as Theme,
     TikTokAdsDefaultSources as TikTokAdsDefaultSources,
+    TimeRange as TimeRange,
     TimeUnitType as TimeUnitType,
     TimeWindowMode as TimeWindowMode,
     TraceOrderColumn as TraceOrderColumn,
@@ -5154,6 +5155,24 @@ class EventsHeatMapStructuredResult(BaseModel):
     rowAggregations: list[EventsHeatMapRowAggregationResult]
 
 
+class EventsScanEstimate(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    days: float = Field(..., description="Length of the timestamp range the estimate covers, in days.")
+    events: list[str] = Field(
+        ...,
+        description=("Event names the estimate was narrowed to. Empty when the query reads every event."),
+    )
+    rows: int
+    time_range: TimeRange = Field(
+        ...,
+        description=(
+            "`bounded` when both ends of the timestamp range were understood, `open` when a default range was assumed."
+        ),
+    )
+
+
 class ExperimentApiEventSource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6663,6 +6682,13 @@ class QueryResponseAlternative9(BaseModel):
     )
     ch_table_names: list[str] | None = None
     errors: list[HogQLNotice]
+    events_scan_estimate: EventsScanEstimate | None = Field(
+        default=None,
+        description=(
+            "Present only for a select that reads the events table alone; absent for"
+            " joins, other tables, or a team with no data."
+        ),
+    )
     index_usage: list[PredicateIndexUsage] | None = Field(
         default=None, description="One entry per property filter, in query order."
     )
@@ -17557,6 +17583,13 @@ class HogQLMetadataResponse(BaseModel):
     )
     ch_table_names: list[str] | None = None
     errors: list[HogQLNotice]
+    events_scan_estimate: EventsScanEstimate | None = Field(
+        default=None,
+        description=(
+            "Present only for a select that reads the events table alone; absent for"
+            " joins, other tables, or a team with no data."
+        ),
+    )
     index_usage: list[PredicateIndexUsage] | None = Field(
         default=None, description="One entry per property filter, in query order."
     )

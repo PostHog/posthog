@@ -23964,6 +23964,33 @@
             "required": ["columns", "hogql", "results", "types"],
             "type": "object"
         },
+        "EventsScanEstimate": {
+            "additionalProperties": false,
+            "description": "How many events a query is expected to read, estimated before it runs.",
+            "properties": {
+                "days": {
+                    "description": "Length of the timestamp range the estimate covers, in days.",
+                    "type": "number"
+                },
+                "events": {
+                    "description": "Event names the estimate was narrowed to. Empty when the query reads every event.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "rows": {
+                    "$ref": "#/definitions/integer"
+                },
+                "time_range": {
+                    "description": "`bounded` when both ends of the timestamp range were understood, `open` when a default range was assumed.",
+                    "enum": ["bounded", "open"],
+                    "type": "string"
+                }
+            },
+            "required": ["rows", "days", "events", "time_range"],
+            "type": "object"
+        },
         "ExperimentActorsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -29551,6 +29578,10 @@
                         "$ref": "#/definitions/HogQLNotice"
                     },
                     "type": "array"
+                },
+                "events_scan_estimate": {
+                    "$ref": "#/definitions/EventsScanEstimate",
+                    "description": "Present only for a select that reads the events table alone; absent for joins, other tables, or a team with no data."
                 },
                 "index_usage": {
                     "description": "One entry per property filter, in query order.",
@@ -41187,6 +41218,10 @@
                                 "$ref": "#/definitions/HogQLNotice"
                             },
                             "type": "array"
+                        },
+                        "events_scan_estimate": {
+                            "$ref": "#/definitions/EventsScanEstimate",
+                            "description": "Present only for a select that reads the events table alone; absent for joins, other tables, or a team with no data."
                         },
                         "index_usage": {
                             "description": "One entry per property filter, in query order.",
