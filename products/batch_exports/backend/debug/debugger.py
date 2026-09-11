@@ -16,6 +16,7 @@ import pyarrow.fs as fs
 import pyarrow.ipc as ipc
 from rich.console import Console
 
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.integration import DatabricksIntegration
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
@@ -49,6 +50,7 @@ from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
+    native_events_export_query,
 )
 from products.batch_exports.backend.temporal.sql.persons import SELECT_FROM_PERSONS, SELECT_FROM_PERSONS_BACKFILL
 
@@ -469,10 +471,12 @@ class BatchExportsDebugger:
 
             query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
 
-            if filters_str:
-                filters_str = f"AND {filters_str}"
-
-            query = query_template.safe_substitute(fields=query_fields, filters=filters_str, order="")
+            if use_new_events_schema(team_id):
+                query = native_events_export_query(query_fields, filters_str, is_backfill=is_backfill)
+            else:
+                if filters_str:
+                    filters_str = f"AND {filters_str}"
+                query = query_template.safe_substitute(fields=query_fields, filters=filters_str, order="")
 
         parameters = {**parameters, **extra_query_parameters}
 

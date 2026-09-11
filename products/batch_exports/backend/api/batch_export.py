@@ -5,7 +5,7 @@ import datetime as dt
 import dataclasses
 import collections.abc
 from dataclasses import dataclass
-from typing import Any, TypedDict, cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.db import models, transaction
@@ -19,14 +19,14 @@ from rest_framework import filters, mixins, request, response, serializers, stat
 from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import CursorPagination
 
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsOnEventsMode
 
 from posthog.hogql import ast, errors
-from posthog.hogql.escape_sql import escape_clickhouse_identifier
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
-from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.printer import prepare_ast_for_printing
+from posthog.hogql.resolver import resolve_types
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -51,6 +51,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
 
 from products.batch_exports.backend.api.destination_tests import get_destination_test
+from products.batch_exports.backend.hogql_source import serialize_batch_export_query
 from products.batch_exports.backend.models.batch_export import (
     BATCH_EXPORT_INTERVALS,
     S3_FAMILY_TYPES,
@@ -1021,38 +1022,23 @@ class HogQLSelectQueryField(serializers.Field):
             raise serializers.ValidationError("Failed to parse query")
 
         try:
-            prepared_select_query: ast.SelectQuery = cast(
-                ast.SelectQuery,
-                prepare_ast_for_printing(
-                    parsed_query,
-                    context=HogQLContext(
-                        team_id=self.context["team_id"],
-                        user=self.context["request"].user,
-                        enable_select_queries=True,
-                        # Stored export fragments run against legacy String-properties views.
-                        use_new_events_schema=False,
-                        modifiers=HogQLQueryModifiers(
-                            personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
-                        ),
-                    ),
-                    dialect="clickhouse",
+            context = HogQLContext(
+                team_id=self.context["team_id"],
+                user=self.context["request"].user,
+                enable_select_queries=True,
+                modifiers=HogQLQueryModifiers(
+                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
                 ),
             )
+            prepared_select_query = cast(
+                ast.SelectQuery,
+                prepare_ast_for_printing(parsed_query, context=context, dialect="hogql"),
+            )
+            resolve_types(clone_expr(parsed_query, clear_types=True), context=context, dialect="clickhouse")
         except errors.ExposedHogQLError as e:
             raise serializers.ValidationError(f"Invalid HogQL query: {e}")
 
         return prepared_select_query
-
-
-class BatchExportsField(TypedDict):
-    expression: str
-    alias: str
-
-
-class BatchExportsSchema(TypedDict):
-    fields: list[BatchExportsField]
-    values: dict[str, Any]
-    hogql_query: str
 
 
 class _SubqueryFinder(TraversingVisitor):
@@ -1655,64 +1641,19 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
     def serialize_hogql_query_to_batch_export_schema(self, hogql_query: ast.SelectQuery) -> BatchExportSchema:
         """Return a batch export schema from a HogQL query ast."""
+        context = HogQLContext(
+            team_id=self.context["team_id"],
+            enable_select_queries=True,
+            limit_top_select=False,
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+                materializationMode=MaterializationMode.DISABLED,
+            ),
+        )
         try:
-            # Print the query in ClickHouse dialect to catch unresolved field errors, and discard the result
-            context = HogQLContext(
-                team_id=self.context["team_id"],
-                enable_select_queries=True,
-                use_new_events_schema=False,
-                limit_top_select=False,
-                modifiers=HogQLQueryModifiers(
-                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
-                ),
-            )
-            print_prepared_ast(hogql_query, context=context, dialect="clickhouse")
-
-            # Recreate the context
-            context = HogQLContext(
-                team_id=self.context["team_id"],
-                enable_select_queries=True,
-                use_new_events_schema=False,
-                limit_top_select=False,
-            )
-            batch_export_schema: BatchExportsSchema = {
-                "fields": [],
-                "values": {},
-                "hogql_query": print_prepared_ast(hogql_query, context=context, dialect="hogql"),
-            }
+            return serialize_batch_export_query(hogql_query, context)
         except errors.ExposedHogQLError:
             raise serializers.ValidationError("Unsupported HogQL query")
-
-        for field in hogql_query.select:
-            if isinstance(field, ast.Alias):
-                expression = print_prepared_ast(
-                    field.expr,
-                    context=context,
-                    dialect="clickhouse",
-                )
-                alias = escape_clickhouse_identifier(field.alias)
-            else:
-                expression = print_prepared_ast(
-                    field,
-                    context=context,
-                    dialect="clickhouse",
-                )
-                # String constants get parameterized by the ClickHouse printer (e.g., 'hello' becomes
-                # %(hogql_val_0)s), which escape_clickhouse_identifier rejects. Use the raw value instead.
-                if isinstance(field, ast.Constant) and isinstance(field.value, str):
-                    alias = escape_clickhouse_identifier(field.value)
-                else:
-                    alias = escape_clickhouse_identifier(expression)
-
-            batch_export_field: BatchExportsField = {
-                "expression": expression,
-                "alias": alias,
-            }
-            batch_export_schema["fields"].append(batch_export_field)
-
-        batch_export_schema["values"] = context.values
-
-        return batch_export_schema
 
     def validate_hogql_query(self, hogql_query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
         """Validate a HogQL query being used for events batch exports.

@@ -11,6 +11,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
@@ -216,7 +217,9 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
             filters_str = ""
             extra_query_parameters = None
 
+        use_native_schema = await database_sync_to_async(use_new_events_schema)(inputs.team_id)
         record_iterator = iter_records(
+            use_new_events_schema=use_native_schema,
             client=client,
             team_id=inputs.team_id,
             interval_start=interval_start,
