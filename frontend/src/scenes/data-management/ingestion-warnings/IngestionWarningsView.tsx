@@ -41,7 +41,7 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     schema_validation_failed: 'Event rejected due to schema validation failure',
     invalid_heatmap_data: 'Invalid heatmap data',
     invalid_group_set: 'Discarded a $groupidentify event whose $group_set is not an object',
-    cookieless_team_disabled: 'Discarded a cookieless event because cookieless tracking is disabled for this project',
+    cookieless_team_disabled: 'Discarded cookieless event because cookieless tracking is disabled',
     // Emitted by the capture service when it drops events at validation time
     missing_event_name: 'Discarded event with no event name',
     event_name_too_long: 'Discarded event whose name exceeds the length limit',
@@ -87,6 +87,7 @@ export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
     set_on_exception: 'invalid-set-operations-on-exception-events',
     invalid_heatmap_data: 'invalid-heatmap-data',
     high_volume_distinct_id: 'skipped-person-profile-processing-for-a-high-volume-distinct-id',
+    cookieless_team_disabled: 'discarded-cookieless-event-because-cookieless-tracking-is-disabled',
 }
 
 export const WARNING_TYPE_RENDERER = {
