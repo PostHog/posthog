@@ -18,6 +18,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AccessControlResourceType, DataModelingJob, LogEntryLevel } from '~/types'
 
+import { MaterializationRunErrorCell } from 'products/data_warehouse/frontend/shared/components/MaterializationRunErrorCell'
+
 import { IncrementalConfigOptions } from '../editor/IncrementalConfigFields'
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { materializationJobsLogic } from './materializationJobsLogic'
@@ -207,8 +209,12 @@ export function MaterializationStatusPanel({
             <div className="flex flex-col flex-1 gap-4">
                 <div>
                     <div className="flex flex-row items-center gap-2">
-                        {!hideTitle && <h3 className="mb-0">Materialization</h3>}
-                        <LemonTag type="warning">BETA</LemonTag>
+                        {!hideTitle && (
+                            <>
+                                <h3 className="mb-0">Materialization</h3>
+                                <LemonTag type="warning">BETA</LemonTag>
+                            </>
+                        )}
                         {savedQuery?.latest_error && savedQuery.status === 'Failed' && (
                             <Tooltip title={savedQuery.latest_error} interactive>
                                 <LemonTag type="danger">Error</LemonTag>
@@ -382,7 +388,7 @@ export function MaterializationStatusPanel({
                                         )}
                                     </div>
                                 </div>
-                                {incrementalFlagOn && !savedQuery.managed_viewset_kind && (
+                                {incrementalFlagOn && !savedQuery.managed_viewset_kind && incrementalCheck && (
                                     <div className="mt-4 max-w-160">
                                         <h4 className="mb-0">Refresh mode</h4>
                                         <IncrementalConfigOptions
@@ -522,7 +528,7 @@ export function MaterializationStatusPanel({
                             title: 'Status',
                             dataIndex: 'status',
                             render: (_, job: DataModelingJob) => {
-                                const { status, error, rows_materialized, rows_expected } = job
+                                const { status, rows_materialized, rows_expected } = job
                                 const statusToType: Record<string, LemonTagType> = {
                                     Completed: 'success',
                                     Failed: 'danger',
@@ -553,14 +559,7 @@ export function MaterializationStatusPanel({
                                     )
                                 }
 
-                                const statusTag =
-                                    error && status !== 'Completed' ? (
-                                        <Tooltip title={error} interactive>
-                                            <LemonTag type={type}>{status}</LemonTag>
-                                        </Tooltip>
-                                    ) : (
-                                        <LemonTag type={type}>{status}</LemonTag>
-                                    )
+                                const statusTag = <LemonTag type={type}>{status}</LemonTag>
                                 return (
                                     <div className="flex items-center gap-1">
                                         {statusTag}
@@ -572,6 +571,13 @@ export function MaterializationStatusPanel({
                                     </div>
                                 )
                             },
+                        },
+                        {
+                            title: 'Error',
+                            dataIndex: 'error',
+                            render: (_, { error, status }: DataModelingJob) => (
+                                <MaterializationRunErrorCell error={error} status={status} />
+                            ),
                         },
                         {
                             title: 'Rows',

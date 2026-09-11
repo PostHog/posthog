@@ -9,8 +9,6 @@ import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { roundToDecimal } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { retentionGraphLogic } from 'scenes/retention/retentionGraphLogic'
-import { retentionModalLogic } from 'scenes/retention/retentionModalLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import type { GoalLine } from '~/queries/schema/schema-general'
@@ -19,6 +17,8 @@ import type { GroupTypeIndex, LabelGroupType } from '~/types'
 import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
+import { retentionGraphLogic } from '../retentionGraphLogic'
+import { retentionModalLogic } from '../retentionModalLogic'
 import {
     buildRetentionLineChartConfig,
     buildRetentionSeries,
@@ -63,6 +63,7 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
         labelGroupType,
         shouldShowMeanPerBreakdown,
         showTrendLines,
+        timezone,
         xAxisLabels,
         getRetentionColor,
     } = useValues(retentionGraphLogic(insightProps))
@@ -162,10 +163,13 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
                 showTrendLines,
                 series,
                 tooltip: INSIGHT_TOOLTIP_CONFIG,
+                isIntervalView,
+                period,
+                timezone,
             }),
             curve: chartStyleCurve(retentionFilter?.chartStyle),
         }),
-        [isPercentage, goalLines, showTrendLines, series, retentionFilter?.chartStyle]
+        [isPercentage, goalLines, showTrendLines, series, isIntervalView, period, timezone, retentionFilter?.chartStyle]
     )
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {

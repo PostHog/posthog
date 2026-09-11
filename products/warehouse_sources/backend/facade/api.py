@@ -13,10 +13,13 @@ don't drag heavy imports onto the ``django.setup()`` path.
 
 Write paths (create/update of sources, schemas, tables, jobs) remain inside
 ``products/data_warehouse`` for now — a legacy-leak swept in Phase 2 — so this
-first facade serves the read consumers and the framework-free helpers.
+first facade serves the read consumers and the framework-free helpers. The one
+exception is ``soft_delete_tables``: consumers may not iterate the model to call
+``soft_delete()`` themselves, so the facade does it for them.
 """
 
 from collections.abc import Collection
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db.models import Prefetch, QuerySet
@@ -58,6 +61,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 from . import contracts
 
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+
 __all__ = [
     # capability functions
     "get_source",
@@ -70,6 +76,8 @@ __all__ = [
     "get_table",
     "get_queryable_table",
     "resolve_object_by_name",
+    "direct_access_table_ids",
+    "allowed_table_ids",
     "list_tables_for_source",
     "list_jobs_for_source",
     "list_column_statistics",
@@ -356,21 +364,90 @@ def resolve_object_by_name(team_id: int, name: str) -> contracts.WarehouseObject
     return contracts.WarehouseObjectRef(kind=kind, id=resolved.id)
 
 
-def queryable_table_names(team_id: int, table_ids: Collection[UUID]) -> dict[UUID, str]:
-    """The current name of each table that is still queryable. One query; anything gone is absent.
-
-    The bulk form of ``get_queryable_table`` for a caller that only needs names, so authorizing a
-    page of stored table references costs one query rather than one per reference.
-    """
-    if not table_ids:
-        return {}
-    rows = _DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id, id__in=list(table_ids))
+def all_queryable_table_names(team_id: int) -> dict[UUID, str]:
+    """The current name of every table in this team that is still queryable. One query."""
+    rows = _DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id)
     return dict(rows.values_list("id", "name"))
+
+
+def direct_access_table_ids(team_id: int) -> set[UUID]:
+    """The queryable tables belonging to direct-access sources in this team. One query."""
+    rows = (
+        _DataWarehouseTable.raw_objects.queryable()
+        .filter(team_id=team_id, external_data_source__access_method=_ExternalDataSource.AccessMethod.DIRECT)
+        .values_list("id", flat=True)
+    )
+    return set(rows)
+
+
+def allowed_table_ids(
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    *,
+    required_level: "AccessControlLevel" = "viewer",
+    ids: Collection[UUID] | None = None,
+) -> frozenset[UUID]:
+    """The queryable tables this caller may reach at ``required_level``.
+
+    ``ids`` narrows the objects loaded before their access controls are read, so a caller asking
+    about one table does not pay for the whole warehouse. ``None`` asks about every table; an empty
+    collection asks about none.
+    """
+    if ids is not None and not ids:
+        return frozenset()
+    if ids is None:
+        return user_access_control.allowed_object_ids(
+            "warehouse_table",
+            team_id,
+            required_level,
+            lambda: _resolve_allowed_table_ids(team_id, user_access_control, required_level, None),
+        )
+    return _resolve_allowed_table_ids(team_id, user_access_control, required_level, ids)
+
+
+def _resolve_allowed_table_ids(
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    required_level: "AccessControlLevel",
+    ids: Collection[UUID] | None,
+) -> frozenset[UUID]:
+    candidates = _DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id)
+    if ids is not None:
+        candidates = candidates.filter(id__in=ids)
+    tables = list(
+        candidates.select_related("external_data_source").only(
+            "id", "created_by_id", "external_data_source_id", "external_data_source__id"
+        )
+    )
+    sources = {
+        table.external_data_source_id: table.external_data_source
+        for table in tables
+        if table.external_data_source is not None
+    }
+    user_access_control.preload_object_access_controls([*tables, *sources.values()])
+    return frozenset(
+        table.id for table in tables if user_access_control.check_access_level_for_object(table, required_level)
+    )
 
 
 def list_tables_for_source(source_id: UUID, team_id: int) -> list[contracts.DataWarehouseTable]:
     qs = _DataWarehouseTable.objects.filter(team_id=team_id, external_data_source_id=source_id).exclude(deleted=True)
     return [_to_table(t) for t in qs]
+
+
+def soft_delete_tables(team_id: int, names: Collection[str]) -> int:
+    """Soft-delete the team's tables with these names and return how many were deleted.
+
+    Goes through ``DataWarehouseTable.soft_delete`` so the joins that reference a table
+    are retired with it, instead of leaving a dangling join behind a hidden table.
+    Already-deleted tables are skipped, so calling this twice is safe.
+    """
+    tables = _DataWarehouseTable.objects.filter(team_id=team_id, name__in=names).exclude(deleted=True)
+    deleted = 0
+    for table in tables:
+        table.soft_delete()
+        deleted += 1
+    return deleted
 
 
 def list_jobs_for_source(source_id: UUID, team_id: int) -> list[contracts.ExternalDataJob]:

@@ -118,6 +118,11 @@ class TestCheckSuiteActivities(BaseTest):
         assert suite_run.subject_type == SubjectType.TABLE
         assert suite_run.subject_uuid == table_id
 
+    def test_mixed_metric_and_view_suite_has_no_single_subject(self) -> None:
+        prepared = self._prepare(metric_ids=[str(uuid4())])
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).get(id=prepared.suite_run_id)
+        assert suite.subject_uuid is None
+
     def test_an_unflagged_org_prepares_an_empty_suite(self) -> None:
         self._check()
 
@@ -207,6 +212,25 @@ class TestCheckSuiteActivities(BaseTest):
         assert (result.checks_passed, result.checks_failed, result.checks_errored) == (5, 1, 1)
         assert result.checks_failed_blocking == 1
         assert result.status == SuiteRunStatus.COMPLETED
+
+    def test_finalize_retry_preserves_counters_adjusted_after_completion(self) -> None:
+        prepared = self._prepare()
+        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).get(id=prepared.suite_run_id)
+        suite_run.status = SuiteRunStatus.COMPLETED
+        suite_run.checks_failed = 1
+        suite_run.save(update_fields=["status", "checks_failed", "updated_at"])
+
+        result = _finalize(
+            FinalizeCheckSuiteInputs(
+                team_id=self.team.id,
+                suite_run_id=prepared.suite_run_id,
+                outcomes=[BatchOutcome(failed=2, failed_blocking=2)],
+            )
+        )
+
+        suite_run.refresh_from_db()
+        assert result.checks_failed == 1
+        assert suite_run.checks_failed == 1
 
 
 class TestRunCheckSuiteWorkflow(BaseTest):

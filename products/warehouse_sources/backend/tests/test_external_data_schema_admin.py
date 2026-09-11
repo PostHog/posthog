@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 _ADMIN_MODULE = "products.warehouse_sources.backend.admin.external_data_schema_admin"
+_SHARED_MODULE = "products.warehouse_sources.backend.ad_hoc_sync"
 
 
 class TestExternalDataSchemaAdmin(BaseTest):
@@ -65,8 +66,8 @@ class TestExternalDataSchemaAdmin(BaseTest):
 
         with (
             patch(f"{_ADMIN_MODULE}.sync_connect"),
-            patch(f"{_ADMIN_MODULE}._is_schedule_paused", return_value=True),
-            patch(f"{_ADMIN_MODULE}._start_external_data_workflow") as mock_start,
+            patch(f"{_SHARED_MODULE}.is_schedule_paused", return_value=True),
+            patch(f"{_SHARED_MODULE}.start_external_data_workflow") as mock_start,
         ):
             response = self.admin.trigger_sync_view(self._request("post", {"reset_pipeline": "on"}), schema.id)
 

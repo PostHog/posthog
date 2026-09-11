@@ -108,10 +108,13 @@ def create_hog_flow_scheduled_invocation(
     team_id: int, hog_flow_id: str, variables: dict[str, object]
 ) -> requests.Response:
     logger.info(f"Creating scheduled hog flow invocation for hog flow {hog_flow_id} on workers")
+    # Same rationale as get_hog_flow_in_flight_count below: a stalled CDP connection must not pin
+    # the calling request thread indefinitely.
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/scheduled_invocations",
         json={"variables": variables},
         headers=get_internal_api_headers(),
+        timeout=10,
     )
 
 

@@ -10,6 +10,7 @@ from django.test import TestCase, override_settings
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
+from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -121,6 +122,94 @@ class TestRelaySlackMessage(TestCase):
         self.task_run.refresh_from_db()
         assert relay_id in self.task_run.state.get("slack_sent_relay_ids", [])
 
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message", autospec=True)
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_relay_hands_the_reply_the_turns_trace_id(self, _mock_delete_progress, mock_post):
+        # The posted reply is the only place the turn's trace id survives.
+        trace_id = "f960aead-b2af-4ee0-b0eb-630109a1b2a0"
+
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id), relay_id="relay-trace", text="Done.", trace_id=trace_id
+            )
+        )
+
+        assert mock_post.call_args.args[0].turn_trace_id == trace_id
+
+    _RICH_ANSWER = "## Heading\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n- [ ] todo"
+
+    @parameterized.expand(
+        [
+            ("mrkdwn", False, "*Heading*\n\n```\na  b\n1  2\n```\n\n\u2022 \u2610 todo"),
+            ("markdown", True, _RICH_ANSWER),
+        ]
+    )
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_the_gate_decides_whether_the_answer_is_converted(
+        self, _name, markdown, expected, mock_delete_progress, mock_post
+    ):
+        # The conversion exists to survive Slack's own mrkdwn, and it costs the answer its
+        # headings, its tables, and its task lists. A markdown block renders all three, so
+        # running the conversion under the gate would throw away what the gate is for.
+        with patch(
+            "products.slack_app.backend.slack_thread.SlackThreadHandler.renders_markdown", return_value=markdown
+        ):
+            relay_slack_message(
+                RelaySlackMessageInput(
+                    run_id=str(self.task_run.id),
+                    relay_id=f"relay-conversion-{markdown}",
+                    text=self._RICH_ANSWER,
+                )
+            )
+
+        assert mock_post.call_args.args[0].endswith(expected)
+
+    @parameterized.expand(
+        [
+            # The converter turns the heading into inline bold, which survives an inline mention.
+            ("mrkdwn_heading", False, "## Heading\n\nBody text.", "<@U123> *Heading*"),
+            ("markdown_heading", True, "## Heading\n\nBody text.", "<@U123>\n\n## Heading"),
+            ("markdown_prose", True, "Done. Your model is set.", "<@U123> Done."),
+        ]
+    )
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_the_mention_leaves_the_answers_opening_line_only_where_markdown_needs_it(
+        self, _name, markdown, text, expected_opening, mock_delete_progress, mock_post
+    ):
+        # Markdown reads a heading only at the start of a line, so a mention glued to the front of
+        # that answer renders the `##` as literal text. An answer that opens with prose has no such
+        # constraint, and reads as one message with the mention in its first line.
+        with patch(
+            "products.slack_app.backend.slack_thread.SlackThreadHandler.renders_markdown", return_value=markdown
+        ):
+            relay_slack_message(
+                RelaySlackMessageInput(
+                    run_id=str(self.task_run.id),
+                    relay_id=f"relay-mention-{_name}",
+                    text=text,
+                )
+            )
+
+        assert mock_post.call_args.args[0].startswith(expected_opening)
+
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_the_mention_comes_out_of_the_chunk_budget(self, mock_delete_progress, mock_post):
+        # The mention is added after splitting, so without a reserved allowance the chunk it
+        # lands on exceeds the block cap and posts as plain text, showing the Markdown source.
+        with patch("products.slack_app.backend.slack_thread.SlackThreadHandler.renders_markdown", return_value=True):
+            relay_slack_message(
+                RelaySlackMessageInput(
+                    run_id=str(self.task_run.id),
+                    relay_id="relay-mention-budget",
+                    text="word " * 4000,  # 20,000 chars, so the first chunk fills the block
+                )
+            )
+
+        assert all(len(call.args[0]) <= SLACK_MARKDOWN_TEXT_MAX_LEN for call in mock_post.call_args_list)
+
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
     def test_relay_does_not_post_when_claim_write_fails(self, mock_delete_progress, mock_post):
@@ -221,17 +310,10 @@ class TestRelaySlackMessage(TestCase):
         assert "user_activity_report.pdf" in posted
         assert "no file was attached to Slack for this run" in posted
 
-    @patch("products.slack_app.backend.feature_flags.is_slack_app_living_artifacts_enabled", return_value=True)
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
-    def test_run_manifest_artifacts_never_surface_in_slack(
-        self,
-        _mock_delete_progress,
-        mock_post,
-        _mock_update,
-        _mock_flag,
-    ):
+    def test_run_manifest_artifacts_never_surface_in_slack(self, _mock_delete_progress, mock_post, _mock_update):
         # Run-manifest artifacts are internal (inputs, context, raw agent outputs).
         # Even with living artifacts enabled they must not leak into the posted text,
         # and their presence must not suppress the unconfirmed-attachment notice.
@@ -315,11 +397,6 @@ class TestRelaySlackMessage(TestCase):
         mock_integration_for_mapping.return_value = slack_integration
         return slack
 
-    @patch(
-        "products.tasks.backend.logic.services.living_artifacts._living_artifacts_enabled_for_mapping",
-        return_value=True,
-    )
-    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
     @patch("products.tasks.backend.logic.services.living_artifacts.object_storage.read_bytes")
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
@@ -334,8 +411,6 @@ class TestRelaySlackMessage(TestCase):
         mock_integration_for_mapping,
         mock_read_bytes,
         mock_requests_post,
-        _mock_canvas_file_flag,
-        _mock_living_artifacts_flag,
     ):
         artifact, storage_path = self._create_pending_slack_file_artifact(
             name="report.xlsx",
@@ -371,11 +446,6 @@ class TestRelaySlackMessage(TestCase):
         self.assertEqual(artifact.versions[0]["delivery_status"], "delivered")
         self.assertEqual(artifact.versions[0]["slack_file_id"], "F123")
 
-    @patch(
-        "products.tasks.backend.logic.services.living_artifacts._living_artifacts_enabled_for_mapping",
-        return_value=True,
-    )
-    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
     @patch("products.tasks.backend.logic.services.living_artifacts.object_storage.read_bytes")
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
@@ -396,8 +466,6 @@ class TestRelaySlackMessage(TestCase):
         mock_integration_for_mapping,
         mock_read_bytes,
         _mock_requests_post,
-        _mock_flag,
-        _mock_living_artifacts_flag,
     ):
         # posthog_url must be SITE_URL-origin, or it is treated as untrusted caller metadata
         # and no button is added.
@@ -467,11 +535,6 @@ class TestRelaySlackMessage(TestCase):
         self.assertNotIn("slack_file_id", artifact.versions[0])
         self.assertEqual(artifact.versions[0]["delivery_status"], "delivered")
 
-    @patch(
-        "products.tasks.backend.logic.services.living_artifacts._living_artifacts_enabled_for_mapping",
-        return_value=True,
-    )
-    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
     @patch("products.tasks.backend.logic.services.living_artifacts.object_storage.read_bytes")
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
@@ -487,8 +550,6 @@ class TestRelaySlackMessage(TestCase):
         mock_integration_for_mapping,
         mock_read_bytes,
         _mock_requests_post,
-        _mock_flag,
-        _mock_living_artifacts_flag,
     ):
         artifact, _storage_path = self._create_pending_slack_file_artifact(
             name="Signups by week",
@@ -524,11 +585,6 @@ class TestRelaySlackMessage(TestCase):
         self.assertEqual(artifact.versions[0]["delivery_status"], "delivered")
         self.assertEqual(artifact.versions[0]["slack_file_id"], "F123")
 
-    @patch(
-        "products.tasks.backend.logic.services.living_artifacts._living_artifacts_enabled_for_mapping",
-        return_value=True,
-    )
-    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
     @patch("products.tasks.backend.logic.services.living_artifacts.object_storage.read_bytes")
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
@@ -543,8 +599,6 @@ class TestRelaySlackMessage(TestCase):
         mock_integration_for_mapping,
         mock_read_bytes,
         _mock_requests_post,
-        _mock_flag,
-        _mock_living_artifacts_flag,
     ):
         artifact, _storage_path = self._create_pending_slack_file_artifact(
             name="Signups by week",
@@ -571,7 +625,7 @@ class TestRelaySlackMessage(TestCase):
         artifact.refresh_from_db()
         self.assertEqual(artifact.versions[0]["delivery_status"], "pending")
         self.assertEqual(artifact.location["delivery_status"], "pending")
-        mock_post.assert_called_once_with("<@U123> Here's the trend.", with_footer=True)
+        mock_post.assert_called_once_with("<@U123> Here's the trend.", with_footer=True, markdown=False)
 
 
 class TestMarkdownToSlackMrkdwn(unittest.TestCase):
@@ -1025,5 +1079,5 @@ class TestRelaySlackMessageChunking(TestCase):
             )
         )
 
-        mock_post.assert_called_once_with("<@U456> Here you go.", with_footer=True)
+        mock_post.assert_called_once_with("<@U456> Here you go.", with_footer=True, markdown=False)
         mock_post_footer.assert_not_called()

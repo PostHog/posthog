@@ -6,10 +6,14 @@ pub mod merge_gc;
 pub mod merge_path;
 pub mod person_seed_path;
 pub mod reconcile;
+pub mod seed_apply;
 pub mod seed_path;
+pub mod seed_run;
 pub mod stage2_gc;
 pub mod stage2_path;
+pub mod stage2_person_inputs;
 pub mod sweep_callback;
+pub mod sweep_path;
 pub mod worker;
 
 pub use event_path::{

@@ -21,7 +21,7 @@ use tower::{Layer, Service};
 // ============================================================
 
 /// Header name for client identification in gRPC metadata.
-const CLIENT_NAME_HEADER: &str = "x-client-name";
+pub const CLIENT_NAME_HEADER: &str = "x-client-name";
 
 /// Metadata key marking a FAILED_PRECONDITION as a definitive semantic
 /// refusal rather than a routing-race rejection. The router bounces and
@@ -61,6 +61,19 @@ pub fn semantic_refusal_reason(status: &tonic::Status) -> Option<&str> {
         .metadata()
         .get(SEMANTIC_REFUSAL_METADATA_KEY)
         .and_then(|v| v.to_str().ok())
+}
+
+/// The refusal reason as a metric label: bounded and character-safe, so a
+/// misbehaving peer cannot mint unbounded label cardinality or break the
+/// metric encoding. Falls back to "unknown".
+pub fn refusal_reason_label(status: &tonic::Status) -> &str {
+    semantic_refusal_reason(status)
+        .filter(|r| {
+            r.len() <= 64
+                && r.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+        })
+        .unwrap_or("unknown")
 }
 
 /// Header name for caller-tag attribution in gRPC metadata.

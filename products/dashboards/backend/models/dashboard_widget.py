@@ -12,7 +12,7 @@ class DashboardWidget(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     description = models.TextField(blank=True)
     config = models.JSONField(default=dict)
 
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     last_modified_at = models.DateTimeField(default=timezone.now)
     last_modified_by = models.ForeignKey(
         "posthog.User",
@@ -22,7 +22,7 @@ class DashboardWidget(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         related_name="modified_dashboard_widgets",
     )
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     all_teams = models.Manager()  # noqa: DJ012
 

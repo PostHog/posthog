@@ -1,6 +1,7 @@
 """Contract-shaped reads of saved queries for consumers outside this product."""
 
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.conf import settings
@@ -8,6 +9,10 @@ from django.conf import settings
 from ..facade.contracts import SavedQuerySummary
 from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from ..models.node import Node
+from .saved_query_freshness import saved_query_materialized_at
+
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 
 
 def _clickhouse_type(entry: object) -> str | None:
@@ -51,26 +56,77 @@ def get_saved_query_summary(team_id: int, saved_query_id: UUID | str) -> SavedQu
         id=str(saved_query.id),
         team_id=saved_query.team_id,
         name=saved_query.name,
-        last_run_at=saved_query.last_run_at,
+        last_run_at=saved_query_materialized_at(saved_query),
     )
 
 
-def saved_query_names(team_id: int, saved_query_ids: Iterable[UUID | str]) -> dict[str, str]:
-    """The current name of each saved query that still resolves. One query; anything gone is absent.
-
-    The bulk form of ``get_saved_query_summary`` for a caller that only needs names, so authorizing
-    a page of stored references costs one query rather than one per reference. Soft-deleted rows are
-    excluded for the same reason: ``soft_delete`` rewrites ``name`` to a tombstone.
-    """
-    ids = [str(saved_query_id) for saved_query_id in saved_query_ids]
-    if not ids:
-        return {}
-    rows = (
-        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id__in=ids)
-        .exclude(deleted=True)
-        .values_list("id", "name")
-    )
+def all_saved_query_names(team_id: int) -> dict[str, str]:
+    """The current name of every saved query in this team that still resolves. One query."""
+    rows = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True).values_list("id", "name")
     return {str(saved_query_id): name for saved_query_id, name in rows}
+
+
+def allowed_saved_query_ids(
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    *,
+    required_level: "AccessControlLevel" = "viewer",
+    ids: Collection[UUID] | None = None,
+) -> frozenset[UUID]:
+    """The saved queries this caller may reach at ``required_level``.
+
+    ``ids`` narrows the objects loaded before their access controls are read, so a caller asking
+    about one view does not pay for the whole project. ``None`` asks about every view; an empty
+    collection asks about none.
+    """
+    if ids is not None and not ids:
+        return frozenset()
+    if ids is None:
+        return user_access_control.allowed_object_ids(
+            "warehouse_view",
+            team_id,
+            required_level,
+            lambda: _resolve_allowed_saved_query_ids(team_id, user_access_control, required_level, None),
+        )
+    return _resolve_allowed_saved_query_ids(team_id, user_access_control, required_level, ids)
+
+
+def _resolve_allowed_saved_query_ids(
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    required_level: "AccessControlLevel",
+    ids: Collection[UUID] | None,
+) -> frozenset[UUID]:
+    candidates = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True)
+    if ids is not None:
+        candidates = candidates.filter(id__in=ids)
+    saved_queries = list(candidates.only("id", "created_by_id"))
+    user_access_control.preload_object_access_controls(list(saved_queries))
+    return frozenset(
+        saved_query.id
+        for saved_query in saved_queries
+        if user_access_control.check_access_level_for_object(saved_query, required_level)
+    )
+
+
+def backing_table_ids_by_saved_query(team_id: int) -> dict[UUID, UUID]:
+    """Private backing table ids mapped to their saved query ids. One query.
+
+    Includes soft-deleted saved queries because deleting a view leaves its backing table behind.
+    The URL predicate deliberately matches the HogQL catalog's private-backing-table exclusion.
+    """
+    saved_queries = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, table__isnull=False)
+        .select_related("table")
+        .only("id", "team_id", "table_id", "table__url_pattern")
+    )
+    return {
+        saved_query.table_id: saved_query.id
+        for saved_query in saved_queries
+        if saved_query.table_id is not None
+        and saved_query.table is not None
+        and saved_query.folder_path in saved_query.table.url_pattern
+    }
 
 
 def get_materialized_table_uri(team_id: int, saved_query_id: UUID | str) -> str | None:

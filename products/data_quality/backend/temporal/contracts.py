@@ -24,6 +24,7 @@ class RunCheckSuiteInputs:
     trigger: SuiteRunTrigger
     saved_query_ids: list[str] = dataclasses.field(default_factory=list)
     table_ids: list[str] = dataclasses.field(default_factory=list)
+    metric_ids: list[str] = dataclasses.field(default_factory=list)
     check_ids: list[str] = dataclasses.field(default_factory=list)
     node_ids: list[str] = dataclasses.field(default_factory=list)
     suite_run_id: str | None = None
@@ -81,6 +82,7 @@ class MarkSuiteFailedInputs:
 @frozen
 class CleanupOutcome:
     compiled_queries_cleared: int = 0
+    checks_deleted: int = 0
     check_runs_deleted: int = 0
     suite_runs_deleted: int = 0
     stale_suites_failed: int = 0

@@ -13,6 +13,7 @@ import { KafkaConsumerV2, KafkaConsumerV2Config, RdKafkaConsumerOverrides } from
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { logger } from '~/common/utils/logger'
+import { TopHog } from '~/ingestion/framework/tophog/tophog'
 import { SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
 import {
     ConfigurationPolicyService,
@@ -30,9 +31,11 @@ import {
 import { HttpImageFetcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
 import { OriginRequestScheduler } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/origin-request-scheduler'
 import { assertUrlPolicyLoaded } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/politeness-key'
+import { ImageFetchTopHogMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/tophog-metrics'
 import { UrlFetchConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-fetch-consumer'
 import { createWebBotAuthRequestSigner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/web-bot-auth'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
+import { createOutputsRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/registry'
 import { INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 import { HealthCheckResultOk } from '~/types'
 
@@ -51,6 +54,7 @@ import {
  */
 const STORE_BATCH_BUDGET_MS = 50_000
 const IMAGE_FETCH_KAFKA_QUEUE_BUDGET_KBYTES = 102_400
+const IMAGE_FETCH_MIN_CONSUMER_QUEUE_KBYTES = 25_600
 
 /** Matches MAX_URL_LEN in the crate, which is what the collector applied to the first candidate. */
 const MAX_REDIRECT_URL_LENGTH = 2048
@@ -94,7 +98,8 @@ export function buildFrontierPublisher(
 
 export function buildFetchRunner(
     config: IngestionSessionReplayMlMirrorServerConfig,
-    publisher: FrontierPublisher
+    publisher: FrontierPublisher,
+    topHogMetrics: ImageFetchTopHogMetrics
 ): FetchRunner {
     const webBotAuthSigner = createWebBotAuthRequestSigner(config.WEB_BOT_AUTH_PRIVATE_KEYS)
     const budget = new HostBudget({
@@ -107,7 +112,11 @@ export function buildFetchRunner(
         maxTrackedRegistrableDomains: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_REGISTRABLE_DOMAINS,
         maxTrackedOrigins: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_ORIGINS,
     })
-    const scheduler = new OriginRequestScheduler(budget, config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS)
+    const scheduler = new OriginRequestScheduler(
+        budget,
+        config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS,
+        topHogMetrics
+    )
     const configurationPolicy = new ConfigurationPolicyService(
         new HttpConfigurationFetcher(
             webBotAuthSigner,
@@ -138,7 +147,8 @@ export function buildFetchRunner(
             maxRedirects: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_REDIRECTS,
             seenTtlSeconds: config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS,
         },
-        publisher
+        publisher,
+        topHogMetrics
     )
 }
 
@@ -165,21 +175,24 @@ export function buildImageFetchConsumerOverrides(
     return {
         'fetch.message.max.bytes': maximumRecordBytes,
         'max.partition.fetch.bytes': maximumRecordBytes,
-        'queued.max.messages.kbytes': Math.floor(IMAGE_FETCH_KAFKA_QUEUE_BUDGET_KBYTES / consumerCount),
+        'queued.max.messages.kbytes': Math.max(
+            IMAGE_FETCH_MIN_CONSUMER_QUEUE_KBYTES,
+            Math.floor(IMAGE_FETCH_KAFKA_QUEUE_BUDGET_KBYTES / consumerCount)
+        ),
     }
 }
 
 /**
  * The image fetch lane.
  *
- * It has its own deployment because it waits on network IO and wants many small pods, where the
- * scrub sidecar it feeds uses CPU and ML models and wants few large ones.
+ * It scales separately because fetching waits on network IO while scrubbing needs CPU and ML models.
  */
 export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
     private config: IngestionSessionReplayMlMirrorServerConfig
     private crawlHistoryClient?: DynamoDBClient
     private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
+    private topHog?: TopHog
 
     constructor(config: Partial<IngestionSessionReplayMlMirrorServerConfig> = {}) {
         this.config = buildMlMirrorServerConfig(config)
@@ -233,6 +246,14 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
         // Built even in dry run, so the wiring is exercised by every start rather than only by the
         // one that clears the flag.
         this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+        const outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
+        this.topHog = new TopHog({
+            outputs,
+            pipeline: this.config.INGESTION_PIPELINE ?? 'unknown',
+            lane: this.config.INGESTION_LANE ?? 'unknown',
+        })
+        this.topHog.start()
+        const topHogMetrics = new ImageFetchTopHogMetrics(this.topHog)
         const producer = this.producerRegistry.getProducer(INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER)
         const publisher = buildFrontierPublisher(
             producer,
@@ -250,8 +271,9 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
                 seenTtlSeconds: this.config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS,
                 dryRun,
             },
-            buildFetchRunner(this.config, publisher),
-            deadLetters
+            buildFetchRunner(this.config, publisher, topHogMetrics),
+            deadLetters,
+            topHogMetrics
         )
         logger.info('🌐', 'ml_image_fetch_started', { dryRun })
 
@@ -290,7 +312,11 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
             redisPools: [],
             additionalCleanup: async () => {
                 this.crawlHistoryClient?.destroy()
-                await this.producerRegistry?.disconnectAll()
+                try {
+                    await this.topHog?.stop()
+                } finally {
+                    await this.producerRegistry?.disconnectAll()
+                }
             },
         }
     }

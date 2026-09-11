@@ -1,7 +1,22 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+
+vi.mock("mermaid", () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn(async () => ({
+      svg: '<svg data-testid="mermaid-svg"></svg>',
+    })),
+  },
+}));
+
+vi.mock("@posthog/ui/shell/themeStore", () => ({
+  useThemeStore: (selector: (state: { isDarkMode: boolean }) => unknown) =>
+    selector({ isDarkMode: false }),
+}));
 
 const queryClient = new QueryClient();
 function renderStatic(node: ReactNode) {
@@ -44,9 +59,23 @@ vi.mock("@posthog/ui/features/pr-review/usePrChecks", () => ({
   usePrChecks: () => ({ data: [], isLoading: false }),
 }));
 
+vi.mock("@posthog/ui/features/sidebar/useCwd", () => ({
+  useCwd: () => "/repo",
+}));
+
+import { SessionTaskIdProvider } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { ChatMarkdown, ChatStreamingMarkdown } from "./ChatMarkdown";
 
+const MERMAID_FENCE = "```mermaid\ngraph TD; A-->B\n```";
+
 describe("ChatMarkdown", () => {
+  it("renders mermaid fences as diagrams", async () => {
+    render(<ChatMarkdown content={MERMAID_FENCE} />);
+
+    expect(await screen.findByTestId("mermaid-svg")).toBeInTheDocument();
+    expect(screen.queryByText("graph TD; A-->B")).toBeNull();
+  });
+
   it("preserves ordered-list numbering across intervening prose", () => {
     const content = `1. First review comment
 
@@ -79,7 +108,8 @@ Verdict: valid.
       <ChatMarkdown content="Review https://github.com/PostHog/posthog/pull/23985" />,
     );
 
-    expect(html).toContain("PostHog/posthog#23985");
+    expect(html).toContain(">PostHog/posthog</span>");
+    expect(html).toContain(">#23985</span>");
     expect(html).toContain('aria-label="Open"');
     expect(html).toContain(
       'data-github-ref-url="https://github.com/PostHog/posthog/pull/23985"',
@@ -91,7 +121,8 @@ Verdict: valid.
       "https://github.com/PostHog/posthog/pull/86811/changes#r3832262653";
     const html = renderStatic(<ChatMarkdown content={href} />);
 
-    expect(html).toContain("Comment on PR #86811");
+    expect(html).toContain(">Comment on PR </span>");
+    expect(html).toContain(">#86811</span>");
     expect(html).toContain(`data-github-ref-url="${href}"`);
   });
 });
@@ -165,5 +196,18 @@ describe("ChatStreamingMarkdown", () => {
 
     expect(html).toContain('href="https://example.com/report"');
     expect(html).toContain("the report");
+  });
+});
+
+describe("ChatMarkdown file links", () => {
+  it("shows the filename but carries the whole path in its text", () => {
+    render(
+      <SessionTaskIdProvider taskId="task-1">
+        <ChatMarkdown content="See `src/utils/helpers.ts:12` for the fix." />
+      </SessionTaskIdProvider>,
+    );
+
+    const link = screen.getByText("helpers.ts:12");
+    expect(link).toHaveTextContent("src/utils/helpers.ts:12");
   });
 });
