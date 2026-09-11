@@ -136,6 +136,46 @@ class TestResolveScoutModel:
         resolved = _resolve_full(payload=_scouts({_SKILL: {GLM_MODEL: {"fraction": 1, key: bad_value}}}))
         assert resolved == ScoutModel(model=GLM_MODEL, runtime_adapter="codex")
 
+    def test_label_resolves_to_its_named_model(self) -> None:
+        # The key is a label once the entry names a model. Everything downstream must read the
+        # model id — the label routes nothing, and inferring a runtime from it would say `codex`
+        # for a claude model.
+        resolved = _resolve_full(payload=_scouts({_SKILL: {"opus-arm": {"model": "claude-opus-4-8", "fraction": 1}}}))
+        assert resolved == ScoutModel(model="claude-opus-4-8", runtime_adapter="claude")
+
+    @parameterized.expand(
+        [
+            # A labelled entry with no usable model id names nothing to route, and the label is no
+            # fallback — drop it like a malformed fraction rather than running the label as a model.
+            ("empty", ""),
+            ("non_string", 5),
+            ("null", None),
+            ("list", ["gpt-5.5"]),
+        ]
+    )
+    def test_malformed_model_drops_the_entry(self, _name: str, bad_model: object) -> None:
+        resolved = _resolve_full(payload=_scouts({_SKILL: {"sol-flex": {"model": bad_model, "fraction": 1}}}))
+        assert resolved == ScoutModel(model=None, runtime_adapter=None)
+
+    def test_two_labels_for_one_model_are_two_slices(self) -> None:
+        # The reason labels exist: JSON drops duplicate keys, so a same-model flex-vs-standard
+        # comparison needs two labelled entries. Both must resolve to the model with their own tier.
+        payload = _scouts(
+            {
+                _SKILL: {
+                    "gpt-flex": {"model": _GPT, "fraction": 0.5, "service_tier": "flex"},
+                    "gpt-standard": {"model": _GPT, "fraction": 0.5},
+                }
+            }
+        )
+        tiers: dict[str | None, int] = {}
+        for i in range(400):
+            resolved = _resolve_full(run_id=f"run-{i}", payload=payload)
+            assert resolved.model == _GPT
+            assert resolved.runtime_adapter == "codex"
+            tiers[resolved.service_tier] = tiers.get(resolved.service_tier, 0) + 1
+        assert set(tiers) == {"flex", None}
+
     def test_remainder_carries_no_pins_even_when_it_names_a_sliced_model(self) -> None:
         # The flex trial's shape: a 5% slice of a model on flex, the remainder the same model on the
         # standard queue. Recovering the spec by model id would put the whole fleet on flex and read
