@@ -425,12 +425,21 @@ class TestApprovalPolicyViewSet(APIBaseTest):
             approver_config={"quorum": 1, "users": [self.user.id]},
             created_by=self.user,
         )
+        mirror = ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="experiment.launch",
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
 
         response = self.client.get(f"/api/environments/{self.team.id}/approval_policies/")
 
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["id"] == str(policy.id)
+        mirror_response = self.client.get(f"/api/environments/{self.team.id}/approval_policies/{mirror.id}/")
+        assert mirror_response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_create_policy(self):
         response = self.client.post(
@@ -549,6 +558,25 @@ class TestApprovalPolicyViewSet(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "already exists" in response.json()["detail"]
+
+    def test_create_experiment_policy_is_rejected(self):
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="experiment.launch",
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/approval_policies/",
+            {"action_key": "experiment.launch", "approver_config": {"quorum": 1, "users": [self.user.id]}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "action_key"
+        assert response.json()["detail"] == "This approval action isn't available yet."
 
     @parameterized.expand(
         [
