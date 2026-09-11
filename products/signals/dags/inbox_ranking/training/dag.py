@@ -773,7 +773,6 @@ inbox_ranking_training_job = dagster.define_asset_job(
         UNSEEN_SCORES_TABLE,
         "inbox_ranking_unseen_graded",
     ],
-    partitions_def=partition_def,
     tags={
         **owner_tags,
         "dagster/max_runtime": str(2 * 60 * 60),
