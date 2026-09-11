@@ -38,6 +38,7 @@ function setValues(
         pendingPermissionRequest: PermissionRequestRecord | null
         respondingToPermission: boolean
         bootstrapLoading: boolean
+        runOpening: boolean
         threadItems: unknown[]
         task: { origin_product: string; runtime?: TaskRuntimeEnumApi } | null
     }>
@@ -45,6 +46,7 @@ function setValues(
     ;(useValues as jest.Mock).mockReturnValue({
         bootstrapLoading: false,
         threadItems: [],
+        hasThreadItems: !!overrides.threadItems?.length,
         pendingPermissionRequest: null,
         respondingToPermission: false,
         currentRunStatus: 'in_progress',
@@ -76,7 +78,21 @@ function renderLiveWithComposer(statusOrOverrides: RunStatus | null | Parameters
 function DraftComposer(): JSX.Element {
     const [saved, setSaved] = useState('')
     const draft = useDebouncedDraft(saved, setSaved)
-    return <textarea data-attr="draft" value={draft.value} onChange={(event) => draft.onChange(event.target.value)} />
+    return (
+        <>
+            <textarea data-attr="draft" value={draft.value} onChange={(event) => draft.onChange(event.target.value)} />
+            <button
+                onClick={() =>
+                    draft.submit(() => {
+                        setSaved('')
+                        return ''
+                    })
+                }
+            >
+                Send draft
+            </button>
+        </>
+    )
 }
 
 describe('RunSurface', () => {
@@ -121,6 +137,20 @@ describe('RunSurface', () => {
     })
 
     describe('Composer slot', () => {
+        it('clears a draft sent before its debounce commits', () => {
+            jest.useFakeTimers()
+            try {
+                render(<DraftComposer />)
+                fireEvent.change(screen.getByTestId('draft'), { target: { value: 'Continue' } })
+                fireEvent.click(screen.getByText('Send draft'))
+                expect(screen.getByTestId('draft')).toHaveValue('')
+                act(() => jest.runOnlyPendingTimers())
+                expect(screen.getByTestId('draft')).toHaveValue('')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it.each<RunStatus>(['queued', 'in_progress'])(
             'renders the composer children for an active run (%s)',
             (status) => {
@@ -138,9 +168,9 @@ describe('RunSurface', () => {
             }
         )
 
-        it('hides the composer during the null bootstrap window', () => {
-            renderLiveWithComposer(null)
-            expect(screen.queryByTestId('composer')).not.toBeInTheDocument()
+        it.each([false, true])('shows the pending composer only for an optimistic start: %s', (runOpening) => {
+            renderLiveWithComposer({ currentRunStatus: null, runOpening })
+            expect(!!screen.queryByTestId('composer')).toBe(runOpening)
             // The thread still renders while bootstrapping.
             expect(screen.getByTestId('thread')).toBeInTheDocument()
         })
@@ -249,26 +279,32 @@ describe('RunSurface', () => {
     })
 
     describe('Thread slot', () => {
-        it('shows the run-log skeleton while bootstrapping with no thread items yet', () => {
-            setValues({ bootstrapLoading: true, threadItems: [] })
-            render(
-                <RunSurface.Root taskId="task-1" runId="run-1" interaction="read-only">
-                    <RunSurface.Thread />
-                </RunSurface.Root>
-            )
-            expect(screen.getByTestId('run-log-skeleton')).toBeInTheDocument()
-            expect(screen.queryByTestId('thread')).not.toBeInTheDocument()
-        })
+        it.each([null, { origin_product: 'user_created' }])(
+            'shows the run-log skeleton with no thread items and task=%j',
+            (task) => {
+                setValues({ bootstrapLoading: true, threadItems: [], task })
+                render(
+                    <RunSurface.Root taskId="task-1" runId="run-1" interaction="read-only">
+                        <RunSurface.Thread />
+                    </RunSurface.Root>
+                )
+                expect(screen.getByTestId('run-log-skeleton')).toBeInTheDocument()
+                expect(screen.queryByTestId('thread')).not.toBeInTheDocument()
+            }
+        )
 
-        it('swaps the skeleton for the thread once items arrive', () => {
-            setValues({ bootstrapLoading: true, threadItems: [{ id: 'x' }] })
-            render(
-                <RunSurface.Root taskId="task-1" runId="run-1" interaction="read-only">
-                    <RunSurface.Thread />
-                </RunSurface.Root>
-            )
-            expect(screen.getByTestId('thread')).toBeInTheDocument()
-            expect(screen.queryByTestId('run-log-skeleton')).not.toBeInTheDocument()
-        })
+        it.each([null, { origin_product: 'user_created' }])(
+            'keeps a populated thread visible while bootstrapping with task=%j',
+            (task) => {
+                setValues({ bootstrapLoading: true, threadItems: [{ id: 'x' }], task })
+                render(
+                    <RunSurface.Root taskId="task-1" runId="run-1" interaction="read-only">
+                        <RunSurface.Thread />
+                    </RunSurface.Root>
+                )
+                expect(screen.getByTestId('thread')).toBeInTheDocument()
+                expect(screen.queryByTestId('run-log-skeleton')).not.toBeInTheDocument()
+            }
+        )
     })
 })

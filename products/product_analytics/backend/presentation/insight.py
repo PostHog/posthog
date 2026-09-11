@@ -722,12 +722,22 @@ class InsightSerializer(InsightBasicSerializer):
                 "Send a query object instead. See https://posthog.com/docs/api/insights"
             )
 
-        if self.instance is None and query in (None, {}):
-            raise ValidationError(
-                {
-                    "query": "Creating an insight needs a query. See https://posthog.com/docs/api/insights",
-                }
-            )
+        if query in (None, {}):
+            if self.instance is None:
+                raise ValidationError(
+                    {
+                        "query": "Creating an insight needs a query. See https://posthog.com/docs/api/insights",
+                    }
+                )
+            if "query" in attrs:
+                # Writing the empty query would erase the stored definition, and nothing renders
+                # an insight without one, so the write is refused instead.
+                raise ValidationError(
+                    {
+                        "query": "An insight needs a query. To keep the stored one, leave query out of the "
+                        "request. See https://posthog.com/docs/api/insights",
+                    }
+                )
 
         validate_insight_write(
             query=query,

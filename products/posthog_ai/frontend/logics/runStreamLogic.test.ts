@@ -10,10 +10,16 @@ import { projectLogic } from 'scenes/projectLogic'
 import { initKeaTests } from '~/test/init'
 
 import { tasksRunsCommandCreate, tasksRunsStreamTokenRetrieve } from 'products/tasks/frontend/generated/api'
+import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import { lookupToolRenderer, toolRegistry } from '../components/tool/toolRegistry'
+import { extractQueryResult } from '../components/tool/widgets/extractors'
+import { defaultPermissionDecision } from '../policy/toolPolicy'
 import type { AttachedContextItem } from '../types/contextTypes'
+import { TaskRunEnvironment, TaskRunStatus } from '../types/taskTypes'
 import type { PermissionRequestFrame, StoredLogEntry } from '../types/wireTypes'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
+import { resolveToolCall } from '../utils/toolResolver'
 import { computeTurnTrailers } from '../utils/turnTrailers'
 import { attachedContextLogic } from './attachedContextLogic'
 import {
@@ -242,7 +248,66 @@ describe('runStreamLogic', () => {
             })
             expect(result.threadItems.find((item) => item.id === 'missing-start')?.startedAt).toBeUndefined()
         })
+        it.each([
+            ['Claude', 'live'],
+            ['Claude', 'history'],
+            ['Codex', 'live'],
+            ['Codex', 'history'],
+        ])('routes %s %s ACP results to the query widget', async (agent, source) => {
+            const query = { kind: 'TrendsQuery', series: [] }
+            const rawOutput = {
+                content: [{ type: 'text', text: 'No matching events' }],
+                _meta: { 'com.posthog.mcp/app_data': { query, results: [] } },
+            }
+            const toolCall = {
+                sessionUpdate: 'tool_call',
+                toolCallId: 'query-1',
+                rawInput: { command: 'call query-trends {}' },
+                _meta:
+                    agent === 'Claude'
+                        ? { claudeCode: { toolName: 'mcp__posthog__exec' } }
+                        : { posthog: { toolName: 'mcp__posthog__exec', mcp: { server: 'posthog', tool: 'exec' } } },
+            }
+            const frames =
+                source === 'history'
+                    ? [sessionUpdate({ ...toolCall, status: 'completed', rawOutput })]
+                    : [
+                          sessionUpdate({ ...toolCall, status: 'in_progress' }),
+                          sessionUpdate({
+                              sessionUpdate: 'tool_call_update',
+                              toolCallId: 'query-1',
+                              status: 'completed',
+                              rawOutput,
+                          }),
+                      ]
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            const invocation = logic.values.toolInvocations.get('query-1')!
+            const resolved = resolveToolCall(invocation)
+            expect(lookupToolRenderer(resolved.resolvedKey, resolved.innerToolName != null).Renderer).toBe(
+                toolRegistry.lookup('query-trends')?.Renderer
+            )
+            expect(
+                extractQueryResult({
+                    ...resolved,
+                    id: invocation.toolCallId,
+                    rawServerName: invocation.rawServerName,
+                    rawToolName: invocation.rawToolName,
+                    rawInput: invocation.input,
+                    rawOutput: invocation.output,
+                    content: invocation.contentBlocks,
+                    status: invocation.status,
+                })?.content.query
+            ).toEqual(query)
+        })
+
         it('folds a stream of StoredLogEntry frames into thread items', async () => {
+            const rawOutput = {
+                content: [{ type: 'text', text: '1 row' }],
+                _meta: { 'com.posthog.mcp/app_data': { query: { kind: 'HogQLQuery', query: 'select 1' }, rows: 1 } },
+            }
             const frames: StoredLogEntry[] = [
                 notification('_posthog/run_started', {}),
                 sessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { text: 'Hel' } }),
@@ -260,7 +325,7 @@ describe('runStreamLogic', () => {
                     sessionUpdate: 'tool_call_update',
                     toolCallId: 't1',
                     status: 'completed',
-                    rawOutput: { rows: 1 },
+                    rawOutput,
                     content: [{ type: 'text', text: 'done' }],
                 }),
                 notification('_posthog/turn_complete', {}),
@@ -290,7 +355,7 @@ describe('runStreamLogic', () => {
             expect(invocation?.rawToolName).toEqual('exec')
             expect(invocation?.input).toEqual({ command: 'call execute-sql {"query":"select 1"}' })
             expect(invocation?.status).toEqual('completed')
-            expect(invocation?.output).toEqual({ rows: 1 })
+            expect(invocation?.output).toEqual(rawOutput)
             expect(invocation?.contentBlocks).toEqual([{ type: 'text', text: 'done' }])
 
             expect(logic.values.threadItems.some((item) => item.type === 'turn_separator')).toEqual(true)
@@ -498,6 +563,53 @@ describe('runStreamLogic', () => {
     })
 
     describe('assistant message buffering without messageId', () => {
+        it('keeps blank assistant chunks hidden until visible text arrives', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(sessionUpdate({ sessionUpdate: 'agent_message_chunk' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: ' \n' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toEqual([])
+            expect(logic.values.hasThreadItems).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'First answer' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toEqual([
+                expect.objectContaining({ type: 'assistant_message', text: ' \nFirst answer', complete: false }),
+            ])
+            expect(logic.values.hasThreadItems).toBe(true)
+        })
+
+        it.each(['live', 'replay'] as const)('hides blank finalized assistant messages during %s', async (source) => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(sessionUpdate({ sessionUpdate: 'agent_message' }), source)
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', content: { text: ' \n\t' } }),
+                    source
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toEqual([])
+            expect(logic.values.hasThreadItems).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'First answer' } }),
+                    source
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toEqual([
+                expect.objectContaining({ type: 'assistant_message', text: 'First answer', complete: true }),
+            ])
+        })
+
         it('keeps two consecutive turns without a messageId in separate thread items', async () => {
             const frames: StoredLogEntry[] = [
                 sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'One' } }),
@@ -1164,6 +1276,72 @@ describe('runStreamLogic', () => {
             expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toHaveLength(1)
         })
 
+        it.each([false, true])(
+            'displays a pending first message before logs arrive (readOnly=%s)',
+            async (readOnly) => {
+                const content = 'Compare weekly activity.'
+                runStreamLogic({ ...logic.props, replayOnly: readOnly })
+                jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+                jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({
+                    id: 'run-1',
+                    task: 'task-1',
+                    stage: null,
+                    branch: null,
+                    status: TaskRunStatus.QUEUED,
+                    environment: TaskRunEnvironment.CLOUD,
+                    error_message: null,
+                    output: null,
+                    artifacts: [],
+                    state: {
+                        pending_user_message: wrapWithPosthogContext(content, [
+                            { type: 'text', value: 'Hidden context' },
+                        ]),
+                        pending_user_message_id: 'pending-1',
+                    },
+                })
+                await expectLogic(logic, () =>
+                    logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+                ).toFinishAllListeners()
+                expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toEqual([
+                    { id: 'pending-run-1-pending-1', type: 'human_message', text: content, complete: true },
+                ])
+                expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+                await expectLogic(logic, () =>
+                    logic.actions.ingestAcpFrame(
+                        sessionUpdate({
+                            sessionUpdate: 'user_message_chunk',
+                            content: { type: 'text', text: content },
+                        }),
+                        readOnly ? 'replay' : 'live'
+                    )
+                ).toFinishAllListeners()
+                expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toEqual([
+                    { id: 'human-0', type: 'human_message', text: content, complete: true },
+                ])
+            }
+        )
+
+        it('keeps the selected run pending message even if its ancestor contains identical text', () => {
+            const text = 'Continue with the comparison.'
+            const ancestor = { ...notification('_posthog/user_message', { content: text }), source_run_id: 'ancestor' }
+            const selected = { ...notification('_posthog/user_message', { content: text }), source_run_id: 'run-1' }
+            const options = { isResumeRun: true, pendingMessage: { runId: 'run-1', id: 'pending-1', text } }
+            expect(
+                foldLogToThread([{ entry: ancestor, source: 'replay' }], options).threadItems.filter(
+                    (item) => item.type === 'human_message'
+                )
+            ).toHaveLength(2)
+            const items = foldLogToThread(
+                [
+                    { entry: ancestor, source: 'replay' },
+                    { entry: selected, source: 'replay' },
+                ],
+                options
+            ).threadItems.filter((item) => item.type === 'human_message')
+            expect(items).toHaveLength(2)
+            expect(items.every((item) => item.id.startsWith('human-'))).toBe(true)
+        })
+
         // The backend persists the human turn as a session/update `user_message_chunk`, not a
         // `_posthog/user_message` ext-notification — this is the frame a thread actually loads from logs.
         it('renders a persisted user_message_chunk session update on bootstrap replay', async () => {
@@ -1297,7 +1475,7 @@ describe('runStreamLogic', () => {
             )
         })
 
-        it('places replayed setup progress below the human turn it belongs to', async () => {
+        it('renders replayed setup progress below the human turn', async () => {
             const frames: StoredLogEntry[] = [
                 notification('_posthog/progress', {
                     sessionId: 's',
@@ -1719,6 +1897,18 @@ describe('runStreamLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
         })
 
+        it('clears the bootstrap spinner for a terminal run whose history renders no rows', async () => {
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'failed', state: {} } as any)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.hasThreadItems).toBe(false)
+            expect(logic.values.bootstrapLoading).toBe(false)
+        })
+
         it('stores bootstrap errors for inline task-run error UI', async () => {
             const error = mapHttpStatusToStreamError(404)
 
@@ -1830,6 +2020,184 @@ describe('runStreamLogic', () => {
     })
 
     describe('streamPhase provisioning during open', () => {
+        it.each(['completed', 'cancelled', 'failed'] as const)(
+            'keeps the thread optimistic when continuing a %s run',
+            async (status) => {
+                const nextRun: TaskRunDetailDTOApi = {
+                    id: 'run-2',
+                    task: 'task-1',
+                    stage: null,
+                    branch: null,
+                    status: TaskRunStatus.QUEUED,
+                    environment: TaskRunEnvironment.CLOUD,
+                    error_message: null,
+                    output: null,
+                    artifacts: [],
+                    state: { resume_from_run_id: 'run-1' },
+                }
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1', justCreatedRun: true })
+                const originalStream = MockStream.latest()
+                await originalStream.emitOpen()
+                await originalStream.emitMessage(notification('_posthog/run_started', { runId: 'run-1' }), '100-0')
+                await originalStream.emitMessage(notification('_posthog/user_message', { content: 'hello' }), '101-0')
+                await originalStream.emitMessage(
+                    sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Hi there' } }),
+                    '102-0'
+                )
+                if (status === 'completed') {
+                    await originalStream.emitMessage(notification('_posthog/turn_complete', {}), '103-0')
+                }
+                await originalStream.emitMessage({ type: 'task_run_state', status })
+                const previousItems = logic.values.threadItems
+
+                logic.actions.startOptimisticResume('continue')
+                expect(logic.values.threadItems.slice(0, previousItems.length)).toEqual(previousItems)
+                expect(logic.values.threadItems.at(-1)).toMatchObject({ type: 'human_message', text: 'continue' })
+                expect(logic.values.streamPhase).toBe('provisioning')
+
+                logic.actions.attachOptimisticResume('task-1', nextRun)
+                const resumedStream = MockStream.latest()
+                await resumedStream.emitOpen()
+                expect(resumedStream.options.lastEventId).toBeUndefined()
+                expect(resumedStream.options.startLatest).toBe(false)
+                expect(logic.values.bootstrappedRunId).toBe('run-2')
+                expect(logic.values.streamPhase).toBe('provisioning')
+                expect(logic.values.threadItems.slice(0, previousItems.length)).toEqual(previousItems)
+
+                await resumedStream.emitMessage(notification('_posthog/run_started', { runId: 'run-2' }))
+                await resumedStream.emitMessage(notification('_posthog/user_message', { content: 'continue' }))
+                expect(logic.values.streamPhase).toBe('thinking')
+                expect(logic.values.threadItems.filter((item) => item.text === 'continue')).toHaveLength(1)
+                await resumedStream.emitMessage(
+                    sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Continuing now' } })
+                )
+                await resumedStream.emitMessage(notification('_posthog/turn_complete', {}))
+                await resumedStream.emitMessage({ type: 'task_run_state', status: 'completed' })
+
+                logic.actions.startOptimisticResume('continue')
+                expect(logic.values.streamPhase).toBe('provisioning')
+                logic.actions.attachOptimisticResume('task-1', {
+                    ...nextRun,
+                    id: 'run-3',
+                    state: { resume_from_run_id: 'run-2' },
+                })
+                await MockStream.latest().emitOpen()
+                await MockStream.latest().emitMessage(notification('_posthog/user_message', { content: 'continue' }))
+                expect(logic.values.threadItems.filter((item) => item.text === 'continue')).toHaveLength(2)
+            }
+        )
+
+        it('rolls back only the pending message when a resume fails', () => {
+            logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'hello' }), 'replay')
+            logic.actions.markTurnComplete()
+            logic.actions.handleTerminalStatus({ status: 'completed', replayedFromHistory: true })
+            const previousItems = logic.values.threadItems
+            logic.actions.startOptimisticResume('continue')
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/console', { message: 'History finished loading', level: 'info' }),
+                'replay'
+            )
+            const entryCount = logic.values.log.entries.length
+            logic.actions.rollbackOptimisticResume()
+
+            expect(logic.values.log.entries).toHaveLength(entryCount - 1)
+            expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toEqual(previousItems)
+            expect(logic.values.streamPhase).toBe('idle')
+            expect(logic.values.turnComplete).toBe(true)
+            expect(logic.values.awaitingOptimisticAttach).toBe(false)
+        })
+
+        it.each([false, true])(
+            'reconciles incomplete history with a persisted successor message: %s',
+            async (persisted) => {
+                const run = {
+                    id: 'run-2',
+                    task: 'task-1',
+                    stage: null,
+                    branch: null,
+                    status: TaskRunStatus.QUEUED,
+                    environment: TaskRunEnvironment.CLOUD,
+                    error_message: null,
+                    output: null,
+                    artifacts: [],
+                    state: { resume_from_run_id: 'run-1' },
+                    runtime_adapter: null,
+                    model: null,
+                    reasoning_effort: null,
+                    log_url: null,
+                    created_at: '2026-01-01T00:00:00Z',
+                    updated_at: '2026-01-01T00:00:00Z',
+                    completed_at: null,
+                } satisfies TaskRunDetailDTOApi
+                const history = [
+                    notification('_posthog/run_started', { runId: 'run-1' }),
+                    notification('_posthog/user_message', { content: 'continue' }),
+                    sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Earlier answer' } }),
+                    ...(persisted
+                        ? [
+                              notification('_posthog/run_started', { runId: 'run-2' }),
+                              notification('_posthog/user_message', { content: 'continue' }),
+                          ]
+                        : []),
+                ]
+                jest.spyOn(api.tasks.runs, 'get').mockResolvedValue(run)
+                jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(history)
+                logic.actions.handleTerminalStatus({ status: 'completed', replayedFromHistory: true })
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+                logic.actions.startOptimisticResume('continue')
+                await expectLogic(logic, () =>
+                    logic.actions.attachOptimisticResume('task-1', run)
+                ).toFinishAllListeners()
+
+                expect(logic.values.threadItems.filter((item) => item.text === 'continue')).toHaveLength(2)
+                expect(logic.values.threadItems.some((item) => item.text === 'Earlier answer')).toBe(true)
+                expect(logic.values.streamPhase).toBe(persisted ? 'thinking' : 'provisioning')
+                // The reconciliation must not wipe the successor's seeded status — a null one hides the
+                // composer, and a live run publishes no further state frame until it terminates.
+                expect(logic.values.currentRunStatus).toBe('queued')
+                expect(logic.values.turnComplete).toBe(false)
+                expect(MockStream.latest().options.startLatest).toBe(true)
+                await MockStream.latest().emitOpen()
+                await MockStream.latest().emitMessage(notification('_posthog/user_message', { content: 'continue' }))
+                expect(logic.values.threadItems.filter((item) => item.text === 'continue')).toHaveLength(2)
+            }
+        )
+
+        it('stops provisioning when the incomplete-history successor is already terminal', async () => {
+            const run = {
+                id: 'run-2',
+                task: 'task-1',
+                stage: null,
+                branch: null,
+                status: TaskRunStatus.FAILED,
+                environment: TaskRunEnvironment.CLOUD,
+                error_message: 'Failed to start task workflow',
+                output: null,
+                artifacts: [],
+                state: { resume_from_run_id: 'run-1' },
+                runtime_adapter: null,
+                model: null,
+                reasoning_effort: null,
+                log_url: null,
+                created_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z',
+                completed_at: '2026-01-01T00:00:01Z',
+            } satisfies TaskRunDetailDTOApi
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue(run)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                notification('_posthog/run_started', { runId: 'run-1' }),
+                notification('_posthog/user_message', { content: 'continue' }),
+                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Earlier answer' } }),
+            ])
+            logic.actions.handleTerminalStatus({ status: 'completed', replayedFromHistory: true })
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            logic.actions.startOptimisticResume('continue')
+            await expectLogic(logic, () => logic.actions.attachOptimisticResume('task-1', run)).toFinishAllListeners()
+
+            expect(logic.values.runOpening).toEqual(false)
+            expect(logic.values.streamPhase).toEqual('idle')
+        })
+
         it('is provisioning while the open POST is in flight, before any SSE state exists', () => {
             expect(logic.values.streamPhase).toEqual('idle')
 
@@ -2471,13 +2839,13 @@ describe('runStreamLogic', () => {
                 logic.actions.ingestAcpFrame(
                     notification('_posthog/progress', {
                         sessionId: 's',
-                        step: 'clone',
+                        step: 'wizard',
                         status: 'in_progress',
-                        label: 'Cloning repository',
+                        label: 'Running PostHog setup wizard',
                         group: 'setup:run-1',
                     })
                 )
-            }).toMatchValues({ currentProgress: 'Cloning repository' })
+            }).toMatchValues({ currentProgress: 'Running PostHog setup wizard' })
 
             expect(logic.values.threadItems).toEqual([
                 {
@@ -2486,16 +2854,16 @@ describe('runStreamLogic', () => {
                     progressGroup: 'setup:run-1',
                     progressSteps: [
                         {
-                            key: 'clone',
+                            key: 'wizard',
                             status: 'in_progress',
-                            label: 'Cloning repository',
+                            label: 'Running PostHog setup wizard',
                         },
                     ],
                 },
             ])
         })
 
-        it('coalesces setup progress by group and updates repeated steps in place', async () => {
+        it('coalesces setup progress into one visible activity', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(
                     notification('_posthog/progress', {
@@ -2544,6 +2912,32 @@ describe('runStreamLogic', () => {
                         },
                     ],
                 },
+            ])
+
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/progress', {
+                    step: 'clone',
+                    status: 'failed',
+                    label: 'Repository clone failed',
+                    group: 'setup:run-1',
+                })
+            )
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/progress', {
+                    step: 'preview',
+                    status: 'in_progress',
+                    label: 'Starting preview',
+                    group: 'setup:run-1',
+                })
+            )
+            expect(logic.values.threadItems).toEqual([
+                expect.objectContaining({
+                    progressSteps: [
+                        { key: 'sandbox', status: 'completed', label: 'Set up sandbox' },
+                        { key: 'clone', status: 'failed', label: 'Repository clone failed' },
+                        { key: 'preview', status: 'in_progress', label: 'Starting preview' },
+                    ],
+                }),
             ])
         })
 
@@ -3458,6 +3852,26 @@ describe('runStreamLogic', () => {
             expect(record?.rawToolCall.rawToolName).toEqual('write')
             expect(record?.rawToolCall.input).toEqual({ value: 'new' })
             expect(record?.rawToolCall.meta).toEqual({ claudeCode: { toolName: 'mcp__other__write' } })
+        })
+
+        it.each([
+            ['posthog', 'call query-trends {}', 'auto_allow'],
+            ['posthog', 'call posthog-connection-call {"connection_id":"1","tool":"execute-sql"}', 'prompt'],
+            ['posthog', 'call posthog-connection-forward {"connection_id":"1","method":"GET"}', 'prompt'],
+            ['other', 'call query-trends {}', 'prompt'],
+        ])('preserves permission policy for a native %s exec: %s', (server, command, decision) => {
+            const record = parsePermissionRequestFrame({
+                type: 'permission_request',
+                requestId: 'native-request',
+                toolCall: {
+                    toolCallId: 'native-tool',
+                    rawInput: { command },
+                    _meta: { posthog: { toolName: `mcp__${server}__exec`, mcp: { server, tool: 'exec' } } },
+                },
+                options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+            })!
+            expect(record.toolName).toEqual(`mcp__${server}__exec`)
+            expect(defaultPermissionDecision(record)).toEqual(decision)
         })
 
         it('returns null for a frame with no usable options', () => {

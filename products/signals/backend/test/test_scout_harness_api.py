@@ -71,7 +71,11 @@ if TYPE_CHECKING:
 
 
 def _authenticate_as_scout(
-    test: APIBaseTest, *, scopes: PosthogMcpScopes = "signals_scout", sandbox_task_id: UUID | None = None
+    test: APIBaseTest,
+    *,
+    scopes: PosthogMcpScopes = "signals_scout",
+    sandbox_task_id: UUID | None = None,
+    team_id: int | None = None,
 ) -> None:
     """Auth the test client with a scout-internal token, mirroring how the harness sandbox
     reaches these endpoints in production. The emit action requires `signal_scout_internal:write`
@@ -86,6 +90,9 @@ def _authenticate_as_scout(
 
     `sandbox_task_id` binds the token to a task, which is how a report-pipeline run is minted and
     the only way the scratchpad write path can resolve its writer identity.
+
+    `team_id` confines the token to a team other than the test's own, which is how a child
+    environment's token is minted.
     """
     # `create_oauth_access_token_for_user` resolves the Array app by `get_instance_region()`,
     # which isn't deterministic across test contexts — create the app for every region client
@@ -103,7 +110,11 @@ def _authenticate_as_scout(
             },
         )
     token = create_oauth_access_token_for_user(
-        test.user, test.team.id, scopes=scopes, include_internal_scopes=True, sandbox_task_id=sandbox_task_id
+        test.user,
+        team_id if team_id is not None else test.team.id,
+        scopes=scopes,
+        include_internal_scopes=True,
+        sandbox_task_id=sandbox_task_id,
     )
     test.client.logout()
     test.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
@@ -3966,6 +3977,55 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
             _authenticate_as_scout(self, scopes=scopes)
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestScoutCanonicalTeamGuardAPI(APIBaseTest):
+    """Every scout surface that canonicalizes to the parent team must authorize against it.
+
+    The scout models persist under the canonical (parent) team, so a request made through a child
+    environment URL reads the parent's rows. A credential confined to the child alone passes the
+    default team check (URL team == child) and would otherwise reach data it was never scoped to.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+
+    @parameterized.expand(
+        [
+            ("scratchpad", "scratchpad/"),
+            ("project_profile", "project_profile/current/"),
+            ("metadata", "metadata/current/"),
+        ]
+    )
+    def test_child_scoped_api_key_cannot_read_parent_surface(self, _name: str, path: str) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="child-scoped",
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=["signal_scout:read"],
+            scoped_teams=[self.env.id],
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.env.id}/signals/scout/{path}", HTTP_AUTHORIZATION=f"Bearer {raw}"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+    def test_child_scoped_scout_token_cannot_read_parent_members(self) -> None:
+        # The roster is member PII and only a sandbox token reaches it, so the child-scoped case
+        # needs that token rather than a PAK — an internal scope is never on a user-grantable key.
+        _authenticate_as_scout(self, team_id=self.env.id)
+
+        response = self.client.get(f"/api/projects/{self.env.id}/signals/scout/members/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
 
 
 class TestScoutRunDerivedMetadata(APIBaseTest):
