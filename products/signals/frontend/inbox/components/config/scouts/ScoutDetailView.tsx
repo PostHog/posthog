@@ -123,6 +123,7 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
     const reportCount = touchedReports.length
     const signalCount = emissionRows.length
     const runCount = rollup?.runs.length ?? 0
+    const windowEmittedCount = rollup?.emittedCount ?? 0
     // Reports leads for a scout that files them, because that is what the scout is for; Runs leads
     // for the rest. Held until the runs window settles, so the default doesn't move under a reader
     // a beat after the page opens.
@@ -143,13 +144,22 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
 
     // Reports and Signals hide once the window has settled and says the scout has none of them —
     // the same rule the stacked sections used, now applied to the tab rather than the section.
+    // Signals asks the runs window, not the emissions fetched per run: those land a beat later and
+    // can fail outright, and hiding the tab then would say the scout emitted nothing while its
+    // panel is the only place that reports the failed fetch. Whichever pane is open also keeps its
+    // tab, so a link naming a pane this scout has none of still has a tab to select.
     const mainTabs = [
-        (!scoutRunsLoadedOnce || reportCount > 0) && {
+        (!scoutRunsLoadedOnce || reportCount > 0 || mainTab === 'reports') && {
             key: 'reports' as ScoutDetailTab,
             label: `Reports ${reportCount}`,
         },
         { key: 'runs' as ScoutDetailTab, label: `Runs ${runCount}` },
-        signalCount > 0 && { key: 'signals' as ScoutDetailTab, label: `Signals ${signalCount}` },
+        (!scoutRunsLoadedOnce || windowEmittedCount > 0 || mainTab === 'signals') && {
+            key: 'signals' as ScoutDetailTab,
+            // The window's count stands in until the rows land, so a failed fetch is not labelled
+            // zero beside a panel that says the fetch failed.
+            label: `Signals ${signalCount > 0 ? signalCount : windowEmittedCount}`,
+        },
     ]
     const railTabs = [
         { key: 'told' as ScoutDetailTab, label: `Told ${scoutNotes.length}` },
