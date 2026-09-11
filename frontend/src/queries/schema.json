@@ -37942,14 +37942,41 @@
                     },
                     "type": "array"
                 },
+                "legendCalcs": {
+                    "description": "Time-series panels only: which reducers the legend table shows. Empty means no legend calcs.",
+                    "items": {
+                        "$ref": "#/definitions/MetricsReducer"
+                    },
+                    "type": "array"
+                },
+                "nullMode": {
+                    "$ref": "#/definitions/MetricsNullMode",
+                    "default": "gap",
+                    "description": "How a null bucket renders on a time-series chart."
+                },
+                "reduce": {
+                    "$ref": "#/definitions/MetricsReducer",
+                    "description": "How scalar panels and legend calcs collapse a series to one number."
+                },
                 "statSummary": {
                     "$ref": "#/definitions/MetricsStatSummary",
                     "default": "latest",
-                    "description": "`stat` display only: which summary the headline value shows."
+                    "description": "`stat` display only: which summary the headline value shows. Deprecated: use `reduce`."
+                },
+                "thresholds": {
+                    "description": "Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter.",
+                    "items": {
+                        "$ref": "#/definitions/MetricsThreshold"
+                    },
+                    "type": "array"
                 },
                 "type": {
                     "$ref": "#/definitions/MetricsDisplayType",
                     "default": "line"
+                },
+                "unit": {
+                    "description": "UCUM unit string as OTel writes it, e.g. \"By\", \"ms\", \"%\". Defaults from the response unit.",
+                    "type": "string"
                 },
                 "yAxis": {
                     "$ref": "#/definitions/MetricsYAxisSettings"
@@ -37959,8 +37986,34 @@
         },
         "MetricsDisplayType": {
             "description": "How a metrics result is charted. `stat` is a single headline value plus sparkline, not a time series.",
-            "enum": ["line", "area", "bar", "stat"],
+            "enum": ["line", "area", "bar", "stat", "gauge", "bargauge", "table", "heatmap"],
             "type": "string"
+        },
+        "MetricsNullMode": {
+            "description": "How a null bucket renders on a time-series chart.",
+            "enum": ["gap", "zero", "connect"],
+            "type": "string"
+        },
+        "MetricsReducer": {
+            "description": "How a series collapses to one number for the scalar panels and legend calcs.",
+            "enum": ["last", "mean", "min", "max", "sum", "delta"],
+            "type": "string"
+        },
+        "MetricsThreshold": {
+            "additionalProperties": false,
+            "description": "A threshold band: `color` applies from `value` up to the next step.",
+            "properties": {
+                "value": {
+                    "description": "Lower bound of this band. The lowest step is the base color below every other step.",
+                    "type": "number"
+                },
+                "color": {
+                    "description": "A named color token (e.g. \"green\", \"red\"), never raw hex, so light and dark themes both work.",
+                    "type": "string"
+                }
+            },
+            "required": ["value", "color"],
+            "type": "object"
         },
         "MetricsFilterOp": {
             "enum": ["eq", "neq", "regex", "not_regex"],
@@ -38188,6 +38241,10 @@
                         "$ref": "#/definitions/MetricsQueryPoint"
                     },
                     "type": "array"
+                },
+                "unit": {
+                    "description": "UCUM unit of the metric as ingested, e.g. \"By\", \"ms\", \"1\". Empty when the SDK did not set one.",
+                    "type": "string"
                 }
             },
             "required": ["labels", "points"],

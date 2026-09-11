@@ -194,7 +194,9 @@ from posthog.schema_enums import (
     MetricsAxisScale as MetricsAxisScale,
     MetricsDisplayType as MetricsDisplayType,
     MetricsFilterOp as MetricsFilterOp,
+    MetricsNullMode as MetricsNullMode,
     MetricsOtelType as MetricsOtelType,
+    MetricsReducer as MetricsReducer,
     MetricsStatSummary as MetricsStatSummary,
     MetricSummary as MetricSummary,
     MultipleBreakdownType as MultipleBreakdownType,
@@ -2327,6 +2329,20 @@ class MetricsAlertConfig(BaseModel):
     type: Literal["MetricsAlertConfig"] = "MetricsAlertConfig"
 
 
+class MetricsThreshold(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    value: float = Field(
+        ...,
+        description=("Lower bound of this band. The lowest step is the base color below every other step."),
+    )
+    color: str = Field(
+        ...,
+        description=('A named color token (e.g. "green", "red"), never raw hex, so light and dark themes both work.'),
+    )
+
+
 class MetricsQueryFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2367,6 +2383,10 @@ class MetricsQuerySeries(BaseModel):
     )
     metricName: str | None = None
     points: list[MetricsQueryPoint]
+    unit: str | None = Field(
+        default=None,
+        description=('UCUM unit of the metric as ingested, e.g. "By", "ms", "1". Empty when the SDK did not set one.'),
+    )
 
 
 class MetricsYAxisSettings(BaseModel):
@@ -6254,11 +6274,33 @@ class MetricsDisplaySettings(BaseModel):
         extra="forbid",
     )
     goalLines: list[GoalLine] | None = None
+    legendCalcs: list[MetricsReducer] | None = Field(
+        default=None,
+        description=("Time-series panels only: which reducers the legend table shows. Empty means no legend calcs."),
+    )
+    nullMode: MetricsNullMode | None = Field(
+        default=MetricsNullMode.GAP,
+        description="How a null bucket renders on a time-series chart.",
+    )
+    reduce: MetricsReducer | None = Field(
+        default=None,
+        description=("How scalar panels and legend calcs collapse a series to one number."),
+    )
     statSummary: MetricsStatSummary | None = Field(
         default=MetricsStatSummary.LATEST,
-        description="`stat` display only: which summary the headline value shows.",
+        description=("`stat` display only: which summary the headline value shows. Deprecated: use `reduce`."),
+    )
+    thresholds: list[MetricsThreshold] | None = Field(
+        default=None,
+        description=(
+            "Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter."
+        ),
     )
     type: MetricsDisplayType | None = MetricsDisplayType.LINE
+    unit: str | None = Field(
+        default=None,
+        description=('UCUM unit string as OTel writes it, e.g. "By", "ms", "%". Defaults from the response unit.'),
+    )
     yAxis: MetricsYAxisSettings | None = None
 
 

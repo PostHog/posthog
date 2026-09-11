@@ -3346,6 +3346,25 @@ class MetricsDisplayType(StrEnum):
     AREA = "area"
     BAR = "bar"
     STAT = "stat"
+    GAUGE = "gauge"
+    BARGAUGE = "bargauge"
+    TABLE = "table"
+    HEATMAP = "heatmap"
+
+
+class MetricsNullMode(StrEnum):
+    GAP = "gap"
+    ZERO = "zero"
+    CONNECT = "connect"
+
+
+class MetricsReducer(StrEnum):
+    LAST = "last"
+    MEAN = "mean"
+    MIN = "min"
+    MAX = "max"
+    SUM = "sum"
+    DELTA = "delta"
 
 
 class MetricsFilterOp(StrEnum):
