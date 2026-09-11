@@ -78,7 +78,7 @@ from products.tasks.backend.facade.access import (
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_usage
 from products.tasks.backend.facade.client_provenance import get_task_client_provenance, is_sandbox_oauth_request
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
-from products.tasks.backend.facade.contracts import TaskAnalysisError
+from products.tasks.backend.facade.contracts import TaskAnalysisError, TaskRunLogAppendUnserialized
 from products.tasks.backend.facade.metrics import (
     StreamConnectionOutcome,
     observe_stream_backlog_bytes,
@@ -1491,6 +1491,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
 
+    def handle_exception(self, exc):
+        if isinstance(exc, TaskRunLogAppendUnserialized):
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Log append busy"}).data,
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                headers={"Retry-After": "2"},
+            )
+        return super().handle_exception(exc)
+
     def _task_id(self) -> str:
         task_id = self.kwargs.get("parent_lookup_task_id")
         if not task_id:
@@ -1882,6 +1891,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with updated log"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid log entries"),
             404: OpenApiResponse(description="Run not found"),
+            503: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Log is locked by another append; retry"
+            ),
         },
         summary="Append log entries",
         description="Append one or more log entries to the task run log array",
@@ -1914,6 +1926,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             404: OpenApiResponse(description="Run not found"),
             409: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Run is still active; send /clear to its agent"
+            ),
+            503: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Log is locked by another append; retry"
             ),
         },
         summary="Clear conversation history",
