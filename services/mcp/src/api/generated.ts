@@ -17838,7 +17838,7 @@ export namespace Schemas {
     export interface CheckIncremental {
       /**
          * The HogQL query to check.
-         * @maxLength 65536
+         * @maxLength 262144
          */
       query: string;
       /**
