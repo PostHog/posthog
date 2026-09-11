@@ -1969,13 +1969,13 @@ export const QueryScanStatusApi = {
 } as const
 
 export interface QueryScanSummaryApi {
-    /** ClickHouse time for the last fresh run. */
+    /** ClickHouse time for the last fresh run, summed over every ClickHouse query the run made. */
     duration_ms: number
     /** What clients may show for this response. The server evaluated the flag once for this query; clients and the assistant read this field and never evaluate the flag themselves. */
     mode: QueryScanModeApi
     /** Rows ClickHouse read for the last fresh run of this query, all tables included. */
     rows_read: number
-    /** Absent below the floor. pending = enqueued, not finished. done = findings are in `warnings`. */
+    /** Where the analysis of this query stands. The analysis only runs when `duration_ms` is over the threshold in the flag's payload, so the field is absent for a fast query. `pending` while the analysis is queued, `done` once its findings are in `warnings`. */
     status?: QueryScanStatusApi | null
 }
 

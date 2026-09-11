@@ -593,6 +593,10 @@ export interface AccessControlFilterWarning {
  */
 export type QueryScanMode = 'log_only' | 'show'
 
+/**
+ * Where the background analysis of a slow query stands. `pending`: queued, not finished.
+ * `done`: finished, and its findings are in the response's `warnings`.
+ */
 export type QueryScanStatus = 'pending' | 'done'
 
 export interface QueryScanSummary {
@@ -603,9 +607,13 @@ export interface QueryScanSummary {
     mode: QueryScanMode
     /** Rows ClickHouse read for the last fresh run of this query, all tables included. */
     rows_read: integer
-    /** ClickHouse time for the last fresh run. */
+    /** ClickHouse time for the last fresh run, summed over every ClickHouse query the run made. */
     duration_ms: integer
-    /** Absent below the floor. pending = enqueued, not finished. done = findings are in `warnings`. */
+    /**
+     * Where the analysis of this query stands. The analysis only runs when `duration_ms` is over the
+     * threshold in the flag's payload, so the field is absent for a fast query. `pending` while the
+     * analysis is queued, `done` once its findings are in `warnings`.
+     */
     status?: QueryScanStatus
 }
 

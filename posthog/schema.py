@@ -6639,7 +6639,10 @@ class QueryScanSummary(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    duration_ms: int = Field(..., description="ClickHouse time for the last fresh run.")
+    duration_ms: int = Field(
+        ...,
+        description=("ClickHouse time for the last fresh run, summed over every ClickHouse query the run made."),
+    )
     mode: QueryScanMode = Field(
         ...,
         description=(
@@ -6654,7 +6657,12 @@ class QueryScanSummary(BaseModel):
     )
     status: QueryScanStatus | None = Field(
         default=None,
-        description=("Absent below the floor. pending = enqueued, not finished. done = findings are in `warnings`."),
+        description=(
+            "Where the analysis of this query stands. The analysis only runs when"
+            " `duration_ms` is over the threshold in the flag's payload, so the field"
+            " is absent for a fast query. `pending` while the analysis is queued,"
+            " `done` once its findings are in `warnings`."
+        ),
     )
 
 
