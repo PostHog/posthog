@@ -1,12 +1,12 @@
 import { ChatCircleIcon } from "@phosphor-icons/react";
 import type { ScoutEmission } from "@posthog/api-client/posthog-client";
-import { prettifyScoutSkillName } from "@posthog/core/scouts/scoutPresentation";
 import { buildScoutFindingDiscussPrompt } from "@posthog/core/scouts/scoutPrompts";
 import { Button } from "@posthog/quill";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Flex, Popover, Text, TextArea } from "@radix-ui/themes";
 import { useCallback, useMemo, useState } from "react";
 import { useScoutChatTask } from "../hooks/useScoutChatTask";
+import { useScoutName } from "../hooks/useScoutName";
 
 const isMac =
   typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
@@ -26,10 +26,7 @@ export function ScoutFindingDiscussButton({
   const [question, setQuestion] = useState("");
   const [open, setOpen] = useState(false);
 
-  const displayName = useMemo(
-    () => prettifyScoutSkillName(skillName),
-    [skillName],
-  );
+  const displayName = useScoutName(skillName);
 
   const prompt = useMemo(
     () =>

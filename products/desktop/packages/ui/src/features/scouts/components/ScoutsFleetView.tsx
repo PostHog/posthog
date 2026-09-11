@@ -7,9 +7,9 @@ import {
   getScoutOrigin,
   listScoutCreatorOptions,
   listScoutsNeedingAttention,
-  prettifyScoutSkillName,
   type ScoutOrigin,
   scoutCreatorKey,
+  scoutDisplayName,
   sortConfigsForDisplay,
 } from "@posthog/core/scouts/scoutPresentation";
 import { SCOUT_RUNS_WINDOW_LABEL } from "@posthog/core/scouts/scoutRunsWindow";
@@ -150,9 +150,7 @@ export function ScoutsFleetView({
       }
       if (!needle) return true;
       return (
-        prettifyScoutSkillName(config.skill_name)
-          .toLowerCase()
-          .includes(needle) ||
+        scoutDisplayName(config).toLowerCase().includes(needle) ||
         (config.description ?? "").toLowerCase().includes(needle)
       );
     });

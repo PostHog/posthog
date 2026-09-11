@@ -16,11 +16,11 @@ import {
   formatRunDuration,
   hasPendingScoutRun,
   nextRunAt,
-  prettifyScoutSkillName,
   runDurationSeconds,
   type ScoutRollup,
   type ScoutRunOutcome,
   scoutCreatorDisplayName,
+  scoutDisplayName,
   scoutRunOutcomeLabel,
 } from "@posthog/core/scouts/scoutPresentation";
 import {
@@ -121,7 +121,7 @@ function ScoutTableRowInner({
 }) {
   const { openAgent } = useAgentsPageActions();
   const { runNow, isStarting } = useScoutRunNow(config, "fleet_list");
-  const name = prettifyScoutSkillName(config.skill_name);
+  const name = scoutDisplayName(config);
   const latest = rollup?.latestRun ?? null;
   const latestOutcome = latest ? deriveRunOutcome(latest, now) : null;
   const latestDuration = latest

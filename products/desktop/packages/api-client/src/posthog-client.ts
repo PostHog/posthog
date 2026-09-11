@@ -591,6 +591,12 @@ export type ScoutPauseReason = "ignored" | "no_output" | "repeated_failures";
 export interface ScoutConfig {
   id: string;
   skill_name: string;
+  /**
+   * Name the team gave the scout. Empty when it never got one, and absent on
+   * backends predating the field; both fall back to the skill-derived name.
+   * `skill_name` stays the identity and route key either way.
+   */
+  display_name?: string | null;
   enabled: boolean;
   /** False means dry-run: the scout runs but findings are not emitted. */
   emit: boolean;
