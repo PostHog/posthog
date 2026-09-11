@@ -2,6 +2,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType, DashboardTemplateStoredTile, DashboardTemplateType } from '~/types'
 
 import { applyMetricTemplateVariant, applyTemplate } from './newDashboardLogic'
+import { WEBSITE_METRICS_METRIC_CARD_TILES } from './websiteMetricsMetricCardTemplate'
 
 describe('template function in newDashboardLogic', () => {
     it('ignores unused variables', () => {
@@ -131,63 +132,24 @@ describe('template function in newDashboardLogic', () => {
         })
     })
 
-    it.each([
-        ['Website Metrics', 'Website Unique Users (Total)'],
-        ['Landing Pages Report', 'Unique Users on Landing Page(s)'],
-    ])('changes only the %s Metric card for the test variant', (templateName, targetTileName) => {
-        const tiles = [
-            {
-                type: 'INSIGHT',
-                name: targetTileName,
-                query: {
-                    kind: NodeKind.InsightVizNode,
-                    source: {
-                        kind: NodeKind.TrendsQuery,
-                        trendsFilter: { display: ChartDisplayType.BoldNumber },
-                    },
+    const boldNumberTile = (name: string, extra: Record<string, unknown> = {}): DashboardTemplateStoredTile =>
+        ({
+            type: 'INSIGHT',
+            name,
+            query: {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    trendsFilter: { display: ChartDisplayType.BoldNumber },
                 },
             },
-            {
-                type: 'INSIGHT',
-                name: 'Another total',
-                query: {
-                    kind: NodeKind.InsightVizNode,
-                    source: {
-                        kind: NodeKind.TrendsQuery,
-                        trendsFilter: { display: ChartDisplayType.BoldNumber },
-                    },
-                },
-            },
-        ] as DashboardTemplateStoredTile[]
-        const template = { template_name: templateName, scope: 'global' } as DashboardTemplateType
+            ...extra,
+        }) as DashboardTemplateStoredTile
+    it('swaps in the Metric card tiles for the Website Metrics test variant', () => {
+        const tiles = [boldNumberTile('Website Unique Users (Total)')]
+        const template = { template_name: 'Website Metrics', scope: 'global' } as DashboardTemplateType
 
-        expect(applyMetricTemplateVariant(tiles, template, true)).toEqual([
-            {
-                ...tiles[0],
-                query: {
-                    kind: NodeKind.InsightVizNode,
-                    source: {
-                        kind: NodeKind.TrendsQuery,
-                        trendsFilter: { display: ChartDisplayType.Metric },
-                    },
-                },
-            },
-            tiles[1],
-        ])
-        expect(tiles).toEqual([
-            {
-                type: 'INSIGHT',
-                name: targetTileName,
-                query: {
-                    kind: NodeKind.InsightVizNode,
-                    source: {
-                        kind: NodeKind.TrendsQuery,
-                        trendsFilter: { display: ChartDisplayType.BoldNumber },
-                    },
-                },
-            },
-            tiles[1],
-        ])
+        expect(applyMetricTemplateVariant(tiles, template, true)).toBe(WEBSITE_METRICS_METRIC_CARD_TILES)
     })
 
     it.each([
