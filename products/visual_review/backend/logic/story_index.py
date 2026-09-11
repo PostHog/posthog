@@ -16,7 +16,6 @@ import zipfile
 import posixpath
 from collections.abc import Mapping
 
-from django.conf import settings
 from django.core.cache import cache
 
 import requests
@@ -37,6 +36,10 @@ logger = structlog.get_logger(__name__)
 _THEMES = ("light", "dark")
 _SUFFIXED_BROWSERS = ("webkit",)
 _VIEWPORT_WIDTHS = ("narrow", "medium", "wide", "superwide")
+
+# Where the PostHog repository builds Storybook, and the artifact its workflow uploads the build as.
+STORYBOOK_ARTIFACT_NAME = "storybook-build"
+STORYBOOK_PACKAGE_DIR = "common/storybook"
 
 _INDEX_MEMBER = "index.json"
 # The zip is tens of megabytes, so it needs far longer than an API read.
@@ -131,9 +134,8 @@ def _fetch_index_member(repo: Repo, github_run_id: str) -> bytes | None:
         _log_unavailable(repo, github_run_id, "artifact_missing")
         return None
 
-    wanted = settings.VISUAL_REVIEW_STORYBOOK_ARTIFACT_NAME
     artifact = next(
-        (item for item in listing.json().get("artifacts") or [] if item.get("name") == wanted),
+        (item for item in listing.json().get("artifacts") or [] if item.get("name") == STORYBOOK_ARTIFACT_NAME),
         None,
     )
     if artifact is None:
@@ -175,7 +177,7 @@ def fetch_story_index(repo: Repo, github_run_id: str) -> StoryIndex | None:
         raw = _fetch_index_member(repo, github_run_id)
         if raw is None:
             return None
-        paths = _parse_story_index(raw, settings.VISUAL_REVIEW_STORYBOOK_PACKAGE_DIR)
+        paths = _parse_story_index(raw, STORYBOOK_PACKAGE_DIR)
     except errors.GitHubIntegrationNotFoundError:
         _log_unavailable(repo, github_run_id, "no_github_integration")
         return None

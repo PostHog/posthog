@@ -28,12 +28,11 @@ those maintainers own, because holding an item until a team takes it is not owni
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import field
 from datetime import datetime
 from enum import StrEnum
 from urllib.parse import quote
-from uuid import UUID
 
 from django.conf import settings
 from django.utils import timezone
@@ -87,11 +86,9 @@ _MAX_LINE_CHARS = MAX_SECTION_CHARS // 2
 _MAX_IDENTIFIER_CHARS = 160
 _MAX_REASON_CHARS = 200
 
-MODE_OFF = "off"
 MODE_PREVIEW = "preview"
-MODE_SHADOW = "shadow"
 MODE_LIVE = "live"
-MODES = (MODE_OFF, MODE_PREVIEW, MODE_SHADOW, MODE_LIVE)
+MODES = (MODE_PREVIEW, MODE_LIVE)
 
 _FOOTER = (
     "This repeats daily while the items stay unresolved. "
@@ -178,11 +175,10 @@ class TeamDigest:
 
 @frozen
 class Delivery:
-    """Where one team's digest goes, and what the lead says about how it got there."""
+    """Where one team's digest goes."""
 
     channel_id: str
     channel_name: str
-    lead_prefix: str
 
 
 def _snapshot_url(repo: Repo, run_type: str, identifier: str) -> str:
@@ -476,51 +472,18 @@ def resolve_channel(
             reason=match.reason,
         )
         return None
-    return Delivery(channel_id=match.channel.channel_id, channel_name=name, lead_prefix="")
+    return Delivery(channel_id=match.channel.channel_id, channel_name=name)
 
 
-def deliver(
-    digest: TeamDigest,
-    registry: Mapping[str, TeamEntry],
-    channels_by_name: Mapping[str, SlackChannel],
-    mode: str,
-) -> Delivery | None:
-    """Where this team's digest goes under the run's mode. None means nothing is posted."""
-    resolved = resolve_channel(digest, registry, channels_by_name)
-    if mode != MODE_SHADOW:
-        return resolved
-    shadow_channel = settings.VISUAL_REVIEW_DEBT_DIGEST_SHADOW_CHANNEL
-    match = find_channel(channels_by_name, shadow_channel, allow_shared=False)
-    if match.channel is None:
-        logger.warning(
-            "visual_review.debt_digest_shadow_channel_unusable",
-            channel_name=shadow_channel,
-            reason=match.reason,
-        )
-        return None
-    return Delivery(
-        channel_id=match.channel.channel_id,
-        channel_name=shadow_channel.removeprefix("#"),
-        # Names the channel the message would have gone to, so a reader of the shadow channel can
-        # check the routing without re-deriving it.
-        lead_prefix=(
-            f"Shadow for #{resolved.channel_name}: " if resolved is not None else "Shadow, no channel resolved: "
-        ),
-    )
-
-
-def send_debt_digest(repo: Repo, mode: str | None = None) -> list[str]:
+def send_debt_digest(repo: Repo, mode: str) -> list[str]:
     """Evaluate, attribute, and post one repo's digest. One team's failure does not stop the rest.
 
     Returns each team's rendered message, so an operator running this by hand can read what the
     run would send without reaching into the logs.
     """
-    mode = mode or settings.VISUAL_REVIEW_DEBT_DIGEST_MODE
-    # `deliver` reads anything that is not shadow as the team's own channel, so an undefined mode posts live.
+    # Anything that is not preview posts, so an undefined mode must stop here rather than go live.
     if mode not in MODES:
         logger.warning("visual_review.debt_digest_mode_unknown", mode=mode)
-        return []
-    if mode == MODE_OFF:
         return []
 
     debt = collect_debt(repo, timezone.now())
@@ -543,7 +506,7 @@ def send_debt_digest(repo: Repo, mode: str | None = None) -> list[str]:
     rendered: list[str] = []
     for digest in digests:
         try:
-            rendered.append(_send_one(repo, digest, ownership.registry, channels_by_name, integration, mode))
+            rendered.append(_send_one(repo, digest, ownership.registry, channels_by_name, integration))
         except Exception as e:
             # One team's Slack failure must not cost the rest of the repo its reminder, and there is
             # nothing to retry against: tomorrow's run sends the same items again.
@@ -580,16 +543,14 @@ def _send_one(
     registry: Mapping[str, TeamEntry],
     channels_by_name: Mapping[str, SlackChannel],
     integration: Integration,
-    mode: str,
 ) -> str:
     lead = lead_text(digest, repo)
     thread = thread_texts(digest)
-    delivery = deliver(digest, registry, channels_by_name, mode)
+    delivery = resolve_channel(digest, registry, channels_by_name)
     if delivery is None:
         return ""
 
     slack = SlackIntegration(integration)
-    lead = f"{delivery.lead_prefix}{lead}"
     try:
         thread_ts = post_with_join(
             slack, delivery.channel_id, section_block(lead), lead, channel_name=delivery.channel_name
@@ -605,14 +566,11 @@ def _send_one(
     return "\n".join([lead, *thread])
 
 
-def repos_in_scope() -> list[tuple[int, UUID]]:
-    """The `(team_id, repo_id)` of each repo the digest is configured for, by `owner/name`.
+def repos_in_scope() -> list[Repo]:
+    """Every repo, oldest first.
 
-    The fan-out task only routes, so it never needs a hydrated row.
+    No allowlist: the per-repo task stops as soon as a repo owes nothing, so a repo that never
+    carries debt costs one cheap read a day. The fan-out only routes, so the rows stay unhydrated.
     """
-    configured: Sequence[str] = settings.VISUAL_REVIEW_DEBT_DIGEST_REPOS
-    if not configured:
-        return []
-    # nosemgrep: idor-lookup-without-team — cross-team beat sweep over a settings allowlist
-    configured_repos = Repo.objects.unscoped().filter(repo_full_name__in=list(configured)).order_by("created_at")
-    return list(configured_repos.values_list("team_id", "id"))
+    # nosemgrep: idor-lookup-without-team — cross-team beat sweep, no user input
+    return list(Repo.objects.unscoped().only("id", "team_id").order_by("created_at"))

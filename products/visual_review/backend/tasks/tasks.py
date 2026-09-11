@@ -225,15 +225,15 @@ def sweep_visual_review_retention() -> None:
 )
 @skip_team_scope_audit  # cross-team beat sweep; the per-repo task below scopes every query
 def send_visual_review_debt_digests() -> None:
-    """Fan out to the configured repos, one task each.
+    """Fan out to every repo, one task each.
 
     One repo's failure must not stop the rest, and nothing is stored about what was sent, so the
     next morning's run recomputes and resends whatever is still owed.
     """
     from ..logic import debt_digest  # noqa: PLC0415 — avoids the logic/tasks circular import
 
-    for team_id, repo_id in debt_digest.repos_in_scope():
-        send_visual_review_debt_digest.delay(team_id, str(repo_id))
+    for repo in debt_digest.repos_in_scope():
+        send_visual_review_debt_digest.delay(repo.team_id, str(repo.id))
 
 
 @shared_task(
@@ -258,4 +258,4 @@ def send_visual_review_debt_digest(team_id: int, repo_id: str) -> None:
     if repo is None:
         logger.warning("visual_review.debt_digest_repo_missing", repo_id=repo_id, team_id=team_id)
         return
-    debt_digest.send_debt_digest(repo)
+    debt_digest.send_debt_digest(repo, mode=debt_digest.MODE_LIVE)

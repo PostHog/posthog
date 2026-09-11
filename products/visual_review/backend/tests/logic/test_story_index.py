@@ -12,7 +12,7 @@ import requests
 
 from products.visual_review.backend.logic import errors, story_index
 
-_ARTIFACT_NAME = "storybook-build"
+_ARTIFACT_NAME = story_index.STORYBOOK_ARTIFACT_NAME
 
 _INDEX = story_index.StoryIndex(
     path_by_story_id={

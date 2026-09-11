@@ -20,7 +20,7 @@ class Command(BaseCommand):
             type=str,
             default=debt_digest.MODE_PREVIEW,
             choices=list(debt_digest.MODES),
-            help="preview renders and prints, shadow posts to the shadow channel, live posts to each team's.",
+            help="preview renders and prints, live posts to each team's channel.",
         )
 
     def handle(self, *args: Any, **options: Any) -> None:

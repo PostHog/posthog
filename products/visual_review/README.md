@@ -87,18 +87,12 @@ Routing goes to the team's `notifications` channel in the repository's root `own
 A team opts out with `notifications: {visual_review: false}` under its entry.
 A shared Slack channel is refused, so a name match never carries an internal reminder out of the workspace.
 
-Settings, all in `posthog/settings/web.py`:
+There is nothing to configure.
+The daily beat task runs the digest for every repository, and a repository that owes nothing posts nothing.
 
-- `VISUAL_REVIEW_DEBT_DIGEST_MODE` is `off` (the default), `preview`, `shadow`, or `live`.
-  `preview` evaluates, attributes and renders every team's message into the log and posts nothing.
-  `shadow` posts every team's message into one channel, with a lead naming the channel it would have gone to.
-  `live` posts to each team's own channel.
-- `VISUAL_REVIEW_DEBT_DIGEST_REPOS` is the comma-separated `owner/name` list the digest runs for. Empty means no repo.
-- `VISUAL_REVIEW_DEBT_DIGEST_SHADOW_CHANNEL` is where `shadow` posts.
-- `VISUAL_REVIEW_STORYBOOK_ARTIFACT_NAME` is the GitHub Actions artifact the Storybook build uploads, `storybook-build` by default.
-- `VISUAL_REVIEW_STORYBOOK_PACKAGE_DIR` is where the Storybook package sits in the repository, `common/storybook` by default. Story import paths in the index are relative to it.
-
-`./manage.py visual_review_debt_digest --repo owner/name [--mode preview]` runs one repo synchronously and prints what it rendered.
+`./manage.py visual_review_debt_digest --repo owner/name [--mode preview]` runs one repository by hand.
+`--mode preview`, the default, renders every team's message and logs it without posting.
+`--mode live` posts.
 
 ## The flow
 

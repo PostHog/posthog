@@ -23,7 +23,7 @@ from products.visual_review.backend.facade.enums import (
     RunType,
     SnapshotResult,
 )
-from products.visual_review.backend.logic import artifact_store, runs
+from products.visual_review.backend.logic import artifact_store, debt_digest, runs
 from products.visual_review.backend.models import Repo, RunSnapshot, ToleratedHash
 from products.visual_review.backend.tasks.tasks import (
     post_approval_comment,
@@ -565,3 +565,13 @@ class TestDebtDigestTask(VisualReviewTeamScopedTestMixin, BaseTest):
 
         # Nothing records what was sent, so an overlapping run would post every reminder twice.
         assert send.call_count == 0
+
+    def test_the_scheduled_run_posts_rather_than_previews(self) -> None:
+        repo = Repo.objects.create(team_id=self.team.id, repo_external_id=55512, repo_full_name="org/scheduled")
+        try:
+            with patch("products.visual_review.backend.logic.debt_digest.send_debt_digest") as send:
+                send_visual_review_debt_digest(self.team.id, str(repo.id))
+        finally:
+            cache.delete(f"visual_review_debt_digest:{repo.id}")
+
+        assert send.call_args.kwargs["mode"] == debt_digest.MODE_LIVE

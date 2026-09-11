@@ -6,11 +6,11 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
-from django.test import override_settings
 from django.utils import timezone
 
 from posthog_owners.schema import TeamEntry
 
+from posthog.models.team.team import Team
 from posthog.team_notifications.slack import MAX_SECTION_CHARS, SlackChannel, SlackPostRefused
 
 from products.engineering_analytics.backend.facade.contracts import PathOwnership
@@ -205,7 +205,6 @@ class TestSplitByTeam:
 class TestRouting:
     _CHANNELS = {
         "team-devex": SlackChannel(channel_id="C1", shared=False),
-        "alerts-devex": SlackChannel(channel_id="CSHADOW", shared=False),
         "team-shared": SlackChannel(channel_id="C2", shared=True),
     }
 
@@ -218,23 +217,9 @@ class TestRouting:
         # A name match onto a shared channel would send an internal reminder out of the workspace.
         assert debt_digest.resolve_channel(_digest("team-shared"), {}, self._CHANNELS) is None
 
-    def test_shadow_mode_posts_to_the_shadow_channel_and_names_the_real_one(self) -> None:
-        delivery = debt_digest.deliver(_digest(), {}, self._CHANNELS, debt_digest.MODE_SHADOW)
-
-        assert delivery is not None
-        assert delivery.channel_id == "CSHADOW"
-        assert delivery.lead_prefix == "Shadow for #team-devex: "
-
-    def test_shadow_mode_says_so_when_no_channel_resolved(self) -> None:
-        delivery = debt_digest.deliver(_digest("team-shared"), {}, self._CHANNELS, debt_digest.MODE_SHADOW)
-
-        assert delivery is not None
-        assert delivery.lead_prefix == "Shadow, no channel resolved: "
-
-    @pytest.mark.parametrize("mode", ["preveiw", ""])
+    @pytest.mark.parametrize("mode", ["preveiw", "shadow", ""])
     def test_an_unknown_mode_evaluates_nothing_and_posts_nothing(self, mode: str) -> None:
         with (
-            override_settings(VISUAL_REVIEW_DEBT_DIGEST_MODE=mode),
             patch("products.visual_review.backend.logic.debt_digest.collect_debt") as collect,
             patch("products.visual_review.backend.logic.debt_digest.post_with_join") as post,
         ):
@@ -242,6 +227,19 @@ class TestRouting:
 
         assert collect.call_count == 0
         assert post.call_count == 0
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestReposInScope:
+    def test_every_repo_is_in_scope_whatever_team_owns_it(self, team) -> None:
+        mine = repos.create_repo(team_id=team.id, repo_external_id=77781, repo_full_name="org/mine")
+        other_team = Team.objects.create(organization=team.organization, name="other")
+        theirs = repos.create_repo(team_id=other_team.id, repo_external_id=77782, repo_full_name="org/theirs")
+
+        assert {(repo.team_id, repo.id) for repo in debt_digest.repos_in_scope()} == {
+            (mine.team_id, mine.id),
+            (theirs.team_id, theirs.id),
+        }
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

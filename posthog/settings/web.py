@@ -1098,26 +1098,6 @@ ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS = get_list(get_from_env("ERROR_TRACK
 # webhook secret used initially for ET weekly digest workflow webhook but feel free to adopt it
 WORKFLOWS_WEBHOOK_SECRET = get_from_env("WORKFLOWS_WEBHOOK_SECRET", "")
 
-# How far the daily visual review debt digest goes. "off" runs nothing. "preview" evaluates,
-# attributes and renders every team's message and logs it. "shadow" posts every team's message
-# into one channel instead of theirs. "live" posts to the channel each team declared.
-VISUAL_REVIEW_DEBT_DIGEST_MODE = get_from_env("VISUAL_REVIEW_DEBT_DIGEST_MODE", "off")
-
-# Comma-separated `owner/name` repos the digest runs for. Empty means no repo, so a mode left on
-# by accident still sends nothing.
-VISUAL_REVIEW_DEBT_DIGEST_REPOS = get_list(get_from_env("VISUAL_REVIEW_DEBT_DIGEST_REPOS", ""))
-
-# Where "shadow" mode posts.
-VISUAL_REVIEW_DEBT_DIGEST_SHADOW_CHANNEL = get_from_env("VISUAL_REVIEW_DEBT_DIGEST_SHADOW_CHANNEL", "#alerts-devex")
-
-# The GitHub Actions artifact the Storybook build uploads. The digest reads its story index to name
-# the file behind a snapshot.
-VISUAL_REVIEW_STORYBOOK_ARTIFACT_NAME = get_from_env("VISUAL_REVIEW_STORYBOOK_ARTIFACT_NAME", "storybook-build")
-
-# Where the Storybook package sits in the repository. Story import paths in the index are relative
-# to it, so this is what turns one into a repository path.
-VISUAL_REVIEW_STORYBOOK_PACKAGE_DIR = get_from_env("VISUAL_REVIEW_STORYBOOK_PACKAGE_DIR", "common/storybook")
-
 ####
 # OAuth
 
