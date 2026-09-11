@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
         SafeAddIndexConcurrently(
             model_name="externaldatajob",
             index=models.Index(
-                fields=["team", "status", "finished_at", "billable"],
+                fields=["team", "status", "billable", "finished_at"],
                 name="idx_extdatajob_team_stat_fin",
             ),
         ),
