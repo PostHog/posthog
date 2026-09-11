@@ -10,3 +10,4 @@ class AppStoreConnectSourceConfig(config.Config):
     key_id: str
     private_key: str
     vendor_number: str | None = None
+    app_ids: str | None = None

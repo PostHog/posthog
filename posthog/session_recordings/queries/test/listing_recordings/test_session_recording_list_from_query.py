@@ -5,7 +5,7 @@ from itertools import product
 from typing import Any, Literal
 from uuid import uuid4
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -61,7 +61,7 @@ from ee.clickhouse.models.test.test_cohort import get_person_ids_by_cohort_id
 
 
 @parameterized_class([{"allow_event_property_expansion": True}, {"allow_event_property_expansion": False}])
-@freeze_time("2021-01-01T13:46:23")
+@time_machine.travel("2021-01-01T13:46:23", tick=False)
 class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     # set by parameterized_class decorator
     allow_event_property_expansion: bool
@@ -1307,23 +1307,23 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_listing_ignores_future_replays(self):
-        with freeze_time("2023-08-29T12:00:01Z"):
+        with time_machine.travel("2023-08-29T12:00:01Z", tick=False):
             produce_replay_summary(team_id=self.team.id, session_id="29th Aug")
 
-        with freeze_time("2023-08-30T14:00:01Z"):
+        with time_machine.travel("2023-08-30T14:00:01Z", tick=False):
             produce_replay_summary(team_id=self.team.id, session_id="30th Aug 1400")
 
-        with freeze_time("2023-09-01T12:00:01Z"):
+        with time_machine.travel("2023-09-01T12:00:01Z", tick=False):
             produce_replay_summary(team_id=self.team.id, session_id="1st-sep")
 
-        with freeze_time("2023-09-02T12:00:01Z"):
+        with time_machine.travel("2023-09-02T12:00:01Z", tick=False):
             produce_replay_summary(team_id=self.team.id, session_id="2nd-sep")
 
-        with freeze_time("2023-09-03T12:00:01Z"):
+        with time_machine.travel("2023-09-03T12:00:01Z", tick=False):
             produce_replay_summary(team_id=self.team.id, session_id="3rd-sep")
 
         # before the recording on the thirtieth so should exclude it
-        with freeze_time("2023-08-30T12:00:01Z"):
+        with time_machine.travel("2023-08-30T12:00:01Z", tick=False):
             # recordings in the future don't show
             self._assert_query_matches_session_ids(None, ["29th Aug"])
 
@@ -1932,7 +1932,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(["$session_id", "$browser"], person_properties=["email"])
-    @freeze_time("2023-01-04")
+    @time_machine.travel("2023-01-04", tick=False)
     def test_action_filter(self):
         user = "test_action_filter-user"
         create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
@@ -2532,7 +2532,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     )
     @snapshot_clickhouse_queries
     def test_date_from_filter_respects_ttl(self, _name: str, days_ago: int):
-        with freeze_time(self.an_hour_ago):
+        with time_machine.travel(self.an_hour_ago, tick=False):
             user = "test_date_from_filter_cannot_search_before_ttl-user"
             create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
@@ -2991,7 +2991,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     @also_test_with_materialized_columns(["$current_url", "$browser"])
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     def test_any_event_filter_with_properties(self):
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
@@ -3123,7 +3123,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     def test_filter_for_recordings_with_console_logs(self):
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
@@ -3212,7 +3212,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     def test_filter_for_recordings_with_console_warns(self):
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
@@ -3264,7 +3264,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     def test_filter_for_recordings_with_console_errors(self):
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
@@ -3316,7 +3316,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     def test_filter_for_recordings_with_mixed_console_counts(self):
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
@@ -3444,7 +3444,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     def test_filter_for_recordings_by_console_text(
         self,
         console_log_filters: str,
@@ -3842,7 +3842,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         person_properties=["email"],
         verify_no_jsonextract=False,
     )
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_event_filter_with_test_accounts_excluded(self):
         self.team.test_account_filters = [
@@ -3924,7 +3924,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         person_properties=["email"],
         verify_no_jsonextract=False,
     )
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_event_filter_with_hogql_event_properties_test_accounts_excluded(self):
         self.team.test_account_filters = [
@@ -4025,7 +4025,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     # TRICKY: we had to disable use of materialized columns for part of the query generation
     # due to RAM usage issues on the EU cluster
     @also_test_with_materialized_columns(event_properties=["is_internal_user"], verify_no_jsonextract=False)
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_top_level_event_property_test_account_filter(self):
         """
@@ -4118,7 +4118,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     # TRICKY: we had to disable use of materialized columns for part of the query generation
     # due to RAM usage issues on the EU cluster
     @also_test_with_materialized_columns(event_properties=["is_internal_user"], verify_no_jsonextract=True)
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_top_level_event_property_test_account_filter_allowing_denormalized_props(self):
         """
@@ -4209,7 +4209,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
     @also_test_with_materialized_columns(event_properties=["is_internal_user"])
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_top_level_hogql_event_property_test_account_filter(self):
         """
@@ -4295,7 +4295,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @also_test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_top_level_hogql_person_property_test_account_filter(self):
         """
@@ -4381,7 +4381,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @also_test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_top_level_person_property_test_account_filter(self):
         """
@@ -4477,7 +4477,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             ["1"],
         )
 
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_event_filter_with_two_events_and_multiple_teams(self):
         another_team = Team.objects.create(organization=self.organization)
@@ -4510,7 +4510,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             ["1"],
         )
 
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_event_filter_with_group_filter(self):
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -4626,7 +4626,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [],
         )
 
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_ordering(self):
         session_id_one = f"test_ordering-one"
@@ -4665,7 +4665,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @also_test_with_materialized_columns(event_properties=["$host"], verify_no_jsonextract=False)
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_top_level_event_host_property_test_account_filter(self):
         """
@@ -4936,7 +4936,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @also_test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_filter_users_from_excluded_cohort(self):
         """
@@ -5035,7 +5035,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @also_test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
-    @freeze_time("2021-01-21T20:00:00.000Z")
+    @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
     @snapshot_clickhouse_queries
     def test_filter_users_from_excluded_cohort_no_events(self):
         """
@@ -5103,7 +5103,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
 
-@freeze_time("2021-01-01T13:46:23")
+@time_machine.travel("2021-01-01T13:46:23", tick=False)
 class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def _print_query(self, query: SelectQuery) -> str:
         return prepare_and_print_ast(

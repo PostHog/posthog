@@ -34,6 +34,7 @@ from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH,
 from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SOURCE_TYPE
 from products.signals.backend.scout_report import (
     InvalidScoutReportError,
+    ScoutReportAlreadyEmittedError,
     ScoutReportSignal,
     create_scout_report,
     set_report_charts,
@@ -108,6 +109,33 @@ class TestScoutReportPersistence(BaseTest):
         )
         report = SignalReport.objects.get(id=result.report_id)
         assert (report.first_visible_at is not None) is expect_stamp
+
+    def test_create_refuses_a_second_report_for_a_key_one_already_holds(self) -> None:
+        # The case the emit path's own pre-check can't see: a retry arriving mid-judge passes it and
+        # reaches the insert too. The index has to stop it, and surface the first report, not a 500.
+        run = self._make_run()
+        first = create_scout_report(
+            team_id=self.team.id,
+            title="Checkout API p99 latency regressed",
+            summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+            signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+            attribution=ArtefactAttribution.from_task(str(run.task_run.task_id)),
+            run=run,
+            idempotency_key="emission-1",
+        )
+        with pytest.raises(ScoutReportAlreadyEmittedError) as raised:
+            create_scout_report(
+                team_id=self.team.id,
+                title="Checkout API p99 latency regressed",
+                summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+                signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+                attribution=ArtefactAttribution.from_task(str(run.task_run.task_id)),
+                run=run,
+                idempotency_key="emission-1",
+            )
+        assert raised.value.existing.report_id == first.report_id
+        assert raised.value.existing.status == SignalReport.Status.READY
+        assert SignalReport.objects.filter(team=self.team).count() == 1
 
     def test_create_writes_report_with_bound_signals_metadata(self) -> None:
         # The load-bearing contract (decision #5): each backing signal is written to the embeddings

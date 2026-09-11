@@ -124,6 +124,7 @@ describe("PiSessionController", () => {
     expect(notifier.notify).toHaveBeenCalledTimes(2);
     expect(notifier.notify).toHaveBeenCalledWith({
       kind: "needs_input",
+      trigger: "pi_mcp_permission_request",
       taskId: "task-1",
       taskTitle: "Fix notifications",
     });
@@ -616,6 +617,7 @@ describe("PiSessionController", () => {
 
     expect(notifier.notify).toHaveBeenCalledWith({
       kind: "turn_completed",
+      trigger: "pi_turn_completed",
       taskId: "task-1",
       taskTitle: "Fix notifications",
       stopReason: "end_turn",
@@ -686,6 +688,7 @@ describe("PiSessionController", () => {
     expect(notifier.notify).toHaveBeenCalledOnce();
     expect(notifier.notify).toHaveBeenCalledWith({
       kind: "turn_completed",
+      trigger: "pi_turn_completed",
       taskId: "task-1",
       taskTitle: "Fix notifications",
       stopReason: "end_turn",

@@ -3,7 +3,7 @@ import contextlib
 from datetime import UTC, datetime
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import patch
 
 import pytest_asyncio
@@ -278,7 +278,7 @@ class TestPrepareAlert:
         expected_reason: SkipReason,
         advances_next_check_at: bool,
     ) -> None:
-        ctx = freeze_time(frozen_time) if frozen_time else contextlib.nullcontext()
+        ctx = time_machine.travel(frozen_time, tick=False) if frozen_time else contextlib.nullcontext()
         with ctx:
             a = await _create_alert(ateam, **setup_kwargs)
             env = ActivityEnvironment()
@@ -297,7 +297,7 @@ class TestPrepareAlert:
             # Non-advancing skip branches must leave next_check_at untouched.
             assert refreshed.next_check_at == setup_kwargs.get("next_check_at")
 
-    @freeze_time("2024-06-03T10:00:00Z")
+    @time_machine.travel("2024-06-03T10:00:00Z", tick=False)
     async def test_snoozed_future_preserves_snoozed_until(self, ateam) -> None:
         # Separate from the parameterized set because it asserts a DB field is UNCHANGED,
         # which doesn't fit the generic "next_check_at advanced" pattern.
@@ -310,7 +310,7 @@ class TestPrepareAlert:
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=a.pk)
         assert refreshed.snoozed_until == snoozed
 
-    @freeze_time("2024-06-03T10:00:00Z")
+    @time_machine.travel("2024-06-03T10:00:00Z", tick=False)
     async def test_snoozed_until_in_past_is_cleared_and_evaluation_proceeds(self, ateam) -> None:
         past = datetime(2024, 6, 3, 9, 0, tzinfo=UTC)
         a = await _create_alert(ateam, snoozed_until=past, state=AlertState.SNOOZED)
