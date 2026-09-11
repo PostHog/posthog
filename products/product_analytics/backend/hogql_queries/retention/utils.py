@@ -2,6 +2,7 @@ from typing import cast
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import group_property_chain
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.utils.breakdowns import strip_user_aliases
@@ -31,12 +32,7 @@ def breakdown_extract_expr(property_name: str, breakdown_type: str, group_type_i
         elif breakdown_type == "group":
             if group_type_index is None:
                 raise ValueError("group_type_index is required for group breakdowns")
-            group_index = int(group_type_index)
-            if property_name.startswith("$virt_"):
-                # Virtual properties exist as expression fields on the groups table
-                properties_chain = [f"group_{group_index}", property_name]
-            else:
-                properties_chain = [f"group_{group_index}", "properties", property_name]
+            properties_chain = group_property_chain(int(group_type_index), property_name)
         else:
             # Default to event properties
             properties_chain = ["events", "properties", property_name]

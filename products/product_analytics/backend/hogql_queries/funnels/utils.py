@@ -13,7 +13,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import apply_path_cleaning
+from posthog.hogql.property import apply_path_cleaning, group_property_chain
 
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
 from posthog.hogql_queries.utils.breakdowns import ALL_USERS_COHORT_ID, NOT_IN_COHORT_ID
@@ -76,8 +76,16 @@ def get_breakdown_expr(
         if properties_column is None:
             # breakdown already refers to a top-level field
             return ast.Field(chain=[breakdown])
-        else:
-            return ast.Field(chain=[*properties_column.split("."), breakdown])
+        column_chain = properties_column.split(".")
+        # A group breakdown arrives as `group_N.properties`, but `$group_key` and `$virt_*` are not JSON entries.
+        if (
+            isinstance(breakdown, str)
+            and len(column_chain) == 2
+            and column_chain[0].startswith("group_")
+            and column_chain[1] == "properties"
+        ):
+            return ast.Field(chain=group_property_chain(int(column_chain[0].removeprefix("group_")), breakdown))
+        return ast.Field(chain=[*column_chain, breakdown])
 
     # Fail loudly rather than silently skipping cleaning if a caller forgets the team
     if path_cleaning and team is None:
