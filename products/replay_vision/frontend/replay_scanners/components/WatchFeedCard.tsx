@@ -93,108 +93,97 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
 
     return (
         <div
-            className="@container relative border rounded bg-bg-light p-4 flex flex-col gap-2 hover:border-accent"
+            className="@container relative border rounded bg-bg-light p-4 flex gap-4 hover:border-accent"
             data-attr="vision-watch-feed-card"
         >
-            <div className="flex gap-4">
-                <div className="hidden @xl:flex w-48 shrink-0 flex-col gap-1">
-                    <div className="h-24 rounded bg-surface-secondary border flex items-center justify-center relative">
-                        <IconPlay className="text-2xl text-muted" />
-                        {!observation.viewed && (
-                            <Tooltip title="You haven't opened this observation yet">
-                                <span
-                                    className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-accent border border-bg-light"
-                                    aria-label="Unviewed"
-                                />
-                            </Tooltip>
-                        )}
-                        {clip && (
-                            <span className="absolute bottom-1 right-1 text-xs tabular-nums bg-bg-light border rounded px-1">
-                                {colonDelimitedDuration(Math.floor(clip.startMs / 1000), null)} to{' '}
-                                {colonDelimitedDuration(Math.floor(clip.endMs / 1000), null)}
-                            </span>
-                        )}
-                    </div>
-                    {clip && clip.endMs > clip.startMs && (
-                        <span className="text-xs text-muted">
-                            {colonDelimitedDuration(Math.ceil((clip.endMs - clip.startMs) / 1000), null)} of the session
-                            cited
+            {/* The thumbnail column spans the card's full height; everything else stacks beside it. */}
+            <div className="hidden @md:flex w-48 shrink-0 flex-col gap-1">
+                <div className="h-24 rounded bg-surface-secondary border flex items-center justify-center relative">
+                    <IconPlay className="text-2xl text-muted" />
+                    {!observation.viewed && (
+                        <Tooltip title="You haven't opened this observation yet">
+                            <span
+                                className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-accent border border-bg-light z-10"
+                                aria-label="Unviewed"
+                            />
+                        </Tooltip>
+                    )}
+                    {clip && (
+                        <span className="absolute bottom-1 right-1 text-xs tabular-nums bg-bg-light border rounded px-1">
+                            {colonDelimitedDuration(Math.floor(clip.startMs / 1000), null)} to{' '}
+                            {colonDelimitedDuration(Math.floor(clip.endMs / 1000), null)}
                         </span>
                     )}
                 </div>
-                <div className="flex-1 min-w-0 flex flex-col gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                        {/* The thumbnail (and its unviewed dot) hides on narrow cards, so the dot
-                            falls back to the header row there. */}
-                        {!observation.viewed && (
-                            <Tooltip title="You haven't opened this observation yet">
-                                <span
-                                    className="@xl:hidden w-2 h-2 rounded-full bg-accent shrink-0"
-                                    aria-label="Unviewed"
-                                />
-                            </Tooltip>
-                        )}
+                {clip && clip.endMs > clip.startMs && (
+                    <span className="text-xs text-muted">
+                        {colonDelimitedDuration(Math.ceil((clip.endMs - clip.startMs) / 1000), null)} of the session
+                        cited
+                    </span>
+                )}
+            </div>
+            <div className="flex-1 min-w-0 flex flex-col gap-2">
+                <div className="flex items-start justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2 min-w-0">
                         {scannerType && <ScannerTypeBadge scannerType={scannerType} />}
                         <span className="text-muted text-sm truncate">{scannerName}</span>
                     </div>
-                    {/* Stretched to cover the card: clicking anywhere opens the observation with the
-                        player expanded at the first cited moment. Inner links and the button sit
-                        above it via `relative z-10`, so the anchors never nest. */}
-                    <Link
-                        to={observationUrl}
-                        onClick={() => capture('observation')}
-                        className="text-sm text-default after:absolute after:inset-0 after:content-['']"
-                        data-attr="vision-watch-feed-card-body"
-                    >
-                        <ObservationResultSummary observation={observation} />
-                    </Link>
-                </div>
-                <div className="shrink-0">
                     <LemonButton
                         type="secondary"
                         size="small"
                         icon={<IconPlay />}
                         onClick={watchClipInModal}
-                        className="relative z-10"
+                        className="relative z-10 shrink-0"
                         data-attr="vision-watch-clip"
                     >
                         Watch clip
                     </LemonButton>
                 </div>
-            </div>
-            <LemonDivider className="my-0" />
-            <div className="text-xs text-secondary">
-                <span className="font-semibold uppercase">Why this clip</span> {watchReasonCopy(reason)}
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
-                {person ? (
-                    observation.distinct_id ? (
-                        <Link
-                            to={urls.personByDistinctId(observation.distinct_id)}
-                            className="relative z-10 flex items-center gap-1.5 min-w-0"
-                            data-attr="vision-watch-feed-person"
-                        >
-                            <ProfilePicture
-                                user={{ email: observation.recording_subject_email ?? undefined }}
-                                name={person}
-                                size="sm"
-                            />
-                            <span className="truncate">{person}</span>
-                        </Link>
+                {/* Stretched to cover the card: clicking anywhere opens the observation with the
+                    player expanded at the first cited moment. Inner links and the button sit
+                    above it via `relative z-10`, so the anchors never nest. */}
+                <Link
+                    to={observationUrl}
+                    onClick={() => capture('observation')}
+                    className="text-sm text-default after:absolute after:inset-0 after:content-['']"
+                    data-attr="vision-watch-feed-card-body"
+                >
+                    <ObservationResultSummary observation={observation} />
+                </Link>
+                <LemonDivider className="my-0" />
+                <div className="text-xs text-secondary">
+                    <span className="font-semibold uppercase">Why this clip</span> {watchReasonCopy(reason)}
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+                    {person ? (
+                        observation.distinct_id ? (
+                            <Link
+                                to={urls.personByDistinctId(observation.distinct_id)}
+                                className="relative z-10 flex items-center gap-1.5 min-w-0"
+                                data-attr="vision-watch-feed-person"
+                            >
+                                <ProfilePicture
+                                    user={{ email: observation.recording_subject_email ?? undefined }}
+                                    name={person}
+                                    size="sm"
+                                />
+                                <span className="truncate">{person}</span>
+                            </Link>
+                        ) : (
+                            <span className="flex items-center gap-1.5 min-w-0">
+                                <ProfilePicture
+                                    user={{ email: observation.recording_subject_email ?? undefined }}
+                                    name={person}
+                                    size="sm"
+                                />
+                                <span className="truncate">{person}</span>
+                            </span>
+                        )
                     ) : (
-                        <span className="flex items-center gap-1.5 min-w-0">
-                            <ProfilePicture
-                                user={{ email: observation.recording_subject_email ?? undefined }}
-                                name={person}
-                                size="sm"
-                            />
-                            <span className="truncate">{person}</span>
-                        </span>
-                    )
-                ) : (
-                    <span />
-                )}
-                <TZLabel time={observation.created_at} className="shrink-0" />
+                        <span />
+                    )}
+                    <TZLabel time={observation.created_at} className="shrink-0" />
+                </div>
             </div>
         </div>
     )
