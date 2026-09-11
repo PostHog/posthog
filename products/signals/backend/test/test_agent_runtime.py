@@ -71,6 +71,29 @@ class TestResolveAgentRuntime:
         with patch(_READ_PATH, return_value=payload):
             assert resolve_agent_runtime(2, "research") == _CODEX_NO_EFFORT
 
+    def test_service_tier_resolves_alongside_the_runtime_triple(self) -> None:
+        payload = {
+            "team_configs": {
+                "2": {"steps": {"research": {"runtime_adapter": "codex", "model": "gpt-5.5", "service_tier": "flex"}}}
+            }
+        }
+        with patch(_READ_PATH, return_value=payload):
+            assert resolve_agent_runtime(2, "research") == AgentRuntime(
+                runtime_adapter="codex", model="gpt-5.5", reasoning_effort=None, service_tier="flex"
+            )
+
+    @parameterized.expand([("non_string", True), ("unknown", "turbo"), ("typo", "flx")])
+    def test_bad_service_tier_is_dropped_not_fatal(self, _name: str, bad_tier: object) -> None:
+        # The agent server forwards the tier verbatim as the gateway's control header, which fails
+        # closed on an unknown value, so a payload typo would 400 every request of the run.
+        payload = {
+            "team_configs": {
+                "2": {"steps": {"research": {"runtime_adapter": "codex", "model": "gpt-5.5", "service_tier": bad_tier}}}
+            }
+        }
+        with patch(_READ_PATH, return_value=payload):
+            assert resolve_agent_runtime(2, "research") == _CODEX_NO_EFFORT
+
     def test_payload_served_as_json_string_is_parsed(self) -> None:
         with patch(_PAYLOAD_FN_PATH, return_value=json.dumps(_PAYLOAD)):
             assert resolve_agent_runtime(2, "research") == _CODEX

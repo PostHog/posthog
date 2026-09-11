@@ -115,9 +115,13 @@ export function breakdownConfigMatches(
     }
     // A property key already encodes each part's type, so scoped entries match on it alone;
     // property-less entries keep the legacy value-and-type match under any property.
+    //
+    // Both sides default a missing type to `event`, as breakdownConfigIdentityMatches does. An entry
+    // written without a type, which the API accepts, would otherwise compare `undefined` against a
+    // real type and never match any series.
     return config.breakdownProperty != null
         ? config.breakdownProperty === breakdownPropertyKey
-        : config.breakdownType === (breakdownType ?? 'event')
+        : (config.breakdownType ?? 'event') === (breakdownType ?? 'event')
 }
 
 /** True when two configs denote the same entry: same normalized value, type, and property

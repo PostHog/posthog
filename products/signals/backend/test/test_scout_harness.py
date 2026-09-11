@@ -23,6 +23,7 @@ from django.utils import timezone
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
+from temporalio.exceptions import ActivityError, TimeoutError, TimeoutType
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -35,7 +36,7 @@ from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_charts import ReportChart
-from products.signals.backend.scout_harness import run_costs
+from products.signals.backend.scout_harness import run_costs, scout_costs
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, failure_streak_pause_threshold
@@ -65,7 +66,12 @@ from products.signals.backend.scout_harness.skill_loader import (
     resolve_scout_acting_user_id,
 )
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
-from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, run_signals_scout_activity
+from products.signals.backend.temporal.agentic.scout_scheduler import (
+    RunSignalsScoutInput,
+    RunSignalsScoutOutput,
+    RunSignalsScoutWorkflow,
+    run_signals_scout_activity,
+)
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable
@@ -370,6 +376,82 @@ class TestReportChartsSection(SimpleTestCase):
         assert sql_chart["chartSettings"]["yAxis"][0]["column"]
 
 
+class TestPromptCacheablePrefix(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("signal_canonical", [], "canonical", False, False),
+            ("signal_custom_knowledge", [], "custom", False, True),
+            ("report_both_custom", ["emit_report", "edit_report"], "custom", False, False),
+            ("report_both_canonical_github_knowledge", ["emit_report", "edit_report"], "canonical", True, True),
+            ("report_emit_only_github", ["emit_report"], "custom", True, False),
+            ("report_edit_only_canonical_knowledge", ["edit_report"], "canonical", False, True),
+        ]
+    )
+    def test_per_team_and_per_run_values_render_only_in_the_trailing_block(
+        self,
+        _name: str,
+        allowed_tools: list[str],
+        origin: str,
+        github_read_access: bool,
+        business_knowledge_maintained: bool,
+    ) -> None:
+        # Both runtimes cache on prefix, so one interpolated value above the trailing block leaves
+        # every stable section after it uncacheable, and the fleet pays for the whole body again on
+        # the first turn of every run. The regression is a section drifting back up the prompt,
+        # which changes nothing a reader would notice, so assert on the split itself.
+        # The channel, report-tool, skill-origin, `gh` and business-knowledge forks each swap
+        # sections into the prose above the block, so a value added inside one of them renders for
+        # only some scouts — one shape would leave the other shapes' sections unchecked.
+        prompt = build_run_prompt(
+            LoadedSkill(
+                name="signals-scout-prefix-probe",
+                version=7,
+                body="watch",
+                description="d",
+                allowed_tools=allowed_tools,
+                files=[],
+                skill_id="skill-1",
+                origin=origin,  # type: ignore[arg-type]
+                authors=[],
+            ),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=987654,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            github_read_access=github_read_access,
+            business_knowledge_maintained=business_knowledge_maintained,
+            governed_metric_names=["mrr_probe_metric"],
+            write_scopes=["dashboard:write"],
+            structured_output_schema={"type": "object", "properties": {"verdict": {"type": "string"}}},
+            mcp_server_names=["Datadog (EU)"],
+        )
+
+        offsets = [
+            prompt.index(heading)
+            for heading in (
+                "# Governed metrics",
+                "# External MCP servers",
+                "# Write access",
+                "# Structured output",
+                "# Your run identity",
+            )
+        ]
+        # Per-team values first, the run's own identity last.
+        assert offsets == sorted(offsets)
+        head = prompt[: offsets[0]]
+        # Every stable section, down to the closing output-format one, sits above the block.
+        assert "# Output format" in head
+        for value in (
+            "00000000-0000-0000-0000-000000000abc",
+            "2026-05-01T12:34:56+00:00",
+            "987654",
+            "signals-scout-prefix-probe",
+            "mrr_probe_metric",
+            "Datadog",
+            '"verdict"',
+        ):
+            assert value not in head, f"{value} interpolated above the per-run block"
+
+
 class TestPromptCrossReferences(SimpleTestCase):
     @parameterized.expand(
         [
@@ -409,6 +491,8 @@ class TestPromptCrossReferences(SimpleTestCase):
             team_id=1,
             started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
             github_read_access=github_read_access,
+            # Carried on every case so the note section's own cross-references are held to the rule.
+            run_note="Focus on the checkout regression.",
         )
         headings = {line.removeprefix("# ") for line in prompt.splitlines() if line.startswith("# ")}
         # `*Emphasized*` spans naming another section, e.g. "see *Ground rules*". Single asterisks
@@ -466,6 +550,50 @@ class TestStructuredOutputPromptSection(SimpleTestCase):
         without_schema = _prompt(None)
         assert "# Structured output" not in without_schema
         assert "scout-record-output" not in without_schema
+
+
+class TestRunNotePromptSection(SimpleTestCase):
+    def _prompt(self, run_note: str | None) -> str:
+        return build_run_prompt(
+            LoadedSkill(
+                name="signals-scout-errors",
+                version=1,
+                body="watch",
+                description="d",
+                allowed_tools=[],
+                files=[],
+                skill_id="skill-1",
+                origin="canonical",
+                authors=[],
+            ),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=1,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            run_note=run_note,
+        )
+
+    @parameterized.expand([("absent", None), ("blank", "   \n  ")])
+    def test_no_section_without_a_note(self, _name: str, run_note: str | None) -> None:
+        # Every scheduled run takes this path, and would be told to weigh a note nobody left.
+        prompt = self._prompt(run_note)
+        assert "# A note for this run" not in prompt
+        assert "<run_note>" not in prompt
+
+    @parameterized.expand(
+        [
+            ("plain", "Focus on the checkout regression."),
+            # The tail renderer formats any section holding a `{schema_json}` placeholder, so a
+            # note like this one took the whole run down before the prompt was built.
+            ("braces", "Compare {schema_json} against the {} payload."),
+        ]
+    )
+    def test_note_renders_verbatim_in_its_own_section(self, _name: str, run_note: str) -> None:
+        prompt = self._prompt(run_note)
+        assert f"<run_note>\n{run_note}\n</run_note>" in prompt
+        # Read as fleet steering, a scout would be right to remember the nudge forever.
+        assert "# A note for this run" in prompt
+        assert "do not record it in the scratchpad as a durable memory" in prompt
+        assert "# Notes left for you" in prompt
 
 
 class TestExternalMcpServersPromptSection(SimpleTestCase):
@@ -638,9 +766,12 @@ class TestPromptBuilder(BaseTest):
             team_id=self.team.id,
             started_at=started_at,
         )
-        # Identity carries the skill name + version so bootstrap can reference it.
+        # Identity carries the skill name + version so bootstrap can reference it. The version
+        # renders as the bare number `skill-get` takes, since the endpoint validates it as an
+        # integer and the bootstrap points here rather than interpolating the value itself.
         assert "signals-scout-errors" in prompt
-        assert "(v1)" in prompt
+        assert "- **skill_version**: `1`" in prompt
+        assert "(v1)" not in prompt
         # The agent needs to know its own run id to attribute emits and memories.
         assert "00000000-0000-0000-0000-000000000abc" in prompt
         # Calling convention is stated up front: bare tool names resolve only
@@ -653,8 +784,11 @@ class TestPromptBuilder(BaseTest):
         # inlined — they're discovered at run time.
         assert "First: read your skill" in prompt
         # Skill version is pinned explicitly — the run row + tool resolution + budget
-        # were snapshotted against v1, so the bootstrap fetch must lock to v1 too.
-        assert 'skill-get(skill_name="signals-scout-errors", version=1)' in prompt
+        # were snapshotted against v1, so the bootstrap fetch must lock to v1 too. The two values
+        # ride in the run-identity block (asserted above), which is what keeps them out of the
+        # cacheable prose; the bootstrap step still has to say the version is not optional.
+        assert "skill-get(skill_name=<the skill_name there>, version=<the skill_version there>)" in prompt
+        assert "Pin that version explicitly" in prompt
         assert "skill-file-get" in prompt
         assert "watch for spikes" not in prompt
         assert "refs/playbook.md" not in prompt
@@ -948,7 +1082,7 @@ class TestPromptBuilder(BaseTest):
         # Reviewer routing for self-improvement reports points at the run-identity authors line,
         # not at "whoever owns this scout" guesswork — dropping the reference re-opens the
         # last-editor-becomes-the-assignee failure mode.
-        assert ("the skill authors listed under *Your run identity*" in prompt) is expect_escalation
+        assert ("the skill authors named in *Your run identity*" in prompt) is expect_escalation
         if _name == "custom_report_scout_emit_only":
             # The emit-only variant must never name the edit tool it lacks (fails closed).
             assert "scout-edit-report" not in prompt
@@ -1023,8 +1157,9 @@ class TestPromptBuilder(BaseTest):
             team_id=self.team.id,
             started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
         )
-        assert "**skill authors**: created by Ben (ben@posthog.com); since edited by" in prompt
-        assert self.user.email in prompt
+        # The uuid on the line is what the scout routes to, so an author with no GitHub still gets the report.
+        assert f"**skill authors**: created by Ben (ben@posthog.com, user_uuid `{ben.uuid}`); since edited by" in prompt
+        assert f"({self.user.email}, user_uuid `{self.user.uuid}`" in prompt
         # The authors line is a default, not an override — dropping the precedence hedge would
         # set the harness up to fight a skill body that defines its own reviewer routing.
         assert "unless your skill body defines its own reviewer routing" in prompt
@@ -1213,10 +1348,11 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aer
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
+async def test_run_tags_session_with_scout_attribution(ateam, aerrors_skill):
     # Scouts pass a `scout:<skill>` ai_stage to the sandbox session so every $ai_generation
     # carries it, letting scout spend be split out of the ai_product='signals' bucket (scouts
-    # have no report id) and attributed to one scout.
+    # have no report id) and attributed to one scout. The full skill name rides alongside it,
+    # because ai_stage collapses every team-authored scout to one value.
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     captured: dict = {}
 
@@ -1239,8 +1375,9 @@ async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
     ):
         await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
-    # `signals-scout-errors` is not a canonical scout, so its team-authored name is withheld.
+    # `signals-scout-errors` is not canonical, so only `ai_agent_name` can name it.
     assert captured["ai_stage"] == "scout:custom"
+    assert captured["ai_agent_name"] == "signals-scout-errors"
 
 
 @pytest.mark.asyncio
@@ -1636,7 +1773,7 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "resolved, pin, expected_model, expected_runtime_adapter, expected_reasoning_effort",
+    "resolved, pin, expected_model, expected_runtime_adapter, expected_reasoning_effort, expected_service_tier",
     [
         # Gate resolved, no pin: the gate's triple reaches the sandbox as-is — the runtime (and
         # optional effort) travel with the model so the agent server can route it.
@@ -1646,6 +1783,7 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             "@cf/zai-org/glm-5.2",
             "codex",
             "high",
+            None,
         ),
         # Gate resolved AND a fleet-wide pin present: the gate wins — a pin silently swallowing a
         # configured model trial is the production bug this ordering exists to prevent.
@@ -1655,6 +1793,7 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             "@cf/zai-org/glm-5.2",
             "codex",
             None,
+            None,
         ),
         # Gate unallocated remainder: falls through to the pin's whole triple (the fleet default).
         (
@@ -1663,17 +1802,67 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             "gpt-5.5",
             "codex",
             "high",
+            None,
         ),
         # Neither configured: agent-server default.
-        (ScoutModel(model=None, runtime_adapter=None), AgentRuntime(), None, None, None),
+        (ScoutModel(model=None, runtime_adapter=None), AgentRuntime(), None, None, None, None),
+        # The tier travels with the model it was configured beside. A slice pinned to flex asks for
+        # flex even when the pipeline pin names the same model untiered, so a same-model flex arm can
+        # run against the remainder's standard queue. Dropping this leaves the arm on standard and the
+        # comparison measures nothing.
+        (
+            ScoutModel(model="gpt-5.6-terra", runtime_adapter="codex", reasoning_effort="medium", service_tier="flex"),
+            AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", reasoning_effort="medium"),
+            "gpt-5.6-terra",
+            "codex",
+            "medium",
+            "flex",
+        ),
+        # The unallocated remainder runs the pin's model, so it takes the pin's tier with it.
+        (
+            ScoutModel(model=None, runtime_adapter=None),
+            AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", service_tier="flex"),
+            "gpt-5.6-terra",
+            "codex",
+            None,
+            "flex",
+        ),
+        # A slice with no tier of its own does NOT inherit the pin's: the pin's tier was paired with
+        # the pin's model, and some models reject the field outright.
+        (
+            ScoutModel(model="gpt-5.6-luna", runtime_adapter="codex"),
+            AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", service_tier="priority"),
+            "gpt-5.6-luna",
+            "codex",
+            None,
+            None,
+        ),
+        # A claude runtime joins no OpenAI queue: a tier on its slice (or the pin) is dropped rather
+        # than stamped, so the flex readout never counts a Claude run as a flex run.
+        (
+            ScoutModel(model="claude-sonnet-5", runtime_adapter="claude", service_tier="flex"),
+            AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", service_tier="flex"),
+            "claude-sonnet-5",
+            "claude",
+            None,
+            None,
+        ),
     ],
 )
 async def test_run_pins_sandbox_to_resolved_scout_model(
-    ateam, aerrors_skill, resolved, pin, expected_model, expected_runtime_adapter, expected_reasoning_effort
+    ateam,
+    aerrors_skill,
+    resolved,
+    pin,
+    expected_model,
+    expected_runtime_adapter,
+    expected_reasoning_effort,
+    expected_service_tier,
 ):
     # The `scouts-model-selection` gate is the per-run experiment layer and wins when it resolves a
     # model; the `signals-pipeline-models` pin is the default layer beneath it. Either way one
-    # source supplies the whole runtime/model/effort triple.
+    # source supplies the whole runtime/model/effort triple. The OpenAI service tier travels with
+    # it: the selected slice's own tier, or the pin's when the pin's model runs, codex only.
     # The routed model must also ride on both lifecycle events (omitted on the default path), so
     # run outcomes are sliceable by model without joining through $ai_generation.
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
@@ -1710,6 +1899,7 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
     assert captured["context"].model == expected_model
     assert captured["context"].runtime_adapter == expected_runtime_adapter
     assert captured["context"].reasoning_effort == expected_reasoning_effort
+    assert captured["context"].service_tier == expected_service_tier
     # The routed triple is also stamped on the bridge row's `metadata` (keys omitted when unset,
     # nothing at the top level on the default path) — the native API-side record of which model
     # served the run.
@@ -1720,6 +1910,7 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
             ("model", expected_model),
             ("runtime_adapter", expected_runtime_adapter),
             ("reasoning_effort", expected_reasoning_effort),
+            ("service_tier", expected_service_tier),
         )
         if value is not None
     }
@@ -1741,6 +1932,7 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
         else:
             assert props["model"] == expected_model
             assert props["runtime_adapter"] == expected_runtime_adapter
+        assert props.get("service_tier") == expected_service_tier
 
 
 @pytest.mark.asyncio
@@ -2555,7 +2747,7 @@ def test_to_summary_and_detail_surface_task_url_from_bridge():
         assert detail.task_url == summary.task_url
 
 
-_ROUTED_MODEL_KEYS = ("model", "runtime_adapter", "reasoning_effort")
+_ROUTED_MODEL_KEYS = ("model", "runtime_adapter", "reasoning_effort", "service_tier")
 
 
 class TestRunRowProvenanceStamps(BaseTest):
@@ -2628,6 +2820,265 @@ class TestRunRowProvenanceStamps(BaseTest):
         )
         assert (run.metadata or {})["business_knowledge_maintained"] is True
 
+    def test_stamps_the_one_off_note_a_manual_run_carried(self) -> None:
+        # The run row is the only record of what a hand-triggered run was asked to do.
+        config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name="signals-scout-general")
+        skill = self._skill(allowed_tools=["emit_report"], origin="custom")
+        steered = _create_run_row(
+            run_id=uuid7(),
+            task_run=_make_task_run(self.team),
+            team=self.team,
+            config=config,
+            skill=skill,
+            run_note="Focus on the checkout regression.",
+        )
+        assert (steered.metadata or {})["run_note"] == "Focus on the checkout regression."
+
+        scheduled = _create_run_row(
+            run_id=uuid7(),
+            task_run=_make_task_run(self.team),
+            team=self.team,
+            config=config,
+            skill=skill,
+        )
+        assert "run_note" not in (scheduled.metadata or {})
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("workflow_origin_key,wakes", [("job:step:1", True), (None, False)])
+async def test_activity_wakes_the_workflow_step_that_started_the_run(ateam, workflow_origin_key, wakes):
+    async def fake_arun(**_kwargs):
+        return RunResult(
+            run_id="abc",
+            task_run_id="def",
+            status="completed",
+            last_message="Two regressions found",
+            runtime_s=1.5,
+            skill_name="signals-scout-errors",
+            skill_version=2,
+        )
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.arun_signals_scout", side_effect=fake_arun),
+        patch("products.signals.backend.temporal.agentic.scout_scheduler.emit_workflow_step_resume") as resume,
+    ):
+        await ActivityEnvironment().run(
+            run_signals_scout_activity,
+            RunSignalsScoutInput(
+                team_id=ateam.id, skill_name="signals-scout-errors", workflow_origin_key=workflow_origin_key
+            ),
+        )
+
+    assert resume.call_count == (1 if wakes else 0)
+    if wakes:
+        resume.assert_called_once_with(
+            team_id=ateam.id,
+            origin_key="job:step:1",
+            status="completed",
+            result={"run_id": "abc", "summary": "Two regressions found", "error_message": None},
+            raise_on_error=False,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["completed", "preflight_error", "timeout", "cancelled"])
+@pytest.mark.parametrize("workflow_origin_key", ["job:step:1", None])
+async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_cannot(outcome, workflow_origin_key):
+    output = RunSignalsScoutOutput(
+        run_id="abc",
+        task_run_id="def",
+        status="completed",
+        runtime_s=1.5,
+        skill_name="signals-scout-errors",
+        skill_version=2,
+        last_message="Two regressions found",
+    )
+    error = ActivityError(
+        "Scout activity failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="worker",
+        activity_type="run_signals_scout_activity",
+        activity_id="scout",
+        retry_state=None,
+    )
+    error.__cause__ = (
+        TimeoutError("Heartbeat timed out", type=TimeoutType.HEARTBEAT, last_heartbeat_details=[])
+        if outcome == "timeout"
+        else RuntimeError("Preflight failed")
+    )
+
+    async def execute_activity(activity_function, input=None, **kwargs):
+        if activity_function is run_signals_scout_activity:
+            if outcome == "cancelled":
+                raise asyncio.CancelledError()
+            if outcome != "completed":
+                raise error
+            return output
+        return ActivityEnvironment().run(activity_function, *kwargs["args"])
+
+    with (
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.patched", return_value=True
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.execute_activity",
+            side_effect=execute_activity,
+        ),
+        patch("products.signals.backend.temporal.agentic.scout_scheduler.emit_workflow_step_resume") as resume,
+    ):
+        workflow = RunSignalsScoutWorkflow()
+        input = RunSignalsScoutInput(team_id=7, skill_name=output.skill_name, workflow_origin_key=workflow_origin_key)
+        if outcome == "completed":
+            assert await workflow.run(input) == output
+        else:
+            with pytest.raises(asyncio.CancelledError if outcome == "cancelled" else ActivityError):
+                await workflow.run(input)
+
+    if workflow_origin_key is None:
+        resume.assert_not_called()
+    else:
+        resume.assert_called_once()
+        assert resume.call_args.kwargs["origin_key"] == workflow_origin_key
+        assert resume.call_args.kwargs["status"] == (outcome if outcome in ("completed", "cancelled") else "failed")
+        assert resume.call_args.kwargs["raise_on_error"] is True
+
+
+class TestScoutCosts(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def _run(
+        self,
+        *,
+        skill_name: str = "signals-scout-general",
+        team: Team | None = None,
+        created_days_ago: float = 1,
+        emitted_report_ids: list[str] | None = None,
+        edited_report_ids: list[str] | None = None,
+    ) -> SignalScoutRun:
+        team = team or self.team
+        config, _ = SignalScoutConfig.objects.get_or_create(team=team, skill_name=skill_name)
+        run = SignalScoutRun.objects.create(
+            team=team,
+            task_run=_make_task_run(team),
+            scout_config=config,
+            skill_name=skill_name,
+            skill_version=1,
+            emitted_report_ids=emitted_report_ids or [],
+            edited_report_ids=edited_report_ids or [],
+        )
+        SignalScoutRun.objects.filter(pk=run.pk).update(created_at=timezone.now() - timedelta(days=created_days_ago))
+        run.refresh_from_db()
+        return run
+
+    def test_sums_spend_runs_and_distinct_reports_per_scout(self) -> None:
+        # A team-authored scout has to be named as itself: its generations all carry the same stage
+        # tag, so only the run rows can separate it from every other custom scout.
+        canonical_a = self._run(emitted_report_ids=["r-1"])
+        canonical_b = self._run(emitted_report_ids=["r-1"], edited_report_ids=["r-2"])
+        custom = self._run(skill_name="my-own-scout", edited_report_ids=["r-3"])
+        with patch.object(
+            scout_costs,
+            "get_local_task_run_token_costs",
+            return_value={
+                str(canonical_a.task_run_id): Decimal("1.2"),
+                str(canonical_b.task_run_id): Decimal("0.48"),
+                str(custom.task_run_id): Decimal("0.1"),
+            },
+        ) as query:
+            costs = scout_costs.scout_costs(team_id=self.team.id, window_days=7)
+
+        assert costs.available
+        assert costs.window_days == 7
+        by_skill = {scout.skill_name: scout for scout in costs.scouts}
+        assert by_skill["signals-scout-general"] == scout_costs.ScoutCost(
+            skill_name="signals-scout-general",
+            spend_usd=Decimal("1.68"),
+            run_count=2,
+            priced_run_count=2,
+            # `r-1` was filed by one run and touched again by another, so it counts once.
+            reports_touched=2,
+        )
+        assert by_skill["my-own-scout"].spend_usd == Decimal("0.1")
+        assert by_skill["my-own-scout"].reports_touched == 1
+        # One window read for the whole team rather than a list of every run id, which would be tens
+        # of thousands of ids on the largest fleets.
+        assert query.call_args.kwargs.get("task_run_ids") is None
+        assert query.call_args.kwargs["generated_after"] < min(canonical_a.created_at, custom.created_at)
+
+    def test_run_without_attributed_spend_is_left_out_of_the_priced_count(self) -> None:
+        # Cost per run divides by the runs that were priced, so a run that failed before its first
+        # model call must not pull the average down.
+        priced = self._run()
+        self._run()
+        with patch.object(
+            scout_costs, "get_local_task_run_token_costs", return_value={str(priced.task_run_id): Decimal("2")}
+        ):
+            costs = scout_costs.scout_costs(team_id=self.team.id, window_days=7)
+
+        assert [(scout.run_count, scout.priced_run_count, scout.spend_usd) for scout in costs.scouts] == [
+            (2, 1, Decimal("2"))
+        ]
+
+    def test_runs_outside_the_window_and_other_teams_runs_are_absent(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        mine = self._run()
+        self._run(created_days_ago=9)
+        self._run(team=other_team, skill_name="signals-scout-general")
+        with patch.object(
+            scout_costs, "get_local_task_run_token_costs", return_value={str(mine.task_run_id): Decimal("3")}
+        ):
+            costs = scout_costs.scout_costs(team_id=self.team.id, window_days=7)
+
+        assert [(scout.skill_name, scout.run_count) for scout in costs.scouts] == [("signals-scout-general", 1)]
+
+    def test_second_read_is_served_from_the_cache(self) -> None:
+        # The window's trailing edge moves and the newest runs may still be settling, so the number
+        # is roughly current by design and every roster poll must not re-read the events.
+        run = self._run()
+        with patch.object(
+            scout_costs, "get_local_task_run_token_costs", return_value={str(run.task_run_id): Decimal("1")}
+        ) as query:
+            first = scout_costs.scout_costs(team_id=self.team.id, window_days=7)
+            second = scout_costs.scout_costs(team_id=self.team.id, window_days=7)
+
+        assert second == first
+        query.assert_called_once()
+
+        cached = cache.get(f"scout_costs:v1:{self.team.id}:7")
+        assert cached == {
+            "window_days": 7,
+            "available": True,
+            "scouts": [
+                {
+                    "skill_name": "signals-scout-general",
+                    "spend_usd": "1",
+                    "run_count": 1,
+                    "priced_run_count": 1,
+                    "reports_touched": 0,
+                }
+            ],
+        }
+
+    def test_unreadable_cost_project_is_reported_rather_than_priced_at_zero(self) -> None:
+        self._run()
+        with patch.object(scout_costs, "get_local_task_run_token_costs", side_effect=TaskTokenUsageUnavailable()):
+            costs = scout_costs.scout_costs(team_id=self.team.id, window_days=7)
+
+        assert costs.available is False
+        assert costs.scouts == []
+
+    def test_team_with_no_runs_in_the_window_reads_as_available_and_empty(self) -> None:
+        with patch.object(scout_costs, "get_local_task_run_token_costs") as query:
+            costs = scout_costs.scout_costs(team_id=self.team.id, window_days=7)
+
+        assert costs.available
+        assert costs.scouts == []
+        query.assert_not_called()
+
 
 class TestScoutRunTokenCosts(BaseTest):
     """The staff-only per-run cost read behind the roster's run tooltips."""
@@ -2676,6 +3127,9 @@ class TestScoutRunTokenCosts(BaseTest):
         query.assert_called_once()
         called = query.call_args.kwargs
         assert called["origin_product"] == "signals_scout"
+        # The HogQL escaper dispatches on the exact class, so a `TextChoices` member in the constant
+        # raises before the query runs. Equality alone does not catch that.
+        assert type(called["origin_product"]) is str
         assert called["task_run_ids"] == [run.task_run_id]
         # The window has to open before the run did, or the sum finds none of its generations.
         assert called["generated_after"] < run.created_at

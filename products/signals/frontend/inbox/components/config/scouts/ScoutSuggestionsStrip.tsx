@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
 import { IconChevronDown, IconRefresh, IconSparkles, IconX } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
@@ -61,7 +61,7 @@ export function ScoutSuggestionsStrip(): JSX.Element | null {
                         icon={<IconRefresh />}
                         loading={isRefreshing}
                         disabledReason={isRefreshing ? 'Scanning the project…' : undefined}
-                        onClick={() => requestRefresh()}
+                        onClick={() => requestRefresh('strip')}
                         data-attr="scout-suggestions-refresh"
                     >
                         Refresh
@@ -90,19 +90,32 @@ export function ScoutSuggestionsStrip(): JSX.Element | null {
     )
 }
 
-/** Whichever of the strip's three states applies: collapsed, scanning, or the cards. */
+/** Whichever of the strip's states applies: collapsed, placeholders with nothing yet to read, or the cards. */
 function StripBody(): JSX.Element {
     const { suggestions, collapsed, batchStatus, isRefreshing, suggestionSetLoading } = useValues(scoutSuggestionsLogic)
 
     if (collapsed) {
-        return <CollapsedLine titles={suggestions.map((item) => item.title)} />
+        // The strip opens collapsed, so most Refresh presses land here. Without titles the strip is
+        // only up because a scan is running, so the note is all there is to show.
+        return (
+            <>
+                {suggestions.length > 0 && <CollapsedLine titles={suggestions.map((item) => item.title)} />}
+                {isRefreshing && <ScanningNote />}
+            </>
+        )
     }
-    if (isRefreshing || (suggestionSetLoading && suggestions.length === 0)) {
-        return <SuggestionsSkeleton />
+    if (suggestions.length === 0 && (isRefreshing || suggestionSetLoading)) {
+        return (
+            <>
+                <SuggestionsSkeleton />
+                {isRefreshing && <ScanningNote />}
+            </>
+        )
     }
     return (
         <>
             <SuggestionGrid surface="strip" />
+            {isRefreshing && <ScanningNote />}
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
                 {batchStatus === 'stale' && (
                     <span>
@@ -157,11 +170,21 @@ function SuggestionGrid({ surface, columns = 3 }: { surface: ScoutSuggestionSurf
     )
 }
 
+/** The picks a scan will replace are still on screen, so without this line a press looks ignored. */
+function ScanningNote(): JSX.Element {
+    const { refreshElapsedLabel } = useValues(scoutSuggestionsLogic)
+    return (
+        <div className="flex items-start gap-1.5 text-xs text-muted">
+            <Spinner className="mt-0.5 shrink-0" />
+            <span>
+                Scanning the project for new picks{refreshElapsedLabel ? `: ${refreshElapsedLabel}` : ''}. It usually
+                takes 2 to 5 minutes. You can leave this page. The new picks will be here when you come back.
+            </span>
+        </div>
+    )
+}
+
 function CollapsedLine({ titles }: { titles: string[] }): JSX.Element {
-    // The strip only stays up without titles while a scan runs, so that is what this line means.
-    if (titles.length === 0) {
-        return <span className="text-xs text-muted">Scanning the project…</span>
-    }
     const named = titles.slice(0, COLLAPSED_TITLE_PREVIEW).join(', ')
     const rest = titles.length - COLLAPSED_TITLE_PREVIEW
     return (

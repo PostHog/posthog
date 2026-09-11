@@ -22,6 +22,7 @@ from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.session_query_runner import SessionQueryRunner
 from posthog.models.team import Team
@@ -50,6 +51,7 @@ from products.ai_observability.backend.models.evaluation_configs import (
 )
 from products.ai_observability.backend.text_repr.formatters import (
     FormatterOptions,
+    RenderBudgetExceeded,
     format_trace_text_repr,
     llm_trace_to_formatter_format,
 )
@@ -217,7 +219,9 @@ def _count_session_events(team: Team, session_id: str, date_from: datetime, date
     return _SessionEventCount(event_count=int(event_count), first_seen=first_seen)
 
 
-def fetch_session_for_evaluation(team_id: int, session_id: str, window_start: datetime) -> SessionFetchOutcome:
+def fetch_session_for_evaluation(
+    team_id: int, session_id: str, window_start: datetime, window_end: datetime | None = None
+) -> SessionFetchOutcome:
     """Fetch every trace of a session for an online evaluation, bounded by retention.
 
     Deliberately not bounded by `max_age_seconds`: that's a forward budget (how long the workflow
@@ -231,7 +235,7 @@ def fetch_session_for_evaluation(team_id: int, session_id: str, window_start: da
     """
     team = Team.objects.get(id=team_id)
     retention_floor = window_start - timedelta(days=AI_EVENTS_RETENTION_DAYS)
-    date_to = datetime.now(UTC)
+    date_to = window_end or datetime.now(UTC)
 
     preflight = _count_session_events(team, session_id, retention_floor, date_to)
     if preflight.event_count == 0:
@@ -333,11 +337,11 @@ user's conversation, in order — according to this criteria:
 def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
     """Render a session as the canonical text representation, one section per trace.
 
-    The char budget is split evenly across traces so one long trace can't crowd the others out,
-    which matters for "did the user accomplish their goal" — the answer often lives in the
-    opening and closing turns, not the biggest one.
+    Preserve message content when the full session fits, including when one trace uses more
+    than an equal share of the budget. Oversized sessions split the budget evenly across traces
+    so one long trace cannot crowd out the opening and closing turns.
 
-    Returns `None` only when the *rendered* transcript overshoots the budget, meaning a final slice
+    Returns `None` when the fallback transcript still overshoots the budget, meaning a final slice
     would silently drop trailing traces. The caller must treat that as a `session_too_long_to_judge`
     skip rather than judge a transcript that's missing its close.
 
@@ -349,22 +353,33 @@ def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
     if not traces:
         return ""
     per_trace_budget = max(JUDGE_SESSION_MAX_CHARS // len(traces), _MIN_TRACE_CHARS_IN_SESSION)
-    options: FormatterOptions = {
-        "include_markers": False,
-        "collapsed": False,
-        "truncated": True,
-        "include_line_numbers": True,
-        "max_length": per_trace_budget,
-    }
-    sections: list[str] = []
-    for index, trace in enumerate(traces, start=1):
-        trace_dict, hierarchy = llm_trace_to_formatter_format(trace)
-        text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
-        sections.append(f"=== Trace {index} of {len(traces)} (id: {trace.id}) ===\n{text}")
-    rendered = "\n\n".join(sections)
-    if len(rendered) > JUDGE_SESSION_MAX_CHARS:
-        return None
-    return rendered
+    for truncated in (False, True):
+        options: FormatterOptions = {
+            "include_markers": False,
+            "collapsed": False,
+            "truncated": truncated,
+            "include_line_numbers": True,
+            "max_length": per_trace_budget if truncated else None,
+        }
+        sections: list[str] = []
+        rendered_length = 0
+        for index, trace in enumerate(traces, start=1):
+            header = f"=== Trace {index} of {len(traces)} (id: {trace.id}) ===\n"
+            rendered_length += len(header) + (2 if sections else 0)
+            if not truncated:
+                options["max_render_length"] = JUDGE_SESSION_MAX_CHARS - rendered_length
+            trace_dict, hierarchy = llm_trace_to_formatter_format(trace)
+            try:
+                text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
+            except RenderBudgetExceeded:
+                break
+            sections.append(header + text)
+            rendered_length += len(text)
+        else:
+            rendered = "\n\n".join(sections)
+            if len(rendered) <= JUDGE_SESSION_MAX_CHARS:
+                return rendered
+    return None
 
 
 def build_session_skip_result(allows_na: bool, skip_reason: str) -> EvaluationActivityResult:
@@ -383,12 +398,19 @@ def build_session_skip_result(allows_na: bool, skip_reason: str) -> EvaluationAc
     return result
 
 
-@dataclass
+@frozen
 class ExecuteSessionEvaluationInputs:
     evaluation: dict[str, Any]
     team_id: int
     session_id: str
     window_start: str
+    # Upper bound of the fetch, ISO. Unset on a live run, which reads up to now; a backfilled run
+    # sets it so an old unit is graded over the same span the live path would have covered.
+    window_end: str | None = None
+
+    @property
+    def window_end_datetime(self) -> datetime | None:
+        return datetime.fromisoformat(self.window_end) if self.window_end else None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -432,6 +454,7 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
         inputs.team_id,
         inputs.session_id,
         datetime.fromisoformat(inputs.window_start),
+        inputs.window_end_datetime,
     )
     if outcome.skip_reason or outcome.traces is None:
         return build_session_skip_result(allows_na, outcome.skip_reason or "session_not_found")
@@ -470,6 +493,7 @@ async def execute_session_hog_eval_activity(inputs: ExecuteSessionEvaluationInpu
             inputs.team_id,
             inputs.session_id,
             datetime.fromisoformat(inputs.window_start),
+            inputs.window_end_datetime,
         )
         if outcome.skip_reason or outcome.traces is None:
             return None, outcome.skip_reason or "session_not_found"

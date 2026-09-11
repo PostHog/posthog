@@ -652,6 +652,9 @@ class TestClickHouseSourceNonRetryableErrors:
             "Connection refused",
             "certificate verify failed",
             "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 404",
+            # A bare 400 (no "received ClickHouse error code" wording) means a proxy/tunnel in
+            # front of ClickHouse rejected the request, not the server itself — same cause as 404.
+            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 400",
             # MEMORY_LIMIT_EXCEEDED (code 241) — server-wide OvercommitTracker kill
             "HTTPDriver for https://host:8443 received ClickHouse error code 241\n Code: 241. "
             "DB::Exception: (total) memory limit exceeded: would use 108.01 GiB, maximum: 108.00 GiB. "
@@ -1015,6 +1018,12 @@ class TestTranslateError:
         msg = "Code: 516. DB::Exception: Authentication failed for user 'default'"
         assert ClickHouseSource._translate_error(msg) == "Invalid user or password"
 
+    def test_unknown_database_names_the_field_to_fix(self):
+        # A wrong database name is the common cause, so the message must point at that field
+        # rather than leaving the user to guess between the database, the host, and permissions.
+        msg = "Code: 81. DB::Exception: Database analytics does not exist"
+        assert ClickHouseSource._translate_error(msg) == "Database does not exist. Check the database name is correct."
+
     def test_returns_none_for_unrecognised_error(self):
         assert ClickHouseSource._translate_error("Some random error") is None
 
@@ -1025,6 +1034,15 @@ class TestTranslateError:
         translated = ClickHouseSource._translate_error(msg)
         assert translated is not None
         assert "404" in translated
+
+    def test_400_maps_to_wrong_interface_message(self):
+        # A proxy/tunnel in front of ClickHouse rejecting the request (no ClickHouse error
+        # header) answers with a bare 400; the message must name that cause rather than
+        # fall through to the generic "check your details".
+        msg = "HTTPDriver for https://host:8443 returned response code 400"
+        translated = ClickHouseSource._translate_error(msg)
+        assert translated is not None
+        assert "400" in translated
 
     def test_non_clickhouse_response_maps_to_actionable_message(self):
         # The wrapped probe error must surface the actionable "not serving ClickHouse"

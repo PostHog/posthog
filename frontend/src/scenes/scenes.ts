@@ -55,13 +55,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Materialized columns',
         description: 'Manage materialized column slot assignments for your team.',
     },
-    [Scene.Annotations]: {
-        projectBased: true,
-        name: 'Annotations',
-        description:
-            'Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics.',
-        iconType: 'annotation',
-    },
     [Scene.Approval]: {
         projectBased: true,
         name: 'Approval',
@@ -231,12 +224,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         docsHref: 'https://posthog.com/docs/feature-flags',
     },
     [Scene.Game368]: { name: '368 Hedgehogs', projectBased: true },
-    [Scene.Group]: {
-        projectBased: true,
-        name: 'People & groups',
-    },
-    [Scene.GroupsNew]: { projectBased: true },
-    [Scene.Groups]: { projectBased: true, name: 'Groups' },
     [Scene.HogFunction]: { projectBased: true, name: 'Hog function', activityScope: ActivityScope.HOG_FUNCTION },
     [Scene.Insight]: {
         projectBased: true,
@@ -583,7 +570,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: "A delightful weekly recap of this project's web analytics.",
         iconType: 'web_analytics',
     },
-    [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
     [Scene.OrganizationDeactivated]: {
         projectBased: false,
         organizationBased: true,
@@ -817,10 +803,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.personByUUID('*', false)]: [Scene.Person, 'personByUUID'],
     [urls.persons()]: [Scene.Persons, 'persons'],
     [urls.customCss()]: [Scene.CustomCss, 'customCss'],
-    [urls.groups(':groupTypeIndex')]: [Scene.Groups, 'groups'],
-    [urls.groupsNew(':groupTypeIndex')]: [Scene.GroupsNew, 'groupsNew'],
-    [urls.group(':groupTypeIndex', ':groupKey', false)]: [Scene.Group, 'group'],
-    [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: [Scene.Group, 'groupWithTab'],
     [urls.cohort(':id')]: [Scene.Cohort, 'cohort'],
     [urls.cohortCalculationHistory(':id')]: [Scene.CohortCalculationHistory, 'cohortCalculationHistory'],
     [urls.cohorts()]: [Scene.Cohorts, 'cohorts'],
@@ -845,8 +827,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.featureFlagsStaffTools()]: ['FeatureFlagsStaffTools' as Scene, 'featureFlagsStaffTools'],
     [urls.cohortsStaffTools()]: ['CohortsStaffTools' as Scene, 'cohortsStaffTools'],
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],
-    [urls.annotations()]: [Scene.Annotations, 'annotations'],
-    [urls.annotation(':id')]: [Scene.Annotations, 'annotation'],
     [urls.variables()]: [Scene.DataManagement, 'variables'],
     [urls.variableEdit(':id')]: [Scene.SqlVariableEdit, 'sqlVariableEdit'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
@@ -924,7 +904,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.links()]: [Scene.Links, 'links'],
     [urls.link(':id')]: [Scene.Link, 'link'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
-    [urls.wizard()]: [Scene.Wizard, 'wizard'],
     [urls.coupons(':campaign')]: [Scene.Coupons, 'coupons'],
     [urls.health()]: [Scene.Health, 'health'],
     [urls.pipelineStatus()]: [Scene.PipelineStatus, 'pipelineStatus'],

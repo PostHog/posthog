@@ -87,5 +87,5 @@ rules:
       owners: team-product-analytics
     - match: '/web-analytics/'
       owners: team-web-analytics
-    - match: ['/welcome/', '/wizard/']
+    - match: '/welcome/'
       owners: team-growth

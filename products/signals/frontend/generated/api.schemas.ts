@@ -281,6 +281,11 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly dismissal_note: string | null
+    /**
+     * `organization/repository` the report's work targets, from the latest repo-selection artefact (when present). Lets list cards show repository context without a per-card fetch.
+     * @nullable
+     */
+    readonly repo_slug: string | null
     readonly is_suggested_reviewer: boolean
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
@@ -298,6 +303,21 @@ export interface SignalReportApi {
     readonly implementation_pr_state: SignalReportAssignmentPrStateEnumApi | null
     /** Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR. */
     readonly implementation_pr_merged: boolean
+    /**
+     * Link to the issue self-driving opened in the team's tracker for this report's pull request. Null when the team tracks no issues, or the issue could not be opened.
+     * @nullable
+     */
+    readonly tracker_issue_url: string | null
+    /**
+     * How that tracker issue reads in its provider, for example '#12' or 'ENG-123'. Null when there is no tracker issue.
+     * @nullable
+     */
+    readonly tracker_issue_reference: string | null
+    /**
+     * Why the tracker issue could not be opened, for a team that wants one. Null when the issue exists or the team tracks no issues.
+     * @nullable
+     */
+    readonly tracker_issue_error: string | null
     /** Derived remediation state: unclaimed, working, in_review, or done. */
     readonly work_state: SignalReportWorkStateEnumApi
     /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
@@ -1884,7 +1904,7 @@ export interface SignalReportBulkStateResultApi {
 export interface SignalReportBulkStateResponseApi {
     /** One result per requested id, in request order (after de-duplication). */
     results: SignalReportBulkStateResultApi[]
-    /** Number of reports whose state was changed. */
+    /** Number of reports the call accepted. A report that already had the requested state counts here too, because a repeat dismiss or resolve still records its feedback. */
     transitioned_count: number
     /** Number of reports whose transition was not allowed. */
     skipped_count: number
@@ -1979,7 +1999,7 @@ export interface SignalScoutSlackDestinationApi {
      * @items.pattern ^[UW][A-Z0-9]{4,}\s*(\|.*)?$
      */
     users?: string[] | null
-    /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post. */
+    /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post. */
     thread_reports?: boolean
 }
 
@@ -2222,6 +2242,11 @@ export interface SignalScoutConfigApi {
     readonly skill_name: string
     /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
     readonly description: string
+    /**
+     * Name shown in the UI. Does not change the skill name. Leave blank to use the default name.
+     * @maxLength 200
+     */
+    display_name?: string
     /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
     readonly scout_origin: ScoutOriginEnumApi
     /** Who answers for this scout, seed-creator first. Ownership is recorded on the scout's skill rather than on this config, so editing the skill or toggling the scout leaves it unchanged. Reports the scout files suggest these people as reviewers. Prefer this over `created_by`-style fields, which only say who last flipped a switch. Empty when nobody owns the scout, when the owners are no longer members with access to the project, or when the caller is a scout sandbox token: owners are member PII, and a scout reads them through the skill API instead. */
@@ -2426,10 +2451,47 @@ export interface SignalScoutConfigCreateApi {
  */
 export type PatchedSignalScoutConfigUpdateApiStructuredOutputSchema = { [key: string]: unknown } | null
 
+export interface SignalScoutSlackDestinationUpdateApi {
+    /**
+     * ID of the Slack integration whose bot posts this scout's findings and reports.
+     * @minimum 1
+     */
+    integration_id: number
+    /**
+     * Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set.
+     * @maxLength 255
+     * @nullable
+     */
+    channel?: string | null
+    /**
+     * Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel.
+     * @minItems 1
+     * @maxItems 5
+     * @nullable
+     * @items.maxLength 255
+     * @items.pattern ^[UW][A-Z0-9]{4,}\s*(\|.*)?$
+     */
+    users?: string[] | null
+    /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post. */
+    thread_reports?: boolean
+}
+
+export interface SignalScoutOutputDestinationsUpdateApi {
+    /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
+    slack?: SignalScoutSlackDestinationUpdateApi | null
+    /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
+    webhook?: SignalScoutWebhookDestinationApi | null
+}
+
 /**
- * Editable schedule, enablement, and emit posture for one scout config.
+ * Editable display name, schedule, enablement, and emit posture for one scout config.
  */
 export interface PatchedSignalScoutConfigUpdateApi {
+    /**
+     * Name shown in the UI. Does not change the skill name. Leave blank to use the default name.
+     * @maxLength 200
+     */
+    display_name?: string
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Turning this off records a user pause (`status` becomes `paused_by_user`, which the system never overrides); turning it on resumes the scout from any pause. Only a change of value is a lifecycle action: re-sending the current value leaves the existing status and its ownership untouched. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -2447,7 +2509,7 @@ export interface PatchedSignalScoutConfigUpdateApi {
      */
     run_cron_schedule?: string | null
     /** Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery. */
-    output_destinations?: SignalScoutOutputDestinationsApi
+    output_destinations?: SignalScoutOutputDestinationsUpdateApi
     /**
      * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
      * @nullable
@@ -2484,6 +2546,19 @@ export interface PatchedSignalScoutConfigUpdateApi {
 }
 
 /**
+ * Request body for an on-demand (`run now`) scout dispatch.
+ *
+ * Every field is optional: a plain trigger sends no body at all.
+ */
+export interface SignalScoutManualRunRequestApi {
+    /**
+     * Optional steering for this run only, such as 'focus on the checkout regression' or 'skip the staging traffic today'. The agent reads it alongside the scout's durable notes and weighs it the same way: it directs attention, it never forces a finding. Use it instead of leaving a scout note that would also steer every later scheduled run. The note is kept on the run for history and is never read by another run. Because the agent reads it verbatim while holding privileged tools, a run that carries one needs `llm_skill:write` on top of `signal_scout:write`, plus editor access to skills, the same bar as leaving a note.
+     * @maxLength 1000
+     */
+    note?: string
+}
+
+/**
  * Response for an on-demand (`run now`) scout dispatch.
  *
  * The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
@@ -2512,7 +2587,7 @@ export interface ScoutMemberApi {
     /** The member's last name (may be empty). */
     last_name: string
     /**
-     * The member's resolved GitHub login (lowercased), already resolved server-side — put this value in a report's `suggested_reviewers` once you've matched the finding's owner to this row. Null when the member has no linked GitHub identity: a null-login member can't be routed to at all (neither a login nor a uuid resolves), so pick a different owner or leave `suggested_reviewers` empty.
+     * The member's resolved GitHub login (lowercased), already resolved server-side. Null when the member has no linked GitHub account, which does not stop you routing to them: pass their `user_uuid` in `suggested_reviewers` and the report reaches them. A null login only means no draft PR can be opened as that person.
      * @nullable
      */
     github_login: string | null
@@ -3295,9 +3370,11 @@ export type SignalScoutRunSummaryApiMetadata = {
     model?: string
     runtime_adapter?: string
     reasoning_effort?: string
+    service_tier?: string
     network_access?: string
     write_scopes?: string[]
     triggered_by?: string
+    run_note?: string
     derived?: SignalScoutRunSummaryApiMetadataDerived
     [key: string]: unknown
 }
@@ -3411,9 +3488,11 @@ export type SignalScoutRunDetailApiMetadata = {
     model?: string
     runtime_adapter?: string
     reasoning_effort?: string
+    service_tier?: string
     network_access?: string
     write_scopes?: string[]
     triggered_by?: string
+    run_note?: string
     derived?: SignalScoutRunDetailApiMetadataDerived
     [key: string]: unknown
 }
@@ -3503,10 +3582,9 @@ export interface ReportEvidenceApi {
 /**
  * One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
  *
- * The server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the
- * org member's linked GitHub login (and wins over a supplied `github_login` when both are given). A
- * `user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a
- * reviewer is never silently dropped.
+ * A reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a
+ * member with no linked GitHub account routes the report like anyone else. A `user_uuid` that
+ * isn't an org member of this team is rejected — so a reviewer is never silently dropped.
  */
 export interface SuggestedReviewerApi {
     /**
@@ -3514,7 +3592,7 @@ export interface SuggestedReviewerApi {
      * @maxLength 200
      */
     github_login?: string
-    /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
+    /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here. */
     user_uuid?: string
     /**
      * One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership.
@@ -3761,6 +3839,12 @@ export interface EmitReportRequestApi {
      * @items.maxLength 200
      */
     suggested_prompts?: string[]
+    /**
+     * Optional name for this emission, unique within the run. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report.
+     * @maxLength 200
+     * @nullable
+     */
+    idempotency_key?: string | null
 }
 
 export interface EmitReportResponseApi {
@@ -3791,6 +3875,8 @@ export interface EmitReportResponseApi {
      * @nullable
      */
     remediation: string | null
+    /** True when this call authored nothing because the emission had already landed — the fields above describe that first report. Expected on a retry; treat the report as filed and don't send it again. */
+    idempotent_replay: boolean
 }
 
 /**
@@ -3927,6 +4013,34 @@ export interface RecordStructuredOutputResponseApi {
     recorded_count: number
     /** Deterministic event ids of the recorded `$scout_structured_output` events, in submission order. Stable across a resubmission of the identical batch, which is what makes retrying a failed delivery safe. */
     record_ids: string[]
+}
+
+/**
+ * What one scout spent in the window, and what it produced for that spend.
+ */
+export interface ScoutCostApi {
+    /** Full skill name of the scout, e.g. `signals-scout-error-tracking`. */
+    skill_name: string
+    /** Model spend attributed to the scout's runs in the window, in US dollars. Zero when none of its runs had spend attributed, which `priced_run_count` tells apart from a scout that really spent nothing. */
+    spend_usd: number
+    /** Runs the scout started in the window. */
+    run_count: number
+    /** Runs of the scout that had spend attributed. Lower than `run_count` where a run failed before its first model call, or its generations haven't landed yet. Divide `spend_usd` by this, not by `run_count`, for cost per run. */
+    priced_run_count: number
+    /** Distinct inbox reports the scout filed or added to in the window. A report it authored in one run and edited in three counts once. Zero means the scout produced no reports, so cost per report has no value rather than a value of zero. */
+    reports_touched: number
+}
+
+/**
+ * Model spend and output per scout over a window.
+ */
+export interface ScoutCostsApi {
+    /** Window the rows describe, in days. */
+    window_days: number
+    /** One row per scout that started at least one run on this project in the window. */
+    scouts: ScoutCostApi[]
+    /** False when this deployment has no internal AI observability project to read the generations from, so `scouts` is empty and every spend is unknown rather than zero. */
+    available: boolean
 }
 
 /**
@@ -4384,7 +4498,7 @@ export interface SignalUserAutonomyConfigApi {
      */
     readonly slack_notification_integration_id: number | null
     /**
-     * Slack channel target in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null disables Slack notifications.
+     * Where the reviewer ping goes, in the same `id|name` shape PostHog uses elsewhere (only the id is required): a channel (`C0123ABC456|#alerts`), or a workspace member (`U0123ABC456|@sam`) who is sent a direct message. Null disables Slack notifications.
      * @maxLength 255
      * @nullable
      */
@@ -4397,8 +4511,47 @@ export interface SignalUserAutonomyConfigApi {
      * * `P3` - P3
      * * `P4` - P4 */
     slack_notification_min_priority?: AutonomyPriorityEnumApi | BlankEnumApi | null
+    /** Whether to add this user as a GitHub assignee on implementation pull requests for reports that suggest them as reviewer. Off by default. Assignment is additive, so turning it off never removes an assignee from a pull request that already has one. */
+    github_assign_on_pull_request?: boolean
+    /**
+     * Whether implementation pull requests for reports that suggest this user as reviewer open ready for review instead of draft, so the full CI matrix starts right away. Null follows the project's default_open_pull_request_ready. Applies only when the pull request is created; a pull request somebody converts back to draft stays draft.
+     * @nullable
+     */
+    github_open_pull_request_ready?: boolean | null
     readonly created_at: string
     readonly updated_at: string
+}
+
+export interface SignalUserAutonomyConfigCreateApi {
+    autostart_priority?: AutonomyPriorityEnumApi | null
+    /**
+     * Primary key of a Slack `Integration` row in one of the caller's teams. Pair with `slack_notification_channel` to enable notifications; pass null on either to disable them.
+     * @nullable
+     */
+    slack_notification_integration_id?: number | null
+    /**
+     * `channel_id|#channel-name` target, the same convention used by Insight Alerts, or a `member_id|@display-name` target (`U0123ABC456|@sam`) to send the ping as a direct message. A member target is checked against the workspace on save.
+     * @maxLength 255
+     * @nullable
+     */
+    slack_notification_channel?: string | null
+    /** Set true to send the ping as a direct message from the PostHog app. The caller's own member id is resolved in the connected workspace and stored in `slack_notification_channel`, so nothing has to be picked. Rejected when the workspace has no eligible account for the caller, and cannot be combined with `slack_notification_channel`. */
+    slack_notification_direct_message?: boolean
+    /** P0 is highest. Null = notify for every priority. When set, reports without a priority judgment do not notify.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    slack_notification_min_priority?: AutonomyPriorityEnumApi | null
+    /** Add this user as a GitHub assignee on implementation pull requests for reports that suggest them as reviewer. Off by default. Turning it off stops future assignment and never removes an existing assignee. */
+    github_assign_on_pull_request?: boolean
+    /**
+     * Open implementation pull requests for reports that suggest this user as reviewer ready for review instead of draft, so the full CI matrix runs without anybody clicking Ready. Null follows the project default. A ready pull request runs the full matrix on every push.
+     * @nullable
+     */
+    github_open_pull_request_ready?: boolean | null
 }
 
 export type SignalsProcessingListParams = {
@@ -4653,6 +4806,15 @@ export type SignalsScoutRunsListParams = {
      * @minLength 1
      */
     text?: string
+}
+
+export type SignalsScoutRunsCostsParams = {
+    /**
+     * Window in days over runs' `created_at` (default 7). Only 7 is accepted today — it matches the window the roster's fleet headline spans, so every number on the page describes one span.
+     * @minimum 7
+     * @maximum 7
+     */
+    window_days?: number
 }
 
 export type SignalsScoutRunsRecentEmissionsParams = {

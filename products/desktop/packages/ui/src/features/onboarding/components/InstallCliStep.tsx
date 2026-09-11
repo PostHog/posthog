@@ -471,14 +471,17 @@ export function InstallCliStep({ onNext, onBack }: InstallCliStepProps) {
           </Flex>
         </Flex>
 
-        <StepActions>
+        <StepActions
+          primaryAction={
+            <Button size="3" onClick={handleContinue}>
+              Continue
+              <ArrowRight size={16} weight="bold" />
+            </Button>
+          }
+        >
           <Button size="3" variant="outline" color="gray" onClick={onBack}>
             <ArrowLeft size={16} weight="bold" />
             Back
-          </Button>
-          <Button size="3" onClick={handleContinue}>
-            Continue
-            <ArrowRight size={16} weight="bold" />
           </Button>
         </StepActions>
       </Flex>

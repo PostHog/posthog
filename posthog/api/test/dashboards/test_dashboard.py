@@ -1,7 +1,7 @@
 import json
 import datetime
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
@@ -435,7 +435,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         other_team = Team.objects.create(organization=self.organization)
 
-        with freeze_time("2024-01-01T12:00:00Z"):
+        with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
             FileSystemViewLog.objects.create(
                 team=self.team,
                 user=self.user,
@@ -443,7 +443,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 ref=str(dashboard_recent_id),
             )
 
-        with freeze_time("2024-02-01T12:00:00Z"):
+        with time_machine.travel("2024-02-01T12:00:00Z", tick=False):
             FileSystemViewLog.objects.create(
                 team=other_team,
                 user=self.user,
@@ -853,6 +853,19 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.filters, {})
 
+    def test_can_clear_dashboard_filters(self) -> None:
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="dashboard",
+            created_by=self.user,
+            filters={"date_from": "-7d"},
+        )
+
+        self.dashboard_api.update_dashboard(dashboard.pk, {"filters": {}})
+
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.filters, {})
+
     def test_cannot_update_dashboard_with_invalid_variables(self):
         dashboard = Dashboard.objects.create(
             team=self.team,
@@ -860,11 +873,12 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             created_by=self.user,
             variables={"existing": "value"},
         )
-        self.dashboard_api.update_dashboard(
+        _, response = self.dashboard_api.update_dashboard(
             dashboard.pk,
             {"variables": ["not", "a", "dict"]},
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
+        self.assertEqual(response["detail"], "Variables must be a dictionary")
 
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.variables, {"existing": "value"})
@@ -1099,7 +1113,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
         }
 
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             # Pretend we cached something a while ago, but we won't have anything in the redis cache
             insight = Insight.objects.create(
                 filters=Filter(data=filter_dict).to_dict(),
@@ -1108,7 +1122,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             )
             DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
-        with freeze_time("2020-01-20T13:00:01Z"):
+        with time_machine.travel("2020-01-20T13:00:01Z", tick=False):
             response = self.dashboard_api.get_dashboard(dashboard.pk)
 
         self.assertEqual(response["tiles"][0]["insight"]["result"], None)
@@ -1117,7 +1131,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_refresh_cache(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
 
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             # Pretend we cached something a while ago, but we won't have anything in the redis cache
             item_default: Insight = Insight.objects.create(
                 query=browser_filtered_pageview_query(),
@@ -1139,7 +1153,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             )
         DashboardTile.objects.create(dashboard=dashboard, insight=item_trends)
 
-        with freeze_time("2020-01-20T13:00:01Z"):
+        with time_machine.travel("2020-01-20T13:00:01Z", tick=False):
             response_data = self.dashboard_api.get_dashboard(dashboard.pk, query_params={"refresh": True})
 
             self.assertEqual(response_data["tiles"][0]["is_cached"], False)
@@ -2262,6 +2276,33 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         duplicated_dashboard = Dashboard.objects.get(id=response["id"])
         self.assertEqual(duplicated_dashboard.breakdown_colors, breakdown_colors)
 
+    @parameterized.expand(
+        [
+            ("object_keyed_by_breakdown_value", {"Chrome": "preset-1"}, "breakdown_colors"),
+            # Belongs at the endpoint, not in the field matrix: the update is a PATCH, so DRF
+            # resolves the entry's required keys against the serializer's partial flag. An error
+            # inside an entry names the entry and the key, so the attr carries a path.
+            ("entry_missing_the_color_token", [{"breakdownValue": "Chrome"}], "breakdown_colors__0__colorToken"),
+        ]
+    )
+    def test_dashboard_rejects_breakdown_colors_that_cannot_apply(
+        self, _name: str, value: object, expected_attr: str
+    ) -> None:
+        # Wiring guard: the viewset has to reject the value rather than store it. The shape matrix
+        # lives in products/dashboards/backend/api/test/test_dashboard_filters_validation.py, which
+        # needs no database.
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
+
+        _, response = self.dashboard_api.update_dashboard(
+            dashboard.pk,
+            {"breakdown_colors": value},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertEqual(response["attr"], expected_attr)
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.breakdown_colors, [])
+
     def test_dashboard_duplication_copies_variables(self):
         """Test that variables are copied during duplication"""
         variable = InsightVariable.objects.create(
@@ -2426,18 +2467,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         # confirm that the dashboard returns the cached result (2 days)
         dashboard_json = self.dashboard_api.get_dashboard(dashboard.pk)
         self.assertEqual(len(dashboard_json["tiles"][0]["insight"]["result"][0]["days"]), 2)
-
-    def test_invalid_properties(self):
-        properties = "invalid_json"
-
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/?properties={properties}")
-
-        self.assertEqual(response.status_code, 400, response.content)
-        self.assertDictEqual(
-            response.json(),
-            self.validation_error_response("Properties are unparsable!", "invalid_input"),
-            response.content,
-        )
 
     def test_insights_with_no_insight_set(self):
         # We were saving some insights on the default dashboard with no insight
@@ -3187,6 +3216,29 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             assert value["code_name"] == variable.code_name
             assert value["variableId"] == str(variable.id)
             assert value["value"] == "some override value"
+
+    def test_clearing_the_last_dashboard_variable_persists(self):
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Test 1", code_name="test_1", default_value="some_default_value", type="String"
+        )
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="dashboard 1",
+            created_by=self.user,
+            variables={
+                str(variable.id): {
+                    "code_name": variable.code_name,
+                    "variableId": str(variable.id),
+                    "value": "some override value",
+                }
+            },
+        )
+
+        _, response_data = self.dashboard_api.update_dashboard(dashboard.pk, {"variables": {}})
+
+        assert response_data["persisted_variables"] is None
+        dashboard.refresh_from_db()
+        assert dashboard.variables == {}
 
     def test_dashboard_variables_stale(self):
         # if a variable is deleted/updated, the dashboard should not show the stale variable

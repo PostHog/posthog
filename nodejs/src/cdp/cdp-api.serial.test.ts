@@ -1336,13 +1336,62 @@ describe('CDP API', () => {
                     .post(
                         `/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-791`
                     )
-                    .send({ filters: { properties: snapshotProperties } })
+                    .send({ filters: { properties: snapshotProperties, assignment_status: 'assigned' } })
 
                 expect(res.status).toEqual(200)
                 const arg = createJobMock.mock.calls[0][0]
                 const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, any>
                 expect(state.filters.properties).toEqual(snapshotProperties)
+                expect(state.filters.assignment_status).toEqual('assigned')
+                expect(state.filters.all_roles_unassigned).toBeUndefined()
                 expect(state.filters.properties).not.toEqual((batchHogFlow as any).trigger.filters.properties)
+            } finally {
+                api['batchResolverProducer'] = null
+            }
+        })
+
+        it('takes the whole assignment filter from the snapshot instead of one key at a time', async () => {
+            // A snapshot saved before assignment statuses existed carries assignee ids and no status.
+            // If the status came off the live trigger instead, Django would reject 'unassigned'
+            // paired with those ids and the run would fail.
+            const statusFlow = await insertHogFlow({
+                id: new UUIDT().toString(),
+                name: 'test batch hog flow with an assignment status',
+                status: 'active',
+                version: 1,
+                exit_condition: 'exit_on_conversion',
+                edges: [],
+                actions: [],
+                trigger: {
+                    type: 'batch',
+                    filters: {
+                        audience_type: 'accounts',
+                        properties: [],
+                        assignment_status: 'unassigned',
+                        assigned_to_user_ids: [],
+                    },
+                },
+            })
+
+            const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
+            api['batchResolverProducer'] = {
+                createJob: createJobMock,
+                countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
+                rescheduleParkedJobs: jest.fn(),
+                cancelJobs: jest.fn(),
+                disconnect: jest.fn().mockResolvedValue(undefined),
+            }
+
+            try {
+                const res = await supertest(app)
+                    .post(`/api/projects/${statusFlow.team_id}/hog_flows/${statusFlow.id}/batch_invocations/job-792`)
+                    .send({ filters: { audience_type: 'accounts', properties: [], assigned_to_user_ids: [7] } })
+
+                expect(res.status).toEqual(200)
+                const arg = createJobMock.mock.calls[0][0]
+                const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, any>
+                expect(state.filters.assigned_to_user_ids).toEqual([7])
+                expect(state.filters.assignment_status).toBeUndefined()
             } finally {
                 api['batchResolverProducer'] = null
             }
