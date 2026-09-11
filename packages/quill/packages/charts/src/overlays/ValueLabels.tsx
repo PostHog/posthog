@@ -38,6 +38,8 @@ export interface ValueLabelsProps {
     valueFormatter?: ValueLabelFormatter
     minGap?: number
     mode?: ValueLabelsMode
+    /** Per-segment labels only: place labels at the bar end (default) or inside the segment's center. */
+    position?: 'end' | 'center'
     /** Gap in px between the bar tip and the label, applied along the value axis in the outward
      *  direction (right/above the tip, or inward for labels flipped inside a clipped bar). Ignored
      *  for centered (`percent`) labels. Defaults to 0 — the label's edge sits on the bar tip. */
@@ -81,6 +83,7 @@ interface BuildCandidatesArgs {
     valueFormatter: NonNullable<ValueLabelsProps['valueFormatter']>
     isHorizontal: boolean
     mode: ValueLabelsMode
+    position: 'end' | 'center'
     isPercent: boolean
 }
 
@@ -212,7 +215,7 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
 }
 
 function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2D | null): Candidate[] {
-    const { series, labels, scales, resolvePositionValue, valueFormatter, isHorizontal, isPercent } = args
+    const { series, labels, scales, resolvePositionValue, valueFormatter, isHorizontal, isPercent, position } = args
     const out: Candidate[] = []
 
     // Stack denominator — for percent-layout fraction placement and for the `bandValues` handed to
@@ -258,7 +261,8 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             // label on its own bar rather than the band center between bars. Other chart
             // types ignore the second arg and fall back to the band/point center.
             const categoricalCoord = scales.x(labels[dIdx], s.key)
-            const valueCoord = yScale(yValue)
+            const valueCoord =
+                position === 'center' ? (yScale(yValue) + yScale(yValue - displayValue)) / 2 : yScale(yValue)
             if (categoricalCoord == null || !isFinite(categoricalCoord) || !isFinite(valueCoord)) {
                 continue
             }
@@ -284,7 +288,7 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
                 categoricalCoord,
                 valueCoord,
                 above,
-                isPercent
+                isPercent || position === 'center'
             )
         }
     }
@@ -456,6 +460,7 @@ export function ValueLabels({
     valueFormatter,
     minGap = 4,
     mode = 'per-segment',
+    position = 'end',
     offset = 0,
 }: ValueLabelsProps): React.ReactElement | null {
     const { series, scales, labels, theme, resolvePositionValue, axis, dimensions } = useChartLayout()
@@ -477,6 +482,7 @@ export function ValueLabels({
                         valueFormatter: formatter,
                         isHorizontal,
                         mode,
+                        position,
                         isPercent,
                     }).filter((c) => withinPlotArea(c, dimensions, isHorizontal)),
                     dimensions,
@@ -485,7 +491,19 @@ export function ValueLabels({
                 minGap,
                 isHorizontal
             ),
-        [series, labels, scales, resolvePositionValue, formatter, minGap, isHorizontal, mode, isPercent, dimensions]
+        [
+            series,
+            labels,
+            scales,
+            resolvePositionValue,
+            formatter,
+            minGap,
+            isHorizontal,
+            mode,
+            position,
+            isPercent,
+            dimensions,
+        ]
     )
 
     // Skip the lift when a dataIndex has labels at multiple distinct x positions

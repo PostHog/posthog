@@ -5,6 +5,8 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 from rest_framework import status
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
@@ -18,7 +20,7 @@ from products.data_modeling.backend.logic.node_suspension import (
     suspension_reset_at,
     suspension_state,
 )
-from products.data_modeling.backend.models import DAG, Edge, Node, NodeType
+from products.data_modeling.backend.models import DAG, DataModelingJob, DataModelingJobEngine, Edge, Node, NodeType
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
@@ -64,6 +66,147 @@ class TestNodeViewSet(APIBaseTest):
 
         names = {node["name"] for node in response.json()["results"]}
         self.assertEqual(names, {"events", "test_view"})
+
+    def _node_payload(self) -> dict:
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.json()
+
+    def test_a_duckgres_shadow_failure_does_not_mark_a_served_model_failed(self):
+        """The shadow run finishes after the serving one, so reading the newest job of any engine
+        would report a model that served fine as failed."""
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=self.saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            last_run_at=timezone.now() - timedelta(minutes=10),
+        )
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=self.saved_query,
+            status=DataModelingJob.Status.FAILED,
+            engine=DataModelingJobEngine.DUCKGRES,
+            last_run_at=timezone.now(),
+        )
+
+        self.assertEqual(self._node_payload()["last_run_status"], "Completed")
+
+    def test_the_reported_error_belongs_to_the_run_that_reported_the_status(self):
+        """The saved query's latest_error is a v1 field the DAG path never writes, so the error
+        has to come off the job or the attention table shows a failure with no reason."""
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=self.saved_query,
+            status=DataModelingJob.Status.FAILED,
+            error="Code: 241. Memory limit exceeded",
+            last_run_at=timezone.now(),
+        )
+
+        payload = self._node_payload()
+
+        self.assertEqual(payload["last_run_status"], "Failed")
+        self.assertEqual(payload["last_run_error"], "Code: 241. Memory limit exceeded")
+
+    def test_a_model_that_last_succeeded_reports_no_error(self):
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=self.saved_query,
+            status=DataModelingJob.Status.FAILED,
+            error="an old failure",
+            last_run_at=timezone.now() - timedelta(hours=2),
+        )
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=self.saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            last_run_at=timezone.now(),
+        )
+
+        self.assertIsNone(self._node_payload()["last_run_error"])
+
+    def test_a_skipped_run_is_reported_over_the_stored_status(self):
+        """Skipped jobs are written straight to the job table, so the stored status still holds the
+        success before them."""
+        self.view_node.properties = {"system": {"last_run_status": "Completed"}}
+        self.view_node.save(update_fields=["properties"])
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=self.saved_query,
+            status=DataModelingJob.Status.SKIPPED,
+            last_run_at=timezone.now(),
+        )
+
+        self.assertEqual(self._node_payload()["last_run_status"], "Skipped")
+
+    def test_last_run_at_reports_the_newest_success_not_a_failed_run(self):
+        """The stored stamp is written on failures too, so trusting it would report a broken model
+        as freshly refreshed."""
+        succeeded_at = timezone.now() - timedelta(hours=3)
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=self.saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            last_run_at=succeeded_at,
+        )
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=self.saved_query,
+            status=DataModelingJob.Status.FAILED,
+            last_run_at=timezone.now(),
+        )
+        self.view_node.properties = {"system": {"last_run_at": timezone.now().isoformat()}}
+        self.view_node.save(update_fields=["properties"])
+
+        payload = self._node_payload()
+        self.assertEqual(payload["last_run_status"], "Failed")
+        self.assertEqual(payload["last_run_at"][:16], succeeded_at.isoformat()[:16])
+
+    @parameterized.expand([("failed_history", True), ("no_history", False)])
+    def test_legacy_last_run_at_is_used_only_without_job_history(self, _name: str, has_failed_job: bool):
+        legacy_run_at = timezone.now() - timedelta(days=1)
+        self.view_node.properties = {"system": {"last_run_at": legacy_run_at.isoformat()}}
+        self.view_node.save(update_fields=["properties"])
+        if has_failed_job:
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=self.saved_query,
+                status=DataModelingJob.Status.FAILED,
+                last_run_at=timezone.now(),
+            )
+
+        self.assertEqual(self._node_payload()["last_run_at"], None if has_failed_job else legacy_run_at.isoformat())
+
+    @parameterized.expand([("list",), ("retrieve",)])
+    def test_nodes_report_status_from_the_latest_job(self, endpoint: str):
+        """The node carries no status of its own, so both reads have to take it off the newest job."""
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=self.saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            last_run_at=timezone.now() - timedelta(hours=2),
+        )
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=self.saved_query,
+            status=DataModelingJob.Status.FAILED,
+            last_run_at=timezone.now(),
+        )
+
+        base = f"/api/environments/{self.team.id}/data_modeling_nodes/"
+        if endpoint == "list":
+            response = self.client.get(base)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            statuses = {node["name"]: node["last_run_status"] for node in response.json()["results"]}
+        else:
+            statuses = {}
+            for node in (self.view_node, self.table_node):
+                response = self.client.get(f"{base}{node.id}/")
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                statuses[response.json()["name"]] = response.json()["last_run_status"]
+
+        self.assertEqual(statuses["test_view"], "Failed")
+        self.assertIsNone(statuses["events"])
 
     def test_list_nodes_filters_by_team(self):
         other_team = Team.objects.create(organization=self.organization)
