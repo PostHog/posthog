@@ -6,6 +6,7 @@ from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -22,7 +23,12 @@ from products.experiments.backend.hogql_queries.experiment_exposure_query_builde
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.replay_linkage import ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES
-from products.experiments.backend.session_event_deltas import EXPERIMENT_BEHAVIOR_COMPARISON_FLAG
+from products.experiments.backend.session_event_deltas import (
+    EXPERIMENT_BEHAVIOR_COMPARISON_FLAG,
+    _EnrollmentMinute,
+    _plan_compared_enrollment,
+    _TimeRange,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
@@ -93,6 +99,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         exposure_criteria: Optional[dict[str, Any]] = None,
         team: Optional[Team] = None,
         created_by: Optional[User] = None,
+        start_date: datetime = EXPERIMENT_START,
     ) -> Experiment:
         team = team or self.team
         flag = FeatureFlag.objects.create(
@@ -111,7 +118,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
             name="Checkout CTA copy",
             feature_flag=flag,
             created_by=created_by or self.user,
-            start_date=EXPERIMENT_START,
+            start_date=start_date,
             exposure_criteria=exposure_criteria or {},
             metrics=metrics or [],
         )
@@ -349,7 +356,18 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
     @rank_anything
     def test_a_person_is_counted_once_and_read_from_their_first_exposed_session(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
-        self._session(variants=["control"], events=["pricing_faq"], distinct_id="comes_back", at=EXPOSED_AT)
+        exposure_session = self._session(
+            variants=["control"], events=["pricing_faq"], distinct_id="comes_back", at=EXPOSED_AT
+        )
+        # Fired in the exposure session before the flag was evaluated: the same in every variant,
+        # so it must not count toward control.
+        _create_event(
+            team=self.team,
+            event="pre_exposure_event",
+            distinct_id="comes_back",
+            timestamp=EXPOSED_AT - timedelta(minutes=5),
+            properties={"$session_id": exposure_session},
+        )
         for index in range(3):
             self._session(
                 variants=["control"],
@@ -385,11 +403,12 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         # difference on the *test* side, even though control's later sessions are full of it.
         checkout = next(card for card in self._cards(data, "behavior") if card["event"] == "checkout_start")
         assert checkout["variant"] == "test"
-        # A session that ended before its person was exposed is never compared, and a person whose
-        # sessions all ended before their exposure is not counted at all.
+        # A session that ended before its person was exposed is never compared, a person whose
+        # sessions all ended before their exposure is not counted at all, and what a person did in
+        # the exposure session before their exposure is not read either.
         carded_events = {card["event"] for card in self._cards(data, "behavior")}
         assert "after_event" in carded_events
-        assert {"stale_event", "before_event", "api_call"}.isdisjoint(carded_events)
+        assert {"stale_event", "before_event", "api_call", "pre_exposure_event"}.isdisjoint(carded_events)
         # People counted once; the sessions total still says how much material sits behind the variant.
         assert [(variant["persons"], variant["sessions"]) for variant in data["variants"]] == [(1, 4), (2, 2)]
 
@@ -773,27 +792,32 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
     @parameterized.expand(
         [
             # Nobody in the population has a browser session at all: the residual empty state,
-            # dated to the window the response reports.
-            ("no_browser_sessions", False),
+            # dated to the exposures the response reports.
+            ("no_browser_sessions", None),
             # The same people, each with a recorded browser session after their exposure: a
             # comparison, exactly as if the exposures had been captured in those sessions.
-            ("browser_sessions_after_exposure", True),
+            ("browser_sessions_after_exposure", timedelta(hours=1)),
+            # The same people, back only two days later: past the horizon, so their first session
+            # after exposure is not the session where they met the change, and they read as having
+            # none.
+            ("browser_sessions_past_the_horizon", timedelta(days=2)),
         ]
     )
     @rank_anything
     def test_server_side_exposures_compare_when_their_people_have_sessions(
-        self, _name: str, with_sessions: bool
+        self, _name: str, session_delay: Optional[timedelta]
     ) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        exposed_at = EXPOSED_AT - timedelta(days=3)
         for index in range(4):
             variant = "control" if index % 2 else "test"
-            distinct_id = self._unsessioned_exposure(variant)
-            if with_sessions:
+            distinct_id = self._unsessioned_exposure(variant, at=exposed_at)
+            if session_delay is not None:
                 self._session(
                     variants=[],
                     events=["checkout_start"] if variant == "control" else ["pricing_faq"],
                     distinct_id=distinct_id,
-                    at=EXPOSED_AT + timedelta(hours=1),
+                    at=exposed_at + session_delay,
                 )
         # Another flag's exposures carry a session, so the project-level taxonomy says
         # `$feature_flag_called` is session-linked. The person-scoped population makes that fact
@@ -803,7 +827,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
 
         data = self._post_deltas(experiment).json()
 
-        if with_sessions:
+        if session_delay == timedelta(hours=1):
             cards = {(card["event"], card["variant"]) for card in self._cards(data, "behavior")}
             assert {("pricing_faq", "test"), ("checkout_start", "control")} <= cards
             assert data["empty_reason"] is None
@@ -817,10 +841,13 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
             assert data["empty_reason"] == "no_session_linked_exposures"
             # Still true: the variants are below the floor. The reason, not this flag, decides the copy.
             assert data["too_early"] is True
-            # Nothing was covered, so the response reports the requested window, which is what the
-            # frontend's dated copy renders.
-            assert datetime.fromisoformat(data["date_from"]) == EXPERIMENT_START
-            assert datetime.fromisoformat(data["date_to"]) == NOW
+            # Nobody was read, so the response dates the claim to the exposures it chose, which is
+            # what the frontend's dated copy renders: from the earliest first exposure to where the
+            # newest one's first session could last reach.
+            assert datetime.fromisoformat(data["date_from"]) == exposed_at
+            assert datetime.fromisoformat(data["date_to"]) == exposed_at + timedelta(
+                hours=session_event_deltas.FIRST_SESSION_HORIZON_HOURS, minutes=1
+            )
 
     def test_too_early_is_reported_rather_than_an_empty_shelf(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
@@ -838,8 +865,8 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert data["min_variant_persons"] == session_event_deltas.MIN_VARIANT_PERSONS
 
     @rank_anything
-    @patch.object(session_event_deltas, "MAX_DELTA_SCAN_SESSIONS", 1)
-    def test_reports_the_window_it_could_cover_rather_than_the_one_it_was_asked_for(self) -> None:
+    @patch.object(session_event_deltas, "MAX_DELTA_SCAN_PERSONS", 1)
+    def test_reports_the_enrollment_it_compared_rather_than_the_whole_run(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
         self._session(variants=["control"], events=["pricing_faq"], at=EXPERIMENT_START + timedelta(hours=1))
         self._session(variants=["test"], events=["pricing_faq"], at=EXPOSED_AT)
@@ -847,14 +874,88 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
 
         data = self._post_deltas(experiment).json()
 
-        # Only the most recent session fits, so the experiment's own start date would claim eight
-        # days of coverage that was never read — and the scan itself would read them for nothing.
-        # What's left is that session's own day, plus the longest a session it began in could run.
-        # Coverage is resolved from the session's last activity, which is its one behavior event.
+        # Only the most recently exposed person fits, so the experiment's own start date would
+        # claim eight days of enrollment that was never read — and the scan would read them for
+        # nothing. What's left starts at that person's own exposure.
         assert data["sessions_truncated"] is True
-        last_activity = EXPOSED_AT + timedelta(minutes=1)
-        assert datetime.fromisoformat(data["date_from"]) == last_activity - timedelta(
-            hours=session_event_deltas.MAX_SESSION_DURATION_HOURS
+        assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == [("control", 0), ("test", 1)]
+        assert datetime.fromisoformat(data["date_from"]) == EXPOSED_AT
+
+    @parameterized.expand(
+        [
+            # The cap lands inside the one-sided stretch: the run has plenty of people, but the
+            # newest enrollees are all in one variant, and waiting adds more of the same.
+            ("newest_enrollees_one_sided", 3, "one_sided_enrollment", True, [("control", 0), ("test", 3)]),
+            # The whole run fits: the thin variant is small because the experiment is, and "check
+            # back" is the right answer.
+            ("whole_run_compared", 100, "too_early", False, [("control", 2), ("test", 5)]),
+        ]
+    )
+    @patch.object(session_event_deltas, "MIN_VARIANT_PERSONS", 3)
+    def test_one_sided_newest_enrollees_are_reported_rather_than_compared_with_older_ones(
+        self,
+        _name: str,
+        person_cap: int,
+        expected_reason: str,
+        truncated: bool,
+        expected_variants: list[tuple[str, int]],
+    ) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        # Both variants enrolled early; then the split changed and only test kept enrolling.
+        for variant in ("control", "test"):
+            self._variant(variant, [["pricing_faq"]] * 2)
+        for _ in range(3):
+            self._session(variants=["test"], events=["pricing_faq"], at=EXPOSED_AT + timedelta(hours=1))
+        flush_persons_and_events()
+
+        with patch.object(session_event_deltas, "MAX_DELTA_SCAN_PERSONS", person_cap):
+            data = self._post_deltas(experiment).json()
+
+        assert data["cards"] == []
+        assert data["empty_reason"] == expected_reason
+        # A special case of too early, so a reader of the boolean alone still sees "not compared".
+        assert data["too_early"] is True
+        assert data["sessions_truncated"] is truncated
+        assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == expected_variants
+
+    @rank_anything
+    def test_people_are_compared_in_their_first_session_after_exposure_however_long_ago(self) -> None:
+        # Enrollment ended three weeks ago and everyone came back yesterday. A trailing window
+        # would read the sessions from yesterday, which never touched the change; the comparison
+        # has to read the sessions the people were exposed in, and only from the exposure on.
+        exposed_at = NOW - timedelta(days=20)
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC], start_date=NOW - timedelta(days=30))
+        # The cutoff and every stretch bound travel from ClickHouse back into the next query as
+        # datetimes in the team's timezone; a naive one would shift every stretch by this offset.
+        self.team.timezone = "America/New_York"
+        self.team.save()
+        for variant in ("control", "test"):
+            for index in range(2):
+                distinct_id = f"{variant}_returner_{index}"
+                self._session(
+                    variants=[variant],
+                    events=["exposure_event"] if variant == "test" else [],
+                    distinct_id=distinct_id,
+                    at=exposed_at,
+                )
+                self._session(
+                    variants=[],
+                    events=["late_event"] if variant == "test" else ["$pageview"],
+                    distinct_id=distinct_id,
+                    at=NOW - timedelta(days=1),
+                )
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        carded = {(card["event"], card["variant"]) for card in self._cards(data, "behavior")}
+        assert ("exposure_event", "test") in carded
+        assert "late_event" not in {event for event, _variant in carded}
+        assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == [("control", 2), ("test", 2)]
+        assert data["sessions_truncated"] is False
+        assert datetime.fromisoformat(data["date_from"]) == exposed_at
+        assert datetime.fromisoformat(data["date_to"]) == exposed_at + timedelta(
+            hours=session_event_deltas.FIRST_SESSION_HORIZON_HOURS, minutes=1
         )
 
     @rank_anything
@@ -868,7 +969,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         self._session(variants=[], events=["pricing_faq"], distinct_id=test_id, at=NOW - timedelta(days=4, hours=1))
         control_id = self._unsessioned_exposure("control", at=NOW - timedelta(days=5))
         old_session = self._session(
-            variants=[], events=["old_event"], distinct_id=control_id, at=NOW - timedelta(days=4)
+            variants=[], events=["old_event"], distinct_id=control_id, at=NOW - timedelta(days=4, hours=2)
         )
         flush_persons_and_events()
 
@@ -1222,3 +1323,89 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
             response = self._post_deltas(experiment)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+
+class TestComparedEnrollmentWalk(SimpleTestCase):
+    # The walk is the scan's cost bound, so it is pinned on its own without ClickHouse. Every
+    # instant is an offset from the window end; buckets are listed newest first, as the query
+    # returns them.
+    WINDOW_END = datetime(2026, 1, 10, 12, 0, 0, tzinfo=UTC)
+    HORIZON = timedelta(hours=24)
+    STRETCH = timedelta(hours=24, minutes=1)
+
+    @classmethod
+    def _at(cls, offset: timedelta) -> datetime:
+        return cls.WINDOW_END + offset
+
+    @parameterized.expand(
+        [
+            (
+                "stops_at_the_person_cap_after_a_whole_minute",
+                [(timedelta(hours=-1), 5), (timedelta(hours=-2), 5), (timedelta(hours=-3), 5)],
+                8,
+                timedelta(days=14),
+                10,
+                True,
+                timedelta(hours=-2),
+                [(timedelta(hours=-2), timedelta(0))],
+            ),
+            (
+                "stops_before_the_stretch_that_would_exceed_the_day_budget",
+                [(timedelta(hours=-1), 1), (timedelta(hours=-30), 1), (timedelta(hours=-60), 1)],
+                100,
+                timedelta(days=2),
+                2,
+                True,
+                timedelta(hours=-30),
+                [(timedelta(hours=-1), timedelta(0)), (timedelta(hours=-30), timedelta(hours=-30) + STRETCH)],
+            ),
+            (
+                "merges_minutes_whose_stretches_overlap_into_one",
+                [(timedelta(hours=-1), 1), (timedelta(hours=-12), 1), (timedelta(hours=-20), 1)],
+                100,
+                timedelta(days=14),
+                3,
+                False,
+                timedelta(hours=-20),
+                [(timedelta(hours=-20), timedelta(0))],
+            ),
+            (
+                "skips_the_empty_gap_between_stragglers_and_the_bulk",
+                [(timedelta(hours=-1), 2), (timedelta(days=-10), 100), (timedelta(days=-10, minutes=-5), 100)],
+                20_000,
+                timedelta(days=14),
+                202,
+                False,
+                timedelta(days=-10, minutes=-5),
+                [
+                    (timedelta(hours=-1), timedelta(0)),
+                    (timedelta(days=-10, minutes=-5), timedelta(days=-10) + STRETCH),
+                ],
+            ),
+            ("nobody_exposed", [], 20_000, timedelta(days=14), 0, False, timedelta(0), []),
+        ]
+    )
+    def test_walk(
+        self,
+        _name: str,
+        buckets: list[tuple[timedelta, int]],
+        person_cap: int,
+        day_budget: timedelta,
+        persons: int,
+        truncated: bool,
+        cutoff: timedelta,
+        ranges: list[tuple[timedelta, timedelta]],
+    ) -> None:
+        enrollment = _plan_compared_enrollment(
+            [_EnrollmentMinute(minute=self._at(offset), people=people) for offset, people in buckets],
+            window_end=self.WINDOW_END,
+            horizon=self.HORIZON,
+            day_budget=day_budget,
+            person_cap=person_cap,
+        )
+
+        assert enrollment.persons == persons
+        assert enrollment.truncated is truncated
+        assert enrollment.cutoff == self._at(cutoff)
+        assert enrollment.ranges == tuple(_TimeRange(start=self._at(start), end=self._at(end)) for start, end in ranges)
+        assert enrollment.end == (enrollment.ranges[0].end if ranges else self.WINDOW_END)

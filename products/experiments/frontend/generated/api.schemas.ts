@@ -2421,9 +2421,9 @@ export interface ExperimentWatchCardApi {
 export interface ExperimentWatchVariantApi {
     /** The variant key. */
     key: string
-    /** Exposed people the comparison covered for this variant. People rather than sessions because a variant can change how often the flag is evaluated again later, which moves a variant's session count without anyone behaving differently. Each person is read from the first session the comparison covers them in, so every variant gets the same amount of behavior per person. */
+    /** Exposed people the comparison covered for this variant: the most recently exposed people, each read from their first session after being exposed. People rather than sessions because a variant can change how often the flag is evaluated again later, which moves a variant's session count without anyone behaving differently. One session each, from the moment of exposure on, so every variant gets the same amount of behavior per person. */
     persons: number
-    /** Exposed sessions those people were seen in, which is more than the comparison reads: it says how much recorded material sits behind the variant. */
+    /** Sessions those people had within 24 hours of being exposed, which is more than the comparison reads: it says how much recorded material sits behind the variant. */
     sessions: number
 }
 
@@ -2441,15 +2441,16 @@ export const ExperimentWatchMultipleVariantHandlingEnumApi = {
 
 /**
  * * `too_early` - too_early
+ * * `one_sided_enrollment` - one_sided_enrollment
  * * `no_separation` - no_separation
  * * `no_recordings` - no_recordings
  * * `no_session_linked_exposures` - no_session_linked_exposures
  */
-export type ExperimentWatchEmptyReasonEnumApi =
-    (typeof ExperimentWatchEmptyReasonEnumApi)[keyof typeof ExperimentWatchEmptyReasonEnumApi]
+export type EmptyReasonEnumApi = (typeof EmptyReasonEnumApi)[keyof typeof EmptyReasonEnumApi]
 
-export const ExperimentWatchEmptyReasonEnumApi = {
+export const EmptyReasonEnumApi = {
     TooEarly: 'too_early',
+    OneSidedEnrollment: 'one_sided_enrollment',
     NoSeparation: 'no_separation',
     NoRecordings: 'no_recordings',
     NoSessionLinkedExposures: 'no_session_linked_exposures',
@@ -2476,15 +2477,15 @@ export interface ExperimentSessionEventDeltaResponseApi {
     multiple_variant_handling: ExperimentWatchMultipleVariantHandlingEnumApi
     /** The events the experiment's own metrics count. A card on one of these carries metric_name and must be read as pointing at the experiment's results, which measure the same event over the whole run window with the statistics that go with a result. Cards state no magnitude for exactly this reason, so never turn one into a claim about how the metric moved. */
     metric_events: string[]
-    /** Start of what was actually compared. The requested window is the experiment's run window clamped to its most recent 14 days, but a busy experiment reaches the session ceiling long before that, and this reports where the compared sessions really begin - often hours rather than days back. Display this, not the experiment's own dates. */
+    /** When the earliest compared person was first exposed. The comparison takes the most recently exposed people, newest first, until it has as many as one comparison covers or their first sessions span 14 days of events, so on a busy experiment this is hours rather than days before date_to, and on an experiment that stopped enrolling it can be long before the experiment's end. Display this, not the experiment's own dates. Equal to date_to when nobody has been exposed yet. */
     date_from: string
-    /** End of what was compared: the experiment's end date, or now while it runs. */
+    /** End of what was compared: the experiment's end date, or now while it runs, unless the newest compared person was first exposed more than 24 hours before that, in which case it is where their first session can last reach. */
     date_to: string
     /** Whether the project's test-account filters were applied, following the experiment's exposure criteria, the same rule the experiment's recordings list uses. */
     filter_test_accounts: boolean
     /** Always false. The compared population is the exposed population the experiment's results count, matched to sessions by person, so no stamped-property fallback exists any more. The field stays for compatibility with existing readers. */
     used_exposure_fallback: boolean
-    /** True when the experiment had more exposed sessions in the requested window than one comparison covers, so the most recent ones were used and date_from is later than the experiment's own window. Every variant is still covered over the same stretch of time. */
+    /** True when more people were exposed than one comparison covers, so the most recently exposed were used and people exposed before date_from were left out. Every variant is still covered over the same stretch of enrollment. Named for the session ceiling it used to report; the name is kept for existing readers. */
     sessions_truncated: boolean
     /** True when the project has more distinct event names in the window than one comparison can rank, so some were never considered. */
     events_truncated: boolean
@@ -2494,15 +2495,16 @@ export interface ExperimentSessionEventDeltaResponseApi {
     max_card_recordings: number
     /** How many cards were removed because their recordings were already another card's on the same shelf. Nothing was lost: the recordings are all reachable through the cards that stayed. */
     dropped_duplicate_cards: number
-    /** True when fewer than two variants have min_variant_persons exposed people, so no comparison exists and cards is empty. Show the variants' counts alongside it: an empty shelf presented without them would read as 'the variants behaved identically'. Read empty_reason before telling anyone to check back: this is also true when the variants are empty because the people exposed have no sessions we can see, which empty_reason reports as 'no_session_linked_exposures' and which more time does not fix on its own. */
+    /** True when fewer than two variants have min_variant_persons exposed people, so no comparison exists and cards is empty. Show the variants' counts alongside it: an empty shelf presented without them would read as 'the variants behaved identically'. Read empty_reason before telling anyone to check back: this is also true when the variants are empty because the people exposed have no sessions we can see, which empty_reason reports as 'no_session_linked_exposures', and when the newest enrollees are almost all in one variant, which it reports as 'one_sided_enrollment'. More time fixes neither. */
     too_early: boolean
-    /** Why cards is empty, and null whenever cards is not empty. Report which of the four happened rather than reporting an empty shelf, because they ask different things of the reader. 'too_early': fewer than two variants have min_variant_persons exposed people, so nothing was compared yet and the answer can still change. 'no_separation': the variants were compared and no event told them apart, which is a result rather than a failure. 'no_recordings': events did tell the variants apart, but no recording behind them can be opened, so the project's session replay sampling and retention are what decide whether this surface can ever show anything. 'no_session_linked_exposures': the experiment has exposed people and none of them has a session we can see between date_from and date_to, so there was nothing to compare. Who counts as exposed is read over the whole run, so the exposures themselves can predate that window: date the claim to the window instead of reporting when anyone was exposed. Two things reach this state, and they ask for different answers: no browser or mobile SDK is capturing events, because sessions exist nowhere else, or the exposed people were last active before the window. Check which one before telling anyone to check back, because more exposures captured the same way yield more of the same. Never fill an empty shelf with the experiment's metrics: shortcut cards to those metrics' events are withheld here for exactly that reason.
+    /** Why cards is empty, and null whenever cards is not empty. Report which of the five happened rather than reporting an empty shelf, because they ask different things of the reader. 'too_early': fewer than two variants have min_variant_persons exposed people, so nothing was compared yet and the answer can still change. 'one_sided_enrollment': the experiment has more exposed people than one comparison covers, and its newest enrollees are almost all in one variant, so nothing was compared and more time will not change that; check whether the rollout split changed during the run. 'no_separation': the variants were compared and no event told them apart, which is a result rather than a failure. 'no_recordings': events did tell the variants apart, but no recording behind them can be opened, so the project's session replay sampling and retention are what decide whether this surface can ever show anything. 'no_session_linked_exposures': the people exposed between date_from and date_to had no session we can see within 24 hours of being exposed, so there was nothing to compare. Two things reach this state, and they ask for different answers: no browser or mobile SDK is capturing events, because sessions exist nowhere else, or the exposed people never came back within a day of being exposed. Check which one before telling anyone to check back, because more exposures captured the same way yield more of the same. Never fill an empty shelf with the experiment's metrics: shortcut cards to those metrics' events are withheld here for exactly that reason.
      *
      * * `too_early` - too_early
+     * * `one_sided_enrollment` - one_sided_enrollment
      * * `no_separation` - no_separation
      * * `no_recordings` - no_recordings
      * * `no_session_linked_exposures` - no_session_linked_exposures */
-    empty_reason: ExperimentWatchEmptyReasonEnumApi | null
+    empty_reason: EmptyReasonEnumApi | null
 }
 
 export interface ShipVariantApi {
