@@ -145,6 +145,14 @@ PostHog event, every matching occurrence:
 }
 ```
 
+A PostHog event trigger creates a task on every matching occurrence, and the workflow editor's volume warning does not run on this path. Bound it before you create the loop: narrow the event with a property filter, and throttle a common event with `trigger_masking`, a top-level field beside `actions` and `edges`.
+
+```json
+"trigger_masking": { "hash": "{person.id}", "ttl": 3600, "threshold": null }
+```
+
+`hash` is a HogQL template for the dedup key, so `{person.id}` fires once per person. `ttl` is how long to suppress repeats of that hash, in seconds, from 60 to about three years. `threshold` fires once per N matches of the same hash instead; leave it out for plain dedup. Never send `bytecode`; the server compiles it from `hash`. A workflow can create 100 tasks a day and a project 500 across all its workflows, so an unbounded loop on a busy event spends the project's budget and the next workflow to fire is refused. Editing the loop in Desktop keeps `trigger_masking`.
+
 Manual, run from the "trigger manually" button:
 
 ```json
