@@ -4,17 +4,21 @@ interface RawExceptionFrame {
     filename?: string
 }
 
-// URL schemes that only foreign scripts use. Browser extensions inject content scripts under
-// their own scheme (chrome-extension://, moz-extension://, ...), Safari masks extension URLs as
-// webkit-masked-url://, and extensions bundled with webpack declare a webpack://<name>/ source for
-// their injected scripts. The PostHog app always serves its own runtime code from http(s)://, so a
-// raw frame under any of these schemes is never first-party.
+// URL schemes that only foreign scripts use. Browser extensions inject content scripts under their
+// own scheme, and extensions bundled with webpack declare a webpack://<name>/ source for their
+// injected scripts. The PostHog app always serves its own runtime code from http(s)://, so a raw
+// frame under any of these schemes is never first-party.
+//
+// Safari's webkit-masked-url: is deliberately absent. Safari masks some of the page's own scripts
+// the same way it masks extension scripts, so a masked frame does not prove an extension origin.
+// posthog-js drops an all-masked stack only when the exception also carries a known extension
+// signature, and forwards the rest here. Matching the scheme would discard those genuine app
+// exceptions before they leave the browser.
 const EXTENSION_FRAME_SCHEMES = [
     'chrome-extension://',
     'moz-extension://',
     'safari-extension:',
     'safari-web-extension:',
-    'webkit-masked-url:',
     'webpack://',
 ]
 
