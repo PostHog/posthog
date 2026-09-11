@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.al
 from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.settings import (
     ALGOLIA_ENDPOINTS,
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -46,6 +47,17 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "searches_no_results": "Most frequent searches on the index that returned zero results. Full refresh only.",
     "searches_no_clicks": "Most frequent searches on the index that received no clicks. Full refresh only.",
     "ab_tests": "A/B tests configured on the application, with per-variant results. Full refresh only.",
+    "conversion_rate": "Daily conversion rate on the index, with tracked search and conversion counts.",
+    "add_to_cart_rate": "Daily add-to-cart rate on the index, with tracked search and add-to-cart counts.",
+    "purchase_rate": "Daily purchase rate on the index, with tracked search and purchase counts.",
+    "revenue": "Daily revenue attributed to searches on the index, broken down by currency.",
+    "click_through_rate": "Daily click-through rate on the index, with click and tracked search counts.",
+    "average_click_position": "Daily average position of clicked search results on the index.",
+    "users_count": "Daily count of unique users searching the index.",
+    "top_filters": "Most frequently used filter attributes on the index. Full refresh only.",
+    "top_filter_values": "Most frequent filter values for each filter attribute on the index. Full refresh only.",
+    "top_countries": "Countries with the most searches on the index. Full refresh only.",
+    "click_positions": "Clicks per position range in the index's search results. Full refresh only.",
 }
 
 
@@ -72,7 +84,7 @@ The API key needs the ACLs for the data you want to sync:
 - `browse` — index records
 - `settings` — synonyms and query rules
 - `listIndexes` — the list of indices
-- `analytics` — top searches, top hits, zero-result/zero-click searches, and A/B tests
+- `analytics` — search, click, conversion and revenue metrics, filter and country breakdowns, and A/B tests
 
 Set the region to match where your Algolia application is hosted. It selects the analytics host used for the analytics and A/B test tables.
 """,
@@ -142,14 +154,13 @@ Set the region to match where your Algolia application is hosted. It selects the
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # No Algolia endpoint exposes a server-side "updated since" filter, so every table is
-        # full refresh (no incremental fields); the cursor/page tokens still make each one
-        # resumable. An empty mapping keeps every endpoint full refresh, since
-        # `build_endpoint_schemas` treats any present entry as incremental.
+        # `merge_only` covers every endpoint because Algolia restates recent days as late
+        # events arrive, so a re-read has to update those rows rather than append a copy.
         return build_endpoint_schemas(
             ENDPOINTS,
-            {},
+            INCREMENTAL_FIELDS,
             names,
+            merge_only=ENDPOINTS,
             descriptions=_ENDPOINT_DESCRIPTIONS,
             should_sync_default={name: cfg.should_sync_default for name, cfg in ALGOLIA_ENDPOINTS.items()},
         )
@@ -187,6 +198,9 @@ Set the region to match where your Algolia application is hosted. It selects the
             job_id=inputs.job_id,
             manager=resumable_source_manager,
             region=config.region,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            incremental_field=inputs.incremental_field,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

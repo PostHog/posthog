@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import type { AssignmentStatus } from 'lib/components/AccountAssignmentFilter/accountAssignmentFilterTypes'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -32,11 +33,11 @@ export interface announcementsLogicValues {
     user: UserType | null // userLogic
     accountSearch: string
     accountTags: string[]
-    allUnassigned: boolean
     announcements: AnnouncementApi[]
     announcementsLoading: boolean
     assignedTo: number[]
     assignedToCurrentUser: boolean
+    assignmentStatus: AssignmentStatus
     channelOptions: {
         key: string
         label: string
@@ -126,11 +127,11 @@ export interface announcementsLogicActions {
     setAccountTags: (tags: string[]) => {
         tags: string[]
     }
-    setAllUnassigned: (value: boolean) => {
-        value: boolean
-    }
     setAssignedTo: (userIds: number[]) => {
         userIds: number[]
+    }
+    setAssignmentStatus: (status: AssignmentStatus) => {
+        status: AssignmentStatus
     }
     setMessage: (message: string) => {
         message: string
@@ -157,12 +158,7 @@ export interface announcementsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         slackConnected: (currentTeam: TeamPublicType | TeamType | null) => boolean
         currentUserId: (user: UserType | null) => number | null
-        filtersActive: (
-            accountSearch: string,
-            accountTags: string[],
-            allUnassigned: boolean,
-            assignedTo: number[]
-        ) => boolean
+        filtersActive: (accountSearch: string, accountTags: string[], assignmentStatus: AssignmentStatus) => boolean
         assignedToCurrentUser: (assignedTo: number[], currentUserId: number | null) => boolean
         filteredChannels: (
             memberChannels: AnnouncementChannelApi[],
@@ -216,7 +212,7 @@ export const announcementsLogic = kea<announcementsLogicType>([
         setAccountSearch: (search: string) => ({ search }),
         setAccountTags: (tags: string[]) => ({ tags }),
         setAssignedTo: (userIds: number[]) => ({ userIds }),
-        setAllUnassigned: (value: boolean) => ({ value }),
+        setAssignmentStatus: (status: AssignmentStatus) => ({ status }),
         setMyAccounts: (value: boolean) => ({ value }),
         clearAccountFilters: true,
         selectAllFilteredChannels: true,
@@ -271,11 +267,14 @@ export const announcementsLogic = kea<announcementsLogicType>([
                     if (values.accountTags.length > 0) {
                         source.tagNames = values.accountTags
                     }
-                    if (values.allUnassigned) {
+                    if (values.assignmentStatus === 'unassigned') {
                         source.allRolesUnassigned = true
-                    }
-                    if (values.assignedTo.length > 0) {
-                        source.assignedToUserIds = values.assignedTo
+                    } else if (values.assignmentStatus === 'assigned') {
+                        if (values.assignedTo.length > 0) {
+                            source.assignedToUserIds = values.assignedTo
+                        } else {
+                            source.assignedOnly = true
+                        }
                     }
                     const response = await performQuery(source)
                     breakpoint()
@@ -302,7 +301,7 @@ export const announcementsLogic = kea<announcementsLogicType>([
         accountSearch: ['', { setAccountSearch: (_state, { search }) => search }],
         accountTags: [[] as string[], { setAccountTags: (_state, { tags }) => tags }],
         assignedTo: [[] as number[], { setAssignedTo: (_state, { userIds }) => userIds }],
-        allUnassigned: [false, { setAllUnassigned: (_state, { value }) => value }],
+        assignmentStatus: ['all' as AssignmentStatus, { setAssignmentStatus: (_state, { status }) => status }],
     }),
     selectors({
         slackConnected: [
@@ -312,9 +311,9 @@ export const announcementsLogic = kea<announcementsLogicType>([
         ],
         currentUserId: [(s) => [s.user], (user: UserType | null): number | null => user?.id ?? null],
         filtersActive: [
-            (s) => [s.accountSearch, s.accountTags, s.allUnassigned, s.assignedTo],
-            (accountSearch: string, accountTags: string[], allUnassigned: boolean, assignedTo: number[]): boolean =>
-                !!accountSearch.trim() || accountTags.length > 0 || allUnassigned || assignedTo.length > 0,
+            (s) => [s.accountSearch, s.accountTags, s.assignmentStatus],
+            (accountSearch: string, accountTags: string[], assignmentStatus: AssignmentStatus): boolean =>
+                !!accountSearch.trim() || accountTags.length > 0 || assignmentStatus !== 'all',
         ],
         assignedToCurrentUser: [
             (s) => [s.assignedTo, s.currentUserId],
@@ -392,14 +391,16 @@ export const announcementsLogic = kea<announcementsLogicType>([
         },
         setAccountTags: () => actions.loadFilteredAccountChannels(null),
         setAssignedTo: ({ userIds }) => {
-            if (userIds.length > 0 && values.allUnassigned) {
-                actions.setAllUnassigned(false)
+            if (userIds.length > 0 && values.assignmentStatus !== 'assigned') {
+                actions.setAssignmentStatus('assigned')
+                return
             }
             actions.loadFilteredAccountChannels(null)
         },
-        setAllUnassigned: ({ value }) => {
-            if (value && values.assignedTo.length > 0) {
+        setAssignmentStatus: ({ status }) => {
+            if (status !== 'assigned' && values.assignedTo.length > 0) {
                 actions.setAssignedTo([])
+                return
             }
             actions.loadFilteredAccountChannels(null)
         },
@@ -411,7 +412,7 @@ export const announcementsLogic = kea<announcementsLogicType>([
             actions.setAccountSearch('')
             actions.setAccountTags([])
             actions.setAssignedTo([])
-            actions.setAllUnassigned(false)
+            actions.setAssignmentStatus('all')
         },
         selectAllFilteredChannels: () => {
             actions.setSelectedChannelIds([...new Set([...values.selectedChannelIds, ...values.filteredChannelIds])])

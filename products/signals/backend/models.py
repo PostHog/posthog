@@ -11,9 +11,9 @@ from django.utils import timezone
 from django.utils.functional import Promise
 
 from asgiref.sync import async_to_sync
-from django_deprecate_fields import deprecate_field
 from pydantic import ValidationError
 
+from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
@@ -179,6 +179,9 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
         related_name="+",
     )
     issue_tracking_config = models.JSONField(default=dict, db_default={}, blank=True)
+    # Off by default, because a ready pull request runs the full CI matrix on every push, which is
+    # runner spend a team has to choose. Read only for a reviewer with no preference of their own.
+    default_open_pull_request_ready = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -223,6 +226,10 @@ class SignalUserAutonomyConfig(UUIDModel):
     # Off by default because assignment is visible to everyone on the pull request, so a reviewer
     # has to ask for it rather than be volunteered.
     github_assign_on_pull_request = models.BooleanField(default=False, db_default=False)
+    # Null follows `SignalTeamConfig.default_open_pull_request_ready`, because the right answer
+    # differs per person: a reviewer who reads their inbox pull requests anyway gains nothing from
+    # the draft state and pays a round trip for it.
+    github_open_pull_request_ready = models.BooleanField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -340,9 +347,6 @@ class SignalReport(UUIDModel):
     )
     cluster_centroid_updated_at = deprecate_field(models.DateTimeField(blank=True, null=True))
     # Deprecated - unused
-    conversation = deprecate_field(
-        models.ForeignKey("posthog_ai.Conversation", null=True, blank=True, on_delete=models.SET_NULL)
-    )
     relevant_user_count = deprecate_field(models.IntegerField(blank=True, null=True))
 
     class Meta:
@@ -2081,7 +2085,8 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # `scout_harness/derived_metadata.py` and holds booleans the harness computes from the run's
     # own output, so "what kind of run was this?" is a field lookup rather than prose parsing.
     # Both regions are server-written: nothing here is scout-authored, which is what makes the
-    # column safe to query directly.
+    # column safe to query directly. `run_note` is the exception to "resolved by the harness": it is
+    # the note a person typed when triggering the run by hand, so read it as prose, not a dimension.
     # Nullable with a `{}` db_default so the AddField stays non-blocking on the populated table.
     metadata = models.JSONField(null=True, blank=True, default=dict, db_default={})
     created_at = models.DateTimeField(auto_now_add=True)

@@ -76,6 +76,10 @@
                     "description": "Match accounts with no active relationship of any definition.",
                     "type": "boolean"
                 },
+                "assignedOnly": {
+                    "description": "Match accounts with at least one active relationship of any definition.",
+                    "type": "boolean"
+                },
                 "assignedToUserIds": {
                     "description": "Match accounts where any of these user ids actively holds any relationship (CSM, Account executive, or a custom definition). Drives the \"My accounts\" shortcut (the current user's id) and the shareable \"Assigned to\" filter — the ids are explicit so a shared URL resolves identically for every viewer.",
                     "items": {
@@ -4871,17 +4875,6 @@
         "AssistantStickinessQuery": {
             "additionalProperties": false,
             "properties": {
-                "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation"
-                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",
                     "description": "Compare to date range. When enabled, shows the current and previous period side by side."
@@ -4901,7 +4894,7 @@
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`. This determines what counts as one \"interval\" for stickiness measurement. For example, with `day` interval over a 30-day range, the X-axis shows 1 through 30 days, and each bar/point shows how many users performed the event on exactly that many days."
                 },
                 "intervalCount": {
-                    "$ref": "#/definitions/integer",
+                    "$ref": "#/definitions/positive_integer",
                     "description": "How many base intervals comprise one stickiness period. Defaults to 1. For example, `interval: \"day\"` with `intervalCount: 7` groups by 7-day periods."
                 },
                 "kind": {
@@ -10118,6 +10111,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "hasMore": {
+                    "description": "Whether another page of individual model identifiers is available.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -27327,7 +27324,9 @@
                 "Cybersource",
                 "GoogleAdSense",
                 "Sequenzy",
-                "Skio"
+                "Skio",
+                "Smartlead",
+                "Substack"
             ],
             "type": "string"
         },
@@ -32612,13 +32611,28 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
+                "includeAllModels": {
+                    "description": "Return individual reported models, excluding Unknown, instead of the top-six grouping.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPModelBreakdownQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Page size when includeAllModels is enabled.",
+                    "maximum": 100,
+                    "minimum": 1
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of individual models to skip when includeAllModels is enabled.",
+                    "minimum": 0
                 },
                 "properties": {
                     "items": {
@@ -32646,6 +32660,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "hasMore": {
+                    "description": "Whether another page of individual model identifiers is available.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -47773,6 +47791,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "hasMore": {
+                            "description": "Whether another page of individual model identifiers is available.",
+                            "type": "boolean"
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",

@@ -286,6 +286,29 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert Integration.objects.filter(id=self.posthog_code_integration.id).exists()
         assert mock_proxy.call_count == expected_proxy_calls
 
+    @patch("products.slack_app.backend.api.capture_slack_event")
+    @patch("products.slack_app.backend.api._proxy_event_to_region")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_app_uninstalled_captures_once_for_multi_project_workspace(self, _mock_proxy, mock_capture):
+        # A workspace linked to several projects has several rows here; capturing per
+        # row would let one uninstall inflate a plain count of the event.
+        second_team = Team.objects.create(organization=self.organization, name="Second Team")
+        Integration.objects.create(
+            team=second_team,
+            kind="slack",
+            integration_id="T12345",
+            sensitive_config={"access_token": "xoxb-second"},
+        )
+
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        route_posthog_code_event_to_relevant_region(request, {"type": "app_uninstalled"}, "T12345")
+
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.args[1] == "slack app uninstalled"
+        assert mock_capture.call_args.kwargs["linked_project_count"] == 2
+
     @patch("products.slack_app.backend.api._proxy_event_to_region")
     @patch("products.slack_app.backend.services.slack_user_info.SlackUserProfileCache.objects.filter")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")

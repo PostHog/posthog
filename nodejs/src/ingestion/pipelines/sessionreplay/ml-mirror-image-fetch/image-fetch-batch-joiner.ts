@@ -1,5 +1,7 @@
 import { Message } from 'node-rdkafka'
 
+import { ImageFetchProcessingMetrics, ProcessingStageTimer } from './processing-metrics'
+
 export const IMAGE_FETCH_BATCH_JOIN_TIMEOUT_MS = 500
 export const MAX_IMAGE_FETCH_BATCHES_PER_PASS = 16
 
@@ -8,6 +10,7 @@ type BatchProcessor = (messages: Message[]) => Promise<void>
 type BatchWaiter = {
     resolve: () => void
     reject: (error: unknown) => void
+    timer: ProcessingStageTimer
 }
 
 type PendingBatchGroup = {
@@ -49,7 +52,7 @@ export class ImageFetchBatchJoiner {
         return new Promise<void>((resolve, reject) => {
             const group = this.pendingGroup ?? this.createPendingGroup()
             group.batches.push(messages)
-            group.waiters.push({ resolve, reject })
+            group.waiters.push({ resolve, reject, timer: ImageFetchProcessingMetrics.start('consumer_join') })
             if (group.batches.length >= this.targetBatchCount) {
                 this.dispatch(group)
             }
@@ -72,6 +75,10 @@ export class ImageFetchBatchJoiner {
             clearTimeout(group.timeout)
         }
 
+        ImageFetchProcessingMetrics.joinedBatches.observe(group.batches.length)
+        for (const { timer } of group.waiters) {
+            timer.move('consumer_process')
+        }
         const processing = (async () => {
             if (this.failed) {
                 throw this.failure
@@ -82,7 +89,7 @@ export class ImageFetchBatchJoiner {
                 this.fail(error)
                 throw error
             }
-        })()
+        })().finally(() => group.waiters.forEach(({ timer }) => timer.finish()))
         void processing.then(
             () => group.waiters.forEach(({ resolve }) => resolve()),
             (error) => group.waiters.forEach(({ reject }) => reject(error))
@@ -103,7 +110,8 @@ export class ImageFetchBatchJoiner {
         if (pendingGroup.timeout) {
             clearTimeout(pendingGroup.timeout)
         }
-        for (const { reject } of pendingGroup.waiters) {
+        for (const { reject, timer } of pendingGroup.waiters) {
+            timer.finish()
             reject(this.failure)
         }
     }

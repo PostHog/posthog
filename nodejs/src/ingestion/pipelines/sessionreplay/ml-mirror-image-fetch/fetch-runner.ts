@@ -22,6 +22,7 @@ import {
 import { ImageFetchRequestMetrics } from './metrics'
 import { OriginRequestScheduler } from './origin-request-scheduler'
 import { canonicalizeUrl } from './politeness-key'
+import { ImageFetchProcessingMetrics } from './processing-metrics'
 import { ImageFetchTopHogMetrics } from './tophog-metrics'
 
 export type ShedReason =
@@ -159,6 +160,7 @@ export class FetchRunner implements FetchPass {
             this.options.maxInFlightRequests
         )
         const attempts: FetchAttempt[] = []
+        const stopTrackingQueue = ImageFetchProcessingMetrics.trackQueue(queue)
         const workers = Array.from(
             { length: Math.min(this.options.maxInFlightRequests, queue.schedulableSlotsAtStart) },
             () =>
@@ -173,7 +175,7 @@ export class FetchRunner implements FetchPass {
                     passState
                 )
         )
-        const settledWorkers = await Promise.allSettled(workers)
+        const settledWorkers = await Promise.allSettled(workers).finally(stopTrackingQueue)
         if (passState.failure) {
             throw passState.failure.error
         }
@@ -246,38 +248,43 @@ export class FetchRunner implements FetchPass {
         if (Date.now() > deadlineMs) {
             return await this.republish(republishBatch, candidate, 'deadline', 'pass_deadline', 0, [], 'pass_deadline')
         }
-        return await this.candidateWork.run({
-            debugTag: candidate.registrableDomain,
-            fn: async () => {
-                if (passState.failure) {
-                    throw passState.failure.error
-                }
-                try {
-                    if (Date.now() > deadlineMs) {
-                        return await this.republish(
-                            republishBatch,
-                            candidate,
-                            'deadline',
-                            'pass_deadline',
-                            0,
-                            [],
-                            'pass_deadline'
-                        )
+        return await ImageFetchProcessingMetrics.runLimited(
+            this.candidateWork,
+            'candidate_admission',
+            'candidate_work',
+            {
+                debugTag: candidate.registrableDomain,
+                fn: async () => {
+                    if (passState.failure) {
+                        throw passState.failure.error
                     }
-                    return await this.fetchOne(
-                        candidate,
-                        stored,
-                        configurationItems,
-                        configurationPolicy,
-                        deadlineMs,
-                        republishBatch
-                    )
-                } catch (error) {
-                    passState.failure ??= { error }
-                    throw error
-                }
-            },
-        })
+                    try {
+                        if (Date.now() > deadlineMs) {
+                            return await this.republish(
+                                republishBatch,
+                                candidate,
+                                'deadline',
+                                'pass_deadline',
+                                0,
+                                [],
+                                'pass_deadline'
+                            )
+                        }
+                        return await this.fetchOne(
+                            candidate,
+                            stored,
+                            configurationItems,
+                            configurationPolicy,
+                            deadlineMs,
+                            republishBatch
+                        )
+                    } catch (error) {
+                        passState.failure ??= { error }
+                        throw error
+                    }
+                },
+            }
+        )
     }
 
     private async fetchOne(
@@ -291,7 +298,9 @@ export class FetchRunner implements FetchPass {
         if (candidate.remainingHops === 0) {
             return this.terminal(candidate, HOPS_EXHAUSTED, undefined, [])
         }
-        const policy = await configurationPolicy.check(candidate.currentUrl, configurationItems, Date.now())
+        const policy = await ImageFetchProcessingMetrics.measure('candidate_policy', () =>
+            configurationPolicy.check(candidate.currentUrl, configurationItems, Date.now())
+        )
         const configurationUpdates = [...policy.updates]
         for (const update of policy.updates) {
             configurationItems.set(update.key, update)
@@ -346,42 +355,46 @@ export class FetchRunner implements FetchPass {
 
         const previous = stored.get(candidate.originalRef)
         const previousUrl = previous?.kind === 'url' ? previous : undefined
-        const result = await this.fetcher.fetch(candidate.currentUrl, {
-            sourcePartitions: candidate.sourcePartitions,
-            maxBytes: this.options.maxBytes,
-            timeoutMs: this.options.requestTimeoutMs,
-            maxRedirects: Math.min(this.options.maxRedirects, candidate.remainingHops),
-            cache: previousUrl?.cache,
-            tdmrepReservation: policy.tdmrepReservation,
-            onRedirectResponse: () => this.budget.recordCompletedResponse(candidate.registrableDomain, Date.now()),
-            isDifferentOrigin: (url) => url.origin !== candidate.origin,
-            scheduleRequest: (url, requestDeadlineMs, request) =>
-                this.scheduler.runImage(
-                    url,
-                    Math.min(deadlineMs, requestDeadlineMs),
-                    request,
-                    candidate.sourcePartitions
-                ),
-            checkRedirectPolicy: async (url) => {
-                const redirectPolicy = await configurationPolicy.check(url, configurationItems, Date.now())
-                for (const update of redirectPolicy.updates) {
-                    configurationItems.set(update.key, update)
-                    configurationUpdates.push(update)
-                }
-                if (!redirectPolicy.allowed) {
-                    return {
-                        allowed: false,
-                        transient: redirectPolicy.transient,
-                        reason: redirectPolicy.reason ?? 'configuration_refused',
+        const result = await ImageFetchProcessingMetrics.measure('candidate_fetch', () =>
+            this.fetcher.fetch(candidate.currentUrl, {
+                sourcePartitions: candidate.sourcePartitions,
+                maxBytes: this.options.maxBytes,
+                timeoutMs: this.options.requestTimeoutMs,
+                maxRedirects: Math.min(this.options.maxRedirects, candidate.remainingHops),
+                cache: previousUrl?.cache,
+                tdmrepReservation: policy.tdmrepReservation,
+                onRedirectResponse: () => this.budget.recordCompletedResponse(candidate.registrableDomain, Date.now()),
+                isDifferentOrigin: (url) => url.origin !== candidate.origin,
+                scheduleRequest: (url, requestDeadlineMs, request) =>
+                    this.scheduler.runImage(
+                        url,
+                        Math.min(deadlineMs, requestDeadlineMs),
+                        request,
+                        candidate.sourcePartitions
+                    ),
+                checkRedirectPolicy: async (url) => {
+                    const redirectPolicy = await ImageFetchProcessingMetrics.measure('candidate_policy', () =>
+                        configurationPolicy.check(url, configurationItems, Date.now())
+                    )
+                    for (const update of redirectPolicy.updates) {
+                        configurationItems.set(update.key, update)
+                        configurationUpdates.push(update)
                     }
-                }
-                const origin = new URL(url).origin
-                if (!this.budget.setCrawlDelay(origin, redirectPolicy.crawlDelayMs, Date.now())) {
-                    return { allowed: false, transient: true, reason: 'origin_map_full' }
-                }
-                return { allowed: true, tdmrepReservation: redirectPolicy.tdmrepReservation }
-            },
-        })
+                    if (!redirectPolicy.allowed) {
+                        return {
+                            allowed: false,
+                            transient: redirectPolicy.transient,
+                            reason: redirectPolicy.reason ?? 'configuration_refused',
+                        }
+                    }
+                    const origin = new URL(url).origin
+                    if (!this.budget.setCrawlDelay(origin, redirectPolicy.crawlDelayMs, Date.now())) {
+                        return { allowed: false, transient: true, reason: 'origin_map_full' }
+                    }
+                    return { allowed: true, tdmrepReservation: redirectPolicy.tdmrepReservation }
+                },
+            })
+        )
         ImageFetchRequestMetrics.observeRedirectCount(result.redirects)
         if (result.bytes) {
             ImageFetchRequestMetrics.observeBytes(result.bytes.length)
