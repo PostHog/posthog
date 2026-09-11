@@ -25,9 +25,9 @@ import { ActivityScope, Breadcrumb, Group, GroupTypeIndex, PropertyFilterType, P
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
 
-import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
-import type { Noun } from '../../models/groupsModel'
-import type { GroupType } from '../../types'
+import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
+import type { Noun } from '../../../../frontend/src/models/groupsModel'
+import type { GroupType } from '../../../../frontend/src/types'
 
 function getGroupEventsQuery(groupTypeIndex: number, groupKey: string): DataTableNode {
     return {
@@ -271,6 +271,9 @@ export const groupLogic = kea<groupLogicType>([
                 loadGroup: async () => {
                     const params = { group_type_index: props.groupTypeIndex, group_key: props.groupKey }
                     const url = `api/environments/${values.currentTeamId}/groups/find?${toParams(params)}`
+                    // groupsFindRetrieve returns Promise<void> because the endpoint declares no
+                    // response schema, so it cannot type the Group this loader returns.
+                    // nosemgrep: prefer-codegen-api
                     return await api.get(url)
                 },
             },

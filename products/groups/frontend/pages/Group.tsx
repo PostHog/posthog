@@ -14,7 +14,6 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { GroupLogicProps, groupLogic } from 'scenes/groups/groupLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -42,12 +41,13 @@ import {
 
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 import { GroupProfileCanvas } from 'products/customer_analytics/frontend/components/GroupProfileCanvas'
+import { GroupLogicProps, groupLogic } from 'products/groups/frontend/logics/groupLogic'
 
-import { GroupDashboardCard } from './cards/GroupDashboardCard'
-import { GroupNotebookCard } from './cards/GroupNotebookCard'
-import { GroupCaption } from './components/GroupCaption'
-import { GroupOverview } from './GroupOverview'
-import { RelatedGroups } from './RelatedGroups'
+import { GroupDashboardCard } from '../cards/GroupDashboardCard'
+import { GroupNotebookCard } from '../cards/GroupNotebookCard'
+import { GroupCaption } from '../components/GroupCaption'
+import { GroupOverview } from '../components/GroupOverview'
+import { RelatedGroups } from '../components/RelatedGroups'
 
 export const scene: SceneExport<GroupLogicProps> = {
     component: Group,
