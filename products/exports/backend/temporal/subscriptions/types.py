@@ -1,5 +1,6 @@
 import uuid
 import typing
+import datetime as dt
 import dataclasses
 
 from posthog.hogql.errors import ExposedHogQLError
@@ -131,6 +132,8 @@ class SubscriptionTriggerType:
 
 DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN = 300
 MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN = 1_000
+SUBSCRIPTION_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(hours=2)
+SUBSCRIPTION_CLAIM_LEASE_SAFETY_MARGIN = dt.timedelta(minutes=15)
 
 
 @frozen
@@ -189,6 +192,9 @@ class RecoverSubscriptionSchedulerClaimsInputs:
 class SubscriptionSchedulerClaimInputs:
     claim_id: str
     claim_token: str
+    # Absolute bound computed when the parent dispatches the child. This prevents a delayed
+    # confirmation from extending the permit beyond the child's execution timeout plus safety margin.
+    lease_expires_at: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -286,6 +292,7 @@ class TrackedSubscriptionInputs:
     resource_type: str = ""
     scheduler_claim_id: str | None = None
     scheduler_claim_token: str | None = None
+    scheduler_claim_lease_expires_at: str | None = None
 
 
 RecipientResultStatus = typing.Literal["success", "failed", "partial"]
