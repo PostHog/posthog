@@ -436,6 +436,31 @@ describe('scratchpadLogic', () => {
         expect(logic.values.unresolvedReportIds).toEqual([])
     })
 
+    // An id reaches `reportTitles` only when its response lands, so a pass that starts while
+    // another is in flight lists the same ids again. Two loads answering at different times is
+    // ordinary here, and the report detail read is one of the heaviest requests the product makes.
+    it('does not re-request a report title a pass is already fetching', async () => {
+        const reportId = '01a0918c-5f5f-74c4-b539-c634a8cb990a'
+        let reportRequests = 0
+        useMocks({
+            get: {
+                [SCRATCHPAD_URL]: () => [200, [entry(`judged:${reportId}`, 'note')]],
+                '/api/projects/:team_id/signals/reports/:id/': () => {
+                    reportRequests += 1
+                    return [200, { id: reportId, title: 'Export error rate doubled' }]
+                },
+            },
+        })
+
+        logic.actions.loadEntriesSuccess([entry(`judged:${reportId}`, 'note')])
+        // An older page landing while the first pass is still in flight starts the second one.
+        logic.actions.appendOlderEntries([], false)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(reportRequests).toBe(1)
+        expect(logic.values.reportTitles).toEqual({ [reportId]: 'Export error rate doubled' })
+    })
+
     // 1,000 rows is a cap, not a total. The header has to say what span they cover, or a busy
     // project's few hours of memory reads as everything the fleet has ever learned.
     it.each([

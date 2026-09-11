@@ -712,7 +712,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         setSearchText: async ({ searchText }, breakpoint) => {
             if (!searchText.trim()) {
                 return
@@ -838,9 +838,16 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
         // resolves to null and is never asked for again.
         resolveReportTitles: async () => {
             const teamId = teamLogic.values.currentTeamId
-            const ids = values.unresolvedReportIds
+            // An id reaches `reportTitles` only when its response lands, so a pass that starts
+            // while another is in flight would list, and ask for, every id the first one is
+            // already fetching. Two loads answering at different times is ordinary here.
+            const inFlight: Set<string> = (cache.resolvingReportIds ??= new Set<string>())
+            const ids = values.unresolvedReportIds.filter((reportId) => !inFlight.has(reportId))
             if (!teamId || ids.length === 0) {
                 return
+            }
+            for (const reportId of ids) {
+                inFlight.add(reportId)
             }
             await Promise.all(
                 ids.map(async (reportId) => {
@@ -849,6 +856,8 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                         actions.setReportTitle(reportId, report.title ?? null)
                     } catch {
                         actions.setReportTitle(reportId, null)
+                    } finally {
+                        inFlight.delete(reportId)
                     }
                 })
             )
