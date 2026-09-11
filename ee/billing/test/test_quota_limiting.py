@@ -3105,11 +3105,16 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
             return []
 
         with (
-            patch("ee.billing.quota_limiting.list_limited_team_attributes", side_effect=snapshot),
+            patch("ee.billing.quota_limiting.list_limited_team_attributes", side_effect=snapshot) as snapshot_mock,
             patch("ee.billing.quota_limiting.get_teams_with_signals_credits_used_in_period", return_value=[]),
             patch("ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", return_value=0),
         ):
             update_all_orgs_billing_quotas()
+
+        # The cache is off under TEST, so only this assertion catches a refactor that drops the kwarg
+        # and hands the cron the previous run's snapshot in production.
+        assert snapshot_mock.call_args_list
+        assert all(call.kwargs.get("use_cache") is False for call in snapshot_mock.call_args_list)
 
         zset_score = get_client().zscore(
             f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{QuotaResource.SIGNALS_CREDITS.value}",
