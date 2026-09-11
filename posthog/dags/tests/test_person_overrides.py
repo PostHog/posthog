@@ -4,14 +4,15 @@ from functools import partial
 from uuid import UUID
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.conf import settings as django_settings
 
 import dagster
 from clickhouse_driver import Client
 
-from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster
+from posthog.dags.deletes import deletes_job
 from posthog.dags.person_overrides import (
     GetExistingDictionaryConfig,
     PersonOverridesSnapshotDictionary,
@@ -24,7 +25,11 @@ from posthog.dags.person_overrides import (
     squash_person_overrides,
     wait_for_overrides_delete_mutations,
 )
-from posthog.models.deletion_targets import EVENTS_JSON, TargetPlacement
+from posthog.dags.tests.conftest import insert_flag_evaluations
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.deletion_targets import EVENTS, EVENTS_JSON, EVENTS_TARGETS, FLAG_EVALUATIONS, TargetPlacement
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE
 
 
 def test_full_job(cluster: ClickhouseCluster):
@@ -123,6 +128,76 @@ def test_full_job(cluster: ClickhouseCluster):
     assert cluster.any_host(get_distinct_ids_with_overrides).result() == {"z"}
 
 
+@pytest.mark.django_db
+def test_a_person_deletion_after_a_merge_reaches_flag_evaluations(cluster: ClickhouseCluster):
+    # A merge moves a distinct_id's rows onto the surviving person, and a deletion of that person
+    # names only the surviving uuid. The squash is what makes the two agree, so a table it skips
+    # keeps the absorbed uuid and the sweep never matches those rows, permanently, because the
+    # override that recorded the mapping is deleted in the same squash run. This runs both dags
+    # because the regression lives at the seam between them, which neither dag's own test covers.
+    timestamp = (datetime.now() + timedelta(days=31)).replace(microsecond=0)
+    team_id = 4242
+    absorbed_person, surviving_person = UUID(int=9001), UUID(int=9002)
+    row_uuid = UUID(int=9003)
+
+    cluster.any_host(
+        partial(
+            insert_flag_evaluations,
+            [(team_id, "merged", absorbed_person, row_uuid, timestamp - timedelta(hours=2))],
+        )
+    ).result()
+
+    def insert_override(client: Client) -> None:
+        client.execute(
+            "INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, _timestamp, version) VALUES",
+            [(team_id, "merged", surviving_person, timestamp - timedelta(hours=1), 1)],
+        )
+
+    cluster.any_host(insert_override).result()
+
+    def surviving_flag_evaluation_person_ids(client: Client) -> set[UUID]:
+        # _row_exists = 1 drops rows a lightweight delete already hid; without it a swept row
+        # still reads back until its part merges.
+        rows = client.execute(
+            "SELECT person_id FROM flag_evaluations WHERE uuid = %(uuid)s AND _row_exists = 1",
+            {"uuid": row_uuid},
+        )
+        return {person_id for [person_id] in rows}
+
+    squash_person_overrides.execute_in_process(
+        run_config=dagster.RunConfig(
+            {populate_snapshot_table.name: PopulateSnapshotTableConfig(timestamp=timestamp.isoformat())}
+        ),
+        resources={"cluster": cluster},
+    )
+
+    assert cluster.any_host(surviving_flag_evaluation_person_ids).result() == {surviving_person}
+
+    deletion = AsyncDeletion.objects.create(
+        team_id=team_id, deletion_type=DeletionType.Person, key=str(surviving_person)
+    )
+    deletion.created_at = timestamp
+    deletion.save()
+
+    # A person sweep only picks up requests made before the oldest surviving override, and the
+    # squash consumed the only one this test wrote. An empty overrides table pins that watermark at
+    # the epoch, so give the sweep an unrelated later override, which is what production always has.
+    def insert_later_override(client: Client) -> None:
+        client.execute(
+            "INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, _timestamp, version) VALUES",
+            [(team_id, "unrelated", UUID(int=9004), timestamp + timedelta(hours=1), 1)],
+        )
+
+    cluster.any_host(insert_later_override).result()
+
+    deletes_job.execute_in_process(
+        run_config={"ops": {"create_pending_deletions_table": {"config": {"team_id": team_id}}}},
+        resources={"cluster": cluster},
+    )
+
+    assert cluster.any_host(surviving_flag_evaluation_person_ids).result() == set()
+
+
 def test_cleanup_job(cluster: ClickhouseCluster) -> None:
     timestamp = datetime(2025, 1, 1)
 
@@ -193,24 +268,41 @@ def test_a_staged_snapshot_dictionary_holds_the_same_rows_as_the_snapshot_table(
 
 
 @pytest.mark.django_db
-def test_run_person_id_update_mutations_rewrites_events_json_on_its_own_cluster(cluster: ClickhouseCluster):
-    # sharded_events_json may sit on a cluster whose shards only its own handle enumerates. Running
-    # its rewrite over the job's handle would skip those rows, and the overrides that record the
-    # correct person_id are deleted in the very next op, so the divergence would be permanent.
+def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(cluster: ClickhouseCluster):
+    # sharded_events_json and sharded_flag_evaluations may each sit on a cluster whose shards only
+    # its own handle enumerates. Running one of those rewrites over the job's handle would skip its
+    # rows, and the overrides that record the correct person_id are deleted in the very next op, so
+    # the divergence would be permanent. The assertion is keyed by table because a weaker one --
+    # that some mutation reached the sibling -- still passes when a target is dropped entirely.
     dictionary = _create_snapshot_with(cluster, [(1, "a", UUID(int=7), 3)])
     sibling = cluster.sibling(django_settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)
+    placements = [
+        TargetPlacement(target=EVENTS, cluster=cluster),
+        TargetPlacement(target=EVENTS_JSON, cluster=sibling),
+        TargetPlacement(target=FLAG_EVALUATIONS, cluster=sibling),
+    ]
+    calls = Mock()
 
     with (
-        patch(
-            "posthog.dags.person_overrides.placement_for",
-            return_value=TargetPlacement(target=EVENTS_JSON, cluster=sibling),
-        ),
+        patch("posthog.dags.person_overrides.resolve_placements", return_value=placements) as resolve_placements,
         patch.object(
-            type(dictionary.events_json_update_mutation_runner), "run_on_shards", autospec=True
-        ) as run_on_shards,
+            AlterTableMutationRunner, "enqueue_on_shards", autospec=True, return_value={}
+        ) as enqueue_on_shards,
+        patch("posthog.dags.person_overrides.wait_for_mutations_on_shards") as wait_for_mutations,
     ):
+        calls.attach_mock(enqueue_on_shards, "enqueue")
+        calls.attach_mock(wait_for_mutations, "wait")
         run_person_id_update_mutations(cluster, dictionary)
 
-    dispatched = [call.args[1] for call in run_on_shards.call_args_list]
-    assert sibling in dispatched
+    # This assertion names the targets literally instead of reusing SQUASH_TARGETS.
+    # The constant would still match after someone drops FLAG_EVALUATIONS from its definition.
+    resolve_placements.assert_called_once_with(cluster, (*EVENTS_TARGETS, FLAG_EVALUATIONS))
+    assert {call.args[0].table: call.args[1] for call in enqueue_on_shards.call_args_list} == {
+        EVENTS_DATA_TABLE(): cluster,
+        EVENTS_JSON_DATA_TABLE: sibling,
+        FLAG_EVALUATIONS_DATA_TABLE: sibling,
+    }
+    # Waiting on each mutation as it is enqueued would cost the sum of their completion times
+    # rather than the longest, which is the whole reason the op enqueues in one pass.
+    assert [name for name, *_ in calls.mock_calls] == ["enqueue"] * 3 + ["wait"] * 3
     cluster.any_host(dictionary.source.drop).result()
