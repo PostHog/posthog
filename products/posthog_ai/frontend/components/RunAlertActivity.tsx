@@ -10,6 +10,7 @@ import { Activity } from './ActivityPrimitives'
 interface RunAlertActivityProps extends RunConnectionState {
     /** Stable id for the markdown message. Defaults per kind. */
     id?: string
+    onRetry?: () => void
     /** A follow-up message failed to reach the agent because of this error. */
     undeliveredMessage?: boolean
     /** Text for the "Copy details" action: run and task ids, trace id, and the reason. */
@@ -40,6 +41,8 @@ export function RunAlertActivity({
     attempt,
     maxAttempts,
     message,
+    retryable,
+    onRetry,
     undeliveredMessage,
     copyDetails,
 }: RunAlertActivityProps): JSX.Element {
@@ -69,22 +72,29 @@ export function RunAlertActivity({
                 <IconWarning className="size-4 shrink-0 text-danger" />
                 <span>{TITLES[kind]}</span>
             </div>
-            <div className="pl-6 flex flex-col gap-1 text-secondary">
+            <div className="pl-6 flex flex-col gap-1 text-secondary break-words min-w-0">
                 {message ? <MarkdownMessage content={message} id={`${activityId}-message`} /> : null}
                 {undeliveredMessage && kind !== 'message_undelivered' ? (
                     <div>Your last message was not delivered.</div>
                 ) : null}
             </div>
-            {copyDetails && (
-                <div className="pl-6 flex items-center">
-                    <LemonButton
-                        type="tertiary"
-                        size="xsmall"
-                        onClick={() => void copyToClipboard(copyDetails, 'run details')}
-                        data-attr="run-error-copy-details"
-                    >
-                        Copy details
-                    </LemonButton>
+            {(copyDetails || (kind === 'connection_failed' && retryable && onRetry)) && (
+                <div className="pl-6 flex flex-wrap items-center gap-2">
+                    {kind === 'connection_failed' && retryable && onRetry && (
+                        <LemonButton type="secondary" size="small" onClick={onRetry} data-attr="agent-stream-retry">
+                            Retry
+                        </LemonButton>
+                    )}
+                    {copyDetails && (
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            onClick={() => void copyToClipboard(copyDetails, 'run details')}
+                            data-attr="run-error-copy-details"
+                        >
+                            Copy details
+                        </LemonButton>
+                    )}
                 </div>
             )}
         </div>

@@ -3,11 +3,19 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
+import api from 'lib/api'
+import { projectLogic } from 'scenes/projectLogic'
+
 import { initKeaTests } from '~/test/init'
+
+import { tasksRunsRetrieve } from 'products/tasks/frontend/generated/api'
+import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { runStreamLogic } from '../logics/runStreamLogic'
 import type { StoredLogEntry } from '../types/wireTypes'
 import { ThreadView } from './ThreadView'
+
+jest.mock('products/tasks/frontend/generated/api', () => ({ tasksRunsRetrieve: jest.fn() }))
 
 // runStreamLogic.test.ts's frame builder isn't exported — copy the one-liner rather than import it.
 function notification(method: string, params: Record<string, unknown>): StoredLogEntry {
@@ -35,6 +43,7 @@ describe('ThreadView connection state', () => {
     afterEach(() => {
         cleanup()
         logic?.unmount()
+        jest.restoreAllMocks()
     })
 
     // Reconnecting projects runConnectionState → footer RunAlertActivity, and its showConnectionStatus gate
@@ -60,7 +69,37 @@ describe('ThreadView connection state', () => {
         })
     })
 
-    // A folded _posthog/error frame renders inline as an error card; the run is still live here, so it keeps the softer title.
+    it('retries a failed history read from the footer and guards repeated clicks', async () => {
+        projectLogic.mount()
+        projectLogic.actions.loadCurrentProjectSuccess({ id: 997 } as any)
+        jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as TaskRunDetailDTOApi)
+        const history = jest.spyOn(api.tasks.runs, 'getLogEntries').mockRejectedValueOnce({ status: 403 })
+        act(() => logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' }))
+        const retry = await screen.findByRole('button', { name: 'Retry' })
+        let finishHistory!: (entries: StoredLogEntry[]) => void
+        history.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    finishHistory = resolve
+                })
+        )
+        act(() => {
+            fireEvent.click(retry)
+            fireEvent.click(retry)
+        })
+        await waitFor(() => expect(history).toHaveBeenCalledTimes(2))
+        expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+        await act(async () =>
+            finishHistory([
+                notification('session/update', {
+                    update: { sessionUpdate: 'agent_message', content: { text: 'Recovered output' } },
+                }),
+            ])
+        )
+        await waitFor(() => expect(screen.getByText('Recovered output')).toBeVisible())
+        expect(screen.queryByText('Connection lost')).toBeNull()
+    })
+
     it('renders an inline agent-error card for a _posthog/error frame', async () => {
         logic.actions.ingestAcpFrame(notification('_posthog/error', { message: 'boom' }), 'replay')
 
