@@ -65,6 +65,7 @@ from products.autoresearch.backend.dataset.labeling import (
     LABELER_QUERY_MODIFIERS,
     build_inference_anchors_sql,
     build_inference_features_sql,
+    build_random_t0_labeler_sql,
     build_training_features_sql,
 )
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
@@ -364,7 +365,8 @@ def materialize_training_data(
         training_population=pipeline.training_population,
     )
     training_rows = _materialize_rows(team=team, sql=train_sql, values=train_values, user=user)
-    _validate_rows_key_one_person(training_rows, source="training feature_sql")
+    expected = count_training_anchors(team=team, pipeline=pipeline, user=user)
+    _validate_rows_key_one_person(training_rows, source="training feature_sql", expected_count=expected)
     # The training wrapper LEFT JOINs the labels onto the feature rows. A feature row
     # whose distinct_id matched no anchor comes back with NULL label and fold, and the
     # fold split below would file it as a negative holdout example.
@@ -419,6 +421,23 @@ def _materialize_score_data(
     return score_rows
 
 
+def count_training_anchors(*, team: Team, pipeline: AutoresearchPipeline, user: User | None = None) -> int:
+    """
+    How many labeled anchors the trainer materializes, so feature SQL that drops some of them
+    fails: a selection-biased fit and a distorted holdout AUC look valid row by row.
+    """
+    sql, values = build_random_t0_labeler_sql(
+        target_event=pipeline.target_event,
+        target_definition=pipeline.target_definition,
+        team=team,
+        horizon_days=pipeline.horizon_days,
+        lookback_days=pipeline.training_lookback_days,
+        training_population=pipeline.training_population,
+        sample_limit=None,
+    )
+    return _count(team=team, sql=sql, values=values, user=user, what="Training anchor count")
+
+
 def count_inference_anchors(
     *, team: Team, pipeline: AutoresearchPipeline, cutoff_ts: int | None = None, user: User | None = None
 ) -> int:
@@ -435,7 +454,13 @@ def count_inference_anchors(
         target_definition=pipeline.target_definition,
         team=team,
     )
-    sql = f"SELECT count() FROM ({anchors_sql.strip()})"
+    return _count(
+        team=team, sql=f"SELECT count() FROM ({anchors_sql.strip()})", values=values, user=user, what="Anchor count"
+    )
+
+
+def _count(*, team: Team, sql: str, values: dict[str, Any], user: User | None, what: str) -> int:
+    """Run a query whose first column of its first row is the count the caller wants."""
     try:
         tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
         result = run_hogql(
@@ -445,9 +470,9 @@ def count_inference_anchors(
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
         )
     except Exception as exc:
-        raise SandboxInferenceError(f"Anchor count query failed: {exc}") from exc
-    if len(result.rows) != 1 or len(result.rows[0]) != 1:
-        raise SandboxInferenceError("Anchor count query did not return a single count")
+        raise SandboxInferenceError(f"{what} query failed: {exc}") from exc
+    if len(result.rows) != 1 or not result.rows[0]:
+        raise SandboxInferenceError(f"{what} query did not return a single row")
     return int(result.rows[0][0])
 
 

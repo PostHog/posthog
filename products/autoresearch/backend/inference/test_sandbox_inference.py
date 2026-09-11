@@ -143,7 +143,10 @@ class TestMaterializeData(TeamScopedTestMixin, BaseTest):
 
     def test_training_data_splits_folds_and_extracts_feature_cols(self):
         pipeline = self._pipeline()
-        with patch.object(sandbox_inference, "_materialize_rows", return_value=_TRAINING_ROWS):
+        with (
+            patch.object(sandbox_inference, "count_training_anchors", return_value=len(_TRAINING_ROWS)),
+            patch.object(sandbox_inference, "_materialize_rows", return_value=_TRAINING_ROWS),
+        ):
             data = materialize_training_data(team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}")
 
         assert data.feature_cols == ["events_total", "pageviews"]
@@ -152,13 +155,17 @@ class TestMaterializeData(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("duplicate_person", [{"distinct_id": "p1", "__label": 1, "__fold": 1}] * 2),
-            ("no_label_match", [{"distinct_id": "p1", "__label": None, "__fold": None}]),
+            ("duplicate_person", [{"distinct_id": "p1", "__label": 1, "__fold": 1}] * 2, 1),
+            ("no_label_match", [{"distinct_id": "p1", "__label": None, "__fold": None}], 1),
+            ("dropped_anchor", [{"distinct_id": "p1", "__label": 1, "__fold": 1}], 2),
         ]
     )
-    def test_training_data_rejects_rows_that_do_not_key_one_labeled_person(self, _name, rows):
+    def test_training_data_rejects_rows_that_do_not_key_every_labeled_anchor_once(self, _name, rows, anchors):
         pipeline = self._pipeline()
-        with patch.object(sandbox_inference, "_materialize_rows", return_value=rows):
+        with (
+            patch.object(sandbox_inference, "count_training_anchors", return_value=anchors),
+            patch.object(sandbox_inference, "_materialize_rows", return_value=rows),
+        ):
             with self.assertRaises(SandboxInferenceError):
                 materialize_training_data(team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}")
 

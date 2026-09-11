@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
 
 import time_machine
@@ -355,9 +355,10 @@ class TestRecipeRouting(TeamScopedTestMixin, BaseTest):
         anchored.assert_called_once()
 
     @parameterized.expand([("bundle", "score_via_sandbox"), ("recipe", "_score_via_anchors")])
-    def test_live_run_resolves_one_cutoff_for_every_query(self, _name, scorer):
-        # Two queries that each evaluate their own now() disagree on the anchors whenever a
-        # person becomes eligible between them, and the count check fails a valid cadence.
+    def test_live_run_binds_every_query_to_the_start_of_the_day(self, _name, scorer):
+        # Queries that each evaluate their own now() disagree on the anchors whenever a person
+        # becomes eligible between them, and a retry under the same event UUIDs would score a
+        # different population than the attempt it repeats.
         pipeline, model = self._pipeline_and_model(_ANCHORS_RECIPE)
         if scorer == "score_via_sandbox":
             model.artifact_prefix = "tasks/autoresearch/team_1/pipeline_x/run_y"
@@ -366,9 +367,13 @@ class TestRecipeRouting(TeamScopedTestMixin, BaseTest):
             score_population(
                 team=self.team, pipeline=pipeline, model=model, window=ScoringWindow.for_date(), user=self.user
             )
-        cutoff = mocked.call_args.kwargs["cutoff_ts"]
-        assert isinstance(cutoff, int)
-        assert abs(cutoff - int(scoring.django_timezone.now().timestamp())) < 120
+        assert mocked.call_args.kwargs["cutoff_ts"] == int(datetime(2026, 9, 11, tzinfo=UTC).timestamp())
+
+    def test_a_retry_hours_later_gets_the_same_window(self):
+        first = ScoringWindow.for_date()
+        with time_machine.travel("2026-09-11T19:30:00Z", tick=False):
+            retry = ScoringWindow.for_date()
+        assert (retry.cutoff_ts, retry.is_backfill) == (first.cutoff_ts, first.is_backfill)
 
     def test_recipe_only_champion_records_its_holdout_auc(self):
         # Twenty labeled rows with a clean signal fit a real LogisticRegression; a column that
@@ -491,6 +496,8 @@ class TestFetchPopulationDistinctIds(TeamScopedTestMixin, BaseTest):
         sent_sql = mock_run.call_args.kwargs["query"].query
         assert "person.is_identified" in sent_sql
         assert f"event != '{PREDICTION_EVENT_NAME}'" in sent_sql
+        # A future-dated or imported event must not make someone eligible today.
+        assert "timestamp < now()" in sent_sql
 
     @patch("products.autoresearch.backend.inference.scoring.run_hogql")
     def test_population_query_failure_fails_closed(self, mock_run: MagicMock):
@@ -555,39 +562,59 @@ class TestFetchPopulationDistinctIds(TeamScopedTestMixin, BaseTest):
 
 
 class TestPersonKeyedQueriesAreBounded(TeamScopedTestMixin, BaseTest):
-    def _pipeline(self) -> AutoresearchPipeline:
-        return AutoresearchPipeline.objects.create(
-            team=self.team, created_by=self.user, name="Bounded", target_event="$pageview", horizon_days=7
-        )
-
-    def _call(self, which: str):
-        if which == "population":
-            return _fetch_population_distinct_ids(team=self.team, population={}, lookback_days=30, user=self.user)
-        person_ids = [str(uuid4()) for _ in range(3)]
-        return _resolve_distinct_ids(team=self.team, pipeline=self._pipeline(), person_ids=person_ids, user=self.user)
-
-    @parameterized.expand([("population",), ("identity",)])
     @patch("products.autoresearch.backend.inference.scoring.run_hogql")
-    def test_query_carries_an_explicit_limit(self, which: str, mock_run: MagicMock):
+    def test_query_carries_an_explicit_limit(self, mock_run: MagicMock):
         # HogQL silently caps an unbounded query at 100 rows.
-        mock_run.return_value = HogQLResult(columns=["person_id", "did"], rows=[[str(uuid4()), "d1"]])
+        mock_run.return_value = HogQLResult(columns=["person_id"], rows=[[str(uuid4())]])
 
-        self._call(which)
+        _fetch_population_distinct_ids(team=self.team, population={}, lookback_days=30, user=self.user)
 
         assert f"LIMIT {_MATERIALIZE_ROW_LIMIT}" in mock_run.call_args.kwargs["query"].query
 
-    @parameterized.expand([("population", False), ("identity", False), ("population", True)])
+    @parameterized.expand([("full_page", False), ("has_more", True)])
     @patch("products.autoresearch.backend.inference.scoring.run_hogql")
-    def test_a_result_that_fills_the_bound_fails_the_run(self, which: str, has_more: bool, mock_run: MagicMock):
+    def test_a_result_that_fills_the_bound_fails_the_run(self, _name: str, has_more: bool, mock_run: MagicMock):
         # A full result is almost certainly truncated; scoring the partial set would skip
         # users while last_scored_at advanced past them.
         n = 1 if has_more else _MATERIALIZE_ROW_LIMIT
         mock_run.return_value = HogQLResult(
-            columns=["person_id", "did"], rows=[[f"person-{i}", "d"] for i in range(n)], has_more=has_more
+            columns=["person_id"], rows=[[f"person-{i}"] for i in range(n)], has_more=has_more
         )
 
         with self.assertRaises(InferenceRunError):
-            self._call(which)
+            _fetch_population_distinct_ids(team=self.team, population={}, lookback_days=30, user=self.user)
+
+
+class TestResolveDistinctIds(TeamScopedTestMixin, BaseTest):
+    def _pipeline(self) -> AutoresearchPipeline:
+        return AutoresearchPipeline.objects.create(
+            team=self.team, created_by=self.user, name="Identity", target_event="$pageview", horizon_days=7
+        )
+
+    @patch("products.autoresearch.backend.inference.scoring.get_persons_by_uuids")
+    def test_maps_each_person_to_one_current_distinct_id_from_personhog(self, mock_persons: MagicMock):
+        # An id read off event history can belong to someone else after a merge or split, so
+        # the mapping has to come from the identity store, and a person with no id stays out.
+        with_id, without_id, not_a_uuid = str(uuid4()), str(uuid4()), "person-1"
+        mock_persons.return_value = [
+            MagicMock(uuid=with_id, distinct_ids=["real-id"]),
+            MagicMock(uuid=without_id, distinct_ids=[]),
+        ]
+
+        mapping = _resolve_distinct_ids(
+            team=self.team, pipeline=self._pipeline(), person_ids=[with_id, without_id, not_a_uuid], user=self.user
+        )
+
+        assert mapping == {with_id: "real-id"}
+        assert mock_persons.call_args.args == (self.team.pk, [with_id, without_id])
+        assert mock_persons.call_args.kwargs == {"distinct_id_limit": 1}
+
+    @patch("products.autoresearch.backend.inference.scoring.get_persons_by_uuids", side_effect=RuntimeError("down"))
+    def test_identity_store_failure_fails_the_run(self, _mock: MagicMock):
+        # Emitting every prediction person-less would leave the output property unset for the
+        # whole population while the run reported success.
+        with self.assertRaises(InferenceRunError):
+            _resolve_distinct_ids(team=self.team, pipeline=self._pipeline(), person_ids=[str(uuid4())], user=self.user)
 
 
 class TestAnchorsRecipeQueries(TeamScopedTestMixin, BaseTest):
@@ -624,6 +651,7 @@ class TestAnchorsRecipeQueries(TeamScopedTestMixin, BaseTest):
             patch.object(scoring, "_MATERIALIZE_ROW_LIMIT", 3),
             patch.object(scoring, "run_hogql", return_value=full_page),
             patch.object(scoring, "count_inference_anchors", return_value=3),
+            patch.object(scoring, "count_training_anchors", return_value=3),
         ):
             with self.assertRaises(InferenceRunError):
                 if kind == "training":
@@ -666,7 +694,24 @@ class TestAnchorsRecipeQueries(TeamScopedTestMixin, BaseTest):
     def test_training_rows_that_do_not_key_one_labeled_person_fail_the_run(self, _name, rows):
         pipeline = self._make_pipeline()
         result = HogQLResult(columns=["distinct_id", "events_total", "__label", "__fold"], rows=rows)
-        with patch.object(scoring, "run_hogql", return_value=result):
+        with (
+            patch.object(scoring, "run_hogql", return_value=result),
+            patch.object(scoring, "count_training_anchors", return_value=len(rows)),
+        ):
+            with self.assertRaises(InferenceRunError):
+                _fetch_training_rows(
+                    team=self.team, pipeline=pipeline, feature_sql=_ANCHORS_FEATURE_SQL, user=self.user
+                )
+
+    def test_training_rows_that_drop_a_labeled_anchor_fail_the_run(self):
+        # A join that loses anchors leaves unique, labeled rows behind, so only the count
+        # against the labeled anchors notices the selection bias.
+        pipeline = self._make_pipeline()
+        result = HogQLResult(columns=["distinct_id", "events_total", "__label", "__fold"], rows=[["p1", 1, 0, 1]])
+        with (
+            patch.object(scoring, "run_hogql", return_value=result),
+            patch.object(scoring, "count_training_anchors", return_value=2),
+        ):
             with self.assertRaises(InferenceRunError):
                 _fetch_training_rows(
                     team=self.team, pipeline=pipeline, feature_sql=_ANCHORS_FEATURE_SQL, user=self.user

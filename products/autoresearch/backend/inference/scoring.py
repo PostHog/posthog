@@ -43,6 +43,7 @@ from posthog.api.capture import capture_batch_internal
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models.person.util import get_persons_by_uuids
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -68,6 +69,7 @@ from products.autoresearch.backend.inference.sandbox import (
     _numeric_feature_cols,
     _resolve_acting_user,
     count_inference_anchors,
+    count_training_anchors,
     score_via_sandbox,
     validate_runnable_feature_sql,
 )
@@ -126,8 +128,11 @@ class ScoringWindow:
     prediction_date: date
     today: date
     now: datetime
-    # The instant every query in the run binds to, so the feature query and the anchor count
-    # cannot disagree because someone became eligible between them.
+    # The instant every query in the run binds to: the start of the prediction date in UTC,
+    # for a live run as much as a backfill. A cutoff of now() would give a retry a different
+    # population than the attempt it repeats, under the same event UUIDs, so one cadence would
+    # hold scores from two populations; anchoring at midnight makes the run reproducible and
+    # gives a backfill of the same date the same anchors.
     cutoff_ts: int
 
     @classmethod
@@ -135,10 +140,7 @@ class ScoringWindow:
         now = django_timezone.now()
         today = date.today()
         prediction_date = prediction_date or today
-        if prediction_date < today:
-            cutoff = datetime(prediction_date.year, prediction_date.month, prediction_date.day, tzinfo=UTC)
-        else:
-            cutoff = now
+        cutoff = datetime(prediction_date.year, prediction_date.month, prediction_date.day, tzinfo=UTC)
         return cls(prediction_date=prediction_date, today=today, now=now, cutoff_ts=int(cutoff.timestamp()))
 
     @property
@@ -575,7 +577,10 @@ def _fetch_population_distinct_ids(
         return None
 
     values["lookback"] = lookback_days
-    where_clause = f"timestamp >= now() - toIntervalDay({{lookback}}){_own_events_excluded_clause()}"
+    # The upper bound keeps a future-dated or imported event from making someone eligible today.
+    where_clause = (
+        f"timestamp >= now() - toIntervalDay({{lookback}}) AND timestamp < now(){_own_events_excluded_clause()}"
+    )
     if parts:
         where_clause += " AND " + " AND ".join(parts)
     where_clause += identified_clause
@@ -593,14 +598,14 @@ def _resolve_distinct_ids(
     *, team: Team, pipeline: AutoresearchPipeline, person_ids: list[str], user: User
 ) -> dict[str, str]:
     """
-    Map each person_id to that person's most recent real distinct_id.
+    Map each person_id to one of that person's current distinct_ids.
 
     Every row is keyed on person_id, but a live event attaches to a person through a
     distinct_id, so the event goes out under one of the person's real ids rather than the
-    person UUID. A person with no resolvable id is emitted person-less by the caller.
+    person UUID. The mapping comes from personhog, the identity source of truth: an id read
+    off event history can belong to someone else after a merge or split. A person with no
+    resolvable id is emitted person-less by the caller.
     """
-    # events.person_id is a UUID column, so a row keyed on anything else cannot resolve,
-    # and passing it to the query would fail the whole lookup on a parse error.
     resolvable = [p for p in person_ids if _is_uuid(p)]
     if len(resolvable) != len(person_ids):
         logger.warning(
@@ -610,19 +615,14 @@ def _resolve_distinct_ids(
         )
     if not resolvable:
         return {}
-    result = _query(
-        team=team,
-        sql=(
-            "SELECT person_id, argMax(distinct_id, timestamp) AS did"
-            " FROM events"
-            " WHERE person_id IN {person_ids} AND distinct_id != toString(person_id)"
-            " GROUP BY person_id"
-        ),
-        values={"person_ids": resolvable},
-        user=user,
-        what="Identity resolution",
-    )
-    return {str(row[0]): str(row[1]) for row in result.rows if row[0] and row[1]}
+    try:
+        persons = get_persons_by_uuids(team.pk, resolvable, distinct_id_limit=1)
+    except Exception as exc:
+        logger.exception("autoresearch_identity_resolution_failed", pipeline_id=str(pipeline.pk))
+        raise InferenceRunError(
+            "Identity resolution failed; failing the run rather than emitting every prediction person-less"
+        ) from exc
+    return {str(person.uuid): person.distinct_ids[0] for person in persons if person.distinct_ids}
 
 
 # ── Recipe-only champions ─────────────────────────────────────────────────────────
@@ -676,7 +676,11 @@ def _fetch_training_rows(
         training_population=pipeline.training_population,
     )
     rows = _person_rows(_query(team=team, sql=sql, values=values, user=user, what="Training features"))
-    _require_one_row_per_person(rows, source="training feature_sql", expected_count=None)
+    try:
+        expected = count_training_anchors(team=team, pipeline=pipeline, user=user)
+    except SandboxInferenceError as exc:
+        raise InferenceRunError(str(exc)) from exc
+    _require_one_row_per_person(rows, source="training feature_sql", expected_count=expected)
     # The wrapper LEFT JOINs the labels onto the feature rows; a row that matched no anchor
     # would be filed as a negative holdout example.
     unlabeled = sum(1 for r in rows if r.get(_LABEL_COL) is None or r.get(_FOLD_COL) is None)
@@ -694,7 +698,8 @@ def _fetch_inference_rows(
     The recipe's feature SQL against the inference anchors: one row per eligible person.
 
     The row count is checked against the anchor count, because feature SQL that inner
-    joins or filters a joined table drops people without any row looking wrong.
+    joins or filters a joined table drops people without any row looking wrong. The training
+    rows get the same check against the labeled anchors.
     """
     sql, values = build_inference_features_sql(
         feature_sql=feature_sql,
