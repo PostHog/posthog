@@ -15,6 +15,7 @@ from posthog.schema import AlertState
 from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.email import is_email_available
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
@@ -36,6 +37,7 @@ from posthog.tasks.alerts.utils import (
     skip_because_of_weekend,
 )
 from posthog.temporal.alerts.investigation import claim_investigation_slot, decide_investigation
+from posthog.temporal.alerts.metrics import record_scheduler_fetch
 from posthog.temporal.alerts.types import (
     AlertInfo,
     EvaluateAlertActivityInputs,
@@ -71,13 +73,20 @@ logger = structlog.get_logger(__name__)
 _NOTIFICATION_DELIVERY_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="insight-alert-delivery")
 
 
+@frozen
+class _FetchedDueAlerts:
+    alerts: list[AlertInfo]
+    oldest_due_at: datetime | None
+    has_more: bool
+
+
 @temporalio.activity.defn
 async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | None = None) -> list[AlertInfo]:
     if inputs is None:
         inputs = ScheduleDueAlertChecksWorkflowInputs()
 
     @database_sync_to_async(thread_sensitive=False)
-    def get_alerts() -> list[AlertInfo]:
+    def get_alerts() -> _FetchedDueAlerts:
         now = datetime.now(UTC)
 
         calculation_interval_order = Case(
@@ -89,7 +98,7 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             output_field=IntegerField(),
         )
 
-        alerts = (
+        alert_candidates = list(
             AlertConfiguration.objects.filter(
                 Q(enabled=True, next_check_at__lte=now) | Q(enabled=True, next_check_at__isnull=True)
             )
@@ -114,10 +123,18 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
                 "team_id",
                 "id",
             )
-            .only("id", "team_id", "calculation_interval", "insight_id")[: inputs.max_alerts_per_run]
+            .only("id", "team_id", "calculation_interval", "insight_id", "next_check_at")[
+                : inputs.max_alerts_per_run + 1
+            ]
+        )
+        has_more = len(alert_candidates) > inputs.max_alerts_per_run
+        selected_alerts = alert_candidates[: inputs.max_alerts_per_run]
+        oldest_due_at = min(
+            (alert.next_check_at for alert in selected_alerts if alert.next_check_at is not None),
+            default=None,
         )
 
-        return [
+        alerts = [
             AlertInfo(
                 alert_id=str(a.id),
                 team_id=a.team_id,
@@ -125,11 +142,21 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
                 calculation_interval=a.calculation_interval,
                 insight_id=a.insight_id,
             )
-            for a in alerts
+            for a in selected_alerts
         ]
+        return _FetchedDueAlerts(alerts=alerts, oldest_due_at=oldest_due_at, has_more=has_more)
 
     async with Heartbeater():
-        return await get_alerts()
+        fetched = await get_alerts()
+
+    record_scheduler_fetch(
+        selected_count=len(fetched.alerts),
+        max_alerts_per_run=inputs.max_alerts_per_run,
+        oldest_due_at=fetched.oldest_due_at,
+        now=datetime.now(UTC),
+        has_more=fetched.has_more,
+    )
+    return fetched.alerts
 
 
 def _has_active_destinations(alert: AlertConfiguration) -> bool:

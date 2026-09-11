@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 import time_machine
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
@@ -150,13 +150,22 @@ async def test_retrieve_due_alerts_limits_each_schedule_run_without_starving_oth
     )
     other_alert = await _create_alert(other_team)
 
-    alerts = await ActivityEnvironment().run(
-        retrieve_due_alerts,
-        ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=max_alerts_per_run),
-    )
+    with patch("posthog.temporal.alerts.activities.record_scheduler_fetch") as record_scheduler_fetch:
+        alerts = await ActivityEnvironment().run(
+            retrieve_due_alerts,
+            ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=max_alerts_per_run),
+        )
 
     assert len(alerts) == max_alerts_per_run
     assert str(other_alert.id) in {alert.alert_id for alert in alerts}
+    record_scheduler_fetch.assert_called_once()
+    assert record_scheduler_fetch.call_args.kwargs == {
+        "selected_count": max_alerts_per_run,
+        "max_alerts_per_run": max_alerts_per_run,
+        "oldest_due_at": None,
+        "now": ANY,
+        "has_more": True,
+    }
 
 
 @pytest_asyncio.fixture
