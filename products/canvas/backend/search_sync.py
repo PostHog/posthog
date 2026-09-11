@@ -19,7 +19,7 @@ from products.tasks.backend.facade import search_index as tasks_search_index
 def canvas_saved(
     sender: type[Canvas], instance: Canvas, update_fields: Iterable[str] | None = None, **kwargs: Any
 ) -> None:
-    tasks_search_index.canvas_saved(instance.id, update_fields)
+    tasks_search_index.canvas_saved(instance.team_id, instance.id, update_fields)
 
 
 @receiver(post_delete, sender=Canvas)

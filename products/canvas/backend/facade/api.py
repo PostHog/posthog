@@ -1,4 +1,3 @@
-from collections.abc import Iterator
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
@@ -13,7 +12,6 @@ from products.canvas.backend.connectors import (
     mcp_provider_host as mcp_provider_host,
     native_connector_listings as native_connector_listings,
 )
-from products.canvas.backend.facade.contracts import CanvasSearchRecord
 from products.canvas.backend.facade.enums import (
     ConnectorCallStatus as ConnectorCallStatus,
     ConnectorKind as ConnectorKind,
@@ -102,29 +100,6 @@ def hidden_canvas_ids_for_org(organization_id: str | UUID, user: User | None) ->
         )
     )
     return {str(canvas_id) for canvas_id in hidden.values_list("id", flat=True)}
-
-
-def searchable_canvas(canvas_id: UUID) -> CanvasSearchRecord | None:
-    """The canvas as the tasks search index sees it, or None when search must not show it.
-
-    Unscoped because the index reacts to writes from any team.
-    """
-    canvas = Canvas.objects.unscoped().filter(id=canvas_id).first()
-    if canvas is None or canvas.deleted or canvas.source_policy != Canvas.SOURCE_POLICY_STANDARD:
-        return None
-    return CanvasSearchRecord(
-        id=canvas.id,
-        team_id=canvas.team_id,
-        name=canvas.name,
-        channel_id=canvas.channel_id,
-        kind=canvas.kind,
-        template_id=canvas.template_id,
-    )
-
-
-def list_canvas_ids(team_id: int) -> Iterator[UUID]:
-    """Every canvas id of the team and its environments, deleted ones included."""
-    return Canvas.objects.for_team(team_id, canonical=True).values_list("id", flat=True).iterator()
 
 
 def _visible_canvases(team_id: int, user_id: int | None) -> QuerySet[Canvas]:

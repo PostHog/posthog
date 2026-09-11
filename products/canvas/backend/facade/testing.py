@@ -53,10 +53,10 @@ def create_canvas_source_version(*, team_id: int, canvas_id: UUID, task_id: UUID
     return version.id
 
 
-def save_canvas_fields(canvas_id: UUID, *, update_fields: list[str], **values: Any) -> None:
+def save_canvas_fields(canvas_id: UUID, *, team_id: int, update_fields: list[str], **values: Any) -> None:
     """Write `values` onto the canvas and save only `update_fields`, so a test can drive
     the save signal the same way production callers do."""
-    canvas = Canvas.objects.unscoped().get(id=canvas_id)
+    canvas = Canvas.objects.for_team(team_id).get(id=canvas_id)
     for name, value in values.items():
         setattr(canvas, name, value)
     canvas.save(update_fields=update_fields)

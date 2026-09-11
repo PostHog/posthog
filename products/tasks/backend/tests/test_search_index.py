@@ -90,7 +90,9 @@ class TestTaskSearchIndex(TransactionTestCase):
         teammate = User.objects.create(email="teammate@example.com", distinct_id="teammate-search-user")
         self.assertEqual(len(search_tasks(self.team.id, teammate.id, "release checklist")), 1)
 
-        canvas_testing.save_canvas_fields(canvas_id, update_fields=[channel_field], channel_id=private.id)
+        canvas_testing.save_canvas_fields(
+            canvas_id, team_id=self.team.id, update_fields=[channel_field], channel_id=private.id
+        )
 
         self.assertEqual(search_tasks(self.team.id, teammate.id, "release checklist"), [])
         self.assertEqual(
@@ -294,13 +296,13 @@ class TestTaskSearchIndex(TransactionTestCase):
     def test_renamed_and_deleted_canvases_follow_the_canvas(self):
         canvas_id = self.make_canvas(name="Run rate")
 
-        canvas_testing.save_canvas_fields(canvas_id, update_fields=["name"], name="Burn rate")
+        canvas_testing.save_canvas_fields(canvas_id, team_id=self.team.id, update_fields=["name"], name="Burn rate")
         self.assertEqual(search_tasks(self.team.id, self.user.id, "run rate"), [])
         self.assertEqual(
             search_tasks(self.team.id, self.user.id, "burn rate")[0]["metadata"]["canvas_id"], str(canvas_id)
         )
 
-        canvas_testing.save_canvas_fields(canvas_id, update_fields=["deleted"], deleted=True)
+        canvas_testing.save_canvas_fields(canvas_id, team_id=self.team.id, update_fields=["deleted"], deleted=True)
         self.assertEqual(search_tasks(self.team.id, self.user.id, "burn rate"), [])
 
     def test_notebook_widget_canvases_stay_out_of_search(self):

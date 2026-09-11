@@ -14,7 +14,7 @@ from django.dispatch import receiver
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 
-from products.canvas.backend.facade import api as canvas_facade
+from products.canvas.backend.facade import search as canvas_search
 from products.tasks.backend.models import Channel, Task, TaskArtifact, TaskRun, TaskSearchDocument
 
 logger = logging.getLogger(__name__)
@@ -209,8 +209,8 @@ def index_channel(channel_id: Any, *, canonical_team_id: int | None = None) -> N
     )
 
 
-def index_canvas(canvas_id: Any, *, canonical_team_id: int | None = None) -> None:
-    canvas = canvas_facade.searchable_canvas(canvas_id)
+def index_canvas(canvas_id: Any, *, team_id: int, canonical_team_id: int | None = None) -> None:
+    canvas = canvas_search.searchable_canvas(team_id=team_id, canvas_id=canvas_id)
     source_key = str(canvas_id)
     if canvas is None:
         TaskSearchDocument.objects.unscoped().filter(
@@ -247,8 +247,8 @@ def rebuild_team_search_index(team_id: int) -> None:
         Channel.objects.for_team(canonical_team_id, canonical=True).values_list("id", flat=True).iterator()
     ):
         index_channel(channel_id, canonical_team_id=canonical_team_id)
-    for canvas_id in canvas_facade.list_canvas_ids(canonical_team_id):
-        index_canvas(canvas_id, canonical_team_id=canonical_team_id)
+    for canvas_id in canvas_search.list_canvas_ids(canonical_team_id):
+        index_canvas(canvas_id, team_id=canonical_team_id, canonical_team_id=canonical_team_id)
 
 
 def _touches(update_fields, fields: set[str]) -> bool:
@@ -308,14 +308,14 @@ def channel_saved(sender, instance: Channel, update_fields=None, **kwargs) -> No
     _after_commit(lambda: index_channel(instance.id))
 
 
-def canvas_saved(canvas_id: UUID, update_fields: Iterable[str] | None) -> None:
+def canvas_saved(team_id: int, canvas_id: UUID, update_fields: Iterable[str] | None) -> None:
     """Called by the canvas product from its own save path."""
     if not _touches(
         update_fields,
         {"name", "deleted", "channel", "kind", "template_id", "source_policy"},
     ):
         return
-    _after_commit(lambda: index_canvas(canvas_id))
+    _after_commit(lambda: index_canvas(canvas_id, team_id=team_id))
 
 
 def canvas_deleted(canvas_id: UUID) -> None:

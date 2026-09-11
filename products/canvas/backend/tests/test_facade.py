@@ -7,7 +7,7 @@ from parameterized import parameterized
 from posthog.models import Organization, Team, User
 from posthog.models.scoping import team_scope
 
-from products.canvas.backend.facade import api, testing
+from products.canvas.backend.facade import api, search, testing
 from products.canvas.backend.facade.contracts import CanvasSearchRecord
 from products.tasks.backend.models import Channel
 
@@ -32,7 +32,7 @@ class TestCanvasFacade(TestCase):
     def test_searchable_canvas_returns_a_record_for_a_standard_canvas(self):
         canvas_id = self._canvas()
 
-        assert api.searchable_canvas(canvas_id) == CanvasSearchRecord(
+        assert search.searchable_canvas(team_id=self.team.id, canvas_id=canvas_id) == CanvasSearchRecord(
             id=canvas_id,
             team_id=self.team.id,
             name="Release checklist",
@@ -48,15 +48,15 @@ class TestCanvasFacade(TestCase):
         ]
     )
     def test_searchable_canvas_hides_canvases_search_must_not_show(self, _name, fields):
-        assert api.searchable_canvas(self._canvas(**fields)) is None
+        assert search.searchable_canvas(team_id=self.team.id, canvas_id=self._canvas(**fields)) is None
 
     def test_searchable_canvas_returns_none_for_an_unknown_id(self):
-        assert api.searchable_canvas(uuid4()) is None
+        assert search.searchable_canvas(team_id=self.team.id, canvas_id=uuid4()) is None
 
     def test_list_canvas_ids_returns_every_canvas_of_the_team(self):
         ids = {self._canvas(name="A"), self._canvas(name="B", deleted=True)}
 
-        assert set(api.list_canvas_ids(self.team.id)) == ids
+        assert set(search.list_canvas_ids(self.team.id)) == ids
 
     def test_channel_has_canvases_ignores_deleted_canvases(self):
         empty = Channel.objects.create(team=self.team, name="empty", created_by=self.user)
@@ -85,8 +85,10 @@ class TestCanvasFacade(TestCase):
     def test_save_canvas_fields_writes_only_the_named_fields(self):
         canvas_id = self._canvas()
 
-        testing.save_canvas_fields(canvas_id, update_fields=["name"], name="Burn rate", deleted=True)
+        testing.save_canvas_fields(
+            canvas_id, team_id=self.team.id, update_fields=["name"], name="Burn rate", deleted=True
+        )
 
-        record = api.searchable_canvas(canvas_id)
+        record = search.searchable_canvas(team_id=self.team.id, canvas_id=canvas_id)
         assert record is not None
         assert record.name == "Burn rate"
