@@ -55,63 +55,94 @@ def classify_flag(
             evidence=enrollment_evidence(enrollment),
         )
     evidence = {**_evidence(summary), **enrollment_evidence(enrollment)}
-    if summary.deleted:
+    if summary.deleted or summary.archived:
+        state = "deleted" if summary.deleted else "archived"
         return _hit(
-            key, reference, decisive=True, summary="Flag is deleted; every check evaluates false", evidence=evidence
+            key, reference, decisive=True, summary=f"Flag is {state}; every check evaluates false", evidence=evidence
         )
-    if summary.archived:
-        return _hit(
-            key, reference, decisive=True, summary="Flag is archived; every check evaluates false", evidence=evidence
-        )
+    # A flag that is off for everyone right now says nothing about how long it has been off, so each of
+    # these two rules waits out its own period and stops there rather than falling through to the rules
+    # that read evaluation traffic.
     if not summary.active:
-        since = summary.updated_at or summary.created_at
-        days = days_between(now, since)
-        if days >= FLAG_DISABLED_DAYS:
-            return _hit(key, reference, summary=f"Flag disabled for at least {days} days", evidence=evidence)
-        return None
+        return _long_disabled(key, summary, reference, now, evidence)
     if summary.max_rollout_percentage == 0 and not summary.has_enrollment_overrides:
-        days = days_between(now, summary.updated_at or summary.created_at)
-        if days >= FLAG_ZERO_ROLLOUT_DAYS:
-            return _hit(
-                key,
-                reference,
-                summary=f"Flag at 0% rollout for at least {days} days; nobody gets the enabled path",
-                evidence=evidence,
-            )
+        return _long_zero_rollout(key, summary, reference, now, evidence)
+    return (
+        _unevaluated(key, summary, reference, now, evidence)
+        or _enabled_for_nobody(key, summary, reference, evidence, enrollment)
+        or _long_full_rollout(key, summary, reference, now, evidence)
+    )
+
+
+def _long_disabled(
+    key: str, summary: FlagSummary, reference: ReferenceCount, now: datetime, evidence: dict[str, EvidenceValue]
+) -> Hit | None:
+    days = days_between(now, summary.updated_at or summary.created_at)
+    if days < FLAG_DISABLED_DAYS:
         return None
+    return _hit(key, reference, summary=f"Flag disabled for at least {days} days", evidence=evidence)
+
+
+def _long_zero_rollout(
+    key: str, summary: FlagSummary, reference: ReferenceCount, now: datetime, evidence: dict[str, EvidenceValue]
+) -> Hit | None:
+    days = days_between(now, summary.updated_at or summary.created_at)
+    if days < FLAG_ZERO_ROLLOUT_DAYS:
+        return None
+    return _hit(
+        key,
+        reference,
+        summary=f"Flag at 0% rollout for at least {days} days; nobody gets the enabled path",
+        evidence=evidence,
+    )
+
+
+def _unevaluated(
+    key: str, summary: FlagSummary, reference: ReferenceCount, now: datetime, evidence: dict[str, EvidenceValue]
+) -> Hit | None:
     if summary.last_called_at is not None:
         days = days_between(now, summary.last_called_at)
         if days >= FLAG_UNCALLED_DAYS:
             return _hit(key, reference, summary=f"Flag not evaluated in {days} days", evidence=evidence)
-    elif days_between(now, summary.created_at) >= FLAG_UNCALLED_DAYS:
-        days = days_between(now, summary.created_at)
-        return _hit(key, reference, summary=f"Flag never evaluated since creation {days} days ago", evidence=evidence)
-    if (
-        enrollment is not None
-        and not summary.effectively_full_rollout
-        and enrollment.users >= FLAG_ENROLLMENT_MIN_USERS
-        and enrollment.enabled_evaluations == 0
-    ):
-        return _hit(
-            key,
-            reference,
-            summary=(
-                f"Flag checked by at least {FLAG_ENROLLMENT_MIN_USERS} users in {FLAG_ENROLLMENT_LOOKBACK_DAYS} days "
-                "and enabled for none of them"
-            ),
-            evidence=evidence,
-        )
+        return None
+    days = days_between(now, summary.created_at)
+    if days < FLAG_UNCALLED_DAYS:
+        return None
+    return _hit(key, reference, summary=f"Flag never evaluated since creation {days} days ago", evidence=evidence)
+
+
+def _enabled_for_nobody(
+    key: str,
+    summary: FlagSummary,
+    reference: ReferenceCount,
+    evidence: dict[str, EvidenceValue],
+    enrollment: FlagEnrollment | None,
+) -> Hit | None:
+    if enrollment is None or summary.effectively_full_rollout:
+        return None
+    if enrollment.users < FLAG_ENROLLMENT_MIN_USERS or enrollment.enabled_evaluations != 0:
+        return None
+    return _hit(
+        key,
+        reference,
+        summary=(
+            f"Flag checked by at least {FLAG_ENROLLMENT_MIN_USERS} users in {FLAG_ENROLLMENT_LOOKBACK_DAYS} days "
+            "and enabled for none of them"
+        ),
+        evidence=evidence,
+    )
+
+
+def _long_full_rollout(
+    key: str, summary: FlagSummary, reference: ReferenceCount, now: datetime, evidence: dict[str, EvidenceValue]
+) -> Hit | None:
     # The flag row does not record when rollout reached 100%, and updated_at is the latest moment it
     # could have. Counting from created_at would clear the waiting period for an old flag rolled out today.
     rolled_out_since = summary.updated_at or summary.created_at
-    if summary.effectively_full_rollout and days_between(now, rolled_out_since) >= FLAG_FULL_ROLLOUT_DAYS:
-        keep = (
-            f'variant "{summary.fully_rolled_out_variant}"' if summary.fully_rolled_out_variant else "the enabled path"
-        )
-        return _hit(
-            key, reference, summary=f"Flag at 100% rollout; remove the check and keep {keep}", evidence=evidence
-        )
-    return None
+    if not summary.effectively_full_rollout or days_between(now, rolled_out_since) < FLAG_FULL_ROLLOUT_DAYS:
+        return None
+    keep = f'variant "{summary.fully_rolled_out_variant}"' if summary.fully_rolled_out_variant else "the enabled path"
+    return _hit(key, reference, summary=f"Flag at 100% rollout; remove the check and keep {keep}", evidence=evidence)
 
 
 def _hit(

@@ -6,7 +6,7 @@ from products.reaperhog.backend.logic.constants import VERIFICATION_SKILL_NAME
 from products.reaperhog.backend.logic.skill import SEEDED_BY, load_canonical_skill, sync_skill
 from products.skills.backend.models.skills import LLMSkill
 
-NAME = "reaperhog-verification-criteria"
+NAME = VERIFICATION_SKILL_NAME
 
 
 def _canonical(tmp_path: Path, body: str):

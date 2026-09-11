@@ -53,6 +53,17 @@ class ScoutContext:
         return normalized not in self.org_emails
 
 
+class ScoutIncomplete(RuntimeError):
+    """A scout ran but could not see everything it covers, so absence proves nothing this run.
+
+    It carries the hits it did gather, because those roots are still worth recording.
+    """
+
+    def __init__(self, reason: str, hits: list[Hit]) -> None:
+        super().__init__(reason)
+        self.hits = hits
+
+
 class Scout(Protocol):
     name: ScoutName
 

@@ -70,8 +70,23 @@ _UNSAFE_SCOUT_CHARS = re.compile(r"[\x00-\x1f\x7f<>]")
 _MAX_SCOUT_CHARS = 500
 
 
-def sanitize_scout_text(value: EvidenceValue) -> EvidenceValue:
-    if not isinstance(value, str):
-        return value
+def sanitize_text(value: str) -> str:
     cleaned = re.sub(r"\s+", " ", _UNSAFE_SCOUT_CHARS.sub(" ", value)).strip()
     return cleaned[:_MAX_SCOUT_CHARS] + "…" if len(cleaned) > _MAX_SCOUT_CHARS else cleaned
+
+
+def sanitize_scout_text(value: EvidenceValue) -> EvidenceValue:
+    return sanitize_text(value) if isinstance(value, str) else value
+
+
+# The verifier writes its argumentation, deletion plan and open questions from the same scout evidence,
+# so its own prose reaches the harvest agent's prompt and the published pull request body as well. Keep
+# the markdown readable — line breaks survive and the cap is wider — while removing the characters that
+# let a quoted value close a delimited block or imitate the prompt's control channel.
+_UNSAFE_PROSE_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f<>]")
+_MAX_PROSE_CHARS = 4000
+
+
+def sanitize_prose(value: str) -> str:
+    cleaned = _UNSAFE_PROSE_CHARS.sub(" ", value).strip()
+    return cleaned[:_MAX_PROSE_CHARS] + "…" if len(cleaned) > _MAX_PROSE_CHARS else cleaned

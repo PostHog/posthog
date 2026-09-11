@@ -7,7 +7,7 @@ from pathlib import Path
 
 from products.reaperhog.backend.facade.enums import NAMED_SCOPES, SCOPE_ALL, RootKind, ScoutName
 from products.reaperhog.backend.logic.artefacts import Hit
-from products.reaperhog.backend.logic.scouts.base import ScoutContext
+from products.reaperhog.backend.logic.scouts.base import ScoutContext, ScoutIncomplete
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +18,11 @@ KnipRunner = Callable[[Path], dict | None]
 
 def find_knip_workspaces(root: Path, scope_path: str | None) -> list[Path]:
     base = root / scope_path if scope_path else root
+    # The scope is operator-supplied and is not normalised, so "../other" would otherwise run that
+    # directory's knip binary before the caller's relative_to() rejected the workspace.
+    if not base.resolve().is_relative_to(root.resolve()):
+        logger.warning("Skipping knip: scope %r resolves outside the checkout", scope_path)
+        return []
     candidates = [base, *base.parents]
     for candidate in candidates:
         if candidate == root.parent:
@@ -105,11 +110,17 @@ class StaticScout:
 
     def run(self, context: ScoutContext) -> list[Hit]:
         hits: list[Hit] = []
+        skipped: list[str] = []
         for workspace in find_knip_workspaces(context.repo.root, context.scope_path):
             report = self._runner(workspace)
             if report is None:
+                skipped.append(str(workspace))
                 continue
             relative = workspace.relative_to(context.repo.root).as_posix()
             prefix = f"{relative}/" if relative and relative != "." else ""
             hits += [hit for hit in knip_hits(report, prefix) if context.in_scope(hit.files)]
+        # A workspace knip never reported on has no unused files as far as this run can tell. Calling
+        # the scan complete would let the vanish pass close every static cluster underneath it.
+        if skipped:
+            raise ScoutIncomplete(f"knip produced no report for {', '.join(skipped)}", hits)
         return hits

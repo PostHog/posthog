@@ -19,7 +19,7 @@ from products.reaperhog.backend.logic.constants import (
     VERIFICATION_REASONING_EFFORT,
     VERIFICATION_RUNTIME_ADAPTER,
 )
-from products.reaperhog.backend.logic.redaction import sanitize_scout_text
+from products.reaperhog.backend.logic.redaction import sanitize_scout_text, sanitize_text
 from products.reaperhog.backend.logic.sandbox import MultiTurnSession, continue_session, end_session, start_session
 from products.reaperhog.backend.logic.skill import PinnedSkill, sync_verification_skill
 from products.reaperhog.backend.models import ReaperArtefact, ReaperCluster, ReaperInventory
@@ -88,8 +88,31 @@ class VerifyResult:
     skipped_reason: str | None = None
 
 
+# A path the model returns is applied by an agent with repository credentials, so it has to be a plain
+# relative path inside the checkout before any rule reads it. An absolute path, a backslash separator or
+# a "./" or "../" segment would otherwise walk past a rule that anchors on the repository root.
+_UNSAFE_PATH_CHARS = re.compile(r"[\x00-\x1f\x7f<>\"\'`\\]")
+
+
+def _repository_path(path: str) -> str | None:
+    """The path as the repository spells it, or None when it is not a plain relative path."""
+    candidate = path.strip()
+    if not candidate or candidate.startswith("/") or _UNSAFE_PATH_CHARS.search(candidate):
+        return None
+    segments = candidate.split("/")
+    if any(segment in ("", ".", "..") for segment in segments):
+        return None
+    return "/".join(segments)
+
+
 def protected_paths(paths: Iterable[str]) -> tuple[str, ...]:
-    return tuple(sorted({path for path in paths if any(rule.search(path) for rule in _PROTECTED_PATHS)}))
+    """The paths a deletion plan may not touch, plus any path that does not name a file in this repository."""
+    refused = set()
+    for path in paths:
+        repository_path = _repository_path(path)
+        if repository_path is None or any(rule.search(repository_path) for rule in _PROTECTED_PATHS):
+            refused.add(sanitize_text(path))
+    return tuple(sorted(refused))
 
 
 def verdict_violations(verdict: Verdict) -> tuple[str, ...]:
@@ -97,7 +120,7 @@ def verdict_violations(verdict: Verdict) -> tuple[str, ...]:
     problems: list[str] = []
     blocked = protected_paths(verdict.files_to_delete)
     if blocked:
-        problems.append(f"files_to_delete names protected path(s): {', '.join(blocked)}")
+        problems.append(f"files_to_delete names protected or unusable path(s): {', '.join(blocked)}")
     if not verdict.searches:
         problems.append("no searches recorded")
     return tuple(problems)
@@ -153,9 +176,9 @@ def _cluster_block(view: ClusterView) -> str:
     ]
     payload = {
         "root_kind": view.root_kind.value,
-        "root": view.root,
+        "root": sanitize_text(view.root),
         "rank": view.rank.value,
-        "files_with_references": list(view.files),
+        "files_with_references": [sanitize_text(file) for file in view.files],
         "scout_hits": hits,
     }
     block = f"<candidate_root>\n{json.dumps(payload, indent=2)}\n</candidate_root>"

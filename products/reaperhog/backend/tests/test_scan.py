@@ -6,7 +6,7 @@ import pytest
 from products.reaperhog.backend.facade.enums import ClusterStatus, RootKind, ScoutName
 from products.reaperhog.backend.logic.artefacts import Hit, Note
 from products.reaperhog.backend.logic.scan import ScanRequest, run_scan
-from products.reaperhog.backend.logic.scouts.base import ScoutContext
+from products.reaperhog.backend.logic.scouts.base import ScoutContext, ScoutIncomplete
 from products.reaperhog.backend.models import ReaperArtefact, ReaperCluster, ReaperInventory
 from products.reaperhog.backend.tests.conftest import PRODUCT_DATABASES
 
@@ -50,6 +50,13 @@ class BrokenScout(StubScout):
         raise RuntimeError("personhog client not configured")
 
 
+class SkippingScout(StubScout):
+    name = ScoutName.STATIC
+
+    def run(self, context: ScoutContext) -> list[Hit]:
+        raise ScoutIncomplete("knip produced no report", [])
+
+
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_run_scan_records_clusters_and_a_summary_note(team, repo_path: Path) -> None:
     request = ScanRequest(team_id=team.id, repository="o/r", scope="flags", repo_path=repo_path)
@@ -65,16 +72,19 @@ def test_run_scan_records_clusters_and_a_summary_note(team, repo_path: Path) -> 
     assert Note.model_validate_json(note.content).body == result.note
     assert "Strong candidates (harvestable): 1" in result.note
     assert "- `k` (flag, 1 files, scouts: flags)" in result.note
-    assert result.failed_scouts == ("archaeology",)
-    assert "Scouts that failed this run (their roots are missing above): archaeology." in result.note
+    assert result.incomplete_scouts == ("archaeology",)
+    assert "Scouts that did not finish this run (their roots are missing above): archaeology." in result.note
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_run_scan_with_a_failed_scout_keeps_a_root_it_did_not_see(team, repo_path: Path) -> None:
+@pytest.mark.parametrize("second_scout", [BrokenScout, SkippingScout])
+def test_run_scan_with_a_scout_that_did_not_finish_keeps_a_root_it_did_not_see(
+    team, repo_path: Path, second_scout
+) -> None:
     request = ScanRequest(team_id=team.id, repository="o/r", scope="flags", repo_path=repo_path)
     run_scan(request, scouts=(StubScout(),))
 
-    run_scan(request, scouts=(StubScout(roots=()), BrokenScout()))
+    run_scan(request, scouts=(StubScout(roots=()), second_scout()))
 
     assert ReaperCluster.objects.get(root="k").status == ClusterStatus.CANDIDATE
 
@@ -83,7 +93,7 @@ def test_run_scan_with_a_failed_scout_keeps_a_root_it_did_not_see(team, repo_pat
 def test_run_scan_fails_when_every_scout_fails(team, repo_path: Path) -> None:
     request = ScanRequest(team_id=team.id, repository="o/r", scope="flags", repo_path=repo_path)
 
-    with pytest.raises(RuntimeError, match="Every scout failed"):
+    with pytest.raises(RuntimeError, match="No scout finished"):
         run_scan(request, scouts=(BrokenScout(),))
 
     assert ReaperInventory.objects.get(repository="o/r", scope="flags").status == "idle"
