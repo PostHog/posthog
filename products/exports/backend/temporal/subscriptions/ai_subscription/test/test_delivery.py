@@ -25,6 +25,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
     _split_text_into_chunks,
     build_ai_subscription_report,
     build_ai_teams_card,
+    build_attached_insight_image_urls,
     build_chart_image_urls,
     render_ai_email_html,
     send_email_ai_subscription_report,
@@ -254,6 +255,30 @@ class TestBuildChartImageUrls:
     def test_unusable_entries_yield_nothing(self, _name, charts, minted) -> None:
         with patch(f"{_DELIVERY}.get_delivery_image_url", return_value=minted):
             assert build_chart_image_urls(charts, team_id=1) == []
+
+
+def test_attached_insight_images_keep_the_selected_insight_order_and_name():
+    first = MagicMock()
+    first.id = 7
+    first.insight.name = "Conversion box plot"
+    first.insight.derived_name = None
+    second = MagicMock()
+    second.id = 9
+    second.insight.name = ""
+    second.insight.derived_name = "Daily signups"
+    assets = MagicMock()
+    assets.select_related.return_value.filter.return_value = [first, second]
+
+    with (
+        patch(f"{_DELIVERY}.ExportedAsset.objects_including_ttl_deleted", assets),
+        patch(f"{_DELIVERY}.get_delivery_image_url", side_effect=["https://ph.test/9", "https://ph.test/7"]),
+    ):
+        urls = build_attached_insight_image_urls([9, 7], team_id=1)
+
+    assert urls == [
+        {"title": "Daily signups", "image_url": "https://ph.test/9"},
+        {"title": "Conversion box plot", "image_url": "https://ph.test/7"},
+    ]
 
 
 class TestChartsOnSlackMessages:

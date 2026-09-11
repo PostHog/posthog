@@ -85,6 +85,17 @@ class ResolvedExportableInsights:
 
 
 async def _resolve_exportable_insights(subscription: Subscription) -> ResolvedExportableInsights:
+    if subscription.resource_type == Subscription.ResourceType.AI_PROMPT:
+        attached_insights = await database_sync_to_async(
+            lambda: list(subscription.ai_prompt_export_insights.filter(deleted=False)), thread_sensitive=False
+        )()
+        return ResolvedExportableInsights(
+            tile_insight_pairs=[(None, insight) for insight in attached_insights],
+            available_insight_count=len(attached_insights),
+            selected_insight_count=len(attached_insights),
+            no_exportable_reason=None if attached_insights else NoExportableInsightsReason.MISSING_RESOURCE,
+        )
+
     dashboard = subscription.dashboard
     if dashboard:
         if dashboard.deleted:
@@ -292,6 +303,14 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
     total_insight_count = len(tile_insight_pairs)
 
     if not tile_insight_pairs:
+        if subscription.resource_type == Subscription.ResourceType.AI_PROMPT:
+            return CreateExportAssetsResult(
+                exported_asset_ids=[],
+                total_insight_count=0,
+                team_id=team.id,
+                distinct_id=str(subscription.created_by.distinct_id) if subscription.created_by else str(team.id),
+                target_type=subscription.target_type,
+            )
         no_exportable_reason = resolved_insights.no_exportable_reason
         if no_exportable_reason is None:
             raise RuntimeError("No-exportable-insights resolution missing a failure reason")

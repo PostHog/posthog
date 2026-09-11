@@ -20,6 +20,7 @@ from products.exports.backend.models.subscription import Subscription, Subscript
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     build_ai_subscription_report,
     build_ai_teams_card,
+    build_attached_insight_image_urls,
     build_chart_image_urls,
     send_email_ai_subscription_credit_limited,
     send_email_ai_subscription_report,
@@ -393,6 +394,11 @@ async def _deliver_ai_subscription(
 
     chart_images = await database_sync_to_async(build_chart_image_urls, thread_sensitive=False)(
         (snapshot or {}).get(AI_REPORT_CHARTS_KEY) or [], team_id=subscription.team_id
+    )
+    chart_images.extend(
+        await database_sync_to_async(build_attached_insight_image_urls, thread_sensitive=False)(
+            inputs.exported_asset_ids, team_id=subscription.team_id
+        )
     )
 
     if subscription.target_type == Subscription.SubscriptionTarget.EMAIL:

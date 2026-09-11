@@ -22,22 +22,7 @@ MAX_CHART_CATEGORIES = 25
 MAX_CHART_TITLE_LENGTH = 80
 
 CONTINUOUS_CHART_DISPLAYS = frozenset({ChartDisplayType.ACTIONS_LINE_GRAPH, ChartDisplayType.ACTIONS_AREA_GRAPH})
-ALLOWED_CHART_DISPLAYS: frozenset[str] = CONTINUOUS_CHART_DISPLAYS | {
-    ChartDisplayType.ACTIONS_BAR,
-    ChartDisplayType.BOX_PLOT,
-}
-
-
-class BoxPlotColumns(BaseModel):
-    """The statistic columns used to render a native SQL box plot."""
-
-    min_column: str
-    p25_column: str
-    median_column: str
-    mean_column: str
-    p75_column: str
-    max_column: str
-    series_column: Optional[str] = None
+ALLOWED_CHART_DISPLAYS: frozenset[str] = CONTINUOUS_CHART_DISPLAYS | {ChartDisplayType.ACTIONS_BAR}
 
 
 class StepChart(BaseModel):
@@ -73,17 +58,10 @@ class StepChart(BaseModel):
         ),
     )
     y_columns: list[str] = Field(
-        default_factory=list,
+        ...,
         description=(
-            "The columns to draw as lines or bars, named by their SELECT aliases. Each one must hold numbers. "
-            f"At most {MAX_CHART_SERIES}. Leave empty for a BoxPlot."
-        ),
-    )
-    box_plot: Optional[BoxPlotColumns] = Field(
-        None,
-        description=(
-            "Required for a BoxPlot. Maps the query's minimum, p25, median, mean, p75, and maximum aliases. "
-            "Every statistic column must be numeric."
+            "The columns to draw as lines or bars, named by their SELECT aliases. Each one must "
+            f"hold numbers. At most {MAX_CHART_SERIES}."
         ),
     )
 

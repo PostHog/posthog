@@ -339,15 +339,11 @@ A chart needs:
   way an axis label reads: "New signups per day", "Uploads by plan". Not a sentence, and not the
   reason you ran the query — that belongs in `description`.
 - `display`: `ActionsLineGraph` for a value moving over time, `ActionsAreaGraph` for the same when the
-  volume matters more than the exact value, `ActionsBar` for comparing named categories, or `BoxPlot` for
-  a distribution over time or categories.
+  volume matters more than the exact value, `ActionsBar` for comparing named categories.
 - `x_column`: the SELECT alias the chart reads along — the time bucket for a line, the category for bars.
-- `y_columns`: 1 to 4 SELECT aliases to plot. Each must be numeric. Leave this empty for `BoxPlot`.
-- `box_plot`: required for `BoxPlot`. It maps the query aliases for `min_column`, `p25_column`,
-  `median_column`, `mean_column`, `p75_column`, and `max_column`; all six must be numeric. The query must
-  return one pre-aggregated distribution row per `x_column` (and optional `series_column`).
+- `y_columns`: 1 to 4 SELECT aliases to plot. Each must be numeric.
 
-Every name in `x_column`, `y_columns`, and `box_plot` must be an alias that step's own SELECT returns, spelled
+Every name in `x_column` and `y_columns` must be an alias that step's own SELECT returns, spelled
 exactly as the SELECT spells it. A name the query does not return means no chart for that step, so
 alias every charted column explicitly (`count() AS signups`, not a bare `count()`).
 

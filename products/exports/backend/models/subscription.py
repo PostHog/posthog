@@ -167,6 +167,11 @@ class Subscription(ModelActivityMixin, models.Model):
         blank=True,
         related_name="subscriptions_dashboard_export",
     )
+    ai_prompt_export_insights = models.ManyToManyField(
+        "product_analytics.Insight",
+        blank=True,
+        related_name="subscriptions_ai_prompt_export",
+    )
     integration = models.ForeignKey(
         "posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True, db_index=False, related_name="+"
     )

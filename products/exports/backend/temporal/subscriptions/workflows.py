@@ -652,6 +652,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: TrackedSubscriptionInputs) -> None:
         delivery_id: uuid.UUID | None = None
+        delivery_exported_asset_ids: list[int] = []
         final_status = DeliveryStatus.SKIPPED
         delivery_recipient_results: list[dict] = []
         caught_error: BaseException | None = None
@@ -722,6 +723,38 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 final_status = DeliveryStatus.SKIPPED
                 return
 
+            # Saved insights are independent from the generated report text. They use the normal
+            # subscription exporter so every Quill display and chart setting remains intact.
+            failure_stage = SubscriptionFailureStage.ASSET_PREPARATION
+            prepare_result = await temporalio.workflow.execute_activity(
+                create_export_assets,
+                CreateExportAssetsInputs(subscription_id=inputs.subscription_id, delivery_id=delivery_id),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(minutes=2),
+                    maximum_attempts=3,
+                ),
+            )
+            delivery_exported_asset_ids = prepare_result.exported_asset_ids
+            successful_asset_ids: list[int] = []
+            if prepare_result.exported_asset_ids:
+                failure_stage = SubscriptionFailureStage.ASSET_GENERATION
+                export_results = await asyncio.gather(
+                    *[
+                        temporalio.workflow.execute_activity(
+                            export_asset_activity,
+                            ExportAssetActivityInputs(exported_asset_id=asset_id, source=EventSource.SUBSCRIPTION),
+                            start_to_close_timeout=dt.timedelta(hours=1),
+                            heartbeat_timeout=dt.timedelta(minutes=2),
+                            retry_policy=EXPORT_RETRY_POLICY,
+                        )
+                        for asset_id in prepare_result.exported_asset_ids
+                    ],
+                    return_exceptions=True,
+                )
+                _, successful_asset_ids = _build_outcome_assets(prepare_result.exported_asset_ids, export_results)
+
             # Phase 2: ship the persisted report.
             delivery_activity = (
                 deliver_subscription_v2
@@ -733,8 +766,8 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 delivery_activity,
                 DeliverSubscriptionInputs(
                     subscription_id=inputs.subscription_id,
-                    exported_asset_ids=[],
-                    total_insight_count=0,
+                    exported_asset_ids=successful_asset_ids,
+                    total_insight_count=prepare_result.total_insight_count,
                     previous_target_value=inputs.previous_target_value,
                     previous_value=(
                         inputs.previous_target_value
@@ -777,6 +810,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                         UpdateDeliveryRecordInputs(
                             delivery_id=delivery_id,
                             status=final_status,
+                            exported_asset_ids=delivery_exported_asset_ids or None,
                             recipient_results=delivery_recipient_results or None,
                             error={"message": str(caught_error)[:500], "type": type(caught_error).__name__}
                             if caught_error

@@ -22,6 +22,7 @@ from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
 from products.exports.backend.facade.api import get_delivery_image_url
+from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import (
     AIQueryPlanStatus,
     Subscription,
@@ -280,6 +281,28 @@ def build_chart_image_urls(charts: Any, *, team_id: int) -> list[dict]:
         image_url = get_delivery_image_url(team_id=team_id, asset_id=asset_id, expiry_delta=CHART_IMAGE_URL_TTL)
         if image_url:
             urls.append({"title": str(chart.get("title") or ""), "image_url": image_url})
+    return urls
+
+
+def build_attached_insight_image_urls(asset_ids: list[int], *, team_id: int) -> list[dict]:
+    """Build delivery URLs for saved insights attached to an AI prompt subscription."""
+    if not asset_ids:
+        return []
+    assets_by_id = {
+        asset.id: asset
+        for asset in ExportedAsset.objects_including_ttl_deleted.select_related("insight").filter(
+            id__in=asset_ids, team_id=team_id
+        )
+    }
+    urls: list[dict] = []
+    for asset_id in asset_ids:
+        asset = assets_by_id.get(asset_id)
+        if asset is None or not asset.has_content:
+            continue
+        image_url = get_delivery_image_url(team_id=team_id, asset_id=asset.id, expiry_delta=CHART_IMAGE_URL_TTL)
+        if image_url:
+            insight = asset.insight
+            urls.append({"title": insight.name or insight.derived_name or "Insight", "image_url": image_url})
     return urls
 
 
@@ -564,6 +587,7 @@ __all__ = [
     "build_ai_subscription_report",
     "build_ai_teams_card",
     "build_chart_image_urls",
+    "build_attached_insight_image_urls",
     "render_ai_email_html",
     "send_email_ai_subscription_report",
     "send_slack_ai_subscription_report",

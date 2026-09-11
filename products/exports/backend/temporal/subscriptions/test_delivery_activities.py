@@ -177,17 +177,23 @@ async def test_process_subscription_picks_delivery_activity_from_patch(patch_act
 @pytest.mark.parametrize("patch_active", [True, False], ids=["patched_v2", "pre_patch_v1"])
 async def test_process_ai_subscription_picks_delivery_activity_from_patch(patch_active) -> None:
     picked = None
+    delivered_asset_ids = None
 
     async def fake_execute_activity(activity, inputs, **_kwargs):
-        nonlocal picked
+        nonlocal delivered_asset_ids, picked
         if activity is create_delivery_record:
             return uuid.uuid4()
         if activity is validate_subscription_for_delivery:
             return None
         if activity is generate_ai_subscription_report:
             return GenerateAIReportResult(target_type="slack")
+        if activity is create_export_assets:
+            return CreateExportAssetsResult(exported_asset_ids=[1], total_insight_count=1, target_type="slack")
+        if activity is export_asset_activity:
+            return ExportAssetResult(exported_asset_id=1, success=True)
         if activity in (deliver_subscription, deliver_subscription_v2):
             picked = activity
+            delivered_asset_ids = inputs.exported_asset_ids
             return DeliverSubscriptionResult()
         if activity in (update_delivery_record, advance_next_delivery_date):
             return None
@@ -216,6 +222,7 @@ async def test_process_ai_subscription_picks_delivery_activity_from_patch(patch_
         await ProcessAISubscriptionWorkflow().run(inputs)
 
     assert picked is (deliver_subscription_v2 if patch_active else deliver_subscription)
+    assert delivered_asset_ids == [1]
     assert inputs.slo is not None
     assert inputs.slo.completion_properties["target_type"] == "slack"
 

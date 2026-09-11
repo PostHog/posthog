@@ -112,6 +112,7 @@ class _TargetLookups:
     insight: str
     dashboard: str
     exported_insights: str
+    ai_prompt_exported_insights: str
     no_selection: str
     insights: Manager
     dashboards: Manager
@@ -122,6 +123,7 @@ _SUBSCRIPTION_TARGETS = _TargetLookups(
     insight="insight_id__in",
     dashboard="dashboard_id__in",
     exported_insights="dashboard_export_insights__id__in",
+    ai_prompt_exported_insights="ai_prompt_export_insights__id__in",
     no_selection="dashboard_export_insights__isnull",
     insights=Insight.objects,
     dashboards=Dashboard.objects,
@@ -133,6 +135,7 @@ _DELIVERY_TARGETS = _TargetLookups(
     insight="subscription__insight_id__in",
     dashboard="subscription__dashboard_id__in",
     exported_insights="subscription__dashboard_export_insights__id__in",
+    ai_prompt_exported_insights="subscription__ai_prompt_export_insights__id__in",
     no_selection="subscription__dashboard_export_insights__isnull",
     insights=Insight.objects_including_soft_deleted,
     dashboards=Dashboard.objects_including_soft_deleted,
@@ -333,6 +336,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         required=False,
         help_text="List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10.",
     )
+    ai_prompt_export_insights = DashboardExportInsightsField(
+        required=False,
+        help_text=(
+            "List of saved insight IDs to attach to an AI prompt subscription. The insight query and visualization "
+            "are exported unchanged. Max 10."
+        ),
+    )
     ai_prompt_config = AIPromptConfigSerializer(
         required=False,
         help_text=(
@@ -373,6 +383,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "insight_short_id",
             "resource_name",
             "dashboard_export_insights",
+            "ai_prompt_export_insights",
             "prompt",
             "ai_prompt_config",
             "ai_query_plan_status",
@@ -597,6 +608,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         validate_for_resource_type(attrs, existing)
 
         self._validate_dashboard_export_subscription(attrs)
+        self._validate_ai_prompt_export_insights(attrs, resource_type)
 
         target_type = attrs.get("target_type") or (self.instance.target_type if self.instance else None)
         if (
@@ -876,6 +888,41 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         self._require_viewer_access_to_every_live_tile(dashboard)
 
+    def _validate_ai_prompt_export_insights(self, attrs: dict, resource_type: str) -> None:
+        provided = "ai_prompt_export_insights" in attrs
+        insight_ids = attrs.get("ai_prompt_export_insights", [])
+        if resource_type != Subscription.ResourceType.AI_PROMPT:
+            if provided:
+                raise ValidationError({"ai_prompt_export_insights": ["Only AI prompt subscriptions can attach insights."]})
+            return
+        if not provided:
+            return
+
+        selected_ids = set(insight_ids)
+        if len(selected_ids) > MAX_INSIGHTS:
+            raise ValidationError({"ai_prompt_export_insights": [f"Cannot select more than {MAX_INSIGHTS} insights."]})
+        if not selected_ids:
+            return
+
+        team_insights = Insight.objects.filter(id__in=selected_ids, team_id=self.context["team_id"])
+        user_access_control = self.context["view"].user_access_control
+        viewable_ids = set(
+            _viewable_queryset(user_access_control, team_insights, "insight").values_list("id", flat=True)
+        )
+        unusable_ids = selected_ids - viewable_ids
+        if unusable_ids:
+            if team_insights.count() != len(selected_ids):
+                raise ValidationError(
+                    {"ai_prompt_export_insights": ["Some insights are not in your team, or no longer exist."]}
+                )
+            raise ValidationError(
+                {
+                    "ai_prompt_export_insights": [
+                        "Viewer access to every selected insight is required. Ask an admin for access, or remove the restricted insights."
+                    ]
+                }
+            )
+
     def _keeps_its_own_selection(self) -> bool:
         return self.instance is not None and self.instance.dashboard_export_insights.exists()
 
@@ -920,6 +967,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # can opt out of that first send via send_test_now; the schedule is unaffected.
         send_test_now = validated_data.pop("send_test_now", True)
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
+        ai_prompt_export_insight_ids = validated_data.pop("ai_prompt_export_insights", [])
         with attribute_subscription_saves(get_request_analytics_properties(request)):
             instance: Subscription = super().create(validated_data)
 
@@ -930,6 +978,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
+        if ai_prompt_export_insight_ids:
+            instance.ai_prompt_export_insights.set(ai_prompt_export_insight_ids)
 
         if not instance.enabled or not send_test_now:
             return instance
@@ -995,6 +1045,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # too, so `bool(ids)` would miss it. Pop loses presence, so capture it first.
         export_insights_in_payload = "dashboard_export_insights" in validated_data
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
+        ai_prompt_export_insights_in_payload = "ai_prompt_export_insights" in validated_data
+        ai_prompt_export_insight_ids = validated_data.pop("ai_prompt_export_insights", [])
         analytics_props = get_request_analytics_properties(request)
 
         # Snapshot delivery-relevant values before the write so the inferred path can tell,
@@ -1004,6 +1056,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         old_delivery_values = {field: getattr(instance, field) for field in self.FIELDS_THAT_TRIGGER_REDELIVERY}
         old_export_insight_ids = (
             set(instance.dashboard_export_insights.values_list("id", flat=True)) if export_insights_in_payload else None
+        )
+        old_ai_prompt_export_insight_ids = (
+            set(instance.ai_prompt_export_insights.values_list("id", flat=True))
+            if ai_prompt_export_insights_in_payload
+            else None
         )
 
         if is_delete:
@@ -1034,6 +1091,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # Apply the M2M whenever the field is in the payload — including an empty list, which clears it.
         if export_insights_in_payload:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
+        if ai_prompt_export_insights_in_payload:
+            instance.ai_prompt_export_insights.set(ai_prompt_export_insight_ids)
 
         is_re_enabling = was_disabled and instance.enabled
 
@@ -1047,7 +1106,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         delivery_content_changed = any(
             getattr(instance, field) != old_value for field, old_value in old_delivery_values.items()
-        ) or (old_export_insight_ids is not None and set(dashboard_export_insight_ids) != old_export_insight_ids)
+        ) or (
+            old_export_insight_ids is not None and set(dashboard_export_insight_ids) != old_export_insight_ids
+        ) or (
+            old_ai_prompt_export_insight_ids is not None
+            and set(ai_prompt_export_insight_ids) != old_ai_prompt_export_insight_ids
+        )
 
         # Explicit send_test_now wins. When omitted, infer: send when the edit changed what
         # gets delivered, or on re-enable — a schedule/meta-only edit must not push a fresh
@@ -1154,7 +1218,9 @@ def _target_filter(user_access_control: UserAccessControl, team_id: int, targets
 
     targets_a_blocked_insight = Q(**{targets.insight: blocked_insights})
     targets_a_blocked_dashboard = Q(**{targets.dashboard: blocked_dashboards})
-    exports_a_blocked_insight = Q(**{targets.exported_insights: blocked_insights})
+    exports_a_blocked_insight = Q(**{targets.exported_insights: blocked_insights}) | Q(
+        **{targets.ai_prompt_exported_insights: blocked_insights}
+    )
     renders_a_blocked_tile = Q(**{targets.no_selection: True}) & Q(**{targets.dashboard: dashboards_with_blocked_tiles})
 
     return ~(
@@ -1323,8 +1389,8 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     def safely_get_queryset(self, queryset) -> QuerySet:
         request_params = self.request.GET.dict()
 
-        # Prefetch dashboard_export_insights to avoid N+1 queries in list/detail views
-        queryset = queryset.prefetch_related("dashboard_export_insights")
+        # Prefetch selected insights to avoid N+1 queries in list/detail views.
+        queryset = queryset.prefetch_related("dashboard_export_insights", "ai_prompt_export_insights")
 
         if self.action == "list":
             queryset = queryset.select_related("insight", "dashboard", "created_by")
