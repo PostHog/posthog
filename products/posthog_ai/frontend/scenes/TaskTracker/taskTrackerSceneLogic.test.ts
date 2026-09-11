@@ -62,7 +62,7 @@ describe('taskTrackerSceneLogic', () => {
                 '/api/projects/:team/tasks/': { results: [], count: 0 },
                 '/api/projects/:team/tasks/repositories/': { repositories: [] },
                 '/api/projects/:team/tasks/@me/config/': myConfigResponse(null),
-                '/api/environments/:team/integrations/': { results: [] },
+                '/api/projects/:team/integrations/': { results: [] },
             },
             post: {
                 '/api/projects/:team/tasks/': async ({ request }) => {
@@ -493,7 +493,7 @@ describe('taskTrackerSceneLogic', () => {
     it('restores the repository integration after a submit so the picker reappears', async () => {
         useMocks({
             get: {
-                '/api/environments/:team/integrations/': {
+                '/api/projects/:team/integrations/': {
                     results: [{ id: 7, kind: 'github', display_name: 'acme/widgets', config: {} }],
                 },
             },

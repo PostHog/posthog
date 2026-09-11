@@ -1766,6 +1766,9 @@
                     "$ref": "#/definitions/MCPHarnessBreakdownQuery"
                 },
                 {
+                    "$ref": "#/definitions/MCPModelBreakdownQuery"
+                },
+                {
                     "$ref": "#/definitions/MCPToolTopUsersQuery"
                 },
                 {
@@ -3148,7 +3151,7 @@
                 "funnelVizType": {
                     "$ref": "#/definitions/FunnelVizType",
                     "default": "steps",
-                    "description": "Defines the type of visualization to use. The `steps` option is recommended. `steps` - shows a step-by-step funnel. Perfect to show a conversion rate of a sequence of events (default). `time_to_convert` - shows a histogram of the time it took to complete the funnel. `trends` - shows trends of the conversion rate of the whole sequence over time."
+                    "description": "Defines the type of visualization to use. `steps` - one bar per step with the conversion between them (default). Use for \"what's the conversion rate\" and \"where do users drop off\". `trends` - the conversion rate of the whole sequence as a time series. Use whenever the question is about change over time (\"is conversion improving\", \"conversion per week\", \"since we shipped X\"); a `steps` chart cannot show that. `time_to_convert` - a histogram of how long users took to complete the funnel."
                 },
                 "funnelWindowInterval": {
                     "$ref": "#/definitions/integer",
@@ -5483,7 +5486,7 @@
                 },
                 "display": {
                     "default": "ActionsLineGraph",
-                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series. `Metric` - single large number with a period-over-period change pill and a sparkline. Like `BoldNumber` but trend-aware; configure it with the `metric*` fields below. Single series, no breakdown. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
+                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `Metric` - single large number with a change pill and a sparkline. Use for a period summary or an explicit current-versus-previous-period comparison (\"how many X in the last 30 days\", \"what's our conversion rate this month\", \"how does this month compare to last\"). Do not use for a question about change over time, a cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect each interval. Set `compareFilter.compare` to `true` to compare the current period with the previous period. Without it, the pill compares the first interval with the last interval. Configure the display with the `metric*` fields below. Single series, no breakdown. `BoldNumber` - single large number with no change or sparkline. Use instead of `Metric` only when a trend is meaningless, such as an all-time total or a fixed ratio. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
                     "enum": [
                         "Auto",
                         "ActionsLineGraph",
@@ -10090,6 +10093,106 @@
             "required": [
                 "cache_key",
                 "has_next",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedMCPModelBreakdownQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MCPModelBreakdownItem"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
                 "is_cached",
                 "last_refresh",
                 "next_allowed_client_refresh",
@@ -17145,34 +17248,26 @@
             ],
             "type": "string"
         },
-        "CustomBotDefinition": {
+        "CustomBotCondition": {
             "additionalProperties": false,
-            "description": "A bot a project defines itself, on top of PostHog's built-in bot list.",
+            "description": "One condition of a project's bot rule.",
             "properties": {
-                "category": {
-                    "description": "Reported by `$virt_traffic_category`. Defaults to `custom`.",
-                    "type": "string"
-                },
                 "id": {
                     "type": "string"
                 },
                 "key": {
                     "$ref": "#/definitions/CustomBotField",
-                    "description": "The event property this rule reads."
+                    "description": "The event property this condition reads."
                 },
                 "matcher": {
                     "$ref": "#/definitions/CustomBotMatcher"
-                },
-                "name": {
-                    "description": "Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.",
-                    "type": "string"
                 },
                 "pattern": {
                     "description": "Matched against the property named by `key`.",
                     "type": "string"
                 }
             },
-            "required": ["name", "key", "pattern", "matcher", "id"],
+            "required": ["key", "pattern", "matcher", "id"],
             "type": "object"
         },
         "CustomBotField": {
@@ -17196,8 +17291,37 @@
             "type": "string"
         },
         "CustomBotMatcher": {
-            "enum": ["contains", "regex", "cidr"],
+            "enum": ["contains", "regex", "exact", "cidr"],
             "type": "string"
+        },
+        "CustomBotRule": {
+            "additionalProperties": false,
+            "description": "A bot a project defines itself, on top of PostHog's built-in bot list.",
+            "properties": {
+                "category": {
+                    "description": "Reported by `$virt_traffic_category`. Defaults to `custom`.",
+                    "type": "string"
+                },
+                "combiner": {
+                    "$ref": "#/definitions/FilterLogicalOperator",
+                    "description": "Whether every condition must match (AND) or any one of them (OR)."
+                },
+                "id": {
+                    "type": "string"
+                },
+                "items": {
+                    "items": {
+                        "$ref": "#/definitions/CustomBotCondition"
+                    },
+                    "type": "array"
+                },
+                "name": {
+                    "description": "Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.",
+                    "type": "string"
+                }
+            },
+            "required": ["name", "combiner", "items", "id"],
+            "type": "object"
         },
         "CustomChannelCondition": {
             "additionalProperties": false,
@@ -26198,6 +26322,7 @@
                 "Freshchat",
                 "Freshservice",
                 "Fulcrum",
+                "GainsightCs",
                 "GainsightPx",
                 "GitBook",
                 "Glassfrog",
@@ -27199,7 +27324,10 @@
                 "RecallAI",
                 "Tenjin",
                 "Folk",
-                "Cybersource"
+                "Cybersource",
+                "GoogleAdSense",
+                "Sequenzy",
+                "Skio"
             ],
             "type": "string"
         },
@@ -29583,7 +29711,7 @@
                 },
                 "customBotDefinitions": {
                     "items": {
-                        "$ref": "#/definitions/CustomBotDefinition"
+                        "$ref": "#/definitions/CustomBotRule"
                     },
                     "type": "array"
                 },
@@ -30853,6 +30981,7 @@
                 "linear",
                 "github",
                 "gitlab",
+                "helpscout",
                 "meta-ads",
                 "instagram",
                 "clickup",
@@ -32457,6 +32586,123 @@
                 }
             },
             "required": ["has_next", "results"],
+            "type": "object"
+        },
+        "MCPModelBreakdownItem": {
+            "additionalProperties": false,
+            "description": "One model's share of MCP tool calls.",
+            "properties": {
+                "model": {
+                    "type": "string"
+                },
+                "total_calls": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["model", "total_calls"],
+            "type": "object"
+        },
+        "MCPModelBreakdownQuery": {
+            "additionalProperties": false,
+            "description": "MCP tool-call activity grouped by captured model identity.",
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "MCPModelBreakdownQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "$ref": "#/definitions/MCPModelBreakdownQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "MCPModelBreakdownQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MCPModelBreakdownItem"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         },
         "MCPToolCallBreakdownItem": {
@@ -38389,6 +38635,7 @@
                 "MCPToolCallBreakdownQuery",
                 "MCPToolCallsAndErrorsQuery",
                 "MCPHarnessBreakdownQuery",
+                "MCPModelBreakdownQuery",
                 "MCPToolTopUsersQuery",
                 "MCPToolFailuresQuery",
                 "MCPToolFailureOccurrencesQuery",
@@ -39670,6 +39917,9 @@
                 "session_replay_set_filters",
                 "session_replay_experiment_link_clicked",
                 "session_replay_save_filters_as_scanner",
+                "replay_vision_viewed",
+                "replay_vision_scanner_created",
+                "replay_vision_scan_triggered",
                 "error_tracking_exception_autocapture_enabled",
                 "error_tracking_issue_sorting",
                 "error_tracking_docs_viewed",
@@ -47546,6 +47796,71 @@
                         },
                         "results": {
                             "items": {
+                                "$ref": "#/definitions/MCPModelBreakdownItem"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
                                 "$ref": "#/definitions/MCPToolTopUserItem"
                             },
                             "type": "array"
@@ -48762,6 +49077,9 @@
                 },
                 {
                     "$ref": "#/definitions/MCPHarnessBreakdownQuery"
+                },
+                {
+                    "$ref": "#/definitions/MCPModelBreakdownQuery"
                 },
                 {
                     "$ref": "#/definitions/MCPToolTopUsersQuery"

@@ -51,23 +51,23 @@ class DeprecatedField:
 
     def __init__(self, raise_on_access: bool = False) -> None:
         self.raise_on_access = raise_on_access
+        self.name = "<unknown>"
 
-    def _get_name(self, obj: object) -> str:
-        for name, value in type(obj).__dict__.items():
-            if value is self:
-                return name
-        return "<unknown>"
+    def __set_name__(self, owner: type, name: str) -> None:
+        # Django's ModelBase hands an attribute with no contribute_to_class straight to
+        # type.__new__, which is what calls this.
+        self.name = name
 
     def __get__(self, obj: object, objtype: type | None = None) -> object:
         if obj is None:
             return self
-        self._report(f"accessing deprecated field {obj.__class__.__name__}.{self._get_name(obj)}")
+        self._report(f"accessing deprecated field {obj.__class__.__name__}.{self.name}")
         return None
 
     def __set__(self, obj: object, val: object) -> None:
         # The write is dropped on purpose: a descriptor is shared by every instance, so storing
         # the value here would leak it into every other row, and no column is left to hold it.
-        self._report(f"writing to deprecated field {obj.__class__.__name__}.{self._get_name(obj)}")
+        self._report(f"writing to deprecated field {obj.__class__.__name__}.{self.name}")
 
     def _report(self, msg: str) -> None:
         if self.raise_on_access:
