@@ -172,9 +172,7 @@ function ScoutActivitySummary({ skillName }: { skillName: string }): JSX.Element
                 {SCOUT_RUNS_PER_SCOUT_LABEL}
             </span>
             <span className="text-sm text-secondary">{parts.join(' · ')}</span>
-            {costRollup && (
-                <span className="text-sm text-secondary tabular-nums">{scoutSpendSummary(costRollup)}</span>
-            )}
+            {costRollup && <span className="text-sm text-secondary tabular-nums">{scoutSpendSummary(costRollup)}</span>}
         </div>
     )
 }
