@@ -1,13 +1,16 @@
 """Activities for evaluation reports workflow."""
 
+import math
 import time
+import hashlib
 import datetime as dt
 from collections import defaultdict
 from itertools import batched
 from typing import TYPE_CHECKING, NamedTuple
 from zoneinfo import ZoneInfo
 
-from django.db.models import Q
+from django.db.models import F, Min, Q, Window
+from django.db.models.functions import RowNumber
 
 import temporalio.activity
 from dateutil.rrule import rrulestr
@@ -16,9 +19,11 @@ from structlog import get_logger
 from posthog.hogql import ast
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.dataclasses import frozen
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.eval_reports.constants import (
+    COUNT_TRIGGER_POLL_INTERVAL,
     COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_MIN_SPLIT_RANGE,
@@ -34,6 +39,8 @@ from posthog.temporal.ai_observability.eval_reports.targets import (
     target_event_predicate,
 )
 from posthog.temporal.ai_observability.eval_reports.types import (
+    DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORT_GROUPS_PER_RUN,
+    DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN,
     CheckCountTriggeredEvalReportInput,
     CheckCountTriggeredEvalReportOutput,
     CheckCountTriggeredEvalReportsBatchInput,
@@ -60,36 +67,101 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+@frozen
+class _FetchedDueEvalReports:
+    report_ids: list[str]
+    oldest_due_at: dt.datetime | None
+    has_more: bool
+
+
+def _scheduler_page_index(poll_number: int, page_count: int, namespace: str) -> int:
+    """Select a deterministic page without aliasing against skipped schedule intervals."""
+    digest = hashlib.blake2s(f"{namespace}:{poll_number}".encode(), digest_size=8).digest()
+    return int.from_bytes(digest, "big") % page_count
+
+
 @temporalio.activity.defn
 async def fetch_due_eval_reports_activity(
     inputs: ScheduleAllEvalReportsWorkflowInputs,
 ) -> FetchDueEvalReportsOutput:
     """Return a list of time-based evaluation report IDs that are due for delivery."""
-    now_with_buffer = dt.datetime.now(tz=dt.UTC) + dt.timedelta(minutes=inputs.buffer_minutes)
+    poll_time = dt.datetime.now(tz=dt.UTC)
+    now_with_buffer = poll_time + dt.timedelta(minutes=inputs.buffer_minutes)
 
-    @database_sync_to_async(thread_sensitive=False)
-    def get_report_ids() -> list[str]:
-        from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
-
-        return [
-            str(pk)
-            for pk in EvaluationReport.objects.deliverable()
-            .filter(
-                next_delivery_date__lte=now_with_buffer,
-            )
-            .exclude(frequency=EvaluationReport.Frequency.EVERY_N)
-            .values_list("id", flat=True)
-        ]
-
-    report_ids = await get_report_ids()
+    fetched = await database_sync_to_async(
+        _fetch_due_eval_report_ids,
+        thread_sensitive=False,
+    )(now_with_buffer, inputs.max_reports_per_run, poll_time=poll_time)
     await logger.ainfo(
         "llma_eval_reports_coordinator_scheduled_poll",
-        reports_found=len(report_ids),
+        reports_found=len(fetched.report_ids),
+        max_reports_per_run=inputs.max_reports_per_run,
+        has_more=fetched.has_more,
+        oldest_due_at=fetched.oldest_due_at,
     )
-    from posthog.temporal.ai_observability.eval_reports.metrics import record_coordinator_reports_found
+    from posthog.temporal.ai_observability.eval_reports.metrics import (
+        record_coordinator_poll,
+        record_coordinator_reports_found,
+    )
 
-    record_coordinator_reports_found(len(report_ids), "scheduled")
-    return FetchDueEvalReportsOutput(report_ids=report_ids)
+    record_coordinator_reports_found(len(fetched.report_ids), "scheduled")
+    record_coordinator_poll(
+        selected_count=len(fetched.report_ids),
+        trigger_type="scheduled",
+        has_more=fetched.has_more,
+        oldest_due_at=fetched.oldest_due_at,
+    )
+    return FetchDueEvalReportsOutput(
+        report_ids=fetched.report_ids,
+    )
+
+
+def _fetch_due_eval_report_ids(
+    now_with_buffer: dt.datetime,
+    max_reports_per_run: int,
+    *,
+    poll_time: dt.datetime | None = None,
+) -> _FetchedDueEvalReports:
+    from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
+
+    if max_reports_per_run <= 0:
+        raise ValueError("max_reports_per_run must be greater than zero")
+
+    candidates = (
+        EvaluationReport.objects.deliverable()
+        .filter(next_delivery_date__lte=now_with_buffer)
+        .exclude(frequency=EvaluationReport.Frequency.EVERY_N)
+        .annotate(
+            _team_rank=Window(
+                expression=RowNumber(),
+                partition_by=[F("team_id")],
+                order_by=[F("next_delivery_date").asc(), F("id").asc()],
+            )
+        )
+        .order_by("_team_rank", "next_delivery_date", "team_id", "id")
+        .values_list("id", "next_delivery_date")
+    )
+    candidate_count = candidates.count()
+    if candidate_count == 0:
+        return _FetchedDueEvalReports(report_ids=[], oldest_due_at=None, has_more=False)
+
+    page_count = math.ceil(candidate_count / max_reports_per_run)
+    effective_poll_time = poll_time or now_with_buffer
+    poll_number = int(effective_poll_time.timestamp() // dt.timedelta(hours=1).total_seconds())
+    page_index = _scheduler_page_index(poll_number, page_count, "scheduled")
+    offset = page_index * max_reports_per_run
+    selected_rows = list(candidates[offset : offset + max_reports_per_run])
+    oldest_due_at = (
+        EvaluationReport.objects.deliverable()
+        .filter(next_delivery_date__lte=now_with_buffer)
+        .exclude(frequency=EvaluationReport.Frequency.EVERY_N)
+        .aggregate(oldest_due_at=Min("next_delivery_date"))["oldest_due_at"]
+    )
+    return _FetchedDueEvalReports(
+        report_ids=[str(report_id) for report_id, _ in selected_rows],
+        oldest_due_at=oldest_due_at,
+        has_more=candidate_count > len(selected_rows),
+    )
 
 
 @temporalio.activity.defn
@@ -100,19 +172,38 @@ async def fetch_count_triggered_eval_report_candidates_activity(
     one team per group so each check activity runs a single shared count query."""
 
     @database_sync_to_async(thread_sensitive=False)
-    def get_report_id_groups() -> list[list[str]]:
-        return _fetch_count_triggered_eval_report_candidate_groups()
+    def get_report_id_groups() -> tuple[list[list[str]], int]:
+        return _fetch_count_triggered_eval_report_candidate_groups(
+            max_reports_per_run=inputs.max_reports_per_run,
+            max_groups_per_run=inputs.max_groups_per_run,
+        )
 
-    report_id_groups = await get_report_id_groups()
+    report_id_groups, candidate_count = await get_report_id_groups()
     report_ids = [report_id for group in report_id_groups for report_id in group]
+    has_more = candidate_count > len(report_ids)
     await logger.ainfo(
         "llma_eval_reports_coordinator_count_triggered_candidates_poll",
         total_checked=len(report_ids),
+        candidate_count=candidate_count,
+        max_reports_per_run=inputs.max_reports_per_run,
+        max_groups_per_run=inputs.max_groups_per_run,
+        has_more=has_more,
     )
-    from posthog.temporal.ai_observability.eval_reports.metrics import record_coordinator_check_count
+    from posthog.temporal.ai_observability.eval_reports.metrics import (
+        record_coordinator_check_count,
+        record_coordinator_poll,
+    )
 
     record_coordinator_check_count(len(report_ids), "count_triggered")
-    return FetchDueEvalReportsOutput(report_ids=report_ids, report_id_groups=report_id_groups)
+    record_coordinator_poll(
+        selected_count=len(report_ids),
+        trigger_type="count_triggered",
+        has_more=has_more,
+    )
+    return FetchDueEvalReportsOutput(
+        report_ids=report_ids,
+        report_id_groups=report_id_groups,
+    )
 
 
 @temporalio.activity.defn
@@ -146,26 +237,61 @@ async def check_count_triggered_eval_reports_activity(
     return CheckCountTriggeredEvalReportsBatchOutput(results=results)
 
 
-def _fetch_count_triggered_eval_report_candidate_groups() -> list[list[str]]:
+def _fetch_count_triggered_eval_report_candidate_groups(
+    max_reports_per_run: int = DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN,
+    max_groups_per_run: int = DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORT_GROUPS_PER_RUN,
+    now: dt.datetime | None = None,
+) -> tuple[list[list[str]], int]:
     """Return candidate report ids grouped one team per group, each group at most
     COUNT_TRIGGER_QUERY_WIDTH wide, so one check activity runs exactly one ClickHouse
     count query under its own timeout and retry policy."""
     from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 
-    ids_by_team: dict[int, list[str]] = defaultdict(list)
-    for pk, team_id in (
+    if max_reports_per_run <= 0:
+        raise ValueError("max_reports_per_run must be greater than zero")
+    if max_groups_per_run <= 0:
+        raise ValueError("max_groups_per_run must be greater than zero")
+
+    candidates = (
         EvaluationReport.objects.deliverable()
         .filter(
             frequency=EvaluationReport.Frequency.EVERY_N,
             trigger_threshold__isnull=False,
         )
-        .order_by("team_id", "id")
+        .annotate(
+            _team_rank=Window(
+                expression=RowNumber(),
+                partition_by=[F("team_id")],
+                order_by=F("id").asc(),
+            )
+        )
+        .order_by("_team_rank", "team_id", "id")
         .values_list("id", "team_id")
-    ):
+    )
+    candidate_count = candidates.count()
+    if candidate_count == 0:
+        return [], 0
+
+    page_count = math.ceil(candidate_count / max_reports_per_run)
+    poll_time = now or dt.datetime.now(tz=dt.UTC)
+    poll_number = int(poll_time.timestamp() // COUNT_TRIGGER_POLL_INTERVAL.total_seconds())
+    # Hashing the absolute poll slot avoids the periodic aliasing produced by a plain
+    # modulo when Temporal skips overlapping ticks (for example, every second tick
+    # with two pages). The activity need not be replay-deterministic, but a stable
+    # mapping keeps selection observable and testable.
+    page_index = _scheduler_page_index(poll_number, page_count, "count-reports")
+    offset = page_index * max_reports_per_run
+
+    ids_by_team: dict[int, list[str]] = defaultdict(list)
+    for pk, team_id in candidates[offset : offset + max_reports_per_run]:
         ids_by_team[team_id].append(str(pk))
-    return [
+    groups = [
         list(chunk) for ids in ids_by_team.values() for chunk in batched(ids, COUNT_TRIGGER_QUERY_WIDTH, strict=False)
     ]
+    group_page_count = math.ceil(len(groups) / max_groups_per_run)
+    group_page_index = _scheduler_page_index(poll_number, group_page_count, "count-groups")
+    group_offset = group_page_index * max_groups_per_run
+    return groups[group_offset : group_offset + max_groups_per_run], candidate_count
 
 
 def _load_count_triggered_report(report_id: str) -> "EvaluationReport | None":
