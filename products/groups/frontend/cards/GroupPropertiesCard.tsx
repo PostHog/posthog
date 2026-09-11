@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { Group, PropertyDefinitionType } from '~/types'
 
-import { groupLogic } from '../groupLogic'
+import { groupLogic } from '../logics/groupLogic'
 
 export function GroupPropertiesCard({ groupData }: { groupData: Group }): JSX.Element {
     const { editProperty } = useActions(groupLogic)

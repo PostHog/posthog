@@ -9,8 +9,8 @@ import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { GroupPropertyFilter, GroupTypeIndex } from '~/types'
 
-import type { Noun } from '../../models/groupsModel'
-import type { GroupType } from '../../types'
+import type { Noun } from '../../../../frontend/src/models/groupsModel'
+import type { GroupType } from '../../../../frontend/src/types'
 
 export interface GroupsListLogicProps {
     groupTypeIndex: GroupTypeIndex | number

@@ -3,7 +3,7 @@ import { urls } from 'scenes/urls'
 
 import { Group } from '~/types'
 
-import { RelatedGroups } from '../RelatedGroups'
+import { RelatedGroups } from '../components/RelatedGroups'
 
 export function GroupPeopleCard({ groupData }: { groupData: Group }): JSX.Element {
     return (
