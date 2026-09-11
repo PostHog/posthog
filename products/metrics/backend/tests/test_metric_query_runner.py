@@ -695,6 +695,30 @@ class TestMetricFilters(ClickhouseTestMixin, APIBaseTest):
             0.0,
         )
 
+    def test_window_keeps_a_series_with_samples_outside_the_range(self):
+        # The filter subquery bounds `metric_series` by `last_seen`, the series'
+        # newest sample. Samples on either side of the chart window must not cost
+        # the series its in-window points.
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="req",
+            points=[
+                (self.anchor - dt.timedelta(hours=6), 3.0),
+                (self.anchor - dt.timedelta(hours=2, minutes=30), 4.0),
+                (self.anchor - dt.timedelta(minutes=5), 5.0),
+            ],
+            labels={"env": "staging", "path": "/api"},
+        )
+        runner = MetricQueryRunner(
+            team=self.team,
+            metric_name="req",
+            aggregation="sum",
+            date_from=self.anchor - dt.timedelta(hours=3),
+            date_to=self.anchor - dt.timedelta(hours=2),
+            filters=(MetricFilter(key="env", op=FilterOp.EQ, value="staging"),),
+        )
+        self.assertEqual(sum(row["value"] for row in runner.run()), 4.0)
+
     def test_filters_via_api(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/metrics/query",
@@ -818,6 +842,23 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
             )
         )
         self.assertEqual(series[0].labels, {"k8s.pod.name": "web-1"})
+
+    def test_group_labels_survive_a_series_with_samples_outside_the_range(self):
+        # The label join bounds `metric_series` by `last_seen` too. Dropping a
+        # series with data in the window would regroup it under an empty label.
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="req",
+            points=[
+                (self.anchor - dt.timedelta(hours=6), 5.0),
+                (self.anchor - dt.timedelta(hours=2, minutes=30), 6.0),
+                (self.anchor - dt.timedelta(minutes=5), 7.0),
+            ],
+            labels={"env": "staging"},
+        )
+        series = self._run(date_from=self.anchor - dt.timedelta(hours=3), date_to=self.anchor - dt.timedelta(hours=2))
+        self.assertEqual([s.labels["env"] for s in series], ["staging"])
+        self.assertEqual(sum(p.value for p in series[0].points), 6.0)
 
     def test_group_by_via_api(self):
         response = self.client.post(

@@ -21,6 +21,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.settings import TEST
 
@@ -38,6 +39,12 @@ _QUERY_SETTINGS = HogQLGlobalSettings(
 MAX_SERVICES = 500
 
 DEFAULT_LOOKBACK = dt.timedelta(days=1)
+
+
+@frozen
+class _OverviewCounts:
+    metric_names: int
+    series: int
 
 
 def _set_query_timing_attributes(span: Span, response: HogQLQueryResponse) -> None:
@@ -79,7 +86,7 @@ class MetricsOverviewQueryRunner:
                 return None
             return response.results[0][0].isoformat()
 
-    def _run_counts(self) -> tuple[int, int]:
+    def _run_counts(self) -> _OverviewCounts:
         with tracer.start_as_current_span("metrics.overview.counts") as span:
             span.set_attribute("team_id", self.team.pk)
             # Put the time window in WHERE so the index skips old parts.
@@ -104,9 +111,9 @@ class MetricsOverviewQueryRunner:
             )
             _set_query_timing_attributes(span, response)
             if not response.results:
-                return 0, 0
+                return _OverviewCounts(metric_names=0, series=0)
             metric_names, series = response.results[0]
-            return int(metric_names), int(series)
+            return _OverviewCounts(metric_names=int(metric_names), series=int(series))
 
     def _run_services(self) -> tuple[MetricsServiceOverview, ...]:
         with tracer.start_as_current_span("metrics.overview.services") as span:
@@ -154,7 +161,7 @@ class MetricsOverviewQueryRunner:
 
             if TEST:
                 last_seen = self._run_freshness()
-                metric_names, series = self._run_counts()
+                counts = self._run_counts()
                 services = self._run_services()
             else:
                 with ThreadPoolExecutor(max_workers=3, thread_name_prefix="metrics_overview") as executor:
@@ -162,13 +169,13 @@ class MetricsOverviewQueryRunner:
                     counts_future = executor.submit(contextvars.copy_context().run, self._run_counts)
                     services_future = executor.submit(contextvars.copy_context().run, self._run_services)
                     last_seen = freshness_future.result()
-                    metric_names, series = counts_future.result()
+                    counts = counts_future.result()
                     services = services_future.result()
 
             return MetricsOverview(
                 last_seen=last_seen,
-                metric_names=metric_names,
-                series=series,
+                metric_names=counts.metric_names,
+                series=counts.series,
                 lookback_seconds=int(self.lookback.total_seconds()),
                 services=services,
             )
