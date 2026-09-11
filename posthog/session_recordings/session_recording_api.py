@@ -822,8 +822,8 @@ def clean_referer_url(current_url: str | None) -> str:
         path = re.sub(r"^/?replay/playlists/.+$", "replay-playlists-direct", path)
 
         # remove leading and trailing slashes
-        path = re.sub(r"^/+|/+$", "", path)
-        path = re.sub("/", "-", path)
+        path = path.strip("/")
+        path = path.replace("/", "-")
         return path or "unknown"
     except Exception as e:
         capture_exception(e, additional_properties={"current_url": current_url, "function_name": "clean_referer_url"})
