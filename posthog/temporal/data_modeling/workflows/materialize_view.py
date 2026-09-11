@@ -111,7 +111,7 @@ def _is_cancellation(error: BaseException) -> bool:
     ) and isinstance(error.cause, temporalio.exceptions.CancelledError)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class MaterializeViewWorkflowInputs:
     """Inputs for the MaterializeViewWorkflow.
 
@@ -119,6 +119,7 @@ class MaterializeViewWorkflowInputs:
         team_id: The team ID that owns the node.
         dag_id: The DAG the node belongs to.
         node_id: The UUID of the Node to materialize.
+        manually_triggered_by_id: The user who asked for this run, when a person did.
     """
 
     team_id: int
@@ -126,6 +127,7 @@ class MaterializeViewWorkflowInputs:
     node_id: str
     duckgres_only: bool = False
     dangerously_execute_raw_sql: bool = False
+    manually_triggered_by_id: int | None = None
 
     @property
     def properties_to_log(self) -> dict:
@@ -222,6 +224,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     dag_id=inputs.dag_id,
                     engine=DataModelingJobEngine.DUCKGRES,
                     parent_workflow_id=parent_workflow_id,
+                    manually_triggered_by_id=inputs.manually_triggered_by_id,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(
@@ -254,6 +257,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     node_id=inputs.node_id,
                     dag_id=inputs.dag_id,
                     parent_workflow_id=parent_workflow_id,
+                    manually_triggered_by_id=inputs.manually_triggered_by_id,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(

@@ -39,7 +39,7 @@ class SelectorPart:
             self.data[f"attributes__attr__{result[2]}"] = result[3]
             self.ch_attributes[result[2]] = result[3]
             tag = result[1]
-        if "nth-child(" in tag:
+        if ":nth-child(" in tag:
             parts = tag.split(":nth-child(")
             self.data["nth_child"] = parts[1].replace(")", "")
             self.ch_attributes["nth-child"] = self.data["nth_child"]

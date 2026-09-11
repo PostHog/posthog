@@ -8,7 +8,7 @@ from datetime import UTC, date, datetime, time, timedelta, timezone
 from typing import Any, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
@@ -16,6 +16,7 @@ from django.db import (
     OperationalError as DjangoOperationalError,
     connection as django_connection,
 )
+from django.test import override_settings
 
 import psycopg
 import pyarrow as pa
@@ -23,6 +24,9 @@ import structlog
 from parameterized import parameterized
 from psycopg import sql
 from sshtunnel import BaseSSHTunnelForwarderError
+
+from posthog.dataclasses import frozen
+from posthog.psycopg_helpers import HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR
 
 import products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables as partitioned_tables_pkg
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -37,11 +41,18 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.con
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import table_payload_bytes
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    HostNotAllowedError,
+    TemporaryHostResolutionError,
+    _resolve_hostaddr_with_timeout,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import batching
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.resolver import addrinfo
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
     ForeignServerUnreachableError,
     XminUnsupportedError,
@@ -92,7 +103,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _capture_xmin_ceiling,
     _connect_to_postgres,
     _connect_with_dropped_retry,
-    _connect_with_options_fallback,
     _fetch_rows_for,
     _get_estimated_row_count_for_partitioned_table,
     _get_partition_settings,
@@ -115,10 +125,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _is_unsupported_statement_timeout_error,
     _next_recovery_conflict_chunk_size,
     _normalize_function_names,
+    _open_connection,
     _pk_uniqueness_probe_timeout_error,
     _raise_if_setup_connection_broken,
     _recovery_conflict_abort_error,
-    _resolve_hostaddr_with_timeout,
     _rls_active_from_conn,
     _role_subject_to_rls,
     _safe_close_connection,
@@ -445,6 +455,10 @@ class TestPostgresSourceNonRetryableErrors:
             # hit a plan limit. Account-level state only the customer can lift, so retrying re-hits
             # the same refusal — must not keep retrying. Host/port are invented, not a real value.
             'connection failed: connection to server at "db.example.com", port 5432 failed: Your account has restrictions: planLimitReached. Please contact your provider to resolve account restrictions.',
+            # Supabase/Supavisor trips its circuit breaker after repeated bad credentials. The block
+            # stays until the failing attempts stop, so it's permanent until the customer fixes the
+            # credentials — distinct from the transient credential-fetch variant of the same code.
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  (ECIRCUITBREAKER) too many authentication failures, new connections are temporarily blocked',
             # The target database has datallowconn off, or a managed provider paused/suspended it
             # (SQLSTATE 57P03). Permanent until the customer restores it, so it must not keep retrying.
             # Distinct from the transient "not yet accepting connections" startup refusal above (which
@@ -638,6 +652,22 @@ class TestPostgresSourceNonRetryableErrors:
         # A transient substring added to postgres.py flows into get_retryable_errors automatically,
         # so one missing here would silently fall back to storing the raw driver text.
         assert source.get_retryable_errors() == set(source.get_retry_exhausted_errors().keys())
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            f"{HOST_RESOLUTION_TIMEOUT_ERROR} after 15.0s",
+            TEMPORARY_HOST_RESOLUTION_ERROR,
+        ],
+    )
+    def test_resolver_failures_before_the_connect_are_classified_retryable(self, source, error_msg):
+        # The bounded lookup in front of every connect raises these when the resolver stalls or
+        # answers "try again". Neither is a verdict on the host, so a fresh attempt recovers. Without
+        # the classification, `_handle_import_error` reports a self-recovering failure on every one
+        # of the activity's retries. They must stay out of get_non_retryable_errors too, which is
+        # checked first and would disable the schema.
+        assert error_message_matches(error_msg, source.get_retryable_errors())
+        assert not error_message_matches(error_msg, source.get_non_retryable_errors().keys())
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -2055,7 +2085,7 @@ class TestIsConnectionDroppedError:
             # kept retryable above. Broadening the match to the bare code would wrongly retry a
             # deterministic credential rejection — see `get_non_retryable_errors` in source.py.
             psycopg.OperationalError(
-                'connection failed: connection to server at "18.176.230.146", port 5432 failed: '
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "FATAL:  (ECIRCUITBREAKER) too many authentication failures, new connections are "
                 "temporarily blocked"
             ),
@@ -2533,7 +2563,7 @@ class TestConnectToPostgresMultiAddressFailover:
         ]
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.settings"
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.settings"
             ) as mock_settings,
             patch(
                 "posthog.psycopg_helpers.socket.getaddrinfo",
@@ -2562,7 +2592,7 @@ class TestConnectToPostgresMultiAddressFailover:
         addrinfo = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("203.0.113.5", 5432))]
         with (
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.settings"
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.settings"
             ) as mock_settings,
             patch(
                 "posthog.psycopg_helpers.socket.getaddrinfo",
@@ -2585,6 +2615,212 @@ class TestConnectToPostgresMultiAddressFailover:
 
         assert connect_mock.call_args.kwargs["host"] == "db.example.com"
         assert connect_mock.call_args.kwargs["hostaddr"] == "203.0.113.5"
+
+
+@frozen
+class _ProductionCloud:
+    getaddrinfo: MagicMock
+    connect: MagicMock
+
+
+class TestConnectToPostgresDialsOnlyValidatedAddresses:
+    @contextmanager
+    def _production_cloud(self, resolver_result: Any) -> Iterator[_ProductionCloud]:
+        resolver_kwargs = (
+            {"side_effect": resolver_result}
+            if isinstance(resolver_result, BaseException) or callable(resolver_result)
+            else {"return_value": resolver_result}
+        )
+        with (
+            override_settings(CLOUD_DEPLOYMENT="US"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.settings"
+            ) as mock_settings,
+            patch("posthog.psycopg_helpers.socket.getaddrinfo", **resolver_kwargs) as getaddrinfo_mock,
+            patch("posthog.psycopg_helpers.has_ipv6_route", return_value=True),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect"
+            ) as connect_mock,
+        ):
+            mock_settings.TEST = False
+            mock_settings.DEBUG = False
+            mock_settings.E2E_TESTING = False
+            yield _ProductionCloud(getaddrinfo=getaddrinfo_mock, connect=connect_mock)
+
+    @staticmethod
+    def _connect(host: str = "db.example.com", **kwargs: Any) -> psycopg.Connection:
+        return _connect_to_postgres(
+            host=host, port=5432, database="postgres", user="user", password="password", **kwargs
+        )
+
+    @pytest.mark.parametrize(
+        "addresses",
+        [
+            ("10.0.0.5", "52.1.2.3"),
+            ("52.1.2.3", "169.254.169.254"),
+            ("64:ff9b::169.254.169.254",),
+        ],
+    )
+    def test_an_internal_address_anywhere_in_the_resolved_set_refuses_the_connect(
+        self, addresses: tuple[str, ...]
+    ) -> None:
+        with self._production_cloud(addrinfo(5432, *addresses)) as cloud:
+            with pytest.raises(Exception, match="Database host not allowed"):
+                self._connect(team_id=999)
+
+        cloud.connect.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "resolver_result",
+        [
+            socket.gaierror(-2, "Name or service not known"),
+            [],
+        ],
+    )
+    def test_a_failed_lookup_refuses_the_connect_rather_than_letting_libpq_resolve(self, resolver_result: Any) -> None:
+        with self._production_cloud(resolver_result) as cloud:
+            with pytest.raises(Exception, match="Database host not allowed"):
+                self._connect(team_id=999)
+
+        cloud.connect.assert_not_called()
+
+    def test_a_public_set_is_dialed_whole_with_the_hostname_kept_for_sni(self) -> None:
+        with self._production_cloud(addrinfo(5432, "2600:1f18::1", "52.1.2.3")) as cloud:
+            self._connect(team_id=999)
+
+        assert cloud.connect.call_args.kwargs["host"] == "db.example.com,db.example.com"
+        assert cloud.connect.call_args.kwargs["hostaddr"] == "2600:1f18::1,52.1.2.3"
+
+    def test_an_allowlisted_team_dials_its_internal_addresses_pinned(self) -> None:
+        with self._production_cloud(addrinfo(5432, "10.0.0.5")) as cloud:
+            self._connect(team_id=2)
+
+        assert cloud.connect.call_args.kwargs["host"] == "db.example.com"
+        assert cloud.connect.call_args.kwargs["hostaddr"] == "10.0.0.5"
+
+    def test_a_missing_team_fails_closed(self) -> None:
+        with self._production_cloud(addrinfo(5432, "10.0.0.5")) as cloud:
+            with pytest.raises(Exception, match="Database host not allowed"):
+                self._connect()
+
+        cloud.connect.assert_not_called()
+
+    def test_an_exempt_host_whose_lookup_failed_is_left_for_libpq_to_resolve(self) -> None:
+        with self._production_cloud(socket.gaierror(-2, "Name or service not known")) as cloud:
+            self._connect(team_id=2)
+
+        assert cloud.connect.call_args.kwargs["host"] == "db.example.com"
+        assert "hostaddr" not in cloud.connect.call_args.kwargs
+
+    def test_a_resolver_blip_stays_retryable(self) -> None:
+        with self._production_cloud(socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")) as cloud:
+            with pytest.raises(psycopg.OperationalError, match="Temporary failure") as exc_info:
+                self._connect(team_id=999)
+
+        assert "Database host not allowed" not in str(exc_info.value)
+        cloud.connect.assert_not_called()
+
+    def test_a_comma_joined_host_is_refused_before_libpq_sees_it(self) -> None:
+        with self._production_cloud(addrinfo(5432, "10.0.0.5")) as cloud:
+            with pytest.raises(HostNotAllowedError, match="single hostname"):
+                self._connect(host="10.0.0.5,x.postwh.com", team_id=999)
+
+        cloud.getaddrinfo.assert_not_called()
+        cloud.connect.assert_not_called()
+
+    def test_an_ip_literal_host_is_dialed_as_is_without_a_lookup(self) -> None:
+        with self._production_cloud(addrinfo(5432, "127.0.0.1")) as cloud:
+            self._connect(host="127.0.0.1", team_id=999)
+
+        cloud.getaddrinfo.assert_not_called()
+        assert cloud.connect.call_args.kwargs["host"] == "127.0.0.1"
+        assert "hostaddr" not in cloud.connect.call_args.kwargs
+
+    def test_a_stalled_lookup_stays_a_retryable_timeout(self) -> None:
+        release = threading.Event()
+        try:
+            with self._production_cloud(lambda *a, **k: release.wait()) as cloud:
+                with pytest.raises(psycopg.OperationalError, match="Timed out resolving") as exc_info:
+                    self._connect(team_id=999, connect_timeout=0)
+        finally:
+            release.set()
+
+        assert "Database host not allowed" not in str(exc_info.value)
+        cloud.connect.assert_not_called()
+
+
+class TestPostgresSourceDialsOnlyValidatedAddresses:
+    @staticmethod
+    @contextmanager
+    def _tunnel() -> Iterator[tuple[str, int]]:
+        yield ("db.example.com", 5432)
+
+    @contextmanager
+    def _production_cloud(self, *addresses: str) -> Iterator[None]:
+        addrinfo = [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, 5432)) for address in addresses
+        ]
+        with (
+            override_settings(CLOUD_DEPLOYMENT="US"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.settings"
+            ) as mock_settings,
+            patch("posthog.psycopg_helpers.socket.getaddrinfo", return_value=addrinfo),
+            patch("posthog.psycopg_helpers.has_ipv6_route", return_value=True),
+            patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"),
+        ):
+            mock_settings.TEST = False
+            mock_settings.DEBUG = False
+            mock_settings.E2E_TESTING = False
+            yield
+
+    def _call_postgres_source(self, team_id: int | None) -> SourceResponse:
+        return postgres_source(
+            tunnel=self._tunnel,
+            user="u",
+            password="p",
+            database="db",
+            sslmode="prefer",
+            schema="public",
+            table_names=["t"],
+            should_use_incremental_field=False,
+            logger=structlog.get_logger(),
+            db_incremental_field_last_value=None,
+            team_id=team_id,
+        )
+
+    def test_the_setup_connect_refuses_an_internal_address(self) -> None:
+        with self._production_cloud("52.1.2.3", "10.0.0.5"):
+            with patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect"
+            ) as connect_mock:
+                with pytest.raises(Exception, match="Database host not allowed"):
+                    self._call_postgres_source(team_id=999)
+
+        connect_mock.assert_not_called()
+
+    def test_the_setup_connect_dials_the_validated_set(self) -> None:
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = psycopg.errors.InternalError_("XX000: internal error")
+        cursor_cm = mock.MagicMock()
+        cursor_cm.__enter__.return_value = cursor
+        cursor_cm.__exit__.return_value = False
+        connection = mock.MagicMock()
+        connection.closed = False
+        connection.cursor.return_value = cursor_cm
+        connection.__enter__.return_value = connection
+        connection.__exit__.return_value = False
+
+        with self._production_cloud("2600:1f18::1", "52.1.2.3"):
+            with patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+                return_value=connection,
+            ) as connect_mock:
+                with pytest.raises(psycopg.errors.InternalError_):
+                    self._call_postgres_source(team_id=999)
+
+        assert connect_mock.call_args.kwargs["host"] == "db.example.com,db.example.com"
+        assert connect_mock.call_args.kwargs["hostaddr"] == "2600:1f18::1,52.1.2.3"
 
 
 # Transaction-mode poolers (Supabase Supavisor on :6543, PgBouncer transaction mode, AWS RDS Proxy,
@@ -2640,7 +2876,7 @@ class TestConnectOptionsStartupParamFallback:
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
             connect_mock,
         ):
-            result = _connect_with_options_fallback(host="db", options=FORCE_UTF8_CLIENT_ENCODING)
+            result = _open_connection(host="db", options=FORCE_UTF8_CLIENT_ENCODING)
 
         assert result is good_conn
         assert connect_mock.call_count == 2
@@ -2658,7 +2894,7 @@ class TestConnectOptionsStartupParamFallback:
             connect_mock,
         ):
             with pytest.raises(psycopg.OperationalError):
-                _connect_with_options_fallback(host="db")
+                _open_connection(host="db")
 
         assert connect_mock.call_count == 1
 
@@ -2670,7 +2906,7 @@ class TestConnectOptionsStartupParamFallback:
             connect_mock,
         ):
             with pytest.raises(psycopg.OperationalError):
-                _connect_with_options_fallback(host="db", options=FORCE_UTF8_CLIENT_ENCODING)
+                _open_connection(host="db", options=FORCE_UTF8_CLIENT_ENCODING)
 
         assert connect_mock.call_count == 1
 
@@ -2692,7 +2928,7 @@ class TestConnectOptionsStartupParamFallback:
             connect_mock,
         ):
             with pytest.raises(psycopg.OperationalError) as exc_info:
-                _connect_with_options_fallback(host="db", options=FORCE_UTF8_CLIENT_ENCODING)
+                _open_connection(host="db", options=FORCE_UTF8_CLIENT_ENCODING)
 
         assert connect_mock.call_count == 2
         assert "The password that was provided for the role" in str(exc_info.value)
@@ -4208,12 +4444,22 @@ class TestValidateCredentialsErrorMapping:
             # themselves keep being rejected, so it must surface actionable credential guidance
             # instead of falling through to the generic fallback message below.
             (
-                'connection failed: connection to server at "18.176.230.146", port 5432 failed: '
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "FATAL:  (ECIRCUITBREAKER) too many authentication failures, new connections are "
                 "temporarily blocked",
                 "Your database's connection pooler has temporarily blocked new connections after "
                 'repeated authentication failures ("too many authentication failures"). This usually '
                 "means the username or password is wrong. Check your credentials and try again.",
+            ),
+            (
+                f"{HOST_RESOLUTION_TIMEOUT_ERROR} after 15.0s",
+                "PostHog couldn't resolve your database host right now. Check the host name, then try "
+                "again in a moment.",
+            ),
+            (
+                TEMPORARY_HOST_RESOLUTION_ERROR,
+                "PostHog couldn't resolve your database host right now. Check the host name, then try "
+                "again in a moment.",
             ),
             # Unmapped errors fall back to the generic message.
             (
@@ -4232,6 +4478,21 @@ class TestValidateCredentialsErrorMapping:
 
         assert valid is False
         assert error == expected
+
+    def test_a_resolver_blip_during_validation_is_not_captured(self, source, config):
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
+            mock.patch.object(source, "get_schemas", side_effect=TemporaryHostResolutionError("db.example.com")),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.capture_exception"
+            ) as mock_capture,
+        ):
+            valid, error = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert error is not None and "Try again in a moment" in error
+        mock_capture.assert_not_called()
 
     @pytest.mark.parametrize(
         "require_ssl,expects_ssl_guidance",
@@ -7648,7 +7909,7 @@ class TestDeriveUpperBound:
         bounds = [(date(2026, 1, 1), date(2026, 2, 1)), (date(2026, 2, 1), date(2026, 3, 1))]
         assert derive_upper_bound(IncrementalFieldType.Date, bounds) == date(2026, 3, 1)
 
-    @freeze_time("2026-04-20T12:00:00Z")
+    @time_machine.travel("2026-04-20T12:00:00Z", tick=False)
     def test_uses_now_for_datetime_without_bounds(self):
         out = derive_upper_bound(IncrementalFieldType.DateTime, [])
         assert out == datetime(2026, 4, 20, 12, 0, 0, tzinfo=UTC)

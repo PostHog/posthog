@@ -7,12 +7,14 @@ import {
 } from "@posthog/core/updates/updateStore";
 import { resolveService } from "@posthog/di/container";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { useUpdateModalStore } from "@posthog/ui/features/updates/updateModalStore";
 import {
   UPDATES_CLIENT,
   type UpdatesClient,
 } from "@posthog/ui/features/updates/updatesClient";
 import { toast } from "@posthog/ui/primitives/toast";
 import { logger } from "@posthog/ui/shell/logger";
+import { useRendererWindowFocusStore } from "@posthog/ui/shell/rendererWindowFocusStore";
 import { hostTrpcClient } from "@renderer/trpc/client";
 
 const log = logger.scope("updates-host");
@@ -42,17 +44,32 @@ void client
     log.error("Failed to get update enabled status", { error });
   });
 
-void client
-  .getStatus()
-  .then((status) => {
-    const update = deriveUpdateUiStatus(status, store().status);
-    if (update) {
-      store().applyStatusUpdate(update);
-    }
-  })
-  .catch((error: unknown) => {
-    log.error("Failed to get update status", { error });
-  });
+function syncStatus(): void {
+  void client
+    .getStatus()
+    .then((status) => {
+      const update = deriveUpdateUiStatus(status, store().status);
+      if (update) {
+        store().applyStatusUpdate(update);
+      }
+    })
+    .catch((error: unknown) => {
+      log.error("Failed to get update status", { error });
+    });
+}
+
+syncStatus();
+
+// The subscription below only carries transitions, so a status emitted before
+// it was registered (or lost with it) never reaches the store. Re-read the
+// snapshot on every return to the window so the banner cannot stay stale.
+let wasFocused = useRendererWindowFocusStore.getState().focused;
+useRendererWindowFocusStore.subscribe(({ focused }) => {
+  if (focused && !wasFocused) {
+    syncStatus();
+  }
+  wasFocused = focused;
+});
 
 client.onStatus({
   onData: (status) => {
@@ -71,6 +88,9 @@ client.onStatus({
       }
       if (outcome.toast) {
         showToast(outcome.toast);
+      }
+      if (outcome.openUpdateModal) {
+        useUpdateModalStore.getState().open();
       }
     }
   },

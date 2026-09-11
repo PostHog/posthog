@@ -19,6 +19,7 @@ import {
     mockTask,
     mockTeamConfig,
     pullRequestReports,
+    reportTabReports,
 } from './__mocks__/inboxMocks'
 import { mockLargeScoutFleet, mockScoutConfigs, mockScoutRuns } from './__mocks__/scoutConfigs'
 import { InboxScene } from './InboxScene'
@@ -92,6 +93,26 @@ export default meta
 type Story = StoryObj
 
 export const Inbox: Story = {}
+
+function reportWithEvidenceItems(count: number): Story {
+    return {
+        decorators: [
+            routeTo(urls.inboxReport('reports', reportTabReports[0].id)),
+            mswDecorator({
+                get: {
+                    '/api/projects/:id/signals/reports/:reportId/signals': (req) => [
+                        200,
+                        { report: null, signals: mockSignals(req.params.reportId as string, count) },
+                    ],
+                },
+            }),
+        ],
+    }
+}
+
+export const ReportWithManyEvidenceItems: Story = reportWithEvidenceItems(12)
+export const ReportWithTwoEvidenceItems: Story = reportWithEvidenceItems(2)
+export const ReportWithoutEvidence: Story = reportWithEvidenceItems(0)
 
 // Triage mode over the Needs-a-decision queue: one report at a time, keyboard-driven.
 export const Triage: Story = {

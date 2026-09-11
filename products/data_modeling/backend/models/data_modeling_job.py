@@ -39,6 +39,18 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     workflow_id = models.CharField(max_length=400, null=True, blank=True)
     workflow_run_id = models.CharField(max_length=400, null=True, blank=True)
     parent_workflow_id = models.CharField(max_length=400, null=True, blank=True)
+    # Distinct from `created_by`, which copies the saved query's author onto every run of it. Null
+    # on a scheduled run and on one the product started for its own reasons, so a value here means
+    # a person is waiting on this result.
+    manually_triggered_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        # posthog_user is read on nearly every request, and a real constraint would lock it.
+        db_constraint=False,
+    )
     last_run_at = models.DateTimeField(default=timezone.now)
     rows_expected = models.IntegerField(null=True, blank=True, help_text="Total rows expected to be materialized")
     storage_delta_mib = models.FloatField(null=True, blank=True, default=0)

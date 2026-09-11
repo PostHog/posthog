@@ -21,9 +21,11 @@
     "peerDependencies": {
         "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
+        "@types/d3": "*",
         "@types/react": "*",
         "@xyflow/react": "*",
         "clsx": "*",
+        "d3": "*",
         "elkjs": "*",
         "fuse.js": "*",
         "natural-orderby": "*",

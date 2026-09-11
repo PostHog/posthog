@@ -1119,6 +1119,11 @@
         "params": ["tab"],
         "scope": "project"
     },
+    "mcpRegistry": {
+        "template": "/mcp-registry",
+        "params": [],
+        "scope": "project"
+    },
     "metrics": {
         "template": "/metrics",
         "params": [],
