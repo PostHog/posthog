@@ -159,6 +159,8 @@ export interface ThreadItem {
     variant?: 'error' | 'crash' | 'undelivered'
     /** For `error` items — a follow-up message failed to reach the agent because of this error. */
     undeliveredMessage?: boolean
+    /** For `error` items — the run in the resume chain whose frame produced this error. */
+    sourceRunId?: string
     /** For `status` and `task_notification` items — the wire `status` string. */
     status?: string
     /** For `status` items — whether the status phase has completed. */

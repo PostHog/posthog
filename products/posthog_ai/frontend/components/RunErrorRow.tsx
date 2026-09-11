@@ -9,7 +9,10 @@ import { RunAlertActivity } from './RunAlertActivity'
  * The closing error reads "Run stopped"; an error the agent recovered from mid-run keeps a softer title.
  */
 export function RunErrorRow({ item, isLast }: { item: ThreadItem; isLast: boolean }): JSX.Element {
-    const { bootstrappedRunId, bootstrappedTaskId, latestTurnTraceId } = useValues(runStreamLogic)
+    const { bootstrappedRunId, bootstrappedTaskId, errorTraceIds } = useValues(runStreamLogic)
+    // A replayed error from an earlier run in the chain names that run, not the one being viewed.
+    const runId = item.sourceRunId ?? bootstrappedRunId
+    const traceId = errorTraceIds.get(item.id)
     const kind =
         item.variant === 'crash'
             ? 'agent_crash'
@@ -20,8 +23,8 @@ export function RunErrorRow({ item, isLast }: { item: ThreadItem; isLast: boolea
                 : 'agent_error_continued'
     const copyDetails = [
         bootstrappedTaskId ? `Task ${bootstrappedTaskId}` : null,
-        bootstrappedRunId ? `Run ${bootstrappedRunId}` : null,
-        latestTurnTraceId ? `Trace ${latestTurnTraceId}` : null,
+        runId ? `Run ${runId}` : null,
+        traceId ? `Trace ${traceId}` : null,
         item.errorMessage ?? null,
     ]
         .filter(Boolean)

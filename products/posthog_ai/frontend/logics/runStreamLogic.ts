@@ -1254,7 +1254,7 @@ export function foldLogToThread(
     }
 
     // Two frames often describe one failure with the same text; keep the shorter, cleaner one.
-    const pushError = (message: string, variant: 'error' | 'crash'): void => {
+    const pushError = (message: string, variant: 'error' | 'crash', sourceRunId?: string): void => {
         const last = items[items.length - 1]
         if (last?.type === 'error' && last.errorMessage && variant === 'error' && last.variant !== 'crash') {
             const a = last.errorMessage.trim()
@@ -1279,6 +1279,7 @@ export function foldLogToThread(
             errorMessage: message,
             variant,
             ...(undeliveredIdx !== -1 ? { undeliveredMessage: true } : {}),
+            ...(sourceRunId ? { sourceRunId } : {}),
         })
     }
     for (const { entry, source } of entries) {
@@ -1314,7 +1315,11 @@ export function foldLogToThread(
             continue
         }
         if (method === '_posthog/error') {
-            pushError(String(params.message ?? notification.error?.message ?? 'Agent error'), 'error')
+            pushError(
+                String(params.message ?? notification.error?.message ?? 'Agent error'),
+                'error',
+                entry.source_run_id
+            )
             continue
         }
         if (method === '_posthog/turn_complete') {
@@ -1345,6 +1350,7 @@ export function foldLogToThread(
                         errorMessage: stringifyOptional(params.detail) ?? label ?? 'Message not delivered',
                         variant: 'undelivered',
                         undeliveredMessage: true,
+                        ...(entry.source_run_id ? { sourceRunId: entry.source_run_id } : {}),
                     })
                 }
                 continue
@@ -1479,7 +1485,11 @@ export function foldLogToThread(
         if (sessionUpdate === 'error') {
             // The Claude adapter reports a stopped run only through this frame; Codex sends it and a
             // `_posthog/error` with the same text, which `pushError` folds into one card.
-            pushError(String(update.message ?? 'The agent stopped before completing this request.'), 'error')
+            pushError(
+                String(update.message ?? 'The agent stopped before completing this request.'),
+                'error',
+                entry.source_run_id
+            )
             continue
         }
         const content = update.content as { text?: string } | undefined
@@ -1572,6 +1582,7 @@ export interface runStreamLogicValues {
     currentProgress: string | null
     currentRunStatus: RunStatus | null
     currentStage: string | null
+    errorTraceIds: Map<string, string>
     foldedThread: FoldedThread
     hasGitArtifacts: boolean
     hasThreadItems: boolean
@@ -1849,6 +1860,7 @@ export interface runStreamLogicMeta {
             isBootstrapResumeRun: boolean,
             pendingRunMessage: PendingRunMessage | null
         ) => FoldedThread
+        errorTraceIds: (threadItems: ThreadItem[]) => Map<string, string>
         latestTurnTraceId: (threadItems: ThreadItem[]) => string | null
         threadItems: (foldedThread: FoldedThread, showDebugLogs: boolean) => ThreadItem[]
         hasThreadItems: (threadItems: ThreadItem[]) => boolean
@@ -2454,6 +2466,32 @@ export const runStreamLogic = kea<runStreamLogicType>([
             (s) => [s.log, s.isBootstrapResumeRun, s.pendingRunMessage],
             (log: RunLog, isResumeRun: boolean, pendingMessage: PendingRunMessage | null): FoldedThread =>
                 foldLogToThread(log.entries, { isResumeRun, pendingMessage }),
+        ],
+        errorTraceIds: [
+            (s) => [s.threadItems],
+            (threadItems: ThreadItem[]): Map<string, string> => {
+                // An error belongs to the turn that completes after it. A turn that never completes
+                // (a failed follow-up, a run that stopped) has no trace id, so the error gets none.
+                const result = new Map<string, string>()
+                threadItems.forEach((item, index) => {
+                    if (item.type !== 'error') {
+                        return
+                    }
+                    for (let j = index + 1; j < threadItems.length; j++) {
+                        const later = threadItems[j]
+                        if (later.type === 'human_message') {
+                            break
+                        }
+                        if (later.type === 'turn_separator') {
+                            if (later.traceId) {
+                                result.set(item.id, later.traceId)
+                            }
+                            break
+                        }
+                    }
+                })
+                return result
+            },
         ],
         latestTurnTraceId: [
             (s) => [s.threadItems],

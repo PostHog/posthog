@@ -191,7 +191,14 @@ function RunSurfaceThread({
     className,
     listClassName,
     rowClassName,
-}: { className?: string; listClassName?: string; rowClassName?: string } = {}): JSX.Element {
+    showContextUsage = false,
+}: {
+    className?: string
+    listClassName?: string
+    rowClassName?: string
+    /** Composer-less live embeds keep the usage line in the thread footer; the runner shows it in its composer. */
+    showContextUsage?: boolean
+} = {}): JSX.Element {
     const { interaction, isScout, taskId, streamKey, runId } = useRunSurfaceContext()
     const { bootstrapLoading, hasThreadItems } = useValues(runStreamLogic)
     // Feedback identity: always the task, matching `$ai_session_id` on other surfaces.
@@ -224,7 +231,8 @@ function RunSurfaceThread({
     if (showSkeleton) {
         return <RunLogSkeleton className={className} listClassName={listClassName} rowClassName={rowClassName} />
     }
-    // Context usage lives in the composer footer (`ContextUsageChip`), not under the last message.
+    // The runner shows context usage in its composer footer (`ContextUsageChip`); a surface with no
+    // composer opts back into the thread footer line. Never for a scout run.
     // An error surfaces as a `handleStreamError` item folded into the thread, so it renders here too.
     // Turn feedback: only interactive, non-scout surfaces collect ratings.
     return (
@@ -232,6 +240,7 @@ function RunSurfaceThread({
             className={className}
             listClassName={listClassName}
             rowClassName={rowClassName}
+            showContextUsage={showContextUsage && interaction === 'live' && !isScout}
             renderTurnTrailer={collectsFeedback ? renderTurnTrailer : undefined}
             footerExtra={feedbackPrompt}
         />
