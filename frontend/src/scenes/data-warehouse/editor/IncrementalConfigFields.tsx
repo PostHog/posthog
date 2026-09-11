@@ -8,6 +8,8 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
 import { DataWarehouseSavedQueryIncrementalCheck } from '~/types'
 
+import { warehouseSavedQueriesCheckIncrementalCreateBodyQueryMax } from 'products/data_warehouse/frontend/generated/api.zod'
+
 export const LOOKBACK_OPTIONS = [
     { value: 0, label: 'No lookback' },
     { value: 60 * 60, label: '1 hour' },
@@ -65,6 +67,21 @@ function IneligibleBanner({ check }: { check: DataWarehouseSavedQueryIncremental
             <span className="text-xs">
                 This query is always refreshed in full.{' '}
                 {check.blockers[0] ?? 'It has no column that can track which rows are new.'}
+            </span>
+        </LemonBanner>
+    )
+}
+
+// The cap applies to the eligibility check, not to the saved config, so a view that is already
+// incremental keeps running that way. Only the view without one is refreshed in full.
+function TooLongBanner({ incrementalEnabled }: { incrementalEnabled: boolean }): JSX.Element {
+    const limit = warehouseSavedQueriesCheckIncrementalCreateBodyQueryMax.toLocaleString()
+    return (
+        <LemonBanner type="info" className="mt-2">
+            <span className="text-xs">
+                {incrementalEnabled
+                    ? `This query is too long to check for incremental refresh, so its refresh settings cannot be changed here. Shorten it to ${limit} characters or fewer to change them.`
+                    : `This query is too long to check for incremental refresh, so it is always refreshed in full. Shorten it to ${limit} characters or fewer to set up incremental refresh.`}
             </span>
         </LemonBanner>
     )
@@ -179,6 +196,8 @@ function LookbackInput({ value, onChange }: { value: number; onChange: (value: n
 interface IncrementalConfigOptionsProps {
     /** Result of the backend eligibility check for the view's query. Nothing renders until it arrives. */
     check: DataWarehouseSavedQueryIncrementalCheck | null
+    /** Set when the query is longer than the check accepts, so no check could run. */
+    queryTooLongToCheck?: boolean
     draft: IncrementalConfigDraft
     onChange: (draft: Partial<IncrementalConfigDraft>) => void
 }
@@ -189,9 +208,16 @@ interface IncrementalConfigOptionsProps {
  */
 export function IncrementalConfigOptions({
     check,
+    queryTooLongToCheck,
     draft,
     onChange,
 }: IncrementalConfigOptionsProps): JSX.Element | null {
+    if (queryTooLongToCheck) {
+        // The draft mirrors the saved config here: the radio never renders in this state, so the
+        // user cannot have changed it.
+        return <TooLongBanner incrementalEnabled={draft.enabled} />
+    }
+
     if (!check) {
         return null
     }
