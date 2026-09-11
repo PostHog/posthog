@@ -240,12 +240,11 @@ function RunSurfaceThread({
 }
 
 /**
- * Input-region slot: owns prompt-vs-composer precedence and the null-bootstrap gate. While a permission /
+ * Input-region slot: owns prompt-vs-composer precedence and the bootstrap gate. While a permission /
  * question request is pending (and the run isn't terminal) it renders the approval prompt; otherwise it
  * renders the consumer's composer `children`. Renders nothing outside live mode, during the `null` bootstrap
- * window, or when no composer children are supplied (e.g. `ReadonlyRunSurface`). The composer thus shows for
- * any settled run status (active runs take a follow-up, terminal runs start a fresh run from the typed
- * message), is hidden during bootstrap, and is replaced by the prompt while a request is pending.
+ * window without an optimistic start, or when no composer children are supplied (e.g. `ReadonlyRunSurface`).
+ * The composer also shows during optimistic startup so follow-ups can queue before the agent is ready.
  */
 function RunSurfaceComposer({
     children,
@@ -255,7 +254,7 @@ function RunSurfaceComposer({
     isStopping?: boolean
 }): JSX.Element | null {
     const { interaction, streamKey } = useRunSurfaceContext()
-    const { pendingPermissionRequest, respondingToPermission, currentRunStatus } = useValues(runStreamLogic)
+    const { pendingPermissionRequest, respondingToPermission, currentRunStatus, runOpening } = useValues(runStreamLogic)
     if (interaction !== 'live') {
         return null
     }
@@ -276,7 +275,7 @@ function RunSurfaceComposer({
                     </div>
                 </div>
             )}
-            {children && currentRunStatus !== null && (
+            {children && (currentRunStatus !== null || runOpening) && (
                 <div
                     hidden={showApproval}
                     data-attr="composer"
