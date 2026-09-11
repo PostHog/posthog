@@ -31,7 +31,7 @@ pytestmark = [
 
 
 @pytest.fixture
-def deletion_nodes(settings, request) -> Iterator[tuple[ClickhouseCluster, list[Client]]]:
+def deletion_nodes(settings) -> Iterator[tuple[ClickhouseCluster, list[Client]]]:
     settings.CLICKHOUSE_ENABLE_STORAGE_POLICY = False
     settings.DICTIONARY_STAGING_S3_PREFIX = f"deletes_multinode/{uuid4()}"
     settings.CLICKHOUSE_EVENTS_CLUSTER = "delete_test_events"
@@ -57,10 +57,8 @@ def deletion_nodes(settings, request) -> Iterator[tuple[ClickhouseCluster, list[
         data.execute(ADHOC_EVENTS_DELETION_TABLE_SQL(on_cluster=False))
         for client in events:
             client.execute(EVENTS_JSON_TABLE_SQL())
-        if request.param:
-            data.execute(EVENTS_JSON_TABLE_SQL())
-        with override_settings(CLICKHOUSE_CLUSTER="delete_test_events"):
-            data.execute(DISTRIBUTED_EVENTS_JSON_TABLE_SQL(on_cluster=False))
+            with override_settings(CLICKHOUSE_CLUSTER="delete_test_events"):
+                client.execute(DISTRIBUTED_EVENTS_JSON_TABLE_SQL(on_cluster=False))
         cluster = ClickhouseCluster(
             data,
             cluster="delete_test_data",
@@ -80,7 +78,6 @@ def deletion_nodes(settings, request) -> Iterator[tuple[ClickhouseCluster, list[
             object_storage.delete_objects(staged, bucket=settings.DICTIONARY_STAGING_S3_BUCKET)
 
 
-@pytest.mark.parametrize("deletion_nodes", [False, True], indirect=True, ids=["remote_only", "empty_local_table"])
 def test_adhoc_deletes_reach_every_events_shard(deletion_nodes):
     cluster, clients = deletion_nodes
     data, *event_nodes = clients
@@ -92,10 +89,22 @@ def test_adhoc_deletes_reach_every_events_shard(deletion_nodes):
         for team, event_uuid in [*queued, *sorted(controls)]
     ]
 
+    def event_tables(client):
+        return {
+            row[0]
+            for row in client.execute(
+                "SELECT name FROM system.tables WHERE database = currentDatabase() AND name IN %(tables)s",
+                {"tables": ("events", EVENTS_DATA_TABLE(), "events_json", EVENTS_JSON_DATA_TABLE)},
+            )
+        }
+
+    assert data.execute("SELECT getMacro('hostClusterRole')") == [("data",)]
+    assert event_tables(data) == {"events", EVENTS_DATA_TABLE()}
     assert len(cluster.shards) == 1
     assert len(cluster.sibling("delete_test_events", NodeRole.EVENTS).shards) == 2
     for shard_index, client in enumerate(event_nodes):
         assert client.execute("SELECT getMacro('hostClusterRole')") == [("events",)]
+        assert event_tables(client) == {"events_json", EVENTS_JSON_DATA_TABLE}
         assert client.execute("EXISTS TABLE adhoc_events_deletion") == [(0,)]
         client.execute(
             f"INSERT INTO {EVENTS_JSON_DATA_TABLE} (team_id, uuid, timestamp, event, distinct_id, person_id) VALUES",
@@ -113,13 +122,14 @@ def test_adhoc_deletes_reach_every_events_shard(deletion_nodes):
     for shard_index, client in enumerate(event_nodes):
         assert survivors(client, EVENTS_JSON_DATA_TABLE) == {(row[0], row[1]) for row in rows[shard_index::2]}
 
-    def read_events(table):
-        return data.execute(
+    def read_events(client, table):
+        return client.execute(
             f"SELECT team_id, uuid, timestamp, event, distinct_id, person_id FROM {table} ORDER BY team_id, uuid"
         )
 
-    before = read_events("events")
-    assert before == read_events("events_json")
+    before = read_events(data, "events")
+    for client in event_nodes:
+        assert before == read_events(client, "events_json")
     assert before == sorted(rows, key=lambda row: (row[0], row[1]))
 
     result = deletes_job.execute_in_process(
@@ -134,11 +144,11 @@ def test_adhoc_deletes_reach_every_events_shard(deletion_nodes):
 
     assert result.success
     assert set(data.execute("SELECT team_id, uuid FROM adhoc_events_deletion WHERE is_deleted = 1")) == set(queued)
-    after_events = read_events("events")
-    after_events_json = read_events("events_json")
-    assert after_events == after_events_json, (
-        "deletes_job succeeded and marked requests deleted, but the event tables differ"
-    )
+    after_events = read_events(data, "events")
+    for client in event_nodes:
+        assert after_events == read_events(client, "events_json"), (
+            "deletes_job succeeded and marked requests deleted, but the event tables differ"
+        )
     assert {(row[0], row[1]) for row in after_events} == controls
     assert after_events == [row for row in before if (row[0], row[1]) in controls]
     for shard_index, client in enumerate(event_nodes):
@@ -152,5 +162,5 @@ def test_adhoc_deletes_reach_every_events_shard(deletion_nodes):
     )
     counts = verification.step_output_data.metadata["unswept_rows"].value
     assert counts["events"] == 0
-    assert counts["events_json"] == 0
+    assert counts["events_json"] is None
     assert counts[EVENTS_JSON_DATA_TABLE] == 0

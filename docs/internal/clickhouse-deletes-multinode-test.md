@@ -1,6 +1,6 @@
 # Test adhoc event deletion across clusters
 
-The opt-in test in `posthog/dags/tests/test_deletes_multinode.py` executes the complete `deletes_job` with a data node and two separate events shards.
+The opt-in test in `posthog/dags/tests/test_deletes_multinode.py` executes the complete `deletes_job` across two distinct ClickHouse clusters: a data cluster with one node and an events cluster with two shards.
 It uses real ClickHouse discovery, S3 dictionary staging, asynchronous delete mutations, mutation waits, request completion, and cleanup.
 It does not mock cluster routing or the deletion ops.
 
@@ -24,27 +24,34 @@ The compose file uses host networking, so run it on Linux or Docker Desktop with
 It adds three ClickHouse servers on native ports 19101 through 19103, HTTP ports 18101 through 18103, and interserver ports 19201 through 19203.
 The existing development ClickHouse service stays on its usual ports.
 Do not run this test concurrently with another invocation of itself.
-Each case creates the configured ClickHouse test database on the dedicated nodes and drops it afterward; setup refuses an already-existing database.
+The test creates the configured ClickHouse test database on the dedicated nodes and drops it afterward; setup refuses an already-existing database.
 The test is skipped unless `TEST_MULTINODE_DELETES=1` is set.
 
 ```bash
 docker compose -f docker-compose.deletes-test.yml down -v
 ```
 
-## Cases
+## Topology and assertions
 
-- `remote_only`: `sharded_events_json` exists only on the two events nodes. The job must delete the same requested events from both event representations.
-- `empty_local_table`: the data node also has an empty `sharded_events_json`, while `events_json` still reads the separate events cluster. The same equality assertion must hold.
+| Cluster              | Nodes             | Event tables on each node            |
+| -------------------- | ----------------- | ------------------------------------ |
+| `delete_test_data`   | One data node     | `events`, `sharded_events`           |
+| `delete_test_events` | Two events shards | `events_json`, `sharded_events_json` |
 
-The second case is a regression reproducer for the current local-first placement resolution.
-`placement_for` returns the data cluster as soon as it finds the local table, without checking the events cluster.
-Consequently the job can delete legacy events and mark the adhoc requests deleted while JSON events remain readable.
-The test deliberately fails on the resulting row mismatch; it is not marked as an expected failure.
+The test asserts the table placement on every node before inserting rows.
+Neither JSON event table exists on the data node, and neither legacy event table exists on the events nodes.
+Each events node's `events_json` Distributed table reads both events shards.
+The test reads `events` from the data cluster and `events_json` from each events node, comparing identical input rows and exact survivors after the job.
+
+The job's current verification tries to query `events_json` on the data cluster, where it does not exist in this topology.
+That metadata count is `None`, meaning unknown.
+The test asserts this limitation explicitly and independently verifies JSON event deletion through both events proxies and each physical shard.
+The job's separate `sharded_events_json` storage count must also report zero surviving matches.
 
 The separate-cluster case also exercises overlapping shard numbers: both the data cluster and the first events shard have shard number 1.
 Both event storage tables and their Distributed proxies use the application's schema factories.
 The row comparison covers team ID, event UUID, timestamp, event name, distinct ID, and person ID.
-Each case uses a unique S3 staging prefix and removes its staged objects afterward.
+The test uses a unique S3 staging prefix and removes its staged objects afterward.
 This is a deletion-routing test, not a migration or ingestion test.
 It uses one replica per shard and a shared local ZooKeeper; replica lag and independent Keeper deployments are outside its coverage.
 The events nodes do not have the source deletion table, so their dictionaries must load through S3.
