@@ -330,6 +330,26 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert stale_subscription.next_delivery_date == advanced_next_delivery_date
         self.mock_temporal_client.start_workflow.assert_not_called()
 
+    def test_re_enable_is_revalidated_against_the_locked_row(self):
+        sub_id = self._create_subscription().json()["id"]
+        stale_subscription = Subscription.objects.get(id=sub_id)
+        Subscription.objects.filter(id=sub_id).update(enabled=False, next_delivery_date=None)
+        self.mock_temporal_client.start_workflow.reset_mock()
+
+        # Validation saw an enabled row, but the row was auto-disabled before update acquired its lock.
+        with patch("ee.api.subscription.SubscriptionViewSet.get_object", return_value=stale_subscription):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+                {"enabled": True},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "re-enabling" in response.json()["detail"]
+        subscription = Subscription.objects.get(id=sub_id)
+        assert subscription.enabled is False
+        assert subscription.next_delivery_date is None
+        self.mock_temporal_client.start_workflow.assert_not_called()
+
     def test_can_create_new_subscription_without_invite_message(self):
         response = self._create_subscription(invite_message=None)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
