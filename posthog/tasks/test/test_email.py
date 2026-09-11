@@ -2552,7 +2552,14 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 True,
             ),
             ("not_enforced", False, DataModelingJobEngine.CLICKHOUSE, False, [("retrying_view", False)], False),
-            ("shadow_marker_only", True, DataModelingJobEngine.DUCKGRES, False, [("retrying_view", False)], False),
+            (
+                "shadow_marker_only",
+                True,
+                DataModelingJobEngine.LEGACY_DUCKGRES,
+                False,
+                [("retrying_view", False)],
+                False,
+            ),
             (
                 "reverted_after_suspension",
                 True,
