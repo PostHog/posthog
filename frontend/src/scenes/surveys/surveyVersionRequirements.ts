@@ -117,6 +117,18 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         check: (s) => s.schedule === SurveySchedule.Always,
     },
     {
+        feature: 'Intro screen',
+        sdkVersions: {
+            'posthog-js': '1.415.0',
+            'posthog-react-native': '4.63.0',
+            'posthog-ios': '3.70.0',
+            'posthog-android': '3.61.0',
+            posthog_flutter: '5.39.0',
+        },
+        unsupportedSdks: [],
+        check: (s) => !!s.appearance?.displayIntroScreen,
+    },
+    {
         feature: 'Feedback button surveys',
         sdkVersions: { 'posthog-js': '1.294.0' },
         unsupportedSdks: [

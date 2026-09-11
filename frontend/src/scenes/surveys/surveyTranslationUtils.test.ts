@@ -116,6 +116,32 @@ describe('getSurveyWithTranslatedContent', () => {
         expect(translatedSurvey.appearance?.backButtonText).toBe('Retour')
     })
 
+    it('applies intro screen translations to the appearance', () => {
+        const survey = createSurvey()
+        survey.appearance = {
+            ...survey.appearance,
+            displayIntroScreen: true,
+            introScreenHeader: 'Welcome!',
+            introScreenDescription: 'Two quick questions.',
+            introScreenButtonText: 'Get started',
+        }
+        survey.translations = {
+            fr: {
+                ...survey.translations?.fr,
+                introScreenHeader: 'Bienvenue !',
+                introScreenDescription: 'Deux questions rapides.',
+                introScreenButtonText: 'Commencer',
+            },
+        }
+
+        const translatedSurvey = getSurveyWithTranslatedContent(survey, 'fr')
+
+        expect(translatedSurvey.appearance?.introScreenHeader).toBe('Bienvenue !')
+        expect(translatedSurvey.appearance?.introScreenDescription).toBe('Deux questions rapides.')
+        expect(translatedSurvey.appearance?.introScreenButtonText).toBe('Commencer')
+        expect(translatedSurvey.appearance?.displayIntroScreen).toBe(true)
+    })
+
     it('returns the original survey when the language has no root translation', () => {
         const survey = createSurvey()
 
