@@ -16,6 +16,7 @@ from posthog.schema import (
     QuerySchemaRoot,
 )
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
@@ -25,6 +26,13 @@ from posthog.scopes import APIScopeObject
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
+from products.alerts.backend.llm_detector_limits import (
+    is_llm_detector_config,
+    llm_alert_limit_error,
+    llm_detector_access_error,
+    llm_detector_interval_error,
+    lock_llm_alert_limit,
+)
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
@@ -163,6 +171,14 @@ class UpdateAlertAction(BaseModel):
 
 
 UpsertAlertAction = Union[CreateAlertAction, UpdateAlertAction]
+
+
+@frozen
+class _SaveRefusal:
+    """A write the alert save refused, with the error code the tool reports."""
+
+    message: str
+    error_code: str
 
 
 class UpsertAlertToolArgs(BaseModel):
@@ -321,6 +337,56 @@ class UpsertAlertTool(MaxTool):
                 "details": str(e),
             }
 
+    def _save_alert(
+        self,
+        alert: AlertConfiguration,
+        action: UpdateAlertAction,
+        update_fields: list[str],
+        *,
+        enabling_llm_alert: bool,
+        conditions_or_threshold_changed: bool,
+        reschedule: bool,
+    ) -> _SaveRefusal | None:
+        """Write the threshold and the alert together.
+
+        Both writes sit in one transaction so a rejected save leaves no half-applied
+        threshold behind. When the save enables an AI alert, the team's cap lock is held
+        across the count and the write. Returns a `_SaveRefusal` instead of saving when the
+        write is refused.
+        """
+        with transaction.atomic():
+            if enabling_llm_alert:
+                # Lock the alert row before the team's cap lock. The API's writer locks in
+                # that order, and opposite orders between the two writers deadlock.
+                AlertConfiguration.objects.select_for_update().filter(pk=alert.pk).first()
+                lock_llm_alert_limit(team_id=alert.team_id)
+                if error := llm_alert_limit_error(
+                    team_id=alert.team_id,
+                    exclude_alert_id=str(alert.id),
+                    organization_id=self._team.organization_id,
+                ):
+                    return _SaveRefusal(message=error, error_code="plan_limit_reached")
+            if self._has_threshold_changes(action):
+                try:
+                    update_fields.extend(self._update_threshold(alert, action))
+                except ValidationError as e:
+                    return _SaveRefusal(message=str(e), error_code="validation_failed")
+            if conditions_or_threshold_changed:
+                update_fields.extend(apply_threshold_change(alert))
+            if reschedule:
+                alert.next_check_at = None
+                update_fields.append("next_check_at")
+            alert.save(update_fields=update_fields)
+        return None
+
+    @staticmethod
+    def _has_threshold_changes(action: UpdateAlertAction) -> bool:
+        return (
+            action.upper_threshold is not None
+            or action.lower_threshold is not None
+            or action.threshold_type is not None
+        )
+
     async def _handle_update(self, action: UpdateAlertAction) -> tuple[str, dict[str, Any]]:
         try:
             alert = await self._resolve_alert(action.alert_id)
@@ -335,12 +401,22 @@ class UpsertAlertTool(MaxTool):
             ):
                 return interval_msg, {"error": "validation_failed"}
 
+            previous_interval = alert.calculation_interval
             new_interval = (
                 action.calculation_interval if action.calculation_interval is not None else alert.calculation_interval
             )
             new_enabled = action.enabled if action.enabled is not None else alert.enabled
             if real_time_msg := await self._validate_real_time_alert(new_interval, enabled=new_enabled, existing=alert):
                 return real_time_msg, {"error": "plan_limit_reached"}
+
+            # The AI detector's access and cost rules live with the API's; this writer must
+            # apply the same ones.
+            is_llm_alert = is_llm_detector_config(alert.detector_config)
+            if is_llm_alert and (interval_msg := llm_detector_interval_error(new_interval)):
+                return interval_msg, {"error": "validation_failed"}
+            enabling_llm_alert = is_llm_alert and new_enabled and not alert.enabled
+            if enabling_llm_alert and (access_msg := await self._llm_detector_access_error(principal=alert.created_by)):
+                return access_msg, {"error": "validation_failed"}
 
             update_fields: list[str] = []
             conditions_or_threshold_changed = False
@@ -375,26 +451,25 @@ class UpsertAlertTool(MaxTool):
                 alert.skip_weekend = action.skip_weekend
                 update_fields.append("skip_weekend")
 
-            has_threshold_changes = (
-                action.upper_threshold is not None
-                or action.lower_threshold is not None
-                or action.threshold_type is not None
-            )
+            has_threshold_changes = self._has_threshold_changes(action)
             if has_threshold_changes:
-                try:
-                    update_fields.extend(await self._update_threshold(alert, action))
-                except ValidationError as e:
-                    return str(e), {"error": "validation_failed"}
                 conditions_or_threshold_changed = True
 
             if not update_fields and not has_threshold_changes:
                 return "No changes provided. Specify at least one field to update.", {"error": "no_changes"}
 
-            if conditions_or_threshold_changed:
-                update_fields.extend(apply_threshold_change(alert))
-            alert.next_check_at = None
-            update_fields.append("next_check_at")
-            await sync_to_async(alert.save)(update_fields=update_fields)
+            # Only an evaluation-relevant edit re-schedules. Clearing it on a rename would
+            # make the next sweep re-check immediately, and for an AI alert that is a
+            # billable model call outside the configured cadence.
+            if refusal := await sync_to_async(self._save_alert)(
+                alert,
+                action,
+                update_fields,
+                enabling_llm_alert=enabling_llm_alert,
+                conditions_or_threshold_changed=conditions_or_threshold_changed,
+                reschedule=conditions_or_threshold_changed or new_interval != previous_interval,
+            ):
+                return refusal.message, {"error": refusal.error_code}
             await sync_to_async(alert.report_updated)(self._user, {"source": EventSource.POSTHOG_AI})
 
             insight = await sync_to_async(lambda: alert.insight)()
@@ -420,14 +495,30 @@ class UpsertAlertTool(MaxTool):
         if not alert_id:
             return None
         try:
-            return await AlertConfiguration.objects.select_related("threshold", "insight").aget(
+            return await AlertConfiguration.objects.select_related("threshold", "insight", "created_by").aget(
                 id=alert_id, team=self._team
             )
         except Exception:
             return None
 
+    async def _llm_detector_access_error(self, *, principal: User | None) -> str | None:
+        """Refuse an AI detector the principal its checks will run as cannot use.
+
+        A scheduled check attributes its model calls to the alert's creator, not to whoever
+        edits the alert. An editor with the rollout could otherwise re-enable a teammate's
+        alert and leave it erroring on every check.
+        """
+        if principal is None:
+            return (
+                "This alert has no creator to attribute AI detector calls to, which happens when that "
+                "person was deleted. Recreate the alert to use the AI detector."
+            )
+        team = self._team
+        org = await sync_to_async(lambda: team.organization)()
+        return await sync_to_async(llm_detector_access_error)(distinct_id=str(principal.distinct_id), organization=org)
+
     @staticmethod
-    async def _update_threshold(alert: AlertConfiguration, action: UpdateAlertAction) -> list[str]:
+    def _update_threshold(alert: AlertConfiguration, action: UpdateAlertAction) -> list[str]:
         """Returns list of alert field names that were modified (for use with update_fields)."""
         threshold = alert.threshold
 
@@ -442,11 +533,9 @@ class UpsertAlertTool(MaxTool):
         if threshold is None:
             config: dict = {"type": action.threshold_type or InsightThresholdType.ABSOLUTE}
             config["bounds"] = _build_bounds(config)
-            insight = await sync_to_async(lambda: alert.insight)()
-            team = await sync_to_async(lambda: alert.team)()
-            threshold = Threshold(team=team, insight=insight, name=alert.name, configuration=config)
-            await sync_to_async(threshold.clean)()
-            await sync_to_async(threshold.save)()
+            threshold = Threshold(team=alert.team, insight=alert.insight, name=alert.name, configuration=config)
+            threshold.clean()
+            threshold.save()
             alert.threshold = threshold
             return ["threshold"]
 
@@ -455,8 +544,8 @@ class UpsertAlertTool(MaxTool):
             config["type"] = action.threshold_type
         config["bounds"] = _build_bounds(config)
         threshold.configuration = config
-        await sync_to_async(threshold.clean)()
-        await sync_to_async(threshold.save)(update_fields=["configuration"])
+        threshold.clean()
+        threshold.save(update_fields=["configuration"])
         return []
 
     async def _check_alert_limit(self) -> str | None:

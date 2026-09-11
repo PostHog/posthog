@@ -560,6 +560,22 @@ export interface EnsembleDetectorConfigApi {
     type: EnsembleDetectorConfigApiType
 }
 
+export type LLMDetectorConfigApiType = (typeof LLMDetectorConfigApiType)[keyof typeof LLMDetectorConfigApiType]
+
+export const LLMDetectorConfigApiType = {
+    Llm: 'llm',
+} as const
+
+export interface LLMDetectorConfigApi {
+    /** What counts as unusual or interesting for this metric, in your own words. Optional. */
+    instructions?: string | null
+    /** Minimum confidence [0-1] the model must report before the alert fires (default: 0.7) */
+    threshold?: number | null
+    type: LLMDetectorConfigApiType
+    /** How many recent points the model is shown (default: 90) */
+    window?: number | null
+}
+
 /**
  * Detector configuration types
  */
@@ -577,6 +593,7 @@ export type DetectorConfigApi =
     | LOFDetectorConfigApi
     | OCSVMDetectorConfigApi
     | PCADetectorConfigApi
+    | LLMDetectorConfigApi
 
 /**
  * * `real_time` - real_time

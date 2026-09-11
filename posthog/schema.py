@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 
 import pydantic
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, confloat, conint
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, confloat, conint, constr
 
 from posthog.schema_discriminators import property_filter_discriminator
 from posthog.schema_enums import (
@@ -1732,6 +1732,25 @@ class IntegrationFilter(BaseModel):
     integrationSourceIds: list[str] | None = Field(
         default=None,
         description=("Selected integration source IDs to filter by (e.g., table IDs or source map IDs)"),
+    )
+
+
+class LLMDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    instructions: constr(max_length=2000) | None = Field(
+        default=None,
+        description=("What counts as unusual or interesting for this metric, in your own words. Optional."),
+    )
+    threshold: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=("Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)"),
+    )
+    type: Literal["llm"] = "llm"
+    window: conint(ge=5, le=400) | None = Field(
+        default=None,
+        description="How many recent points the model is shown (default: 90)",
     )
 
 
@@ -26151,31 +26170,6 @@ class EndpointsUsageTrendsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class EnsembleDetectorConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    detectors: list[
-        Annotated[
-            ZScoreDetectorConfig
-            | MADDetectorConfig
-            | IQRDetectorConfig
-            | ThresholdDetectorConfig
-            | ECODDetectorConfig
-            | COPODDetectorConfig
-            | IsolationForestDetectorConfig
-            | KNNDetectorConfig
-            | HBOSDetectorConfig
-            | LOFDetectorConfig
-            | OCSVMDetectorConfig
-            | PCADetectorConfig,
-            Field(discriminator="type"),
-        ]
-    ] = Field(..., description="Sub-detector configurations (minimum 2)")
-    operator: EnsembleOperator = Field(..., description="How to combine sub-detector results")
-    type: Literal["ensemble"] = "ensemble"
-
-
 class EntityNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -28439,38 +28433,29 @@ class DatabaseSchemaViewTable(BaseModel):
     type: Literal["view"] = "view"
 
 
-class DetectorConfig(
-    RootModel[
-        EnsembleDetectorConfig
-        | ZScoreDetectorConfig
-        | MADDetectorConfig
-        | IQRDetectorConfig
-        | ThresholdDetectorConfig
-        | ECODDetectorConfig
-        | COPODDetectorConfig
-        | IsolationForestDetectorConfig
-        | KNNDetectorConfig
-        | HBOSDetectorConfig
-        | LOFDetectorConfig
-        | OCSVMDetectorConfig
-        | PCADetectorConfig
-    ]
-):
-    root: (
-        EnsembleDetectorConfig
-        | ZScoreDetectorConfig
-        | MADDetectorConfig
-        | IQRDetectorConfig
-        | ThresholdDetectorConfig
-        | ECODDetectorConfig
-        | COPODDetectorConfig
-        | IsolationForestDetectorConfig
-        | KNNDetectorConfig
-        | HBOSDetectorConfig
-        | LOFDetectorConfig
-        | OCSVMDetectorConfig
-        | PCADetectorConfig
-    ) = Field(..., description="Detector configuration types", discriminator="type")
+class EnsembleDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    detectors: list[
+        Annotated[
+            ZScoreDetectorConfig
+            | MADDetectorConfig
+            | IQRDetectorConfig
+            | ThresholdDetectorConfig
+            | ECODDetectorConfig
+            | COPODDetectorConfig
+            | IsolationForestDetectorConfig
+            | KNNDetectorConfig
+            | HBOSDetectorConfig
+            | LOFDetectorConfig
+            | OCSVMDetectorConfig
+            | PCADetectorConfig,
+            Field(discriminator="type"),
+        ]
+    ] = Field(..., description="Sub-detector configurations (minimum 2)")
+    operator: EnsembleOperator = Field(..., description="How to combine sub-detector results")
+    type: Literal["ensemble"] = "ensemble"
 
 
 class ErrorTrackingIssueCorrelationQuery(BaseModel):
@@ -28807,6 +28792,42 @@ class TraceSpansTreeQuery(BaseModel):
     )
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class DetectorConfig(
+    RootModel[
+        EnsembleDetectorConfig
+        | ZScoreDetectorConfig
+        | MADDetectorConfig
+        | IQRDetectorConfig
+        | ThresholdDetectorConfig
+        | ECODDetectorConfig
+        | COPODDetectorConfig
+        | IsolationForestDetectorConfig
+        | KNNDetectorConfig
+        | HBOSDetectorConfig
+        | LOFDetectorConfig
+        | OCSVMDetectorConfig
+        | PCADetectorConfig
+        | LLMDetectorConfig
+    ]
+):
+    root: (
+        EnsembleDetectorConfig
+        | ZScoreDetectorConfig
+        | MADDetectorConfig
+        | IQRDetectorConfig
+        | ThresholdDetectorConfig
+        | ECODDetectorConfig
+        | COPODDetectorConfig
+        | IsolationForestDetectorConfig
+        | KNNDetectorConfig
+        | HBOSDetectorConfig
+        | LOFDetectorConfig
+        | OCSVMDetectorConfig
+        | PCADetectorConfig
+        | LLMDetectorConfig
+    ) = Field(..., description="Detector configuration types", discriminator="type")
 
 
 class ErrorTrackingBreakdownsQuery(BaseModel):

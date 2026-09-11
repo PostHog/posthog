@@ -387,7 +387,7 @@ product_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_metrics_
 product_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_absolute_alerts drives(TrendsQuery) 2
 product_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_relative_alerts drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.actions.backend.api.test.test_action drives(TrendsQuery) 9
-product_analytics:backend/hogql_queries/ products.alerts.backend.tests.api.test_alert drives(TrendsQuery) 7
+product_analytics:backend/hogql_queries/ products.alerts.backend.tests.api.test_alert drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.analytics_platform.backend.lazy_computation.tests.test_lazy_computation_executor drives(TrendsQueryRunner) 2
 product_analytics:backend/hogql_queries/ products.cohorts.backend.models.test.test_util drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.dashboards.backend.api.test.test_dashboard_templates drives(TrendsQuery) 2
@@ -590,7 +590,7 @@ web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_metrics_aler
 web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_absolute_alerts drives(TrendsQuery) 2
 web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_relative_alerts drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.actions.backend.api.test.test_action drives(TrendsQuery) 9
-web_analytics:backend/hogql_queries/ products.alerts.backend.tests.api.test_alert drives(TrendsQuery) 7
+web_analytics:backend/hogql_queries/ products.alerts.backend.tests.api.test_alert drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.cohorts.backend.models.test.test_util drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.dashboards.backend.api.test.test_dashboard_templates drives(TrendsQuery) 2
 web_analytics:backend/hogql_queries/ products.dashboards.backend.api.test.test_run_insights drives(TrendsQuery) 1

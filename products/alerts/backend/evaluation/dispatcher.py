@@ -56,7 +56,7 @@ def check_detector_alert(alert: AlertConfiguration, insight: Insight, query: obj
     if detector_extractor is None:
         raise NotImplementedError(f"AlertCheckError: Detector alerts for {kind} are not supported yet")
     result = detector_extractor.extract(alert, insight, query, _resolve_execution_mode(alert, kind, query))
-    return evaluate_with_detector(result, detector_config)
+    return evaluate_with_detector(result, detector_config, insight=insight, alert=alert)
 
 
 def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:

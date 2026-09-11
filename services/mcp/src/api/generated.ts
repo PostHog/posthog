@@ -10185,10 +10185,27 @@ export namespace Schemas {
       type: EnsembleDetectorConfigType;
     }
 
+    export type LLMDetectorConfigType = typeof LLMDetectorConfigType[keyof typeof LLMDetectorConfigType];
+
+
+    export const LLMDetectorConfigType = {
+      Llm: 'llm',
+    } as const;
+
+    export interface LLMDetectorConfig {
+      /** What counts as unusual or interesting for this metric, in your own words. Optional. */
+      instructions?: string | null;
+      /** Minimum confidence [0-1] the model must report before the alert fires (default: 0.7) */
+      threshold?: number | null;
+      type: LLMDetectorConfigType;
+      /** How many recent points the model is shown (default: 90) */
+      window?: number | null;
+    }
+
     /**
      * Detector configuration types
      */
-    export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig;
+    export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig | LLMDetectorConfig;
 
     /**
      * * `real_time` - real_time

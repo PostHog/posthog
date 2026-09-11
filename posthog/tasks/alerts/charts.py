@@ -1,10 +1,11 @@
-"""Matplotlib chart rendering for the anomaly investigation agent.
+"""Matplotlib chart rendering for the alert paths that hand a series to a model.
 
 Renders a compact PNG of the alert's metric over time, with the detector's
-anomaly points highlighted. The PNG is base64-encoded and attached to the
-first HumanMessage so the multimodal model can reason visually about the
-shape of the anomaly (spike, cliff, gradual drift, seasonality, etc.) before
-it spends any tool-call budget.
+anomaly points highlighted. The PNG is base64-encoded and attached to a
+HumanMessage so the multimodal model can reason visually about the shape of the
+anomaly (spike, cliff, gradual drift, seasonality, etc.). The LLM detector and
+the anomaly investigation agent both read it, so it sits beside the detectors
+rather than inside either caller.
 """
 
 from __future__ import annotations
@@ -16,12 +17,11 @@ import logging
 from datetime import datetime
 from typing import Any
 
-# Temporal activity workers run headless, so the only viable matplotlib backend
-# is Agg. Set MPLBACKEND via env var before the first matplotlib import so we
-# pick the backend the canonical way and avoid post-import `matplotlib.use(...)`
-# mutations to library-global state. `setdefault` leaves an explicit override
-# from the environment intact. Set at module load so it's in place before the
-# deferred import inside render_series_chart runs.
+# Alert workers run headless, so the only viable matplotlib backend is Agg. Set MPLBACKEND
+# via env var before the first matplotlib import so we pick the backend the canonical way and
+# avoid post-import `matplotlib.use(...)` mutations to library-global state. `setdefault`
+# leaves an explicit override from the environment intact. Set at module load so it's in place
+# before the deferred import inside render_series_chart runs.
 os.environ.setdefault("MPLBACKEND", "Agg")
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ def render_series_chart(
     dates: list[str],
     values: list[float],
     triggered_indices: list[int] | None = None,
-    scores: list[float] | None = None,
+    scores: list[float | None] | None = None,
     title: str = "",
 ) -> bytes | None:
     """Return a PNG of the series with anomaly points marked, or None on failure.
@@ -49,12 +49,18 @@ def render_series_chart(
     if not dates or not values or len(dates) != len(values):
         return None
 
-    # Deferred import: matplotlib is heavy (~0.35s) and only the temporal worker
-    # rendering a chart needs it — not every process that imports this module.
-    import matplotlib.pyplot as plt
+    # Deferred import: matplotlib is heavy (~0.35s) and only the callers that
+    # render a chart need it, not every process that imports this module.
+    # The figure is built through the object API rather than pyplot: several alert checks
+    # render at once on the AI detector's executor, and pyplot keeps its figures in
+    # process-global state that concurrent renders corrupt.
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
 
     try:
-        fig, ax = plt.subplots(figsize=(CHART_WIDTH_IN, CHART_HEIGHT_IN), dpi=CHART_DPI)
+        fig = Figure(figsize=(CHART_WIDTH_IN, CHART_HEIGHT_IN), dpi=CHART_DPI)
+        FigureCanvasAgg(fig)
+        ax = fig.subplots()
         x = list(range(len(values)))
 
         ax.plot(x, values, color="#1d4ed8", linewidth=1.8, marker="o", markersize=3, label="Metric")
@@ -65,12 +71,18 @@ def render_series_chart(
             if anomaly_x:
                 ax.scatter(anomaly_x, anomaly_y, color="#dc2626", s=80, zorder=5, label="Anomaly", edgecolors="white")
 
+        # A detector that does not score its points sends a list of nulls, which is the same
+        # length as the values and so passes a plain emptiness check.
+        plotted_scores: list[float] | None = None
         if scores and len(scores) == len(values):
+            numeric = [score for score in scores if score is not None]
+            plotted_scores = numeric if len(numeric) == len(scores) else None
+        if plotted_scores:
             ax2 = ax.twinx()
-            ax2.plot(x, scores, color="#f59e0b", linewidth=1.0, linestyle="--", alpha=0.7, label="Score")
+            ax2.plot(x, plotted_scores, color="#f59e0b", linewidth=1.0, linestyle="--", alpha=0.7, label="Score")
             ax2.set_ylabel("Score", fontsize=9, color="#92400e")
             ax2.tick_params(axis="y", labelsize=8, colors="#92400e")
-            ax2.set_ylim(0, max(1.05, max(scores) * 1.05))
+            ax2.set_ylim(0, max(1.05, max(plotted_scores) * 1.05))
 
         tick_stride = max(1, len(dates) // 8)
         ax.set_xticks(x[::tick_stride])
@@ -88,10 +100,9 @@ def render_series_chart(
         buf = io.BytesIO()
         fig.tight_layout()
         fig.savefig(buf, format="png", dpi=CHART_DPI, bbox_inches="tight")
-        plt.close(fig)
         return buf.getvalue()
     except Exception:
-        logger.exception("anomaly_investigation.chart_render_failed")
+        logger.exception("alerts.chart_render_failed")
         return None
 
 

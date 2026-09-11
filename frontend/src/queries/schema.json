@@ -20765,7 +20765,8 @@
                 "hbos",
                 "lof",
                 "ocsvm",
-                "pca"
+                "pca",
+                "llm"
             ],
             "type": "string"
         },
@@ -21699,7 +21700,7 @@
                 "detectors": {
                     "description": "Sub-detector configurations (minimum 2)",
                     "items": {
-                        "$ref": "#/definitions/SingleDetectorConfig"
+                        "$ref": "#/definitions/EnsembleSubDetectorConfig"
                     },
                     "type": "array"
                 },
@@ -21718,6 +21719,52 @@
         "EnsembleOperator": {
             "enum": ["and", "or"],
             "type": "string"
+        },
+        "EnsembleSubDetectorConfig": {
+            "description": "A single (leaf) detector config",
+            "discriminator": {
+                "propertyName": "type"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/ZScoreDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/MADDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/IQRDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/ThresholdDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/ECODDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/COPODDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/IsolationForestDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/KNNDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/HBOSDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/LOFDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/OCSVMDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/PCADetectorConfig"
+                }
+            ],
+            "required": ["type"],
+            "type": "object"
         },
         "EntityNode": {
             "additionalProperties": false,
@@ -31066,6 +31113,35 @@
                 "window": {
                     "$ref": "#/definitions/integer",
                     "description": "Rolling window size — how many historical data points to train on (default: based on calculation interval)"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
+        "LLMDetectorConfig": {
+            "additionalProperties": false,
+            "description": "Hands the series to a model instead of a statistical test. Carries no preprocessing block: differencing or smoothing would hide from the model exactly what it is meant to read.",
+            "properties": {
+                "instructions": {
+                    "description": "What counts as unusual or interesting for this metric, in your own words. Optional.",
+                    "maxLength": 2000,
+                    "type": "string"
+                },
+                "threshold": {
+                    "description": "Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)",
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                "type": {
+                    "const": "llm",
+                    "type": "string"
+                },
+                "window": {
+                    "description": "How many recent points the model is shown (default: 90)",
+                    "maximum": 400,
+                    "minimum": 5,
+                    "type": "integer"
                 }
             },
             "required": ["type"],
@@ -51716,6 +51792,9 @@
                 },
                 {
                     "$ref": "#/definitions/PCADetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/LLMDetectorConfig"
                 }
             ],
             "required": ["type"],

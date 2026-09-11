@@ -21,6 +21,8 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { formatDate } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
+import { DetectorType } from '~/queries/schema/schema-general'
+
 import { AlertStateIndicator } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertHistoryChart } from 'products/alerts/frontend/views/AlertHistoryChart'
 
@@ -149,6 +151,14 @@ export function AlertHistorySection({
 
     const investigationAgentEnabled = alertHistoryIsAnomalyDetection && !!alert?.investigation_agent_enabled
     const isAnyRowSqlAlert = isAnyRowHogQLConfig(alert?.config)
+    // Only the AI detector reports a reason, so no other alert type gets an always-empty column.
+    const isLLMDetectorAlert = alert?.detector_config?.type === DetectorType.LLM
+    // Past AI checks keep their reason after the alert moves to another detector.
+    const showWhyColumn =
+        isLLMDetectorAlert ||
+        alertHistoryChecksSortedDesc.some(
+            (check) => !!(check.triggered_metadata as { rationale?: string } | null)?.rationale
+        )
 
     const checkHistoryColumns = useMemo((): LemonTableColumn<AlertCheck, keyof AlertCheck | undefined>[] => {
         const columns: LemonTableColumn<AlertCheck, keyof AlertCheck | undefined>[] = [
@@ -172,12 +182,31 @@ export function AlertHistorySection({
         ]
         if (alertHistoryIsAnomalyDetection) {
             columns.push({
-                title: 'Score',
+                title: isLLMDetectorAlert ? 'Anomaly confidence' : 'Score',
+                tooltip: isLLMDetectorAlert
+                    ? "How sure the model was that the latest point is an anomaly. This is the model's own estimate, not a measured probability."
+                    : undefined,
                 align: 'right',
                 render: (_value, check) => {
                     const scores = check.anomaly_scores
                     const lastScore = scores?.length ? scores[scores.length - 1] : null
                     return lastScore != null ? lastScore.toFixed(3) : '—'
+                },
+            })
+        }
+        if (showWhyColumn) {
+            columns.push({
+                title: 'Why',
+                render: (_value, check) => {
+                    const rationale = (check.triggered_metadata as { rationale?: string } | null)?.rationale?.trim()
+                    if (!rationale) {
+                        return '—'
+                    }
+                    return (
+                        <Tooltip title={rationale}>
+                            <div className="text-sm leading-normal line-clamp-2 text-muted max-w-md">{rationale}</div>
+                        </Tooltip>
+                    )
                 },
             })
         }
@@ -243,7 +272,7 @@ export function AlertHistorySection({
             },
         })
         return columns
-    }, [alertHistoryIsAnomalyDetection, investigationAgentEnabled, isAnyRowSqlAlert])
+    }, [alertHistoryIsAnomalyDetection, investigationAgentEnabled, isAnyRowSqlAlert, isLLMDetectorAlert, showWhyColumn])
 
     if (!alert) {
         return null

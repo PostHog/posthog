@@ -1,9 +1,9 @@
 """Plain-English rendering of the alerted insight's query definition.
 
-Without this the investigation agent only sees the insight's *name* plus the
-numbers, so a series called "Error tracking active users" reads as a count of
+Without this a model only sees the insight's *name* plus the numbers, so a series
+called "Error tracking active users" reads as a count of
 people hitting errors even when it is a `$pageview` DAU series filtered to a set
-of app URLs — and the agent then reaches for an outage to explain an engagement
+of app URLs, and the model then reaches for an outage to explain an engagement
 change. Naming the event, aggregation, and filters the alerted series is built
 from keeps every hypothesis tied to what the number actually measures.
 
@@ -88,22 +88,29 @@ _OPERATOR_LABELS = {
 _VALUELESS_OPERATORS = frozenset({"is_set", "is_not_set"})
 
 
-def describe_metric_definition(query: Any, *, series_index: int = 0) -> str:
+def describe_metric_definition(
+    query: Any, *, series_index: int = 0, effective_date_range: tuple[str, str] | None = None
+) -> str:
     """A plain-text block naming what the alerted series measures.
+
+    ``effective_date_range`` is the span of the points the caller actually supplies, for
+    readers that fetch a different range than the insight's saved one. Given it, the block
+    describes that span instead of the saved range, which would otherwise contradict the
+    dates alongside it.
 
     Never raises: this only enriches the agent's context, so an unrecognized or
     malformed query degrades to a "couldn't read it" line rather than failing an
     investigation that would otherwise have run.
     """
     try:
-        described = _describe(query, series_index)
+        described = _describe(query, series_index, effective_date_range)
     except Exception:
-        logger.warning("anomaly_investigation.metric_definition_failed", exc_info=True)
+        logger.warning("alerts.metric_definition_failed", exc_info=True)
         return UNAVAILABLE
     return described[:MAX_DEFINITION_CHARS]
 
 
-def _describe(query: Any, series_index: int) -> str:
+def _describe(query: Any, series_index: int, effective_date_range: tuple[str, str] | None = None) -> str:
     source = unwrap_query_source(query)
     if not source:
         return UNAVAILABLE
@@ -113,7 +120,13 @@ def _describe(query: Any, series_index: int) -> str:
 
     series = source.get("series")
     clauses = source.get("clauses")
-    if isinstance(series, list) and series:
+    formulas = _formulas(source)
+    if isinstance(series, list) and series and formulas:
+        # With formulas, the alerted result is a formula over the series, and series_index
+        # picks a formula, not a raw series.
+        lines.extend(_describe_formulas(formulas, series_index))
+        lines.extend(_describe_series(series, series_index=None))
+    elif isinstance(series, list) and series:
         lines.extend(_describe_series(series, series_index))
     elif isinstance(clauses, list) and clauses:
         lines.extend(_describe_clauses(clauses))
@@ -122,7 +135,7 @@ def _describe(query: Any, series_index: int) -> str:
     else:
         lines.append("- Series: could not be read from the stored query.")
 
-    lines.extend(_describe_query_scope(source))
+    lines.extend(_describe_query_scope(source, effective_date_range))
     return "\n".join(lines)
 
 
@@ -140,10 +153,47 @@ def unwrap_query_source(query: Any) -> dict[str, Any] | None:
     return None
 
 
-def _describe_series(series: list[Any], series_index: int) -> list[str]:
+def _formulas(source: dict[str, Any]) -> list[tuple[str, str | None]]:
+    """Every formula on the query as (expression, custom name), across the three shapes the
+    trends filter has carried: ``formulaNodes``, ``formulas``, and the single ``formula``."""
+    trends_filter = source.get("trendsFilter")
+    if not isinstance(trends_filter, dict):
+        return []
+    nodes = trends_filter.get("formulaNodes")
+    if isinstance(nodes, list) and nodes:
+        return [
+            (str(node.get("formula") or ""), node.get("custom_name") or None)
+            for node in nodes
+            if isinstance(node, dict)
+        ]
+    formulas = trends_filter.get("formulas")
+    if isinstance(formulas, list) and formulas:
+        return [(str(formula), None) for formula in formulas]
+    formula = trends_filter.get("formula")
+    return [(str(formula), None)] if formula else []
+
+
+def _describe_formulas(formulas: list[tuple[str, str | None]], series_index: int) -> list[str]:
+    lines: list[str] = []
+    for index, (expression, name) in enumerate(formulas):
+        label = "Alerted result" if index == series_index else "Other result in this insight"
+        named = f' named "{name}"' if name else ""
+        lines.append(
+            f"- {label} (index {index}): formula {_clip(expression, MAX_VALUE_CHARS)}{named}, "
+            "combining the input series below by letter (A is the first input series)"
+        )
+    if series_index >= len(formulas):
+        lines.append(f"- (The alerted result index {series_index} is past the {len(formulas)} formulas defined.)")
+    return lines
+
+
+def _describe_series(series: list[Any], series_index: int | None) -> list[str]:
     lines: list[str] = []
     for index, node in enumerate(series[:MAX_DESCRIBED_SERIES]):
-        label = "Alerted series" if index == series_index else "Other series in this insight"
+        if series_index is None:
+            label = f"Input series {chr(ord('A') + index)}" if index < 26 else "Input series"
+        else:
+            label = "Alerted series" if index == series_index else "Other series in this insight"
         lines.append(f"- {label} (index {index}): {_describe_series_node(node)}")
     if len(series) > MAX_DESCRIBED_SERIES:
         lines.append(f"- ({len(series) - MAX_DESCRIBED_SERIES} further series omitted.)")
@@ -203,7 +253,7 @@ def _describe_clauses(clauses: list[Any]) -> list[str]:
     return lines
 
 
-def _describe_query_scope(source: dict[str, Any]) -> list[str]:
+def _describe_query_scope(source: dict[str, Any], effective_date_range: tuple[str, str] | None = None) -> list[str]:
     lines: list[str] = []
 
     global_filters = _describe_filters(source.get("properties"))
@@ -214,17 +264,15 @@ def _describe_query_scope(source: dict[str, Any]) -> list[str]:
     if breakdown:
         lines.append(f"- Breakdown: {breakdown}")
 
-    trends_filter = source.get("trendsFilter")
-    if isinstance(trends_filter, dict):
-        formula = trends_filter.get("formula") or trends_filter.get("formulas")
-        if formula:
-            lines.append(f"- Formula combining the series: {_format_value(formula)}")
-
-    date_range = source.get("dateRange")
-    if isinstance(date_range, dict) and (date_range.get("date_from") or date_range.get("date_to")):
-        lines.append(
-            f"- Insight date range: {date_range.get('date_from') or 'default'} to {date_range.get('date_to') or 'now'}"
-        )
+    if effective_date_range:
+        lines.append(f"- The points below cover: {effective_date_range[0]} to {effective_date_range[1]}")
+    else:
+        date_range = source.get("dateRange")
+        if isinstance(date_range, dict) and (date_range.get("date_from") or date_range.get("date_to")):
+            lines.append(
+                f"- Insight date range: {date_range.get('date_from') or 'default'} to "
+                f"{date_range.get('date_to') or 'now'}"
+            )
 
     interval = source.get("interval")
     if interval:

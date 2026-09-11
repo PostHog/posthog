@@ -13,10 +13,11 @@ import {
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { DetectorConfig } from '~/queries/schema/schema-general'
+import { DetectorConfig, DetectorType } from '~/queries/schema/schema-general'
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
+import { DEFAULT_LLM_DETECTION_CONFIDENCE } from '../logic/detectorConfigDefaults'
 import { AlertSimulationResult, BreakdownSimulationResult } from '../types'
 
 const handleChartError = makeChartErrorHandler('alerts-simulation-chart')
@@ -51,7 +52,12 @@ function getThreshold(config: DetectorConfig | null | undefined): number | null 
     if (c.type === 'ensemble' || c.type === 'threshold') {
         return null
     }
-    return typeof c.threshold === 'number' ? c.threshold : null
+    if (typeof c.threshold === 'number' && !Number.isNaN(c.threshold)) {
+        return c.threshold
+    }
+    // An AI config created through the API or MCP can omit the threshold, and the simulation
+    // is judged against the same default. Draw the line the points were actually judged against.
+    return c.type === DetectorType.LLM ? DEFAULT_LLM_DETECTION_CONFIDENCE : null
 }
 
 // Sub-detector score line colors.

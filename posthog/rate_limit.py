@@ -1625,6 +1625,59 @@ class AlertTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
             return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
 
 
+def _is_llm_alert_simulation(request) -> bool:
+    """Whether an alert simulation request would make a billable model call.
+
+    Reads the same field the simulate serializer parses. A form-encoded body carries
+    ``detector_config`` as a JSON string that the serializer's JSONField decodes later, so
+    the string form is decoded here too; otherwise it would slip past the throttle.
+    """
+    data = request.data
+    if not hasattr(data, "get"):
+        return False
+    detector_config = data.get("detector_config")
+    if isinstance(detector_config, str):
+        try:
+            detector_config = json.loads(detector_config)
+        except ValueError:
+            return False
+    return isinstance(detector_config, dict) and detector_config.get("type") == "llm"
+
+
+class _AlertLLMSimulationThrottle(PersonalApiKeyOrUserRateThrottle):
+    """Per-team cap on billable AI alert simulations.
+
+    Keyed per team so extra API keys or members do not multiply it, and applied to every
+    authenticated caller: the generic burst and sustained throttles skip session users, so
+    without this a member could preview at whatever rate the browser allows.
+    """
+
+    def allow_request(self, request, view):
+        if not _is_llm_alert_simulation(request):
+            return True
+        return super().allow_request(request, view)
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+
+
+class AlertLLMSimulationBurstThrottle(_AlertLLMSimulationThrottle):
+    scope = "alert_llm_simulation_burst"
+    rate = "10/minute"
+
+
+class AlertLLMSimulationSustainedThrottle(_AlertLLMSimulationThrottle):
+    scope = "alert_llm_simulation_sustained"
+    rate = "60/hour"
+
+
+class AlertLLMSimulationDailyThrottle(_AlertLLMSimulationThrottle):
+    scope = "alert_llm_simulation_daily"
+    rate = "200/day"
+
+
 class UserInterviewInviteThrottle(PersonalApiKeyOrUserRateThrottle):
     # Cap how often a team can fire the user-interview send_invites action.
     #

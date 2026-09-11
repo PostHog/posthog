@@ -344,6 +344,18 @@ def get_alert_error_notification_recipients(alert: AlertConfiguration) -> list[t
     ]
 
 
+def detector_verdict_event_fields(alert_check: AlertCheck) -> dict[str, str]:
+    """The model's verdict, as its own `$insight_alert_firing` properties.
+
+    The rationale is already inside the breach text, but a destination that wants to place
+    it on its own, in its own Slack block or its own webhook field, cannot split it back
+    out of a sentence. Absent for every detector type that reports no verdict.
+    """
+    metadata = alert_check.triggered_metadata or {}
+    fields = {"anomaly_rationale": metadata.get("rationale"), "anomaly_kind": metadata.get("kind")}
+    return {key: str(value) for key, value in fields.items() if value}
+
+
 def _inconclusive_is_suppressed(verdict: str | None, inconclusive_action: str | None) -> bool:
     """Whether an inconclusive verdict is held back by the alert's configured policy."""
     return verdict == "inconclusive" and (inconclusive_action or "notify") == "suppress"
@@ -495,7 +507,7 @@ def dispatch_alert_notification(
                         "caller must pass the breaches list from AlertEvaluationResult"
                     )
                 logger.info("Sending alert firing notifications", alert_id=alert.id)
-                properties = dict(extra_properties) if extra_properties else {}
+                properties = {**detector_verdict_event_fields(alert_check), **(extra_properties or {})}
                 # Attach the chart for any firing alert whose caller did not already supply
                 # one, so ordinary threshold and anomaly alerts get the chart too, not just
                 # the anomaly investigation path (which renders it early and passes it in).
@@ -511,8 +523,8 @@ def dispatch_alert_notification(
                     chart_url = prepare_alert_insight_chart_url(alert=alert, alert_check=alert_check)
                     if chart_url:
                         properties["insight_chart_url"] = chart_url
-                # Only forward extra_properties when there's something to add, keeping the
-                # common threshold-alert call unchanged when nothing was attached.
+                # Only forward properties when there's something to add (a chart, an investigation,
+                # a model's verdict), keeping the common threshold-alert call unchanged.
                 if properties:
                     return send_notifications_for_breaches(
                         alert, breaches, idempotency_key=key, extra_properties=properties

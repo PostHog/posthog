@@ -5,9 +5,10 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { formatDate } from 'lib/utils/datetime'
 
-import { AlertState } from '~/queries/schema/schema-general'
+import { AlertState, DetectorType } from '~/queries/schema/schema-general'
 
 import type { AlertCheck, AlertType } from '../types'
+import { DEFAULT_LLM_DETECTION_CONFIDENCE } from './detectorConfigDefaults'
 
 export const CHART_CHECKS_LIMIT = 50
 export const TABLE_CHECKS_PAGE_SIZE = 25
@@ -30,6 +31,11 @@ export interface AlertHistoryChartPoint {
      * Use this instead of re-applying the alert's current thresholds, which may have changed since the check.
      */
     firedAtTime?: boolean
+    /**
+     * Whether the check would fire under the alert's current configuration. `undefined` lets the chart infer it
+     * from the thresholds; `null` marks a check it cannot classify.
+     */
+    wouldFireUnderCurrentConfiguration?: boolean | null
 }
 
 export interface AlertLogicProps {
@@ -41,6 +47,24 @@ function initialChecksHistoryParams(): ChecksHistoryParams {
         limit: CHART_CHECKS_LIMIT,
         offset: 0,
     }
+}
+
+/**
+ * An AI check's stored score folds the model's verdict and its confidence into one number, so a
+ * low-confidence "no anomaly" sits above the threshold without being a check that would fire. The
+ * verdict itself is on the check, and firing needs the verdict, the confidence, and the model
+ * naming the latest point — a confident anomaly about older history does not fire either.
+ */
+export function llmCheckWouldFire(check: AlertCheck, threshold: number): boolean | null {
+    const verdictIsAnomaly = check.triggered_metadata?.verdict_is_anomaly
+    const confidence = check.triggered_metadata?.confidence
+    if (typeof verdictIsAnomaly !== 'boolean' || typeof confidence !== 'number') {
+        return null
+    }
+    if (check.triggered_metadata?.latest_point_not_flagged === true) {
+        return false
+    }
+    return verdictIsAnomaly && confidence >= threshold
 }
 
 function getCheckPlotValue(check: AlertCheck, isAnomalyDetection: boolean): number | null {
@@ -59,7 +83,7 @@ function getCheckPlotValue(check: AlertCheck, isAnomalyDetection: boolean): numb
 export interface alertLogicValues {
     alert: AlertType | null
     alertHistoryChartSeries: AlertHistoryChartPoint[]
-    alertHistoryChartSeriesName: 'Anomaly score' | 'Value'
+    alertHistoryChartSeriesName: 'Anomaly confidence' | 'Anomaly score' | 'Value'
     alertHistoryChecksSortedDesc: AlertCheck[]
     alertHistoryHasHistory: boolean
     alertHistoryIsAnomalyDetection: boolean
@@ -121,7 +145,10 @@ export interface alertLogicMeta {
         alertHistoryChecksSortedDesc: (alert: AlertType | null) => AlertCheck[]
         alertHistoryChartSeries: (alert: AlertType | null) => AlertHistoryChartPoint[]
         alertHistoryUsesAnomalyScores: (alert: AlertType | null) => boolean
-        alertHistoryChartSeriesName: (alertHistoryUsesAnomalyScores: boolean) => 'Anomaly score' | 'Value'
+        alertHistoryChartSeriesName: (
+            alertHistoryUsesAnomalyScores: boolean,
+            alert: AlertType | null
+        ) => 'Anomaly confidence' | 'Anomaly score' | 'Value'
         alertHistoryHasHistory: (alert: AlertType | null) => boolean
         alertHistoryTablePageCount: (alert: AlertType | null) => number
         alertHistoryTableEntryCount: (alert: AlertType | null) => number
@@ -204,6 +231,10 @@ export const alertLogic = kea<alertLogicType>([
                     return []
                 }
                 const isAnomaly = !!alert.detector_config
+                const llmThreshold =
+                    alert.detector_config?.type === DetectorType.LLM
+                        ? (alert.detector_config.threshold ?? DEFAULT_LLM_DETECTION_CONFIDENCE)
+                        : null
                 const sortedAsc = [...(alert.checks ?? [])].sort(
                     (a, b) => dayjs(a.created_at).valueOf() - dayjs(b.created_at).valueOf()
                 )
@@ -217,6 +248,9 @@ export const alertLogic = kea<alertLogicType>([
                         value,
                         label: formatDate(dayjs(check.created_at), 'MMM D, HH:mm'),
                         firedAtTime: check.state === AlertState.FIRING,
+                        ...(llmThreshold !== null
+                            ? { wouldFireUnderCurrentConfiguration: llmCheckWouldFire(check, llmThreshold) }
+                            : {}),
                     })
                 }
                 return points
@@ -237,8 +271,13 @@ export const alertLogic = kea<alertLogicType>([
             },
         ],
         alertHistoryChartSeriesName: [
-            (s) => [s.alertHistoryUsesAnomalyScores],
-            (usesAnomalyScores: boolean) => (usesAnomalyScores ? 'Anomaly score' : 'Value'),
+            (s) => [s.alertHistoryUsesAnomalyScores, s.alert],
+            (usesAnomalyScores: boolean, alert: AlertType | null): 'Anomaly confidence' | 'Anomaly score' | 'Value' => {
+                if (!usesAnomalyScores) {
+                    return 'Value'
+                }
+                return alert?.detector_config?.type === DetectorType.LLM ? 'Anomaly confidence' : 'Anomaly score'
+            },
         ],
         alertHistoryHasHistory: [
             (s) => [s.alert],

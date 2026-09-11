@@ -58,11 +58,18 @@ class PrepareAlertActivityInputs:
 class PrepareAlertResult:
     action: PrepareAction
     reason: str | None = None
+    # True when the check will make a model call, so the workflow can route it to the
+    # evaluate activity's dedicated executor.
+    uses_llm_detector: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
 class EvaluateAlertActivityInputs:
     alert_id: str
+    uses_llm_detector: bool = False
+    # Lets the activity re-read the detector type before it picks a thread pool. None on a
+    # workflow that started before this field existed, which falls back to what prepare saw.
+    team_id: int | None = None
 
 
 @dataclasses.dataclass(frozen=True)

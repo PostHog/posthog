@@ -62,6 +62,38 @@ def test_run_detector_simulation_returns_the_alerts_configured_series(mock_calcu
     assert result["data"] == configured_series[:-1]
 
 
+@patch("posthog.tasks.alerts.detectors.llm.detector.LLMDetector._ask_model")
+@patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
+def test_run_detector_simulation_never_rescores_an_ai_alert(mock_calculate: MagicMock, mock_ask: MagicMock) -> None:
+    series = [10.0, 11.0, 10.0, 9.0] * 3
+    mock_calculate.return_value = InsightResult(
+        result=[_trend_result("series 0", series)],
+        columns=[],
+        timezone="UTC",
+        last_refresh=None,
+        cache_key="",
+        is_cached=False,
+    )
+    insight = MagicMock(spec=Insight)
+    insight.query = TrendsQuery(
+        series=[EventsNode(event="series_0", math=BaseMathType.TOTAL)],
+        trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        interval=IntervalType.DAY,
+    ).model_dump()
+    alert = MagicMock(spec=AlertConfiguration)
+    alert.insight = insight
+    alert.config = {"type": "TrendsAlertConfig", "series_index": 0}
+    alert.detector_config = {"type": "llm", "threshold": 0.7, "window": 10}
+    alert.created_by = None
+
+    result = _run_detector_simulation(alert=alert, team=MagicMock(), date_from=None)
+
+    assert not isinstance(result, str)
+    assert result["data"] == series[:-1]
+    assert result["triggered_indices"] == []
+    mock_ask.assert_not_called()
+
+
 @patch("products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight")
 def test_run_detector_simulation_scores_the_configured_column_of_a_multi_numeric_sql_result(
     mock_calculate: MagicMock,

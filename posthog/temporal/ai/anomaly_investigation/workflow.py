@@ -22,6 +22,8 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models import Team, User
+from posthog.tasks.alerts.charts import png_to_b64, render_series_chart
+from posthog.tasks.alerts.metric_definition import describe_metric_definition
 from posthog.tasks.alerts.utils import (
     _inconclusive_is_suppressed,
     _should_suppress_notification,
@@ -29,9 +31,7 @@ from posthog.tasks.alerts.utils import (
     prepare_alert_insight_chart_url,
     record_alert_delivery,
 )
-from posthog.temporal.ai.anomaly_investigation.charts import png_to_b64, render_series_chart
 from posthog.temporal.ai.anomaly_investigation.event_provenance import alerted_series_event, describe_event_provenance
-from posthog.temporal.ai.anomaly_investigation.metric_definition import describe_metric_definition
 from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_markdown
 from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
