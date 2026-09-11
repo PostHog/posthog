@@ -30,8 +30,8 @@ export function ProgressGroupView({
   turnComplete,
 }: ProgressGroupViewProps) {
   const [userToggledOpen, setUserToggledOpen] = useState<boolean | null>(null);
-  // New thread renders the group through the shared `ToolRow` (ChatMarker chrome); the legacy thread
-  // keeps its bespoke Radix collapsible so ConversationView is unchanged when the chat thread is off.
+  // Chat-thread chrome renders the group through the shared `ToolRow`. The standalone fallback
+  // uses its bespoke Radix collapsible when chat-thread chrome is unavailable.
   const chatChrome = useChatThreadChrome();
 
   useEffect(() => {

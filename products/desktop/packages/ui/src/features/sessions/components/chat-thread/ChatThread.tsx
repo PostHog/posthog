@@ -41,7 +41,7 @@ import type {
   AgentConversationEvent,
   AgentTurnFeedbackSentiment,
 } from "@posthog/shared";
-import { ANALYTICS_EVENTS } from "@posthog/shared";
+import { ANALYTICS_EVENTS, readAgentToolName } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useSmoothedText } from "@posthog/ui/features/editor/components/useSmoothedText";
@@ -92,7 +92,7 @@ import { GitActionMessage } from "@posthog/ui/features/sessions/components/GitAc
 import { GitActionResult } from "@posthog/ui/features/sessions/components/GitActionResult";
 import { isUserInitiatedConversationItem } from "@posthog/ui/features/sessions/components/isUserInitiatedConversationItem";
 import { mergeConversationItems } from "@posthog/ui/features/sessions/components/mergeConversationItems";
-import { isPlanItem } from "@posthog/ui/features/sessions/components/new-thread/buildThreadGroups";
+import { isPlanApprovalTool } from "@posthog/ui/features/sessions/components/session-update/collaborationTools";
 import { InjectedBlockChips } from "@posthog/ui/features/sessions/components/session-update/InjectedBlockChips";
 import { MentionChip } from "@posthog/ui/features/sessions/components/session-update/parseFileMentions";
 import { SessionUpdateView } from "@posthog/ui/features/sessions/components/session-update/SessionUpdateView";
@@ -221,7 +221,12 @@ function isThoughtItem(item: ConversationItem): boolean {
  * rule that fixes both.
  */
 function rendersStandalone(item: ConversationItem): boolean {
-  return isPlanItem(item) || isShowActionsItem(item) || hasUiAppResult(item);
+  const isPlanItem =
+    item.type === "session_update" &&
+    item.update.sessionUpdate === "tool_call" &&
+    (item.update.kind === "switch_mode" ||
+      isPlanApprovalTool(readAgentToolName(item.update._meta)));
+  return isPlanItem || isShowActionsItem(item) || hasUiAppResult(item);
 }
 
 /**
@@ -322,7 +327,7 @@ function groupIntoTurns(rows: ThreadItem[]): TurnRow[] {
     // git_action and skill_button_action stand in for the user's message when the prompt was a
     // git operation or a skill button click (see handlePromptRequest) — they open a turn just
     // like a user message, so they break the agent card too rather than render inside it as if
-    // they were agent output. Same boundary set as the legacy view's buildThreadGroups.
+    // they were agent output.
     if (isUserInitiatedConversationItem(row)) {
       flush();
       out.push(row);
@@ -1101,10 +1106,8 @@ function ThreadScrollBody({
 }) {
   const keyedRows = useMemo(() => keyTurnRows(rows), [rows]);
 
-  // `group/thread` so the footer's hover-reveal (opacity-50 → 100 on group-hover) tracks the thread,
-  // mirroring the legacy ConversationView container. `@container/thread` makes the thread's own
-  // width the query basis for everything inside it — the panel is resizable and splittable, so the
-  // viewport says nothing useful about how much room a row actually has.
+  // `group/thread` lets the footer's hover reveal track the thread. `@container/thread` makes the
+  // thread's own width the query basis because the panel is resizable and splittable.
   return (
     <ChatMessageScroller
       className="@container/thread group/thread"

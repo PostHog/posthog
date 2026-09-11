@@ -50,8 +50,8 @@ export function ToolCallView({
     turnComplete,
   );
   const KindIcon = iconForToolCall(toolCall, agentToolName);
-  // New thread drops the input/output divider (ContentPre carries its own border); the legacy thread
-  // keeps it so ConversationView is unchanged when the chat thread is toggled off.
+  // Chat-thread chrome drops the input/output divider because ContentPre carries its own border.
+  // The standalone fallback retains the divider when chat-thread chrome is unavailable.
   const chatChrome = useChatThreadChrome();
 
   const filePath = kind === "read" && locations?.[0]?.path;
@@ -67,8 +67,8 @@ export function ToolCallView({
       ? { ...toolDisplay, value: highlightValue }
       : undefined;
 
-  // New thread reads back in past tense once the tool has finished ("Reading" → "Read"); the legacy
-  // thread keeps the original present-tense prefix so ConversationView is unchanged when toggled off.
+  // Chat-thread chrome uses a past-tense prefix after a tool finishes. The standalone fallback
+  // retains the present-tense prefix when chat-thread chrome is unavailable.
   const displayText = specialDisplay
     ? chatChrome && !isLoading
       ? specialDisplay.pastPrefix

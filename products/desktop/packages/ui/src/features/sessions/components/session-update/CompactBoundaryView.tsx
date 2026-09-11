@@ -73,8 +73,8 @@ export function CompactBoundaryView({
     preTokens,
     contextSize,
   });
-  // New thread renders the boundary as a centered separator marker; the legacy thread keeps its
-  // bordered badge row so ConversationView is unchanged when the chat thread is off.
+  // Chat-thread chrome renders the boundary as a centered separator marker. The standalone fallback
+  // uses a bordered badge row when chat-thread chrome is unavailable.
   const chatChrome = useChatThreadChrome();
 
   if (chatChrome) {

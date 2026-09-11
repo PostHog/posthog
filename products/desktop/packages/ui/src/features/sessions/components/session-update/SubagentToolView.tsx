@@ -24,9 +24,9 @@ interface SubagentToolViewProps extends ToolViewProps {
 }
 
 /**
- * A subagent (Task/Agent) call. The new thread renders it as a single `ToolRow` (ChatMarker chrome)
- * whose collapsible body holds the subagent's own child tool calls. The legacy thread keeps its
- * bespoke bordered box + expand button so ConversationView is unchanged when the chat thread is off.
+ * A subagent (Task/Agent) call. Chat-thread chrome renders it as a single `ToolRow` whose
+ * collapsible body holds the subagent's child tool calls. The standalone fallback uses a bespoke
+ * bordered box and expand button when chat-thread chrome is unavailable.
  */
 export function SubagentToolView({
   toolCall,
