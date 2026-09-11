@@ -20,6 +20,7 @@ describe("BuiltCanvas", () => {
       agentRequests: false,
     },
     network: { origins: [] },
+    connectors: [],
   };
   const initialIsDarkMode = useThemeStore.getState().isDarkMode;
   afterEach(() => useThemeStore.setState({ isDarkMode: initialIsDarkMode }));
@@ -50,11 +51,14 @@ describe("BuiltCanvas", () => {
   });
 
   it("revokes data access when the artifact document navigates", async () => {
-    const onDataRequest = vi.fn().mockResolvedValue({ secret: true });
+    const onDataRequest = vi.fn().mockResolvedValue({ rows: [] });
     render(
       <BuiltCanvas
         artifactUrl="https://usercontent.example/build/index.html"
-        capabilities={capabilities}
+        capabilities={{
+          ...capabilities,
+          posthog: { ...capabilities.posthog, inlineQueries: true },
+        }}
         onDataRequest={onDataRequest}
       />,
     );

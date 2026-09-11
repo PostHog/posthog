@@ -2,7 +2,7 @@ import os
 import json
 from datetime import UTC, datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, Mock, patch
 
@@ -136,7 +136,7 @@ class TestErrorTracking(APIBaseTest):
         assert response.status_code == 200
         assert response.json().get("id") == str(issue.id)
 
-    @freeze_time("2025-01-01")
+    @time_machine.travel("2025-01-01", tick=False)
     def test_issue_fetch(self):
         issue = self.create_issue(["fingerprint"])
 
@@ -221,7 +221,7 @@ class TestErrorTracking(APIBaseTest):
         assert assignee == {"id": expected_id, "type": assignee_type}
         assert isinstance(assignee["id"], expected_python_type)
 
-    @freeze_time("2025-01-01")
+    @time_machine.travel("2025-01-01", tick=False)
     def test_issue_update(self):
         issue = self.create_issue(["fingerprint"])
 
@@ -289,7 +289,7 @@ class TestErrorTracking(APIBaseTest):
             ("description", {"description": "Updated description"}),
         ]
     )
-    @freeze_time("2025-01-02")
+    @time_machine.travel("2025-01-02", tick=False)
     def test_issue_update_stamps_clickhouse_visible_fields(self, _name: str, fields: dict[str, str]) -> None:
         issue = self.create_issue(["fingerprint"])
 
@@ -302,7 +302,7 @@ class TestErrorTracking(APIBaseTest):
         issue.refresh_from_db()
         assert issue.state_updated_at == datetime(2025, 1, 2, tzinfo=UTC)
 
-    @freeze_time("2025-01-02")
+    @time_machine.travel("2025-01-02", tick=False)
     def test_issue_update_does_not_stamp_unchanged_state(self) -> None:
         issue = self.create_issue(["fingerprint"])
 

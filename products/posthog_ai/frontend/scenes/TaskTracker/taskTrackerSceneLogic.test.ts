@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -9,8 +10,9 @@ import { initKeaTests } from '~/test/init'
 
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { attachedContextLogic } from '../../api/logics'
+import { attachedContextLogic, runStreamLogic } from '../../api/logics'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
+import { runCancellationLogic } from '../../logics/runCancellationLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
@@ -60,7 +62,7 @@ describe('taskTrackerSceneLogic', () => {
                 '/api/projects/:team/tasks/': { results: [], count: 0 },
                 '/api/projects/:team/tasks/repositories/': { repositories: [] },
                 '/api/projects/:team/tasks/@me/config/': myConfigResponse(null),
-                '/api/environments/:team/integrations/': { results: [] },
+                '/api/projects/:team/integrations/': { results: [] },
             },
             post: {
                 '/api/projects/:team/tasks/': async ({ request }) => {
@@ -69,7 +71,7 @@ describe('taskTrackerSceneLogic', () => {
                 },
                 '/api/projects/:team/tasks/:id/run/': async ({ request }) => {
                     runBody = (await request.json()) as Record<string, any>
-                    return [200, { id: 'new-task', latest_run: 'run-1' }]
+                    return [200, { id: 'new-task', latest_run: { id: 'run-1' } }]
                 },
             },
         })
@@ -89,6 +91,74 @@ describe('taskTrackerSceneLogic', () => {
         toolEvents?.unmount()
     })
 
+    it.each([
+        [false, ''],
+        [true, ''],
+        [true, 'A different task'],
+    ] as const)('handles a startup stop and draft when leaving=%s with a new draft=%s', async (leave, newDraft) => {
+        let finishCreation!: (response: [number, Record<string, unknown>]) => void
+        const creation = new Promise<[number, Record<string, unknown>]>((resolve) => {
+            finishCreation = resolve
+        })
+        let createdTasks: Task[] = []
+        useMocks({
+            get: { '/api/projects/:team/tasks/': () => [200, { results: createdTasks, count: createdTasks.length }] },
+            post: { '/api/projects/:team/tasks/': () => creation },
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        router.actions.push('/tasks/new')
+        logic.actions.setNewTaskData({ description: 'A synthetic task' })
+        logic.actions.submitNewTask()
+        const streamKey = logic.values.activeCreation!.streamKey
+        expect(runStreamLogic({ streamKey }).values.threadItems).toEqual([
+            expect.objectContaining({ type: 'human_message', text: 'A synthetic task' }),
+        ])
+        expect(runStreamLogic({ streamKey }).values.streamPhase).toBe('provisioning')
+        const cancellation = runCancellationLogic({ streamKey })
+        const unmount = cancellation.mount()
+        try {
+            cancellation.actions.requestCancellation()
+            logic.actions.setStartupDraft('A follow-up draft')
+            if (leave) {
+                router.actions.push('/tasks/another-task')
+            }
+            if (newDraft) {
+                router.actions.push('/tasks/new')
+                logic.actions.setNewTaskData({ description: newDraft })
+            }
+            createdTasks = [buildTask({ id: 'new-task', description: 'A synthetic task' })]
+            await expectLogic(logic, () =>
+                finishCreation([
+                    200,
+                    {
+                        id: 'new-task',
+                        latest_run: { id: 'run-1' },
+                    },
+                ])
+            ).toFinishAllListeners()
+            if (leave) {
+                expect(logic.values.activeCreation).toBeNull()
+                expect(cancellation.values.cancellationState).toBeNull()
+                expect(router.values.location.pathname).toContain(newDraft ? '/tasks/new' : '/tasks/another-task')
+                expect(toolEvents.values.applyBackTargetClaims[streamKey]).toBeUndefined()
+            } else {
+                expect(logic.values.activeCreation).toEqual({
+                    streamKey,
+                    taskId: 'new-task',
+                    runId: 'run-1',
+                    draft: 'A follow-up draft',
+                })
+                expect(cancellation.values.cancellationState).toBe('waiting')
+            }
+            expect(logic.values.newTaskData.description).toBe(newDraft)
+            expect(logic.values.isSubmittingTask).toBe(false)
+            await waitFor(() => expect(logic.values.tasks).toEqual(createdTasks))
+        } finally {
+            unmount()
+        }
+    })
+
     it('loads PostHog Desktop access and exposes it to the task UI', async () => {
         logic.mount()
 
@@ -98,6 +168,50 @@ describe('taskTrackerSceneLogic', () => {
         logic.actions.loadDesktopAccessSuccess({ has_access: false, has_loops_access: false })
         expect(logic.values.hasDesktopAccess).toBe(false)
     })
+
+    it.each(['task', 'run', 'missing_run'] as const)(
+        'restores the composer and startup draft when %s creation fails',
+        async (failure) => {
+            let finishRequest!: () => void
+            const request = new Promise<void>((resolve) => {
+                finishRequest = resolve
+            })
+            useMocks({
+                post: {
+                    '/api/projects/:team/tasks/': async () => {
+                        if (failure === 'task') {
+                            await request
+                            return [500, { detail: 'Task creation failed' }]
+                        }
+                        return [201, { id: 'new-task', latest_run: null }]
+                    },
+                    '/api/projects/:team/tasks/:id/run/': async () => {
+                        await request
+                        return failure === 'run'
+                            ? [500, { detail: 'Run creation failed' }]
+                            : [200, { id: 'new-task', latest_run: null }]
+                    },
+                },
+            })
+            logic.mount()
+            router.actions.push('/tasks/new')
+            logic.actions.setNewTaskData({ description: 'Explain the example chart' })
+            logic.actions.submitNewTask()
+            const streamKey = logic.values.activeCreation!.streamKey
+            expect(runStreamLogic({ streamKey }).values.streamPhase).toBe('provisioning')
+            logic.actions.setStartupDraft('Include a weekly comparison')
+
+            await expectLogic(logic, finishRequest).toFinishAllListeners()
+
+            expect(logic.values.activeCreation).toBeNull()
+            expect(logic.values.newTaskData.description).toBe(
+                'Explain the example chart\n\nInclude a weekly comparison'
+            )
+            expect(logic.values.isSubmittingTask).toBe(false)
+            expect(router.values.location.pathname).toContain('/tasks/new')
+            expect(toolEvents.values.applyBackTargetClaims[streamKey]).toBeUndefined()
+        }
+    )
 
     // PostHog AI can run without a repo: a description-only submit must still create and run the task with a
     // null repository, not bail. Guards against re-adding a "Repository is required" gate on the send path.
@@ -144,7 +258,7 @@ describe('taskTrackerSceneLogic', () => {
                 },
                 '/api/projects/:team/tasks/:id/run/': async ({ request }) => {
                     runBody = (await request.json()) as Record<string, any>
-                    return [200, { id: 'new-task', latest_run: 'run-1' }]
+                    return [200, { id: 'new-task', latest_run: { id: 'run-1' } }]
                 },
             },
         })
@@ -379,7 +493,7 @@ describe('taskTrackerSceneLogic', () => {
     it('restores the repository integration after a submit so the picker reappears', async () => {
         useMocks({
             get: {
-                '/api/environments/:team/integrations/': {
+                '/api/projects/:team/integrations/': {
                     results: [{ id: 7, kind: 'github', display_name: 'acme/widgets', config: {} }],
                 },
             },
@@ -501,7 +615,7 @@ describe('taskTrackerSceneLogic', () => {
                     createBody = (await request.json()) as Record<string, any>
                     return [200, { id: 'new-task', ...createBody }]
                 },
-                '/api/projects/:team/tasks/:id/run/': () => [200, { id: 'new-task' }],
+                '/api/projects/:team/tasks/:id/run/': () => [200, { id: 'new-task', latest_run: { id: 'run-1' } }],
             },
         })
 

@@ -219,6 +219,7 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
         previous_observation_id: null,
         next_observation_id: null,
         label: null,
+        viewed: false,
         started_at: '2026-05-11T09:00:00Z',
         completed_at: '2026-05-11T09:01:00Z',
         created_at: '2026-05-11T09:00:00Z',
@@ -649,6 +650,7 @@ export const ScannerCalibration: StoryObj = {
 const digestScoutConfig = {
     id: '00000000-0000-0000-0000-0000000000c1',
     skill_name: 'signals-scout-daily-digest-confused-checkout',
+    display_name: 'Checkout / daily digest',
     description: 'Daily digest of what the scanner observed since the last run.',
     scout_origin: 'custom',
     owners: [alice],
@@ -657,8 +659,9 @@ const digestScoutConfig = {
     pause_reason: null,
     source_product: 'replay_vision',
     source_id: summarizerScanner.id,
-    cron_schedule: '0 9 * * *',
-    output_destinations: [],
+    run_cron_schedule: '0 9 * * *',
+    run_interval_minutes: 1440,
+    output_destinations: {},
     created_at: '2026-05-02T09:00:00Z',
 }
 
@@ -666,6 +669,7 @@ const trendScoutConfig = {
     ...digestScoutConfig,
     id: '00000000-0000-0000-0000-0000000000c2',
     skill_name: 'signals-scout-checkout-trend-watch',
+    display_name: '',
     description: 'Watches for week-over-week movement in checkout friction themes.',
     owners: [bob],
     created_at: '2026-05-06T09:00:00Z',
@@ -689,6 +693,9 @@ export const ScannerScouts: StoryObj = {
             get: {
                 '/api/projects/:team_id/signals/scout/configs/': [digestScoutConfig, trendScoutConfig],
                 '/api/projects/:team_id/vision/scanners/:scannerId/scout_reports/': [scoutReport],
+                '/api/projects/:team_id/llm_skills/name/:skillName/': {
+                    body: 'Review new scanner observations and report changes in checkout friction.',
+                },
             },
         }),
     ],
@@ -857,6 +864,7 @@ const goalDraft: DraftScannerResponseApi = {
     sampling_rate: 0.25,
     model: 'gemini-3-flash-preview',
     credit_limit: 5000,
+    experiment_targeting: null,
     estimated_monthly_observations: 1000,
 }
 
@@ -882,6 +890,90 @@ export const ScannerEditorGoalOverview: StoryObj = {
                 query: goalDraft.query as RecordingsQuery,
                 sampling_mode: goalDraft.sampling_mode as SamplingMode,
                 sampling_rate: goalDraft.sampling_rate ?? 1,
+            })
+            return <StoryFn />
+        },
+    ],
+}
+
+// The same landing step for a goal that named an experiment: the eligible-recordings section
+// leads with the experiment and variant the scan watches, which no page filter can express.
+export const ScannerEditorGoalOverviewExperiment: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerOverview('new'),
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW]: 'test' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                // The targeting card and the snack read the experiment's name from this fetch.
+                '/api/projects/:team_id/experiments/:id/': {
+                    id: 11,
+                    name: 'AI-based scanner creation',
+                    description: 'Does the goal flow beat the template gallery?',
+                    feature_flag_key: 'vision-goal-based-creation-flow',
+                    feature_flag: {
+                        id: 11,
+                        key: 'vision-goal-based-creation-flow',
+                        filters: {
+                            multivariate: {
+                                variants: [
+                                    { key: 'control', rollout_percentage: 50 },
+                                    { key: 'test', rollout_percentage: 50 },
+                                ],
+                            },
+                        },
+                    },
+                    start_date: '2026-09-01T00:00:00Z',
+                    end_date: null,
+                    exposure_criteria: {},
+                },
+            },
+        }),
+        (StoryFn) => {
+            const logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            const draft: DraftScannerResponseApi = {
+                ...goalDraft,
+                name: 'New creation flow friction',
+                description: 'Flags sessions where a participant struggles in the new AI creation flow.',
+                scanner_config: {
+                    prompt: 'Did the participant hesitate, backtrack, or give up while describing their goal in the scanner creation flow? Answer yes or no with a one-sentence reason.',
+                    allow_inconclusive: true,
+                },
+                rationale:
+                    'Your goal is about the new AI creation flow, so this watches only the sessions of people the experiment put in its test variant, on the pages where that flow lives. Struggling looks unremarkable, so it watches all matching replays rather than only the eventful ones.',
+                query: {
+                    kind: 'RecordingsQuery',
+                    properties: [
+                        {
+                            type: 'recording',
+                            key: 'visited_page',
+                            value: ['/replay-vision/scanners/new'],
+                            operator: 'icontains',
+                        },
+                    ],
+                    events: [
+                        {
+                            id: 'replay_vision_scanner_creation_started',
+                            name: 'replay_vision_scanner_creation_started',
+                            type: 'events',
+                            order: 0,
+                        },
+                    ],
+                } as RecordingsQuery,
+                experiment_targeting: { experiment_id: 11, variant: 'test' },
+            }
+            logic.actions.draftScannerFromGoalSuccess(draft)
+            logic.actions.setScannerValues({
+                name: draft.name,
+                description: draft.description,
+                scanner_type: draft.scanner_type as ScannerType,
+                scanner_config: draft.scanner_config as ScannerConfig,
+                query: draft.query as RecordingsQuery,
+                sampling_mode: draft.sampling_mode as SamplingMode,
+                sampling_rate: draft.sampling_rate ?? 1,
+                experiment_targeting: draft.experiment_targeting,
             })
             return <StoryFn />
         },

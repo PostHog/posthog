@@ -10,6 +10,7 @@ import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/util
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDialog, LemonDialogProps } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { Link } from 'lib/lemon-ui/Link'
@@ -24,6 +25,7 @@ import {
 } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { RecordingsUniversalFilterAddFilterPopover } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { defaultRecordingDurationFilter } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { Settings } from 'scenes/settings/Settings'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -33,6 +35,30 @@ import { PropertyFilterType, RecordingUniversalFilters, UniversalFiltersGroup } 
 
 import { clampDurationFilter, durationFilterError, MAX_ACTIVE_LABEL } from '../durationBounds'
 import { replayScannerLogic } from '../replayScannerLogic'
+
+// The wizard holds an unsaved draft, so sending someone to the settings scene to define their test
+// account filters drops them out of the flow they were told to fix. Configure them in place instead.
+// Exported so the story can snapshot the exact dialog the wizard opens.
+export function testAccountFilterSettingsDialogProps(): LemonDialogProps {
+    return {
+        title: 'Filter out internal and test users',
+        width: '40rem',
+        content: (
+            <Settings
+                logicKey="replay-vision-internal-user-filtering"
+                sectionId="environment-customization"
+                settingId="internal-user-filtering"
+                hideSections
+                handleLocally
+            />
+        ),
+        primaryButton: { children: 'Done' },
+    }
+}
+
+function openTestAccountFilterSettings(): void {
+    LemonDialog.open(testAccountFilterSettingsDialogProps())
+}
 
 // Mirrors the recordings list taxonomy, including suggested filters so the search bar surfaces them.
 // Group properties are appended per-project from groupsModel (see scannerFilterTypes below).
@@ -204,6 +230,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                     onChange={(checked) =>
                                         applyUniversal({ ...universal, filter_test_accounts: checked })
                                     }
+                                    onConfigure={openTestAccountFilterSettings}
                                 />
                             </div>
                             {/* -ml-2 cancels AndOrFilterSelect's built-in prefix indent so "Match" left-aligns with the rest. */}

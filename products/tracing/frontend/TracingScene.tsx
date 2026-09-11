@@ -80,6 +80,7 @@ function TracingSceneContents(): JSX.Element {
         sparklineData,
         sparklineLoading,
         openTraceSpans,
+        traceIdentity,
         isLoadingFullTrace,
         canLoadMoreTraceSpans,
         traceSpansLoadingMore,
@@ -288,6 +289,7 @@ function TracingSceneContents(): JSX.Element {
                 traceId={selectedTraceId}
                 ts={selectedTraceTs}
                 spans={openTraceSpans}
+                identity={traceIdentity}
                 loading={isLoadingFullTrace}
                 hasMoreSpans={canLoadMoreTraceSpans}
                 loadingMoreSpans={traceSpansLoadingMore}

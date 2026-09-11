@@ -1,8 +1,4 @@
-import {
-  ChatCircleIcon,
-  SidebarSimpleIcon,
-  SpinnerGapIcon,
-} from "@phosphor-icons/react";
+import { ChatCircleIcon, SidebarSimpleIcon } from "@phosphor-icons/react";
 import {
   Button,
   Empty,
@@ -13,29 +9,27 @@ import {
   Tabs,
   TabsList,
   TabsTrigger,
-  Text,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
 import type { Task } from "@posthog/shared/domain-types";
 import { TaskCommentsList } from "@posthog/ui/features/canvas/components/TaskCommentsList";
-import { CanvasContextEditor } from "@posthog/ui/features/canvas/freeform/ContextEditor";
 import { FreeformGenerateBar } from "@posthog/ui/features/canvas/freeform/FreeformGenerateBar";
 import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
-import { Spin } from "@posthog/ui/primitives/Spinner";
+import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useQuery } from "@tanstack/react-query";
 import { type Ref, useEffect, useRef } from "react";
 
-// The canvas's right-hand dock. While a generation/edit run is in flight it
-// shows that run's live chat (steering/queue included); otherwise it shows the
-// edit composer, which starts a new run (and so a new session) for the next
-// change. Header carries a minimize control that collapses the panel to a thin
-// rail (handled by the parent).
+// The canvas's right-hand dock. It shows the chat of this person's run on the
+// canvas (steering/queue included) when they have one; otherwise it shows the
+// edit composer, which starts their first run. Header carries a minimize
+// control that collapses the panel to a thin rail (handled by the parent).
 export function CanvasSidePanel({
   chatTaskId,
   commentTaskId,
@@ -53,14 +47,13 @@ export function CanvasSidePanel({
   editorRef,
   onStarted,
 }: {
-  /** The run whose live chat the panel shows: the one in flight right now, or
-   * null once it finished. A finished run's chat is not shown again, so every
-   * visit starts from the composer instead of the session that built the
-   * canvas. */
+  /** The run whose chat the panel shows: the current person's own run on this
+   * canvas, or null when they have none. Another person's run never shows
+   * here, even while it is in flight. */
   chatTaskId: string | null;
   commentTaskId: string | null;
   /** Whether the canvas is being edited. The composer is an edit affordance, so
-   * view mode shows an empty chat when no run is in flight. */
+   * view mode shows an empty chat when this person has no run. */
   interactive?: boolean;
   onMinimize: () => void;
   dashboardId: string;
@@ -91,7 +84,26 @@ export function CanvasSidePanel({
 
   return (
     <div className="flex h-full min-w-0 flex-col bg-gray-1">
-      <div className="flex h-10 shrink-0 items-center justify-between border-b bg-chrome pr-2 pl-3">
+      <ChromeBar
+        className="bg-chrome"
+        actions={
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon"
+                  variant="default"
+                  aria-label="Minimize panel"
+                  onClick={onMinimize}
+                >
+                  <SidebarSimpleIcon size={16} />
+                </Button>
+              }
+            />
+            <TooltipContent>Minimize panel</TooltipContent>
+          </Tooltip>
+        }
+      >
         <Tabs
           value={tab}
           onValueChange={(value) => setTab(value as "chat" | "comments")}
@@ -109,22 +121,7 @@ export function CanvasSidePanel({
             </TabsTrigger>
           </TabsList>
         </Tabs>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                size="icon"
-                variant="default"
-                aria-label="Minimize panel"
-                onClick={onMinimize}
-              >
-                <SidebarSimpleIcon size={16} />
-              </Button>
-            }
-          />
-          <TooltipContent>Minimize panel</TooltipContent>
-        </Tooltip>
-      </div>
+      </ChromeBar>
 
       <div className="min-h-0 flex-1">
         {tab === "comments" && commentTaskId ? (
@@ -144,15 +141,15 @@ export function CanvasSidePanel({
               <EmptyMedia variant="icon">
                 <ChatCircleIcon size={24} />
               </EmptyMedia>
-              <EmptyTitle>No active run</EmptyTitle>
+              <EmptyTitle>No run yet</EmptyTitle>
               <EmptyDescription>
-                Select Edit to start a new agent run on this canvas. Each run
-                publishes a new version.
+                Select Edit to start an agent run on this canvas. Its chat shows
+                here.
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : (
-          <div className="flex h-full min-h-0 flex-col gap-3 p-3">
+          <div className="p-3">
             <FreeformGenerateBar
               ref={editorRef}
               sessionId={`canvas:${dashboardId}`}
@@ -164,17 +161,6 @@ export function CanvasSidePanel({
               isEdit={isEdit}
               onStarted={onStarted}
             />
-            {/* The author context (markdown): background the agent reads on
-                every generation. Edits against the saved record, autosaving
-                on blur. */}
-            <div className="flex min-h-0 flex-1 flex-col gap-1">
-              <Text size="xs" variant="muted" className="shrink-0">
-                Context: notes the agent reads on every generation
-              </Text>
-              <div className="min-h-0 flex-1 overflow-hidden rounded-md border">
-                <CanvasContextEditor dashboardId={dashboardId} />
-              </div>
-            </div>
           </div>
         )}
       </div>
@@ -188,13 +174,7 @@ function CanvasChatLoader({ taskId }: { taskId: string }) {
   const { data: task } = useQuery(taskDetailQuery(taskId));
 
   if (!task) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spin className="text-gray-9">
-          <SpinnerGapIcon size={18} />
-        </Spin>
-      </div>
-    );
+    return <LoadingState />;
   }
 
   return <EmbeddedSessionView task={task} />;
@@ -218,13 +198,7 @@ function CanvasCommentsLoader({
   const { data: task } = useQuery(taskDetailQuery(taskId));
 
   if (!task) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spin className="text-gray-9">
-          <SpinnerGapIcon size={18} />
-        </Spin>
-      </div>
-    );
+    return <LoadingState />;
   }
 
   return (

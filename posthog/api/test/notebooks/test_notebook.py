@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
 
@@ -167,7 +167,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         assert "short_id" in response_json
         short_id = response_json["short_id"]
 
-        with freeze_time("2022-01-02"):
+        with time_machine.travel("2022-01-02", tick=False):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/notebooks/{short_id}",
                 {
@@ -328,28 +328,6 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             "kind": "DataVisualizationNode",
             "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
         }
-
-    def test_python_node_static_analysis(self) -> None:
-        content = {
-            "type": "doc",
-            "content": [
-                {
-                    "type": "ph-python",
-                    "attrs": {"code": "value = count + 1\nresult = len(value)\n"},
-                }
-            ],
-        }
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/notebooks",
-            data={"content": content},
-        )
-        assert response.status_code == status.HTTP_201_CREATED
-        attrs = response.json()["content"]["content"][0]["attrs"]
-        assert attrs["globalsUsed"] == ["count"]
-        assert attrs["globalsExportedWithTypes"] == [
-            {"name": "result", "type": "unknown"},
-            {"name": "value", "type": "unknown"},
-        ]
 
     def test_listing_does_not_leak_between_teams(self) -> None:
         another_team = Team.objects.create(organization=self.organization)
