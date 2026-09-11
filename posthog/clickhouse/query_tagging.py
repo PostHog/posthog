@@ -420,6 +420,7 @@ class QueryTags(BaseModel):
     exported_asset_id: Optional[int] = None
     export_format: Optional[str] = None
     chargeable: Optional[int] = None
+    api_queries_budgeted: Optional[bool] = None  # server-set only; request tags cannot reach it
     request_name: Optional[str] = None
     name: Optional[str] = None
     endpoint_version: Optional[int] = None  # Endpoints, the product

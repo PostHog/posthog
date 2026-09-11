@@ -21,7 +21,7 @@ from posthog.api_queries_budget import (
     seconds_until_positive,
 )
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Product, reset_query_tags, tag_queries
 
 SPEC = BudgetSpec(bytes_per_hour=3600.0, capacity_bytes=7200.0)
 
@@ -99,7 +99,7 @@ class TestRequestQueryCost(SimpleTestCase):
         assert get_request_query_cost() is None
 
 
-class TestChargeableQueryMetering(ClickhouseTestMixin, BaseTest):
+class TestBudgetedQueryMetering(ClickhouseTestMixin, BaseTest):
     # LIMIT applies to the aggregate's single output row, not to system.numbers itself,
     # so bound the scan inside a subquery or the read never terminates.
     BOUNDED_QUERY = "SELECT sum(number) FROM (SELECT number FROM system.numbers LIMIT 10000)"
@@ -108,10 +108,10 @@ class TestChargeableQueryMetering(ClickhouseTestMixin, BaseTest):
         super().setUp()
         reset_request_query_cost()
 
-    def test_chargeable_query_debits_the_team_budget(self):
+    def test_budgeted_query_debits_the_team_budget(self):
         spec = budget_spec_for(self.organization)
         refill_and_read(str(self.team.pk), spec)
-        tag_queries(chargeable=1, team_id=self.team.pk)
+        tag_queries(api_queries_budgeted=True, team_id=self.team.pk)
         try:
             sync_execute(self.BOUNDED_QUERY)
         finally:
@@ -123,6 +123,29 @@ class TestChargeableQueryMetering(ClickhouseTestMixin, BaseTest):
     def test_untagged_query_is_not_metered(self):
         sync_execute(self.BOUNDED_QUERY)
         assert get_request_query_cost() is None
+
+    def test_chargeable_but_unbudgeted_query_is_not_metered(self):
+        tag_queries(chargeable=1, team_id=self.team.pk)
+        try:
+            sync_execute(self.BOUNDED_QUERY)
+        finally:
+            reset_query_tags()
+        assert get_request_query_cost() is None
+
+    @parameterized.expand(
+        [
+            ("caller_supplied_endpoints_product_tag", {"product": Product.ENDPOINTS}),
+            ("caller_supplied_data_catalog_product_tag", {"product": Product.DATA_CATALOG}),
+        ]
+    )
+    def test_caller_supplied_tags_do_not_change_metering(self, _name, tags):
+        tag_queries(api_queries_budgeted=True, team_id=self.team.pk, **tags)
+        try:
+            sync_execute(self.BOUNDED_QUERY)
+        finally:
+            reset_query_tags()
+        cost = get_request_query_cost()
+        assert cost is not None and cost.bytes_read > 0
 
 
 class QueryDied(Exception):
@@ -137,7 +160,7 @@ class TestFailedQueryMetering(BaseTest):
         fake_client.execute.side_effect = QueryDied("network down before connecting")
         pool = MagicMock()
         pool.__enter__.return_value = fake_client
-        tag_queries(chargeable=1, team_id=self.team.pk)
+        tag_queries(api_queries_budgeted=True, team_id=self.team.pk)
         try:
             with patch("posthog.clickhouse.client.execute.get_client_from_pool", return_value=pool):
                 with pytest.raises(QueryDied):

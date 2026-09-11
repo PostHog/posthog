@@ -216,7 +216,7 @@ def resolve_kill_switch_level(team_id: Optional[int]) -> KillSwitchLevel:
     return level
 
 
-def _meter_chargeable_query(team_id: str, query_info: Any) -> None:
+def _meter_budgeted_query(team_id: str, query_info: Any) -> None:
     # Runs after the pooled connection is released, and must never raise: a metering failure
     # is an error counter, not a failed query.
     try:
@@ -228,7 +228,7 @@ def _meter_chargeable_query(team_id: str, query_info: Any) -> None:
         capture_exception(e)
 
 
-def _chargeable_query_info(client: Any, query_info_before: Any) -> Optional[Any]:
+def _query_info_to_meter(client: Any, query_info_before: Any) -> Optional[Any]:
     """The query info to meter for the query that just ran on `client`, or None.
 
     The driver only creates a new query info once the connection is established, so the identity
@@ -534,7 +534,7 @@ def sync_execute(
         else:
             settings["use_hedged_requests"] = "1" if get_hedged_app_queries_enabled() else "0"
     start_time = perf_counter()
-    chargeable_query_info: Optional[Any] = None
+    budgeted_query_info: Optional[Any] = None
 
     try:
         QUERY_STARTED_COUNTER.labels(
@@ -560,8 +560,8 @@ def sync_execute(
                 # A query killed mid-scan (timeout, memory limit) has already cost the read, so
                 # keep the progress the server reported before it died. The Redis write happens
                 # in the outer finally, once the connection is back in the pool.
-                if tags.chargeable and tags.team_id:
-                    chargeable_query_info = _chargeable_query_info(client, query_info_before)
+                if tags.api_queries_budgeted and tags.team_id:
+                    budgeted_query_info = _query_info_to_meter(client, query_info_before)
             if (
                 "INSERT INTO" in prepared_sql
                 and hasattr(client, "last_query")
@@ -584,8 +584,8 @@ def sync_execute(
         raise err from e
     finally:
         execution_time = perf_counter() - start_time
-        if chargeable_query_info is not None:
-            _meter_chargeable_query(str(tags.team_id), chargeable_query_info)
+        if budgeted_query_info is not None:
+            _meter_budgeted_query(str(tags.team_id), budgeted_query_info)
 
         QUERY_FINISHED_COUNTER.labels(
             team_id=str(team_id or ""),

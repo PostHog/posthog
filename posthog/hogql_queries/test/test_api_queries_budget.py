@@ -9,6 +9,7 @@ from parameterized import parameterized
 from posthog.schema import HogQLQuery
 
 from posthog.api_queries_budget import budget_spec_for, debit, refill_and_read
+from posthog.clickhouse.query_tagging import Product, reset_query_tags, tag_queries
 from posthog.exceptions import APIQueriesBudgetExceeded
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import (
@@ -80,20 +81,37 @@ class TestApiQueriesBudgetEnforcement(BaseTest):
         ):
             self._runner()._enforce_api_queries_budget()
 
-    @parameterized.expand([("api_key_query_refused", True), ("app_query_admitted", False)])
-    def test_call_with_rate_limits_enforces_the_budget_for_api_key_queries_only(self, _name, is_query_service):
+    @parameterized.expand([("api_key_query_unbudgeted", True), ("app_query", False)])
+    def test_call_with_rate_limits_admits_unbudgeted_queries(self, _name, is_query_service):
         self._drain()
         runner = self._runner(is_query_service=is_query_service)
         with (
             patch("posthog.hogql_queries.query_runner._api_queries_budget_enforcement_enabled", return_value=True),
             patch.object(runner, "calculate", return_value="stub result"),
         ):
-            if is_query_service:
-                with pytest.raises(APIQueriesBudgetExceeded):
-                    runner._call_with_rate_limits(dashboard_id=None)
-            else:
-                result, _duration_ms = runner._call_with_rate_limits(dashboard_id=None)
-                assert result == "stub result"
+            result, _duration_ms = runner._call_with_rate_limits(dashboard_id=None)
+        assert result == "stub result"
+
+    @parameterized.expand(
+        [
+            ("budgeted", {}),
+            ("caller_supplied_endpoints_product_tag", {"product": Product.ENDPOINTS}),
+            ("caller_supplied_data_catalog_product_tag", {"product": Product.DATA_CATALOG}),
+        ]
+    )
+    def test_call_with_rate_limits_enforces_the_budget_for_budgeted_queries(self, _name, tags):
+        self._drain()
+        runner = self._runner(is_query_service=True)
+        tag_queries(api_queries_budgeted=True, **tags)
+        try:
+            with (
+                patch("posthog.hogql_queries.query_runner._api_queries_budget_enforcement_enabled", return_value=True),
+                patch.object(runner, "calculate", return_value="stub result"),
+                pytest.raises(APIQueriesBudgetExceeded),
+            ):
+                runner._call_with_rate_limits(dashboard_id=None)
+        finally:
+            reset_query_tags()
 
     def test_concurrency_limit_ignores_billing_quota_limited_teams(self):
         # get_api_queries_concurrency_limit reads the plain `posthog.settings` module
