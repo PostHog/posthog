@@ -80,6 +80,16 @@ DECISION_PAGE_SIZE = 1000
 SWEEP_LOCK_SECONDS = 30 * 60
 
 
+def list_ownership_claim_team_ids() -> list[int]:
+    return list(
+        TeamCustomerAnalyticsConfig.objects.filter(
+            ownership_claims_enabled=True, ownership_claim_saved_query__isnull=False
+        )
+        .order_by("team_id")
+        .values_list("team_id", flat=True)
+    )
+
+
 def reconcile_ownership_claims(team: Team) -> ClaimReconciliation:
     """Read the project's bound view and apply every decision in it. A project with claims off, no
     usable view bound, or a sweep already running is skipped, so the scheduled sweep can run for

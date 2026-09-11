@@ -1,14 +1,19 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
+import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
+from temporalio.client import ScheduleState
+from temporalio.common import WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.workflow import ParentClosePolicy
 
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -23,7 +28,15 @@ from products.customer_analytics.backend.models import (
     AccountRelationshipDefinition,
     TeamCustomerAnalyticsConfig,
 )
-from products.customer_analytics.backend.tasks.tasks import reconcile_ownership_claims_task
+from products.customer_analytics.backend.temporal.ownership_claims import (
+    OWNERSHIP_CLAIMS_COORDINATOR_SCHEDULE_ID,
+    OwnershipClaimsCoordinatorInput,
+    OwnershipClaimsCoordinatorOutput,
+    OwnershipClaimsCoordinatorWorkflow,
+    OwnershipClaimsProjects,
+    create_ownership_claims_coordinator_schedule,
+    ownership_claims_workflow_id,
+)
 from products.customer_analytics.backend.test.factories import create_account, create_saved_query
 
 FENCE = datetime(2026, 1, 1, tzinfo=UTC)
@@ -350,27 +363,66 @@ class TestOwnershipClaims(BaseTest):
         with self.assertRaises(ownership_claims.ClaimSourceMisconfigured):
             ownership_claims.reconcile_ownership_claims(self.team)
 
-    def test_scheduled_sweep_continues_past_a_failing_project(self):
-        other_team = Team.objects.create(organization=self.organization, name="other")
-        other_config = get_or_create_team_extension(other_team, TeamCustomerAnalyticsConfig)
-        other_config.ownership_claims_enabled = True
-        other_config.ownership_claim_saved_query = create_saved_query(
-            team_id=other_team.id, name="decisions", columns=dict.fromkeys(DECISION_COLUMNS, {})
+    def test_only_projects_with_claims_on_and_a_view_bound_are_swept(self):
+        claims_off = Team.objects.create(organization=self.organization, name="claims off")
+        claims_off_config = get_or_create_team_extension(claims_off, TeamCustomerAnalyticsConfig)
+        claims_off_config.ownership_claim_saved_query = create_saved_query(
+            team_id=claims_off.id, name="decisions", columns=dict.fromkeys(DECISION_COLUMNS, {})
         )
-        other_config.save(update_fields=["ownership_claims_enabled", "ownership_claim_saved_query"])
-        seen: list[int] = []
+        claims_off_config.save(update_fields=["ownership_claim_saved_query"])
+        no_view = Team.objects.create(organization=self.organization, name="no view")
+        no_view_config = get_or_create_team_extension(no_view, TeamCustomerAnalyticsConfig)
+        no_view_config.ownership_claims_enabled = True
+        no_view_config.save(update_fields=["ownership_claims_enabled"])
 
-        def reconcile(team):
-            seen.append(team.id)
-            if team.id == self.team.id:
-                raise RuntimeError("view broken")
-            return ownership_claims.ClaimReconciliation(team_id=team.id, decisions=0, outcomes={})
+        assert ownership_claims.list_ownership_claim_team_ids() == [self.team.id]
 
-        with (
-            patch("products.customer_analytics.backend.tasks.tasks.reconcile_ownership_claims", side_effect=reconcile),
-            patch("products.customer_analytics.backend.tasks.tasks.capture_exception") as captured,
-        ):
-            reconcile_ownership_claims_task()
 
-        assert sorted(seen) == sorted([self.team.id, other_team.id])
-        captured.assert_called_once()
+@pytest.mark.asyncio
+async def test_coordinator_starts_one_sweep_per_project_and_leaves_a_running_one_alone() -> None:
+    team_ids = (11, 22, 33)
+    start_child_workflow = AsyncMock(
+        side_effect=[None, WorkflowAlreadyStartedError(ownership_claims_workflow_id(22), "sweep"), None]
+    )
+    with (
+        patch(
+            "products.customer_analytics.backend.temporal.ownership_claims.workflow.execute_activity",
+            AsyncMock(return_value=OwnershipClaimsProjects(team_ids=team_ids)),
+        ),
+        patch(
+            "products.customer_analytics.backend.temporal.ownership_claims.workflow.start_child_workflow",
+            start_child_workflow,
+        ),
+    ):
+        result = await OwnershipClaimsCoordinatorWorkflow().run(OwnershipClaimsCoordinatorInput())
+
+    assert result == OwnershipClaimsCoordinatorOutput(enabled_teams=3, started_children=2, overlapping_children=1)
+    assert [call.kwargs["id"] for call in start_child_workflow.await_args_list] == [
+        ownership_claims_workflow_id(team_id) for team_id in team_ids
+    ]
+    for call in start_child_workflow.await_args_list:
+        assert call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE
+        assert call.kwargs["parent_close_policy"] == ParentClosePolicy.ABANDON
+
+
+@pytest.mark.asyncio
+async def test_schedule_update_keeps_an_operator_pause() -> None:
+    paused = ScheduleState(paused=True, note="Repairing the bound view.")
+    client = MagicMock()
+    client.get_schedule_handle.return_value.describe = AsyncMock(
+        return_value=SimpleNamespace(schedule=SimpleNamespace(state=paused))
+    )
+    with (
+        patch(
+            "products.customer_analytics.backend.temporal.ownership_claims.a_schedule_exists",
+            new=AsyncMock(return_value=True),
+        ),
+        patch(
+            "products.customer_analytics.backend.temporal.ownership_claims.a_update_schedule", new=AsyncMock()
+        ) as update_schedule,
+    ):
+        await create_ownership_claims_coordinator_schedule(client)
+
+    _, schedule_id, schedule = update_schedule.await_args.args
+    assert schedule_id == OWNERSHIP_CLAIMS_COORDINATOR_SCHEDULE_ID
+    assert schedule.state == paused

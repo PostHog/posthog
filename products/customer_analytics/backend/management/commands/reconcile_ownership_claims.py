@@ -1,5 +1,5 @@
 """Apply the Salesforce Task decisions in a project's bound warehouse view once, and print what
-happened. The scheduled sweep in ``posthog/tasks/scheduled.py`` does the same for every enabled
+happened. The Temporal schedule in ``temporal/ownership_claims.py`` does the same for every enabled
 project on a timer.
 
     python manage.py reconcile_ownership_claims --team-id 2
