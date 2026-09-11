@@ -23,7 +23,9 @@ import {
     RetentionQuery,
 } from '~/queries/schema/schema-general'
 import { isInsightActorsQuery, isLifecycleQuery, isRetentionQuery, isStickinessQuery } from '~/queries/utils'
-import { InsightLogicProps } from '~/types'
+import { InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
+
+import { urlForNewWorkflowWithTrigger } from 'products/workflows/frontend/Workflows/workflowTriggerPrefill'
 
 import type { DataColorTheme } from '../../lib/colors'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
@@ -66,6 +68,7 @@ export interface retentionModalLogicValues {
     canOpenPersonModal: boolean
     exploreUrl: string | null
     insightEventsQueryUrl: string | null
+    cohortRedirectsToWorkflow: boolean
     isCohortModalOpen: boolean
     selectedBreakdownValue: number | string | null
     selectedColumnIndex: number | null
@@ -97,8 +100,12 @@ export interface retentionModalLogicActions {
     saveAsCohort: (cohortName: string) => {
         cohortName: string
     }
-    setIsCohortModalOpen: (isOpen: boolean) => {
+    setIsCohortModalOpen: (
+        isOpen: boolean,
+        redirectToWorkflow?: boolean
+    ) => {
         isOpen: boolean
+        redirectToWorkflow: boolean
     }
 }
 
@@ -179,7 +186,10 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
         }),
         closeModal: true,
         saveAsCohort: (cohortName: string) => ({ cohortName }),
-        setIsCohortModalOpen: (isOpen: boolean) => ({ isOpen }),
+        setIsCohortModalOpen: (isOpen: boolean, redirectToWorkflow: boolean = false) => ({
+            isOpen,
+            redirectToWorkflow,
+        }),
     })),
     reducers({
         selectedInterval: [
@@ -203,6 +213,14 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
             {
                 openModal: (_, { columnIndex }: { columnIndex?: number | null }) => columnIndex ?? null,
                 closeModal: () => null,
+            },
+        ],
+        cohortRedirectsToWorkflow: [
+            false,
+            {
+                setIsCohortModalOpen: (_, { redirectToWorkflow }: { redirectToWorkflow: boolean }) =>
+                    redirectToWorkflow,
+                closeModal: () => false,
             },
         ],
         isCohortModalOpen: [
@@ -367,6 +385,27 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
             }
             const cohort = await api.create('api/cohort', { ...cohortParams, query: values.actorsQuery })
             cohortsModel.actions.cohortCreated(cohort)
+            if (values.cohortRedirectsToWorkflow) {
+                actions.setIsCohortModalOpen(false)
+                actions.closeModal()
+                router.actions.push(
+                    urlForNewWorkflowWithTrigger({
+                        type: 'batch',
+                        filters: {
+                            properties: [
+                                {
+                                    key: 'id',
+                                    type: PropertyFilterType.Cohort,
+                                    value: cohort.id,
+                                    operator: PropertyOperator.In,
+                                    cohort_name: cohort.name,
+                                },
+                            ],
+                        },
+                    })
+                )
+                return
+            }
             lemonToast.success('Cohort saved', {
                 toastId: `cohort-saved-${cohort.id}`,
                 button: {
