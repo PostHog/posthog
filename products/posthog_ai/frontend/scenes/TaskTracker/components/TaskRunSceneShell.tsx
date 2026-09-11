@@ -5,6 +5,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -121,7 +122,7 @@ export function TaskRunSceneShell({
                         />
                     )}
 
-                    <header className="flex flex-col gap-y-2 mt-4">
+                    <header className={cn('flex flex-col gap-y-2', taskError && 'mt-4')}>
                         <SceneTitleSection
                             name={task?.title || 'Task'}
                             description={null}
