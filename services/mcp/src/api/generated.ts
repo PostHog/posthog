@@ -40520,6 +40520,22 @@ export namespace Schemas {
       Unknown: 'unknown',
     } as const;
 
+    /**
+     * * `flag_disabled` - flag_disabled
+     * * `insufficient_version_coverage` - insufficient_version_coverage
+     * * `empty_window` - empty_window
+     * * `comparison` - comparison
+     */
+    export type FallbackReasonEnum = typeof FallbackReasonEnum[keyof typeof FallbackReasonEnum];
+
+
+    export const FallbackReasonEnum = {
+      FlagDisabled: 'flag_disabled',
+      InsufficientVersionCoverage: 'insufficient_version_coverage',
+      EmptyWindow: 'empty_window',
+      Comparison: 'comparison',
+    } as const;
+
     export type FeatureFlagFilters = { [key: string]: unknown };
 
     export type FeatureFlagSurveys = { [key: string]: unknown };
@@ -50629,6 +50645,18 @@ export namespace Schemas {
       /** @nullable */
       readonly updated_at: string | null;
     }
+
+    /**
+     * * `stored_patterns` - stored_patterns
+     * * `body_mining` - body_mining
+     */
+    export type LogsPatternsSourceEnum = typeof LogsPatternsSourceEnum[keyof typeof LogsPatternsSourceEnum];
+
+
+    export const LogsPatternsSourceEnum = {
+      StoredPatterns: 'stored_patterns',
+      BodyMining: 'body_mining',
+    } as const;
 
     export interface LogsRetentionRule {
       /** Unique identifier for this retention rule. */
@@ -90811,12 +90839,12 @@ export namespace Schemas {
     }
 
     /**
-     * Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it.
+     * Occurrences keyed by lowercased severity ("trace" through "fatal"). Never extrapolated, because severity dominance is a proportion that scaling would not change. Sample counts when `sampled` is true, counts over every matching row otherwise.
      */
     export type _LogPatternSeverityCounts = {[key: string]: number};
 
     export interface _LogPatternExample {
-      /** Log body as the miner saw it: whitespace-collapsed and truncated to the mining length cap, with the message field extracted from JSON bodies. This is not the raw stored line. */
+      /** Original-message example. Body mining normalizes whitespace, extracts JSON message fields and truncates to the mining cap. Stored-pattern aggregation returns the raw body prefix, limited to 4096 Unicode characters. */
       body: string;
       /** Severity of the sampled line, e.g. "info", "error". */
       severity_text: string;
@@ -90827,29 +90855,29 @@ export namespace Schemas {
     }
 
     export interface _LogPattern {
-      /** Mined log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Tokens: <timestamp>, <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. */
+      /** Log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Body mining masks <timestamp>, <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. Stored patterns use the ingestion vocabulary instead: <N>, <TIMESTAMP>, <KLOGTIME>, <UUID>, <IP>, <HOST>, <HEX>, <ID>, <EMAIL>, <JSON_ARRAY>, and <JSON:keys> for a JSON body reduced to its key set. */
       pattern: string;
       /** Occurrences of this pattern within the sample. When `sampled` is true this is a sample count, not the full-window total — prefer `estimated_count` for display. */
       count: number;
       /** Estimated occurrences across the full window, extrapolated from the sample (`count / scanned_count * total_count`). Equals `count` when the window was not sampled. */
       estimated_count: number;
-      /** Share of the sampled log volume this pattern represents (0–100). */
+      /** Share of the log volume this pattern represents (0–100). Measured over the sample when `sampled` is true, over every matching row otherwise. */
       volume_share_pct: number;
-      /** Sampled occurrences at severity "error" or "fatal". Prefer `estimated_error_count` for display. */
+      /** Occurrences at severity "error" or "fatal". A sample count when `sampled` is true, so prefer `estimated_error_count` for display. */
       error_count: number;
       /** Estimated error/fatal occurrences across the full window, extrapolated from the sample. Equals `error_count` when the window was not sampled. */
       estimated_error_count: number;
-      /** ISO 8601 timestamp of the earliest sampled occurrence. */
+      /** ISO 8601 timestamp of the earliest occurrence. Taken from the sample when `sampled` is true, from every matching row otherwise. */
       first_seen: string;
-      /** ISO 8601 timestamp of the latest sampled occurrence. */
+      /** ISO 8601 timestamp of the latest occurrence. Taken from the sample when `sampled` is true, from every matching row otherwise. */
       last_seen: string;
       /** Up to 10 distinct sampled log lines that produced this pattern, with severity, service, and timestamp for display. */
       examples: _LogPatternExample[];
       /** Up to 4 distinct service names this pattern was observed in. */
       services: string[];
-      /** Estimated occurrences per time bucket, aligned index-for-index with the response's `sparkline_buckets`. Extrapolated from the sample like `estimated_count`, so it shows the volume shape over the window, not exact per-bucket tallies. */
+      /** Occurrences per time bucket, aligned index-for-index with the response's `sparkline_buckets`. When `sampled` is true these are extrapolated like `estimated_count` and show the volume shape over the window rather than exact tallies. Otherwise they are exact per-bucket counts. */
       sparkline: number[];
-      /** Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it. */
+      /** Occurrences keyed by lowercased severity ("trace" through "fatal"). Never extrapolated, because severity dominance is a proportion that scaling would not change. Sample counts when `sampled` is true, counts over every matching row otherwise. */
       severity_counts: _LogPatternSeverityCounts;
       /**
          * RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from the template and validated against the raw bodies of the pattern's own sampled rows before being offered. Null when the template lacks literal content or validation failed. Never trust an unvalidated predicate. Use with the message/regex log property filter.
@@ -90861,6 +90889,13 @@ export namespace Schemas {
          * @nullable
          */
       match_literal: string | null;
+      /** Exact canonical members of a stored-pattern group. Filter pattern IN these values AND pattern_version equals this group's version. Empty for body mining. */
+      match_patterns?: string[];
+      /**
+         * Version required by match_patterns. Null for body mining.
+         * @nullable
+         */
+      pattern_version?: number | null;
     }
 
     /**
@@ -90963,7 +90998,7 @@ export namespace Schemas {
     } as const;
 
     export interface _LogPropertyFilter {
-      /** Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name"). */
+      /** Attribute key. For type "log", use "message" for the body text, or a log column: "pattern" and "pattern_version" (the patterns pivot), "severity_level", "service_name", "trace_id", "span_id". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name"). */
       key: string;
       /** "log" filters the log body/message. "log_attribute" filters log-level attributes. "log_resource_attribute" filters resource-level attributes.
        *
@@ -91261,6 +91296,38 @@ export namespace Schemas {
     }
 
     export interface _LogsPatternsDiffWindow {
+      /** Whether counts come from stored-pattern aggregation or body masking and Drain3 mining.
+       *
+       * * `stored_patterns` - stored_patterns
+       * * `body_mining` - body_mining */
+      source?: LogsPatternsSourceEnum;
+      /**
+         * Stored pattern version used. Null for body mining.
+         * @nullable
+         */
+      pattern_version?: number | null;
+      /** Why body mining was used. Null for stored-pattern aggregation.
+       *
+       * * `flag_disabled` - flag_disabled
+       * * `insufficient_version_coverage` - insufficient_version_coverage
+       * * `empty_window` - empty_window
+       * * `comparison` - comparison */
+      fallback_reason?: FallbackReasonEnum | null;
+      /**
+         * Percentage of all matching rows with a nonempty pattern at the selected version. Null for body mining.
+         * @nullable
+         */
+      pattern_coverage_pct?: number | null;
+      /**
+         * Exact rows represented by the returned stored-pattern groups. Null for body mining.
+         * @nullable
+         */
+      represented_count?: number | null;
+      /**
+         * Matching rows outside returned groups, including other versions, unstamped rows and the long tail. Null for body mining.
+         * @nullable
+         */
+      remainder_count?: number | null;
       /** Log rows fed to the miner for this window (sample size). */
       scanned_count: number;
       /** Total log rows matching the filters in this window. */
@@ -91297,9 +91364,41 @@ export namespace Schemas {
     }
 
     export interface _LogsPatternsResponse {
-      /** Mined patterns ordered by `count` descending. */
+      /** Whether counts come from stored-pattern aggregation or body masking and Drain3 mining.
+       *
+       * * `stored_patterns` - stored_patterns
+       * * `body_mining` - body_mining */
+      source?: LogsPatternsSourceEnum;
+      /**
+         * Stored pattern version used. Null for body mining.
+         * @nullable
+         */
+      pattern_version?: number | null;
+      /** Why body mining was used. Null for stored-pattern aggregation.
+       *
+       * * `flag_disabled` - flag_disabled
+       * * `insufficient_version_coverage` - insufficient_version_coverage
+       * * `empty_window` - empty_window
+       * * `comparison` - comparison */
+      fallback_reason?: FallbackReasonEnum | null;
+      /**
+         * Percentage of all matching rows with a nonempty pattern at the selected version. Null for body mining.
+         * @nullable
+         */
+      pattern_coverage_pct?: number | null;
+      /**
+         * Exact rows represented by the returned stored-pattern groups. Null for body mining.
+         * @nullable
+         */
+      represented_count?: number | null;
+      /**
+         * Matching rows outside returned groups, including other versions, unstamped rows and the long tail. Null for body mining.
+         * @nullable
+         */
+      remainder_count?: number | null;
+      /** Pattern groups ordered by count. Stored-pattern counts are exact; body-mining counts describe the sample. */
       patterns: _LogPattern[];
-      /** Number of log rows fed to the miner (the sample size, capped at the sample limit). */
+      /** Rows scanned: the sample size for body mining, or the full matching count for stored-pattern aggregation. */
       scanned_count: number;
       /** Total log rows matching the filters in the window, before sampling. Use with `scanned_count` to scale per-pattern counts when `sampled` is true. */
       total_count: number;
