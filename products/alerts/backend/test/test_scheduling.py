@@ -1,6 +1,5 @@
 from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID
 
 import pytest
 
@@ -227,42 +226,8 @@ class TestScheduleStartTime:
         )
         assert result == expected
 
-    def test_explicit_start_time_overrides_the_default_alert_shard(self) -> None:
-        results = {
-            next_calendar_check_time(
-                CalendarInterval.HOURLY,
-                now=datetime(2026, 3, 18, 12, 0, tzinfo=UTC),
-                tz_name="UTC",
-                next_check_at=datetime(2026, 3, 18, 11, 35, tzinfo=UTC),
-                schedule_start_time="09:35",
-                alert_id=alert_id,
-            )
-            for alert_id in (UUID(int=0), UUID(int=30))
-        }
-
-        assert results == {datetime(2026, 3, 18, 12, 35, tzinfo=UTC)}
-
 
 class TestNextCalendarCheckTime:
-    def test_default_hourly_alerts_are_sharded_by_alert_id(self) -> None:
-        top_of_hour = next_calendar_check_time(
-            CalendarInterval.HOURLY,
-            now=NOW,
-            tz_name="UTC",
-            next_check_at=datetime(2026, 3, 18, 11, 0, tzinfo=UTC),
-            alert_id=UUID(int=0),
-        )
-        half_past = next_calendar_check_time(
-            CalendarInterval.HOURLY,
-            now=NOW,
-            tz_name="UTC",
-            next_check_at=datetime(2026, 3, 18, 11, 0, tzinfo=UTC),
-            alert_id=UUID(int=30),
-        )
-
-        assert top_of_hour == datetime(2026, 3, 18, 13, 0, tzinfo=UTC)
-        assert half_past == datetime(2026, 3, 18, 12, 30, tzinfo=UTC)
-
     @parameterized.expand(
         [
             # Sub-daily intervals preserve their schedule phase and skip missed evaluations.

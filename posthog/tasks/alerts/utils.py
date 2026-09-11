@@ -123,7 +123,6 @@ def _next_check_time_core(alert: AlertConfiguration) -> datetime:
         tz_name=alert.team.timezone,
         next_check_at=alert.next_check_at,
         schedule_start_time=alert.schedule_start_time,
-        alert_id=alert.id,
     )
 
 
@@ -131,7 +130,7 @@ def next_check_time(alert: AlertConfiguration) -> datetime:
     """
     Rule by calculation interval
 
-    sub-daily alerts -> spread them across their cadence using a deterministic per-alert shard
+    hourly alerts -> want them to run at the same min every hour (same min comes from creation time so that they're spread out and don't all run at the start of the hour)
     daily alerts -> want them to run at the start of the day (around 1am) by the timezone of the team
     weekly alerts -> want them to run at the start of the week (Mon around 3am) by the timezone of the team
     monthly alerts -> want them to run at the start of the month (first day of the month around 4am) by the timezone of the team
