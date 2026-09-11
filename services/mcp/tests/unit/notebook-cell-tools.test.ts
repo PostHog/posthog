@@ -620,6 +620,8 @@ describe('notebook cell tools', () => {
             ['terminated', '<SQLV2 nodeId="x" code="select 1" />'],
             // parseCellTags reports nothing for this one, which is why the guard is lexical.
             ['unterminated', '<PythonV2 nodeId="x" code="a\n\nb" />'],
+            // The backend recovers this form as a live cell, so `<` alone is not the whole guard.
+            ['escaped multiline', '\\<PythonV2 nodeId="x" code="# hi\nout = 1" />'],
         ])('refuses markdown carrying a %s component tag', async (_name, injected) => {
             const state = makeState(DOC)
             state.stateCells = [FIRST]
@@ -632,6 +634,36 @@ describe('notebook cell tools', () => {
                     markdown: `Intro.\n${injected}`,
                 })
             ).rejects.toThrow(/notebooks-add-cell/)
+            expect(state.saveBodies).toHaveLength(0)
+        })
+
+        it('accepts a component tag shown inside a code fence', async () => {
+            // Both walkers read fenced content as inert, so this opens no cell.
+            const state = makeState(DOC)
+            state.stateCells = [FIRST]
+            const context = createMockContext(state)
+
+            await updateCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                node_id: FIRST.node_id,
+                markdown: 'Example:\n\n```\n<SQLV2 nodeId="x" code="select 1" />\n```',
+            })
+
+            expect(state.saveBodies[0].content.content[0].attrs.markdown).toContain('<SQLV2')
+        })
+
+        it('refuses markdown that leaves a fence open', async () => {
+            const state = makeState(DOC)
+            state.stateCells = [FIRST]
+            const context = createMockContext(state)
+
+            await expect(
+                updateCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    node_id: FIRST.node_id,
+                    markdown: 'Example:\n\n```\nselect 1',
+                })
+            ).rejects.toThrow(/leave a code fence open/)
             expect(state.saveBodies).toHaveLength(0)
         })
 

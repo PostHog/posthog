@@ -63,11 +63,25 @@ export interface UpdateProseCellResult {
 
 /** Reject markdown that opens a component tag, so a cell can only be added by the tool that owns runs and identity. */
 function assertNoComponentTag(markdown: string): void {
-    const offending = markdown.split('\n').find((line) => startsComponentTag(line))
-    if (offending) {
+    let insideFence = false
+    for (const line of markdown.split('\n')) {
+        if (line.trim().startsWith('```')) {
+            insideFence = !insideFence
+            continue
+        }
+        // Both walkers read fenced content as inert, so a tag written as an example there opens
+        // no cell and the guard would reject a legitimate edit.
+        if (insideFence || !startsComponentTag(line)) {
+            continue
+        }
         throw new Error(
-            `markdown must not contain a component tag (found ${offending.trim().slice(0, 40)}). Add cells with notebooks-add-cell, which assigns identity, names the dataframe, and runs the cell.`
+            `markdown must not contain a component tag (found ${line.trim().slice(0, 40)}). Add cells with notebooks-add-cell, which assigns identity, names the dataframe, and runs the cell. To show a tag as an example, put it in a fenced code block.`
         )
+    }
+    // An unclosed fence flips the fence state of everything after this block, which decides
+    // whether the tags already in the document open cells.
+    if (insideFence) {
+        throw new Error('markdown must not leave a code fence open. Close every ``` block in the replacement.')
     }
 }
 

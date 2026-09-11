@@ -27,6 +27,7 @@ export interface CellTagBlock {
 export const DATAFRAME_NAME_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 const TAG_START_REGEX = /^<([A-Z][A-Za-z0-9]*)(?=[\s/>])/
+const ESCAPED_TAG_START_REGEX = /^\\<([A-Z][A-Za-z0-9]*)(?=[\s/>])/
 
 // A JSON string literal: quote-delimited with backslash escapes.
 const JSON_STRING = '"(?:[^"\\\\]|\\\\.)*"'
@@ -126,7 +127,10 @@ export function buildCellTag(tagName: string, props: Record<string, unknown>): s
  * input it must reject.
  */
 export function startsComponentTag(line: string): boolean {
-    return TAG_START_REGEX.test(line.trim())
+    const trimmed = line.trim()
+    // The backend recovers a multiline tag written as `\<Tag …>`, so the escaped form opens a
+    // runnable cell exactly like the bare one.
+    return TAG_START_REGEX.test(trimmed) || ESCAPED_TAG_START_REGEX.test(trimmed)
 }
 
 export function parseCellTags(markdown: string): CellTagBlock[] {
