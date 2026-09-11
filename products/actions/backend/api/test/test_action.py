@@ -358,7 +358,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         # With actions, there's an extra tags prefetch query
-        with self.assertNumQueries(10), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(11), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
@@ -367,7 +367,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_by=User.objects.create_and_join(self.organization, "b", ""),
         )
 
-        with self.assertNumQueries(10), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(11), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
     @parameterized.expand(

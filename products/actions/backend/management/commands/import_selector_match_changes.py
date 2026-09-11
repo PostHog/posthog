@@ -100,8 +100,10 @@ class Command(BaseCommand):
             # the team's rows keeps a re-import from leaving behind verdicts the
             # latest measurement no longer reaches.
             with transaction.atomic():
+                # Both reads and writes go through a fail-closed manager, which refuses
+                # to build a queryset without a team scope.
                 ActionSelectorMatchChange.objects.for_team(team_id).delete()
-                ActionSelectorMatchChange.objects.bulk_create(changes)
+                ActionSelectorMatchChange.objects.for_team(team_id).bulk_create(changes)
 
         if options["live_run"]:
             log(self.style.SUCCESS(f"imported {imported} selector match changes, skipped {stale} stale rows"))
