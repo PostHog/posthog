@@ -78,6 +78,19 @@ class PlanTableRead:
     def primary_key(self) -> PlanIndex | None:
         return self._first(_PRIMARY_KEY_TYPE)
 
+    def event_key_usable(self) -> bool:
+        """Whether the primary key pruned on `event`.
+
+        A negated condition (`event not in [...]`, from `!=` or `NOT IN`) lists `event` as a used
+        key but excludes a few values, so it prunes nothing; on prod it kept 90% of a range's
+        granules. It counts as usable only next to a positive `event in` term.
+        """
+        primary_key = self.primary_key()
+        if primary_key is None or "event" not in primary_key.keys:
+            return False
+        condition = primary_key.condition or ""
+        return "(event not in " not in condition or "(event in " in condition
+
     def min_max(self) -> PlanIndex | None:
         return self._first(_MIN_MAX_TYPE)
 

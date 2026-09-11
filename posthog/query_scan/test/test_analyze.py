@@ -53,6 +53,13 @@ class TestAnalyze(SimpleTestCase):
             # event gate the other way: the read is a small share, so nothing is flagged
             ("no event filter, under the ratio", "plan_no_event_filter", {"range_granules": 100_000_000}, []),
             ("event filter in the key stays quiet", "plan_event_filter_used", {}, []),
+            # `event != x` lists `event` as a used key but keeps most of the range, so it is flagged
+            (
+                "negated event filter is no filter",
+                "plan_event_filter_negated",
+                {"range_granules": 400_000},
+                ["no_event_filter"],
+            ),
             ("event filter inside an OR still used", "plan_event_filter_in_or", {}, []),
             ("no date bound is flagged", "plan_no_date_bound", {}, ["no_start_date"]),
             # persons gate: the persons read dwarfs the events read

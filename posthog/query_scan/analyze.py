@@ -158,8 +158,7 @@ def _findings_for_plan(
 
 
 def _event_key_missing(read: PlanTableRead) -> bool:
-    primary_key = read.primary_key()
-    return primary_key is None or "event" not in primary_key.keys
+    return not read.event_key_usable()
 
 
 def _passes_event_gate(read: PlanTableRead, range_share: float | None, thresholds: ScanThresholds) -> bool:
