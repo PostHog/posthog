@@ -20,14 +20,15 @@ from requests import Session
 from structlog.types import FilteringBoundLogger
 
 CLOSE_SEARCH_PATH = "/data/search/"
-CUSTOM_FIELD_PATH = "/custom_field/{object_type}/"
 REQUEST_TIMEOUT_SECONDS = 60
 # Close caps `_limit` per resource and doesn't publish the ceiling for search, so stay at the
 # value the list endpoints already accept rather than probing for a higher one.
 SEARCH_PAGE_LIMIT = 100
-CUSTOM_FIELD_PAGE_LIMIT = 100
-# Cap on how many custom-field pages we walk. Orgs have tens of custom fields, not thousands.
-MAX_CUSTOM_FIELD_PAGES = 20
+# One `_fields` selector that returns every custom field as a flat `custom.cf_*` key. Naming each
+# custom field instead makes `_fields` grow one entry per field, which Close rejects with 400
+# "List is too long." once an org has enough of them. See advanced-filtering docs:
+# https://developer.close.com/resources/advanced-filtering/
+ALL_CUSTOM_FIELDS_SELECTOR = "custom"
 # How many consecutive cursor pages we'll follow across a single-timestamp run before giving up.
 # At SEARCH_PAGE_LIMIT rows a page this covers 50k rows sharing one exact timestamp; past that
 # something is wrong with the data and failing loudly beats looping.
@@ -95,8 +96,9 @@ def _post_search(session: Session, base_url: str, body: dict[str, Any]) -> Searc
         detail = response.text[:500]
         if "cursor" in detail.lower() and "expire" in detail.lower():
             raise CloseCursorExpiredError(detail)
-        # The query shape and field selectors are built from a static list, so a 400 means
-        # Close's field set drifted. Surface its message rather than a bare status code.
+        # Any other 400 is Close rejecting the query itself, for example an unknown field, a
+        # malformed condition, or a field list it considers too long. Surface its message rather
+        # than a bare status code so the cause is visible in the error.
         raise CloseSearchError(f"Close rejected the search query: {detail}")
 
     response.raise_for_status()
@@ -111,39 +113,6 @@ def _post_search(session: Session, base_url: str, body: dict[str, Any]) -> Searc
     if any(not row.get("id") for row in rows):
         raise CloseSearchError("Close returned a search row without an id")
     return SearchPage(rows=rows, cursor=payload.get("cursor") or None)
-
-
-def fetch_custom_field_selectors(
-    session: Session, base_url: str, object_type: str, logger: FilteringBoundLogger
-) -> list[str]:
-    """Name each custom field explicitly so its value comes back as a flat `custom.cf_*` key.
-
-    Best-effort: a key without custom-field read access should still sync the standard columns
-    rather than fail the whole table.
-    """
-    selectors: list[str] = []
-    url = f"{base_url}{CUSTOM_FIELD_PATH.format(object_type=object_type)}"
-
-    try:
-        for page in range(MAX_CUSTOM_FIELD_PAGES):
-            response = session.get(
-                url,
-                params={"_limit": CUSTOM_FIELD_PAGE_LIMIT, "_skip": page * CUSTOM_FIELD_PAGE_LIMIT},
-                timeout=REQUEST_TIMEOUT_SECONDS,
-            )
-            response.raise_for_status()
-            payload = response.json()
-            rows = payload.get("data") or []
-            selectors.extend(f"custom.{row['id']}" for row in rows if isinstance(row, dict) and row.get("id"))
-            if not payload.get("has_more"):
-                break
-    except Exception as exc:
-        logger.warning(
-            f"Close: could not list custom fields, syncing standard fields only. object_type={object_type} error={exc}"
-        )
-        return []
-
-    return selectors
 
 
 def iter_search_rows(

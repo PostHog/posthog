@@ -1,19 +1,9 @@
-from collections.abc import Callable
-from typing import Any, cast
-from urllib.parse import urlencode, urlparse
-
 from django.conf import settings
-from django.core.cache import cache
-from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, HttpResponseServerError
-from django.template import loader
 from django.urls import include, path, re_path
-from django.utils.http import url_has_allowed_host_and_scheme
-from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie, requires_csrf_token
+from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import RedirectView
 
-import structlog
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
-from prometheus_client import CollectorRegistry, generate_latest, multiprocess
 from two_factor.urls import urlpatterns as tf_urls
 
 from posthog.api import (
@@ -33,18 +23,18 @@ from posthog.api import (
     user,
 )
 from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
+from posthog.api.github_webhooks.views import github_webhook
+from posthog.api.integration_connect import integration_connect_redirect
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.hogli_metadata import HOGLI_METADATA_PATH, HogliClientMetadataView
 from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
+from posthog.api.oauth.toolbar_views import authorize_and_redirect
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
-from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
-from posthog.constants import PERMITTED_FORUM_DOMAINS
-from posthog.exceptions_capture import capture_exception
-from posthog.models import User
-from posthog.models.instance_setting import get_instance_setting
+from posthog.ee_urls import ee_urlpatterns
+from posthog.frontend_views import home, home_with_region_redirect
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 from posthog.web_bot_auth import http_message_signatures_directory
@@ -92,10 +82,12 @@ from products.warehouse_sources.backend.presentation.views.public_source_configs
 from products.workflows.backend.api import hog_flow, hog_flow_template
 from products.workflows.backend.api.ses_events_webhook import ses_tenant_events_webhook
 
-from .utils import opt_slash_path, render_template
+from .utils import opt_slash_path
 from .views import (
+    handler500 as handler500,
     health,
     login_required,
+    metrics_view,
     preferences_page,
     preflight_check,
     render_query,
@@ -106,398 +98,19 @@ from .views import (
     update_preferences,
 )
 
-logger = structlog.get_logger(__name__)
-
-ee_urlpatterns: list[Any] = []
-try:
-    from ee.urls import (
-        extend_api_router,
-        urlpatterns as ee_urlpatterns,
-    )
-except ImportError:
-    if settings.DEBUG:
-        logger.warn(f"Could not import ee.urls", exc_info=True)
-    pass
-else:
-    extend_api_router()
-
-
-GithubWebhookHandler = Callable[[HttpRequest, str, dict[str, Any], str], HttpResponse | None]
-
-
-def _dispatch_conversations_event(
-    request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
-) -> HttpResponse:
-    from products.conversations.backend.api.github_events import dispatch_github_event
-
-    return dispatch_github_event(request, event_type, payload)
-
-
-def _dispatch_pull_request_event(
-    request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
-) -> HttpResponse:
-    from products.tasks.backend.facade.webhooks import handle_pull_request_event
-
-    return handle_pull_request_event(payload)
-
-
-def _dispatch_pull_request_review_event(
-    request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
-) -> HttpResponse:
-    from products.tasks.backend.facade.webhooks import handle_pull_request_review_event
-
-    return handle_pull_request_review_event(payload)
-
-
-def _dispatch_installation_event(
-    request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
-) -> HttpResponse:
-    from posthog.api.github_callback.installation_events import handle_installation_event
-
-    return handle_installation_event(payload)
-
-
-def _dispatch_installation_repositories_event(
-    request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
-) -> HttpResponse:
-    from posthog.api.github_callback.installation_events import handle_installation_repositories_event
-
-    return handle_installation_repositories_event(payload)
-
-
-def _dispatch_loop_triggers(request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str) -> None:
-    from products.tasks.backend.facade.webhooks import handle_github_event_for_loops
-
-    handle_github_event_for_loops(event_type, payload, delivery_id)
-    return None
-
-
-def _dispatch_workflow_triggers(
-    request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
-) -> None:
-    from products.workflows.backend.github_workflow_events import emit_github_event
-
-    emit_github_event(event_type, payload, delivery_id)
-    return None
-
-
-# event_type -> ordered list of (handler_name, handler). Order matters only in that
-# the first handler in a bucket to return a non-None HttpResponse determines the
-# response sent back to GitHub; the pre-existing single handler in each bucket keeps
-# that slot so its response is unchanged by additive handlers registered after it.
-GITHUB_WEBHOOK_HANDLERS: dict[str, list[tuple[str, GithubWebhookHandler]]] = {
-    "issues": [
-        ("conversations", _dispatch_conversations_event),
-        ("loops", _dispatch_loop_triggers),
-        ("workflows", _dispatch_workflow_triggers),
-    ],
-    "issue_comment": [
-        ("conversations", _dispatch_conversations_event),
-        ("loops", _dispatch_loop_triggers),
-        ("workflows", _dispatch_workflow_triggers),
-    ],
-    "pull_request": [
-        ("tasks_pr_backstop", _dispatch_pull_request_event),
-        ("loops", _dispatch_loop_triggers),
-        ("workflows", _dispatch_workflow_triggers),
-    ],
-    "pull_request_review": [
-        ("tasks_pr_review", _dispatch_pull_request_review_event),
-        ("workflows", _dispatch_workflow_triggers),
-    ],
-    "installation": [
-        ("installation_lifecycle", _dispatch_installation_event),
-    ],
-    "installation_repositories": [
-        ("installation_repositories", _dispatch_installation_repositories_event),
-    ],
-    "push": [
-        ("loops", _dispatch_loop_triggers),
-        ("workflows", _dispatch_workflow_triggers),
-    ],
-}
-
-GITHUB_WEBHOOK_DELIVERY_DEDUP_TTL_SECONDS = 24 * 60 * 60
-
-
-def _is_duplicate_github_webhook_delivery(handler_name: str, delivery_id: str) -> bool:
-    """Redis-backed per-handler delivery dedup, fail-open when the cache backend errors.
-
-    Keyed per handler, not just per delivery id: one GitHub delivery legitimately fans
-    out to multiple handlers (e.g. a pull_request delivery reaches both the tasks PR
-    backstop and the Loops handler), so a delivery-wide key would starve every handler
-    but the first. This sits alongside each consumer's own dedup (e.g. the conversations
-    Celery task) rather than replacing it.
-    """
-    key = _github_webhook_delivery_key(handler_name, delivery_id)
-    try:
-        return not cache.add(key, True, timeout=GITHUB_WEBHOOK_DELIVERY_DEDUP_TTL_SECONDS)
-    except Exception:
-        logger.warning(
-            "github_webhook_dedup_cache_failed", handler=handler_name, delivery_id=delivery_id, exc_info=True
-        )
-        return False
-
-
-def _github_webhook_delivery_key(handler_name: str, delivery_id: str) -> str:
-    return f"github_webhook_delivery:{handler_name}:{delivery_id}"
-
-
-def _release_github_webhook_delivery(handler_name: str, delivery_id: str) -> None:
-    """Drop the dedup mark after a handler failed, so GitHub's redelivery of the same
-    GUID gets processed instead of silently skipped (the mark is set before the handler
-    runs, so a failure would otherwise burn the delivery for 24h)."""
-    try:
-        cache.delete(_github_webhook_delivery_key(handler_name, delivery_id))
-    except Exception:
-        logger.warning(
-            "github_webhook_dedup_release_failed", handler=handler_name, delivery_id=delivery_id, exc_info=True
-        )
-
-
-@csrf_exempt
-def github_webhook(request: HttpRequest) -> HttpResponse:
-    """Unified GitHub App webhook dispatcher.
-
-    Verifies the HMAC-SHA256 signature once, parses JSON once, then routes by
-    ``X-GitHub-Event`` to every registered product handler. Each handler runs in
-    isolation: one handler raising is logged and captured but never blocks another
-    handler or the response sent back to GitHub.
-    """
-    import json
-
-    from products.tasks.backend.facade.webhooks import get_github_webhook_secret, verify_github_signature
-
-    if request.method != "POST":
-        return HttpResponse(status=405)
-
-    secret = get_github_webhook_secret()
-    if not secret:
-        return HttpResponse("Webhook not configured", status=500)
-
-    signature = request.headers.get("X-Hub-Signature-256")
-    if not verify_github_signature(request.body, signature, secret):
-        return HttpResponse("Invalid signature", status=403)
-
-    try:
-        payload = json.loads(request.body)
-    except json.JSONDecodeError:
-        return HttpResponse("Invalid JSON", status=400)
-
-    event_type = request.headers.get("X-GitHub-Event", "")
-    delivery_id = request.headers.get("X-GitHub-Delivery", "")
-    handlers = GITHUB_WEBHOOK_HANDLERS.get(event_type, [])
-
-    logger.info(
-        "github_webhook_dispatch",
-        event_type=event_type,
-        delivery_id=delivery_id,
-        handlers_matched=[name for name, _ in handlers],
-    )
-
-    response: HttpResponse | None = None
-    for name, handler in handlers:
-        if delivery_id and _is_duplicate_github_webhook_delivery(name, delivery_id):
-            logger.info("github_webhook_handler_deduped", event_type=event_type, delivery_id=delivery_id, handler=name)
-            continue
-
-        try:
-            handler_response = handler(request, event_type, payload, delivery_id)
-        except Exception as e:
-            logger.exception(
-                "github_webhook_handler_failed", event_type=event_type, delivery_id=delivery_id, handler=name
-            )
-            capture_exception(e)
-            if delivery_id:
-                _release_github_webhook_delivery(name, delivery_id)
-            continue
-
-        if response is None and handler_response is not None:
-            response = handler_response
-
-    return response if response is not None else HttpResponse(status=200)
-
-
-@requires_csrf_token
-def handler500(request):
-    """
-    500 error handler.
-
-    Templates: :template:`500.html`
-    Context: request
-    """
-    template = loader.get_template("500.html")
-    return HttpResponseServerError(template.render({"request": request}, request))
-
-
-APP_POSTHOG_HOST = "app.posthog.com"
-# Canonical per-region hosts a `ph_current_instance` cookie is allowed to resolve to.
-# Restricting to this set keeps the cookie from being turned into an open redirect.
-_REGION_HOSTS = {"us.posthog.com", "eu.posthog.com"}
-
-
-def region_host_from_current_instance(cookie_value: str | None) -> str | None:
-    """Map a `ph_current_instance` cookie (an instance SITE_URL) to its canonical region
-    host, or None when it isn't a recognized cloud region. Mirrors the frontend
-    `cleanedCookieSubdomain` in RedirectToLoggedInInstance.tsx — the value is sometimes
-    wrapped in quotes by the cookie serializer, so strip those before parsing."""
-    if not cookie_value:
-        return None
-    hostname = urlparse(cookie_value.replace('"', "")).hostname
-    return hostname if hostname in _REGION_HOSTS else None
-
-
-def app_region_redirect(request: HttpRequest) -> HttpResponseRedirect | None:
-    """For `app.posthog.com` page loads, send the browser to the region the user is
-    actually logged into (per the `ph_current_instance` cookie), preserving the path and
-    query. Falls back to the `REDIRECT_APP_TO_US` instance setting when there's no region
-    cookie. Returns None when no redirect applies so callers render normally.
-
-    This has to run before the `login_required` auth gate: `app.posthog.com` is the US
-    backend, so an EU user hitting a deep link like /organization/billing is otherwise
-    bounced to /login on US first, and only the login page honors the cookie."""
-    if request.method not in ("GET", "HEAD"):
-        return None
-    if request.get_host().split(":")[0] != APP_POSTHOG_HOST:
-        return None
-
-    target_host = region_host_from_current_instance(request.COOKIES.get("ph_current_instance"))
-    if target_host is None and get_instance_setting("REDIRECT_APP_TO_US"):
-        target_host = "us.posthog.com"
-    if target_host is None:
-        return None
-
-    url = "https://{}{}".format(target_host, request.get_full_path())
-    if url_has_allowed_host_and_scheme(url, target_host, True):
-        return HttpResponseRedirect(url)
-    return None
-
-
-@ensure_csrf_cookie
-def _render_home(request, *args, **kwargs):
-    return render_template("index.html", request)
-
-
-# Wrapped once at import time (as `login_required(home)` used to be) so the catch-all
-# authenticated route doesn't rebuild the wrapper on every request.
-_login_required_render_home = login_required(_render_home)
-
-
-def home(request, *args, **kwargs):
-    """Entrypoint for the unauthenticated frontend routes (login, signup, …). Runs the
-    cross-region redirect before rendering so `app.posthog.com` visitors land on their
-    logged-in region (see `app_region_redirect`)."""
-    region_redirect = app_region_redirect(request)
-    if region_redirect is not None:
-        return region_redirect
-    return _render_home(request, *args, **kwargs)
-
-
-def home_with_region_redirect(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-    """Catch-all entrypoint for authenticated frontend routes. The cross-region redirect
-    runs before `login_required` so `app.posthog.com` deep links reach the right region
-    without a detour through the login page (see `app_region_redirect`). It wraps
-    `_render_home` rather than `home` so the redirect check runs exactly once per request."""
-    region_redirect = app_region_redirect(request)
-    if region_redirect is not None:
-        return region_redirect
-    return _login_required_render_home(request, *args, **kwargs)
-
-
-_CONNECT_REDIRECT_ALLOWED_KINDS = {"github", "slack", "linear"}
-# Surfaces allowed to start a connect flow and be returned to afterwards (see
-# posthog/api/github_callback/types.py APP_CONNECT_FROM_VALUES, plus Slack).
-_CONNECT_REDIRECT_ALLOWED_SURFACES = {"posthog_code", "posthog_mobile", "slack"}
-
-
-def integration_connect_redirect(request: HttpRequest, kind: str) -> HttpResponse:
-    """Login-gated entry point for starting an integration OAuth connect from an external surface
-    (a Slack message, the desktop app, etc.). Wrapped in ``login_required`` so unauthenticated users
-    are bounced to login and resume here, then redirected into the existing ``integrations/authorize``
-    flow with a ``connect_from``-tagged return page. ``next`` is constructed internally (never taken
-    from the query) so this can't be used as an open redirect."""
-    if kind not in _CONNECT_REDIRECT_ALLOWED_KINDS:
-        return HttpResponse("Unsupported integration kind", status=400)
-    connect_from = request.GET.get("connect_from", "")
-    if connect_from not in _CONNECT_REDIRECT_ALLOWED_SURFACES:
-        return HttpResponse("Unsupported connect_from", status=400)
-    project_id = request.GET.get("project_id") or getattr(request.user, "current_team_id", None)
-    if not project_id or not str(project_id).isdigit():
-        return HttpResponse("Missing or invalid project_id", status=400)
-
-    next_path = "/account-connected/{}-integration?{}".format(
-        kind, urlencode({"provider": kind, "project_id": project_id, "connect_from": connect_from})
-    )
-    authorize_url = "/api/projects/{}/integrations/authorize/?{}".format(
-        project_id, urlencode({"kind": kind, "next": next_path})
-    )
-    return HttpResponseRedirect(authorize_url)
-
-
-def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
-    if not request.GET.get("redirect"):
-        return HttpResponse("You need to pass a url to ?redirect=", status=400)
-    if not request.headers.get("referer"):
-        return HttpResponse('You need to make a request that includes the "Referer" header.', status=400)
-
-    current_team = cast(User, request.user).team
-    referer_url = urlparse(request.headers["referer"])
-    redirect_url = urlparse(request.GET["redirect"])
-    is_forum_login = request.GET.get("forum_login", "").lower() == "true"
-
-    if (
-        not current_team
-        or (redirect_url.hostname not in PERMITTED_FORUM_DOMAINS and is_forum_login)
-        or (not is_forum_login and not hostname_in_allowed_url_list(current_team.app_urls, redirect_url.hostname))
-    ):
-        hostname = redirect_url.hostname or request.GET["redirect"]
-        return render_template(
-            "toolbar_oauth_error.html",
-            request,
-            context={
-                "error_title": "Domain not authorized",
-                "error_message": "The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
-                "error_detail": (
-                    f"The hostname {hostname} needs to be added to your project's "
-                    "authorized URLs before the toolbar can be used on this site."
-                ),
-                "error_code": "403",
-                "settings_url": f"{settings.SITE_URL}/settings/project-toolbar#authorized-urls",
-            },
-            status_code=403,
-        )
-
-    if referer_url.hostname != redirect_url.hostname:
-        return HttpResponse(
-            f"Can only redirect to the same domain as the referer: {referer_url.hostname}",
-            status=403,
-        )
-
-    if referer_url.scheme != redirect_url.scheme:
-        return HttpResponse(
-            f"Can only redirect to the same scheme as the referer: {referer_url.scheme}",
-            status=403,
-        )
-
-    if referer_url.port != redirect_url.port:
-        return HttpResponse(
-            f"Can only redirect to the same port as the referer: {referer_url.port or 'no port in URL'}",
-            status=403,
-        )
-
-    return render_template(
-        "authorize_and_link.html" if is_forum_login else "authorize_and_redirect.html",
-        request=request,
-        context={
-            "email": request.user,
-            "domain": redirect_url.hostname,
-            "redirect_url": request.GET["redirect"],
-            "authorization_url": f"/api/user/redirect_to_site/?{urlencode({'appUrl': request.GET['redirect']})}",
-        },
-    )
-
-
 urlpatterns = [
+    # EU spend must precede both the API router and the API fallback.
+    *(
+        [
+            path(
+                "api/llm_analytics/@me/spend/",
+                PersonalSpendEUProxyViewSet.as_view({"get": "list"}),
+                name="personal_spend_eu",
+            )
+        ]
+        if settings.CLOUD_DEPLOYMENT == "EU"
+        else []
+    ),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     # Optional UI:
     path(
@@ -755,97 +368,36 @@ urlpatterns = [
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
-]
-
-# Personal LLM spend data only lives in PostHog Cloud US — EU forwards its product
-# LLM telemetry over — so the EU view proxies the query to US server-side. Must be
-# inserted *before* the `^api.+` catch-all above; otherwise the catch-all matches
-# first and the view is unreachable.
-if settings.CLOUD_DEPLOYMENT == "EU":
-    urlpatterns.insert(
-        0,
-        path(
-            "api/llm_analytics/@me/spend/",
-            PersonalSpendEUProxyViewSet.as_view({"get": "list"}),
-            name="personal_spend_eu",
-        ),
-    )
-
-if settings.DEBUG:
-    # If we have DEBUG=1 set, then let's expose the metrics for debugging. Note
-    # that in production we expose these metrics on a separate port (8001), to ensure
-    # external clients cannot see them. See bin/granian_metrics.py for details on the
-    # production metrics setup.
-
-    # Use multiprocess mode to collect metrics from all processes (Django + Celery workers)
-    import os
-
-    def metrics_view(request):
-        """Metrics endpoint that aggregates from all processes using multiprocess mode."""
-        registry = CollectorRegistry()
-        # If prometheus_multiproc_dir is set, collect from all processes
-        if "prometheus_multiproc_dir" in os.environ or "PROMETHEUS_MULTIPROC_DIR" in os.environ:
-            multiprocess.MultiProcessCollector(registry)
-        else:
-            # Fallback to default registry if multiprocess not configured
-            from prometheus_client import REGISTRY
-
-            registry = REGISTRY
-
-        metrics_output = generate_latest(registry)
-        return HttpResponse(metrics_output, content_type="text/plain; charset=utf-8; version=0.0.4")
-
-    urlpatterns.append(path("_metrics", metrics_view))
-    # Temporal codec server endpoint for UI decryption - locally only for now
-    urlpatterns.append(path("decode", decode_payloads, name="temporal_decode"))
-
-
-if settings.TEST:
-    # Used in posthog-js e2e tests
-    @csrf_exempt
-    def delete_events(request):
-        from posthog.clickhouse.client import sync_execute
-        from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
-
-        sync_execute(TRUNCATE_EVENTS_TABLE_SQL())
-        return HttpResponse()
-
-    urlpatterns.append(path("delete_events/", delete_events))
-    # Temporal codec server endpoint for UI decryption - needed for tests (if not added already in DEBUG)
-    if not settings.DEBUG:
-        urlpatterns.append(path("decode", decode_payloads, name="temporal_decode"))
-
-
-# Redirect the legacy `/sign-up` path to the canonical `/signup` route. Works across
-# app./us./eu. subdomains because only the path changes; the host is preserved by the
-# relative redirect.
-urlpatterns.append(
-    re_path(r"^canvas-artifacts/(?P<token>[^/]+)/(?P<artifact_path>.+)$", canvas_artifact, name="canvas-artifact")
-)
-urlpatterns.append(
+    # In production metrics use a separate port (8001), so external clients cannot
+    # see them. See bin/granian_metrics.py for the production metrics setup.
+    *(
+        [path("_metrics", metrics_view), path("decode", decode_payloads, name="temporal_decode")]
+        if settings.DEBUG
+        else []
+    ),
+    # Used in posthog-js e2e tests.
+    *([path("delete_events/", playwright_setup.delete_events)] if settings.TEST else []),
+    # Temporal UI decryption is needed in tests even when DEBUG is off.
+    *([path("decode", decode_payloads, name="temporal_decode")] if settings.TEST and not settings.DEBUG else []),
+    re_path(r"^canvas-artifacts/(?P<token>[^/]+)/(?P<artifact_path>.+)$", canvas_artifact, name="canvas-artifact"),
+    # Preserve the host and query when redirecting the legacy signup URL.
     opt_slash_path("sign-up", RedirectView.as_view(url="/signup", permanent=True, query_string=True)),
-)
-
-# Routes added individually to remove login requirement
-frontend_unauthenticated_routes = [
-    "preflight",
-    "signup",
-    r"signup\/[A-Za-z0-9\-]*",
-    "reset",
-    "organization/billing/subscribed",
-    "organization/confirm-creation",
-    "login",
-    "unsubscribe",
+    # Public frontend routes must precede the authenticated catch-all.
+    re_path("preflight", home),
+    re_path("signup", home),
+    re_path(r"signup\/[A-Za-z0-9\-]*", home),
+    re_path("reset", home),
+    re_path("organization/billing/subscribed", home),
+    re_path("organization/confirm-creation", home),
+    re_path("login", home),
+    re_path("unsubscribe", home),
     # Public bridges for desktop-app share links — deep-link into PostHog Desktop.
-    r"code/canvas/[^/]+/[^/]+",
-    r"code/task/[^/]+",
-    "verify_email",
-    r"agentic/account-mismatch",
+    re_path(r"code/canvas/[^/]+/[^/]+", home),
+    re_path(r"code/task/[^/]+", home),
+    re_path("verify_email", home),
+    re_path(r"agentic/account-mismatch", home),
     # OAuth redirect target when logging the local frontend into a remote cloud region;
     # the SPA handles the code→token exchange client-side, so it must load without auth.
-    r"^oauth/callback",
+    re_path(r"^oauth/callback", home),
+    re_path(r"^.*", home_with_region_redirect),
 ]
-for route in frontend_unauthenticated_routes:
-    urlpatterns.append(re_path(route, home))
-
-urlpatterns.append(re_path(r"^.*", home_with_region_redirect))
