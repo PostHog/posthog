@@ -11,7 +11,7 @@ use common::TestContext;
 use tonic::{Request, Status};
 use uuid::Uuid;
 
-use personhog_identity::lifecycle::delete::{DeleteDriver, DeleteOutcome};
+use personhog_identity::lifecycle::delete::{DeleteDriver, DeleteOutcome, RELEASE_BATCH_SIZE};
 use personhog_identity::lifecycle::engine::{Engine, OpRow, SagaError};
 use personhog_identity::lifecycle::PersonHogLifecycleService;
 use personhog_identity::storage::{IdentityStorage, PersonStub, StubOutcome};
@@ -663,6 +663,58 @@ async fn a_fenced_delete_releases_its_victims_in_one_batch() {
     let mut expected = person_ids.clone();
     expected.sort_unstable();
     assert_eq!(released, expected);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// Victims beyond the batch size go in further calls, so a delete larger
+/// than the leader's batch cap is never refused outright.
+#[tokio::test]
+async fn a_large_delete_releases_in_batches_of_the_configured_size() {
+    let h = FencedHarness::new().await;
+    let stubs: Vec<PersonStub> = (0..=RELEASE_BATCH_SIZE)
+        .map(|i| PersonStub {
+            team_id: h.ctx.team_id,
+            distinct_id: format!("chunked-victim-{i}-{}", Uuid::now_v7()),
+            extra_distinct_ids: vec![],
+            created_at: Utc::now(),
+            is_identified: false,
+        })
+        .collect();
+    let person_ids: Vec<i64> = h
+        .ctx
+        .storage
+        .create_person_stubs(&stubs)
+        .await
+        .expect("stub creation succeeds")
+        .iter()
+        .map(|outcome| match outcome {
+            StubOutcome::Committed { person, .. } => person.id,
+            StubOutcome::LostRace => panic!("no concurrent writers in this test"),
+        })
+        .collect();
+
+    let row = h
+        .execute(Uuid::now_v7(), &person_ids)
+        .await
+        .expect("fenced delete completes");
+    assert!(FencedHarness::outcome(&row)
+        .results
+        .iter()
+        .all(|r| r.outcome == "deleted"));
+
+    let batch_sizes: Vec<usize> = h
+        .leader
+        .calls()
+        .into_iter()
+        .filter_map(|call| match call {
+            LeaderCall::ReleaseBatch { person_ids } => Some(person_ids.len()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(batch_sizes.len(), 2);
+    assert_eq!(batch_sizes.iter().sum::<usize>(), person_ids.len());
+    assert!(batch_sizes.iter().all(|size| *size <= RELEASE_BATCH_SIZE));
 
     h.ctx.cleanup().await.expect("cleanup");
 }

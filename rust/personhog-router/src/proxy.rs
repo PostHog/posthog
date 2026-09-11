@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::convert::Infallible;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -11,7 +11,7 @@ use http_body_util::{BodyExt, Full};
 use metrics::{counter, histogram};
 use personhog_common::grpc::{
     current_caller_tag, current_client_name, ClientInFlightGuard, GZIP_OVERHEAD_HEADER,
-    PROCESSING_TIME_HEADER,
+    PROCESSING_TIME_HEADER, SEMANTIC_REFUSAL_METADATA_KEY,
 };
 use personhog_proto::personhog::types::v1::{ReleaseFenceItem, ReleaseFencesRequest};
 use rand::Rng;
@@ -19,7 +19,7 @@ use tonic::body::BoxBody;
 use tonic::Code;
 use tower::{Service, ServiceExt};
 
-use crate::backend::{LeaderBackend, ReplicaBackend};
+use crate::backend::{ForwardDecision, ForwardPath, LeaderBackend, ReplicaBackend};
 use crate::config::RetryConfig;
 use crate::grpc_http::{
     decode_unary_frame, encode_unary_frame, grpc_error_response, grpc_status_code,
@@ -482,9 +482,9 @@ impl RawProxyInner {
 
     /// The one leader-bound method whose body the router decodes: the
     /// router is what knows which pod owns which partition, so the saga's
-    /// per-op batch is split into one sub-request per owning pod here. The
-    /// first error response wins; a pod that already released its persons
-    /// stays released, and the saga's retry absorbs that per person.
+    /// per-op batch is split into one sub-request per owning pod here. A
+    /// pod that already released its persons stays released when a
+    /// sibling fails, and the saga's retry absorbs that per person.
     async fn split_release_fences_to_leaders(
         &self,
         req: http::Request<BoxBody>,
@@ -529,21 +529,19 @@ impl RawProxyInner {
             );
         }
 
-        // A partition with no owner yet forms its own group, so its
-        // bounce-and-retry does not hold up the persons that can proceed.
-        let mut groups: BTreeMap<String, (u32, Vec<ReleaseFenceItem>)> = BTreeMap::new();
-        for person in request.persons {
-            let partition = leader.partition_for_person(request.team_id, person.person_id);
-            let key = match leader.owner_of_partition(partition).await {
-                Some(pod) => pod,
-                None => format!("unassigned:{partition}"),
-            };
-            groups
-                .entry(key)
-                .or_insert_with(|| (partition, Vec::new()))
-                .1
-                .push(person);
+        let team_id = request.team_id;
+        let mut owners: HashMap<u32, Option<String>> = HashMap::new();
+        for person in &request.persons {
+            let partition = leader.partition_for_person(team_id, person.person_id);
+            if let std::collections::hash_map::Entry::Vacant(entry) = owners.entry(partition) {
+                entry.insert(leader.owner_of_partition(partition).await);
+            }
         }
+        let groups = group_release_persons(
+            request.persons,
+            |person_id| leader.partition_for_person(team_id, person_id),
+            |partition| owners[&partition].clone(),
+        );
         histogram!("personhog_router_release_fences_pods").record(groups.len() as f64);
 
         // The client's content-length describes its frame, not the
@@ -552,42 +550,141 @@ impl RawProxyInner {
         headers.remove(http::header::CONTENT_LENGTH);
 
         let _in_flight = ClientInFlightGuard::new("leader");
-        let forwards = groups.into_values().map(|(partition, persons)| {
-            let key = (request.team_id, persons[0].person_id);
-            let frame = encode_unary_frame(&ReleaseFencesRequest {
-                team_id: request.team_id,
-                op_id: request.op_id.clone(),
-                outcome: request.outcome,
-                persons,
-            });
-            let headers = headers.clone();
-            let leader = leader.clone();
-            async move {
-                leader
-                    .forward_or_stash("ReleaseFences", partition, key, headers, frame)
-                    .await
-            }
+        let forwards = groups.into_iter().map(|group| {
+            forward_release_group(
+                Arc::clone(&leader),
+                team_id,
+                &request.op_id,
+                request.outcome,
+                group,
+                &headers,
+            )
         });
         let outcomes = futures::future::join_all(forwards).await;
+        aggregate_release_responses(outcomes.into_iter().flatten().collect())
+    }
+}
 
-        let mut call_ms: Option<f64> = None;
-        let mut success: Option<http::Response<BoxBody>> = None;
-        for (response, ms) in outcomes {
-            call_ms = match (call_ms, ms) {
-                (Some(a), Some(b)) => Some(a.max(b)),
-                (a, b) => a.or(b),
-            };
-            if is_grpc_error_response(&response) {
-                return (response, call_ms);
+/// The persons of one saga batch grouped by the pod that owns their
+/// partitions, each group keyed by partition. A partition with no owner
+/// forms its own group, so its bounce-and-retry does not hold up the
+/// persons that can proceed.
+fn group_release_persons(
+    persons: Vec<ReleaseFenceItem>,
+    partition_of: impl Fn(i64) -> u32,
+    owner_of: impl Fn(u32) -> Option<String>,
+) -> Vec<BTreeMap<u32, Vec<ReleaseFenceItem>>> {
+    let mut groups: BTreeMap<String, BTreeMap<u32, Vec<ReleaseFenceItem>>> = BTreeMap::new();
+    for person in persons {
+        let partition = partition_of(person.person_id);
+        let key = owner_of(partition).unwrap_or_else(|| format!("unassigned:{partition}"));
+        groups
+            .entry(key)
+            .or_default()
+            .entry(partition)
+            .or_default()
+            .push(person);
+    }
+    groups.into_values().collect()
+}
+
+/// Forward one pod's share of a batch. While every partition in the group
+/// is quiet on this router, the group goes as one frame keyed on its first
+/// partition; the leader refuses it whole if any of them is not its own or
+/// is fenced for handoff, and the router then falls back to one
+/// sub-request per partition, each riding its own partition's stash and
+/// retry loop, the same discipline a single release gets. A handoff on any
+/// partition of the pod therefore costs the batching, never the op.
+async fn forward_release_group(
+    leader: Arc<LeaderBackend>,
+    team_id: i64,
+    op_id: &str,
+    outcome: i32,
+    group: BTreeMap<u32, Vec<ReleaseFenceItem>>,
+    headers: &http::HeaderMap,
+) -> Vec<(http::Response<BoxBody>, Option<f64>)> {
+    let frame_for = |persons: Vec<ReleaseFenceItem>| {
+        encode_unary_frame(&ReleaseFencesRequest {
+            team_id,
+            op_id: op_id.to_string(),
+            outcome,
+            persons,
+        })
+    };
+
+    if group.len() > 1
+        && group
+            .keys()
+            .all(|partition| !leader.stash_has_entry(*partition))
+    {
+        let header_partition = *group.keys().next().expect("a group is never empty");
+        let frame = frame_for(group.values().flatten().cloned().collect());
+        match leader
+            .forward_classified(
+                ForwardPath::Direct,
+                "ReleaseFences",
+                header_partition,
+                headers,
+                &frame,
+            )
+            .await
+        {
+            ForwardDecision::Delivered { response, call_ms } => {
+                return vec![(response, Some(call_ms))];
             }
-            if success.is_none() {
-                success = Some(response);
-            }
+            // A transport bounce may have applied the grouped frame; the
+            // per-partition replays below are at-least-once, which every
+            // release absorbs.
+            _ => counter!("personhog_router_release_fences_group_splits_total").increment(1),
         }
-        (
+    }
+
+    let forwards = group.into_iter().map(|(partition, persons)| {
+        let key = (team_id, persons[0].person_id);
+        let frame = frame_for(persons);
+        let headers = headers.clone();
+        let leader = Arc::clone(&leader);
+        async move {
+            leader
+                .forward_or_stash("ReleaseFences", partition, key, headers, frame)
+                .await
+        }
+    });
+    futures::future::join_all(forwards).await
+}
+
+/// One answer for the caller out of every sub-request's: a semantic
+/// refusal first, since it is a final answer the saga must not retry past
+/// a sibling's transient error; then any other error; else one success
+/// stands for all.
+fn aggregate_release_responses(
+    outcomes: Vec<(http::Response<BoxBody>, Option<f64>)>,
+) -> (http::Response<BoxBody>, Option<f64>) {
+    let mut call_ms: Option<f64> = None;
+    let mut success: Option<http::Response<BoxBody>> = None;
+    let mut error: Option<(http::Response<BoxBody>, bool)> = None;
+    for (response, ms) in outcomes {
+        call_ms = match (call_ms, ms) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (a, b) => a.or(b),
+        };
+        if !is_grpc_error_response(&response) {
+            success.get_or_insert(response);
+            continue;
+        }
+        let semantic = response
+            .headers()
+            .contains_key(SEMANTIC_REFUSAL_METADATA_KEY);
+        if error.as_ref().is_none_or(|(_, kept)| semantic && !kept) {
+            error = Some((response, semantic));
+        }
+    }
+    match error {
+        Some((response, _)) => (response, call_ms),
+        None => (
             success.expect("a non-empty batch forwards to at least one pod"),
             call_ms,
-        )
+        ),
     }
 }
 
@@ -801,6 +898,37 @@ impl Drop for ByteCountedBody {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The split is by owning pod, not by partition: two partitions on the
+    /// same pod share a group, while an unassigned partition stands alone
+    /// so its retry cannot hold the others up.
+    #[test]
+    fn release_persons_group_by_owning_pod() {
+        let person = |person_id| ReleaseFenceItem {
+            person_id,
+            ..Default::default()
+        };
+        // The person id doubles as its partition here.
+        let owner = |partition: u32| match partition {
+            1 | 2 => Some("pod-a".to_string()),
+            3 => Some("pod-b".to_string()),
+            _ => None,
+        };
+        let groups = group_release_persons(
+            vec![person(1), person(2), person(3), person(4), person(1)],
+            |person_id| person_id as u32,
+            owner,
+        );
+
+        let mut partitions_per_group: Vec<Vec<u32>> = groups
+            .iter()
+            .map(|group| group.keys().copied().collect())
+            .collect();
+        partitions_per_group.sort();
+        assert_eq!(partitions_per_group, vec![vec![1, 2], vec![3], vec![4]]);
+        let pod_a = groups.iter().find(|group| group.len() == 2).unwrap();
+        assert_eq!(pod_a[&1].len(), 2, "both persons on partition 1");
+    }
     use futures::stream;
     use http_body_util::{Empty, StreamBody};
 

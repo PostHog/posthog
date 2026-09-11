@@ -199,6 +199,12 @@ impl LeaderBackend {
         self.routing_table.read().await.get(&partition).cloned()
     }
 
+    /// Whether this router holds a stash entry for the partition, that is
+    /// a handoff whose lifecycle has not closed here.
+    pub fn stash_has_entry(&self, partition: u32) -> bool {
+        self.stash.has_entry(partition)
+    }
+
     /// Resolve the leader gRPC channel for a given partition, building and
     /// caching a lazy channel on first use. All leader traffic — strong
     /// reads and writes — forwards raw requests over this channel.

@@ -24,7 +24,7 @@ pub(crate) fn decode_unary_frame<T: Message + Default>(
     };
     if prefix[0] != 0 {
         return Err(grpc_error_response(
-            Code::Unimplemented,
+            Code::InvalidArgument,
             "compressed request frames are not decoded by the router",
         ));
     }
@@ -191,7 +191,10 @@ mod tests {
         let mut compressed = frame.to_vec();
         compressed[0] = 1;
         let refused = decode_unary_frame::<ReleaseFencesRequest>(&compressed).unwrap_err();
-        assert_eq!(grpc_status_code(&refused), Some(Code::Unimplemented as i32));
+        assert_eq!(
+            grpc_status_code(&refused),
+            Some(Code::InvalidArgument as i32)
+        );
 
         let truncated = &frame[..frame.len() - 1];
         let refused = decode_unary_frame::<ReleaseFencesRequest>(truncated).unwrap_err();

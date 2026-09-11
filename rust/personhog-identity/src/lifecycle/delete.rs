@@ -28,7 +28,7 @@ use futures::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::postgres::PgPool;
-use tonic::Code;
+use tonic::{Code, Status};
 use uuid::Uuid;
 
 use personhog_proto::personhog::types::v1::{
@@ -47,6 +47,11 @@ use crate::storage::postgres::begin_timed;
 // Derived from the shared enum so the op-type string cannot drift from
 // the leader's fence records or the lifecycle_op CHECK constraint.
 pub const OP_TYPE_DELETE: &str = LifecycleOpType::Delete.as_op_type_str();
+
+/// Persons per `ReleaseFences` call. Kept under the leader's batch cap,
+/// which refuses larger batches outright, and small enough that one
+/// leader's share of produces finishes within the leader call timeout.
+pub const RELEASE_BATCH_SIZE: usize = 100;
 
 /// The delete saga's non-terminal steps, in order. Stored as text in
 /// `lifecycle_op.step` (the engine is generic over op types, so its API is
@@ -756,35 +761,45 @@ impl FencedVictim {
     }
 }
 
-/// Release the fenced victims with the committed outcome in one
-/// `ReleaseFences` call. The router splits it by owning leader, and each
-/// leader verifies its share of the marks in a single query. A router or
-/// leader that predates the batch RPC answers UNIMPLEMENTED; the victims
-/// are then released one call each, so a mixed fleet mid-roll still
-/// completes its deletes.
+/// Release the fenced victims with the committed outcome in `ReleaseFences`
+/// calls of at most [`RELEASE_BATCH_SIZE`] persons. The router splits each
+/// call by owning leader, and each leader verifies its share of the marks
+/// in a single query. A router or leader that predates the batch RPC
+/// answers UNIMPLEMENTED; those victims are then released one call each,
+/// so a mixed fleet mid-roll still completes its deletes.
 async fn release_fenced(
     leader: &dyn LifecycleLeader,
     op: &OpRow,
     victims: &[FencedVictim],
     leader_call_concurrency: usize,
 ) -> Result<(), SagaError> {
-    if victims.is_empty() {
-        return Ok(());
-    }
-    let batch = ReleaseFencesRequest {
-        team_id: op.team_id,
-        op_id: op.op_id.to_string(),
-        outcome: ReleaseOutcome::Committed.into(),
-        persons: victims.iter().map(FencedVictim::release_item).collect(),
-    };
-    match leader.release_fences(batch).await {
-        Ok(_) => return Ok(()),
-        Err(status) if status.code() == Code::Unimplemented => {}
-        Err(status) => return Err(SagaError::leader(status)),
+    let batch_calls: Vec<_> = victims
+        .chunks(RELEASE_BATCH_SIZE)
+        .map(|chunk| async move {
+            let batch = ReleaseFencesRequest {
+                team_id: op.team_id,
+                op_id: op.op_id.to_string(),
+                outcome: ReleaseOutcome::Committed.into(),
+                persons: chunk.iter().map(FencedVictim::release_item).collect(),
+            };
+            match leader.release_fences(batch).await {
+                Ok(_) => Ok(&[][..]),
+                Err(status) if status.code() == Code::Unimplemented => Ok(chunk),
+                Err(status) => Err(status),
+            }
+        })
+        .collect();
+    let batch_results: Vec<Result<&[FencedVictim], Status>> = stream::iter(batch_calls)
+        .buffer_unordered(leader_call_concurrency)
+        .collect()
+        .await;
+    let mut singles: Vec<&FencedVictim> = Vec::new();
+    for result in batch_results {
+        singles.extend(result.map_err(SagaError::leader)?);
     }
 
-    let single_calls: Vec<_> = victims
-        .iter()
+    let single_calls: Vec<_> = singles
+        .into_iter()
         .map(|victim| {
             let request = victim.release_request(op);
             async move { leader.release_fence(request).await }

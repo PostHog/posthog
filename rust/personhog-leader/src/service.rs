@@ -18,6 +18,7 @@ use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
+use personhog_common::grpc::is_semantic_refusal;
 use personhog_common::partitioning::partition_for_person;
 
 use personhog_coordination::authority::AuthorityClock;
@@ -2129,8 +2130,15 @@ impl PersonHogLeader for PersonHogLeaderService {
                     .buffer_unordered(RELEASE_BATCH_CONCURRENCY)
                     .collect()
                     .await;
-                if let Some(status) = results.into_iter().find_map(Result::err) {
-                    return Err(status);
+                // A semantic refusal is the final answer for its person and
+                // must not hide behind a sibling's transient error, which
+                // the saga would retry.
+                let mut failures = results.into_iter().filter_map(Result::err);
+                if let Some(first) = failures.next() {
+                    return Err(failures
+                        .find(is_semantic_refusal)
+                        .filter(|_| !is_semantic_refusal(&first))
+                        .unwrap_or(first));
                 }
             }
             ReleaseOutcome::Aborted => {
