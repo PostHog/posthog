@@ -1,5 +1,6 @@
 import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import type { DisposablesManager } from 'kea-disposables'
 import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -21,7 +22,6 @@ import { ProductTab, WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analyti
 import { isLiveStreamFilter, webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilterLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import type { DisposablesManager } from '~/kea-disposables'
 import { performQuery } from '~/queries/query'
 import {
     HogQLQuery,
