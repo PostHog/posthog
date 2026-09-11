@@ -79,7 +79,7 @@ GROUP BY day, model
 ORDER BY day, model
 ```
 
-## Step 4 — Look for cache degradation
+## Step 4 — Look for cache degradation or a fee change
 
 Track the cache-hit rate per model per day, on both sides of the jump.
 A drop often follows a system-prompt change that invalidated the cached prefix.
@@ -101,7 +101,9 @@ SELECT
                 / nullIf(sum(toInt(properties.$ai_input_tokens)), 0)
         ), 3
     ) AS cache_hit_rate,
-    round(sum(toFloat(properties.$ai_total_cost_usd)), 4) AS cost_usd
+    round(sum(toFloat(properties.$ai_total_cost_usd)), 4) AS cost_usd,
+    round(sum(toFloat(properties.$ai_request_cost_usd)), 4) AS request_cost,
+    round(sum(toFloat(properties.$ai_web_search_cost_usd)), 4) AS web_search_cost
 FROM events
 WHERE event = '$ai_generation'
     AND timestamp >= toDateTime('<jump_day>') - INTERVAL 14 DAY
@@ -117,6 +119,10 @@ branch on provider or model name.
 A `cache_hit_rate` above 1 means the flag is unset on those events, so the
 query took the inclusive path over exclusive data. Treat that number as
 unusable. Read the cache-read, cache-write, and input token columns instead.
+
+`request_cost` and `web_search_cost` are usually 0, and both roll up inside `cost_usd`.
+A rise in either lifts `cost_usd` while calls, models, token counts, and `cache_hit_rate` all hold steady.
+Read them before you clear this step, or a fee change leaves Step 5 with no mechanism to group by.
 
 ## Step 5 — Isolate the feature
 
