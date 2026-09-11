@@ -98,6 +98,27 @@ function GroupTimeSpan({ runs }: { runs: SignalScoutRunSummary[] }): JSX.Element
     )
 }
 
+/**
+ * What a run produced: its findings if it emitted any, otherwise its report activity. A run can
+ * file a report and then fail, so this is shown for a failed run too.
+ */
+function RunOutputTag({ run }: { run: SignalScoutRunSummary }): JSX.Element | null {
+    const emitted = run.emitted_count ?? 0
+    if (emitted > 0) {
+        return (
+            <LemonTag type="highlight" size="small">
+                {pluralize(emitted, 'signal')} emitted
+            </LemonTag>
+        )
+    }
+    const reportLabel = scoutRunReportLabel(run)
+    return reportLabel ? (
+        <LemonTag type="highlight" size="small">
+            {reportLabel}
+        </LemonTag>
+    ) : null
+}
+
 /** Records that a folded group was opened, so we can see whether the folded rows get read. */
 function captureExpandRunGroup(skillName: string, kind: 'quiet' | 'failed', size: number): void {
     captureScoutAction({
@@ -168,6 +189,7 @@ function FailedRunGroup({ runs, skillName }: { runs: SignalScoutRunSummary[]; sk
                 >
                     <ScoutTimestamp time={run.started_at} />
                     <span className="min-w-0 flex-1 text-secondary">{scoutRunFailureLine(run, now)}</span>
+                    <RunOutputTag run={run} />
                     {run.task_url && (
                         <Link
                             to={run.task_url}
@@ -211,7 +233,6 @@ const ScoutRunRow = memo(function ScoutRunRow({
     const failureKind = deriveRunFailureKind(run, now)
     const duration = formatRunDuration(runDurationSeconds(run, now))
     const emitted = run.emitted_count ?? 0
-    const reportLabel = scoutRunReportLabel(run)
     const { authored: authoredReportIds, edited: editedReportIds } = runReportActivity(run)
     const hasBody = Boolean(run.summary) || status === 'failed' || expanded
 
@@ -247,15 +268,7 @@ const ScoutRunRow = memo(function ScoutRunRow({
                     </span>
                 )}
                 <span className="flex-1" />
-                {emitted > 0 ? (
-                    <LemonTag type="highlight" size="small">
-                        {pluralize(emitted, 'signal')} emitted
-                    </LemonTag>
-                ) : reportLabel ? (
-                    <LemonTag type="highlight" size="small">
-                        {reportLabel}
-                    </LemonTag>
-                ) : null}
+                <RunOutputTag run={run} />
             </button>
 
             {hasBody && (
