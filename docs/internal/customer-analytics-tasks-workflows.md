@@ -35,3 +35,12 @@ Task creation fails when the shared key is missing. Unlike account actions, it h
 The worker calls `POST /api/projects/{team_id}/workflow_customer_tasks/` through `INTERNAL_API_BASE_URL`, with a short-lived service token scoped to the project, workflow, and invocation/action key. The call goes directly to the backend, avoiding login redirects on the public app URL. Redirects and responses without a valid task UUID fail the workflow step. User API credentials and tokens for other actions cannot call this endpoint. No database migration is required.
 
 For local development, set `INTERNAL_API_BASE_URL` to the address where the backend listens. Linux devboxes may bind to the Docker bridge address, such as `http://172.17.0.1:8000`, instead of localhost. Restart the dev processes after changing the local environment.
+
+## Backend ownership
+
+Customer analytics registers the endpoint in `products/customer_analytics/backend/routes.py`.
+The HTTP view lives in `products/customer_analytics/backend/presentation/views/workflow_customer_tasks.py` and delegates creation to `backend/facade/workflow_customer_tasks.py` in the same product.
+That facade reads the workflow owner ID through `products/workflows/backend/facade/api.py`.
+Only Workflows queries the workflow model.
+The URL and basename stay unchanged.
+The view pins its OpenAPI product attribution to `workflows` but remains excluded from generated API docs.

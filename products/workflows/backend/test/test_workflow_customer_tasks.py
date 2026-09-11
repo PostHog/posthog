@@ -1,6 +1,6 @@
 from datetime import timedelta
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -17,8 +17,10 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.test.db_context_capturing import capture_db_queries
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
-from products.customer_analytics.backend.models import Account, CustomerTask, CustomerTaskActivity
+from products.customer_analytics.backend.facade import api, contracts
+from products.customer_analytics.backend.facade.workflow_customer_tasks import get_workflow_customer_task_id
 from products.workflows.backend.models import HogFlow
 
 SECRET = "test-customer-tasks-workflow-key"
@@ -38,10 +40,35 @@ class TestWorkflowCustomerTasks(APIBaseTest):
         )
         self.url = f"/api/projects/{self.team.id}/workflow_customer_tasks/"
         self.flag = patch(
-            "products.workflows.backend.api.workflow_customer_tasks.posthog_feature_flag_enabled", return_value=True
+            "products.customer_analytics.backend.facade.workflow_customer_tasks.posthog_feature_flag_enabled",
+            return_value=True,
         )
         self.flag_mock = self.flag.start()
         self.addCleanup(self.flag.stop)
+
+    def _get_user_access_control(self, team: Team | None = None) -> UserAccessControl:
+        return UserAccessControl(user=self.user, team=team or self.team)
+
+    def _get_task_count(self) -> int:
+        _, total = api.list_customer_tasks(
+            team_id=self.team.id,
+            user_access_control=self._get_user_access_control(),
+            filters=contracts.CustomerTaskListFilters(archive_state="all"),
+            offset=0,
+            limit=1,
+        )
+        return total
+
+    def _get_task_activity_count(self, task_id: UUID | str) -> int:
+        result = api.list_customer_task_activities(
+            team_id=self.team.id,
+            task_id=task_id,
+            user_access_control=self._get_user_access_control(),
+            offset=0,
+            limit=1,
+        )
+        assert result is not None
+        return result[1]
 
     def _token(self, **claims: Any) -> str:
         return encode_jwt(
@@ -60,7 +87,12 @@ class TestWorkflowCustomerTasks(APIBaseTest):
         )
 
     def test_creates_assigned_account_task_once_and_distinguishes_steps(self) -> None:
-        account = Account.objects.for_team(self.team.id).create(team=self.team, name="Example account")
+        account = api.create_account_for_view(
+            team=self.team,
+            input=contracts.CreateAccountInput(name="Example account"),
+            user=self.user,
+            was_impersonated=False,
+        )
         deadline = timezone.now() + timedelta(days=2)
         response = self._post(
             {
@@ -71,17 +103,26 @@ class TestWorkflowCustomerTasks(APIBaseTest):
             }
         )
         assert response.status_code == 201, response.data
-        task = CustomerTask.objects.for_team(self.team.id).get(id=response.data["id"])
-        assert task.account_id == account.id
-        assert task.assigned_to_id == self.user.id
-        assert task.created_by_id == self.user.id
+        task = api.get_customer_task(
+            team_id=self.team.id,
+            task_id=response.data["id"],
+            user_access_control=self._get_user_access_control(),
+        )
+        assert task is not None
+        assert task.account is not None and task.account.id == account.id
+        assert task.assigned_to is not None and task.assigned_to.id == self.user.id
+        assert task.created_by is not None and task.created_by.id == self.user.id
         assert task.due_at == deadline
         repeated = self._post({"name": "A retry must not change the task"})
         assert repeated.status_code == 201
         assert repeated.data == response.data
-        task.refresh_from_db()
-        assert task.name == "Follow up"
-        assert CustomerTaskActivity.objects.for_team(self.team.id).filter(task=task).count() == 1
+        task = api.get_customer_task(
+            team_id=self.team.id,
+            task_id=response.data["id"],
+            user_access_control=self._get_user_access_control(),
+        )
+        assert task is not None and task.name == "Follow up"
+        assert self._get_task_activity_count(task.id) == 1
         different_step = self._post({"idempotency_key": "run:other"}, self._token(idempotency_key="run:other"))
         assert different_step.status_code == 201
         assert different_step.data["id"] != response.data["id"]
@@ -99,7 +140,7 @@ class TestWorkflowCustomerTasks(APIBaseTest):
         assert self._post().status_code == 201
         response = self._post(token=self._token(**claims))
         assert response.status_code == expected_status, response.data
-        assert CustomerTask.objects.for_team(self.team.id).count() == 1
+        assert self._get_task_count() == 1
 
     @parameterized.expand(
         [
@@ -138,7 +179,10 @@ class TestWorkflowCustomerTasks(APIBaseTest):
         owner.is_active = False
         owner.save(update_fields=["is_active"])
         assert self._post().status_code == 403
-        assert not CustomerTask.objects.for_team(self.team.id).exists()
+        self.workflow.created_by = None
+        self.workflow.save(update_fields=["created_by"])
+        assert self._post().status_code == 403
+        assert self._get_task_count() == 0
 
     @parameterized.expand(
         [
@@ -176,12 +220,16 @@ class TestWorkflowCustomerTasks(APIBaseTest):
         replayed = self._post({"name": "A retry must not change the task"})
         assert replayed.status_code == 201, replayed.data
         assert replayed.data == response.data
-        task = CustomerTask.objects.for_team(self.team.id).get(id=response.data["id"])
-        assert task.name == "Follow up"
-        assert CustomerTaskActivity.objects.for_team(self.team.id).filter(task=task).count() == 1
+        task = api.get_customer_task(
+            team_id=self.team.id,
+            task_id=response.data["id"],
+            user_access_control=self._get_user_access_control(),
+        )
+        assert task is not None and task.name == "Follow up"
+        assert self._get_task_activity_count(task.id) == 1
         new_task = self._post({"idempotency_key": "run:new"}, self._token(idempotency_key="run:new"))
         assert new_task.status_code == expected_new_status, new_task.data
-        assert CustomerTask.objects.for_team(self.team.id).count() == 1
+        assert self._get_task_count() == 1
 
     def test_child_project_requires_canonical_access_and_stores_in_parent(self) -> None:
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child project")
@@ -210,8 +258,18 @@ class TestWorkflowCustomerTasks(APIBaseTest):
         restriction.delete()
         response = self._post(token=token)
         assert response.status_code == 201, response.data
-        assert CustomerTask.objects.for_team(self.team.id).filter(id=response.data["id"]).exists()
-        assert CustomerTask.objects.for_team(self.team.id).get(id=response.data["id"]).team_id == self.team.id
+        assert (
+            api.get_customer_task(
+                team_id=self.team.id,
+                task_id=response.data["id"],
+                user_access_control=self._get_user_access_control(),
+            )
+            is not None
+        )
+        assert (
+            get_workflow_customer_task_id(team_id=child.id, workflow_id=self.workflow.id, idempotency_key="run:step")
+            is None
+        )
 
         AccessControl.objects.create(
             team=self.team,
@@ -225,7 +283,7 @@ class TestWorkflowCustomerTasks(APIBaseTest):
         assert replayed.data == response.data
         new_task = self._post({"idempotency_key": "run:new"}, self._token(team_id=child.id, idempotency_key="run:new"))
         assert new_task.status_code == 403, new_task.data
-        assert CustomerTask.objects.for_team(self.team.id).count() == 1
+        assert self._get_task_count() == 1
 
     def test_child_project_creation_defers_deprecated_parent_team_columns(self) -> None:
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child project")
@@ -246,7 +304,12 @@ class TestWorkflowCustomerTasks(APIBaseTest):
 
     def test_foreign_account_and_assignee_are_rejected(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")
-        account = Account.objects.for_team(other_team.id).create(team=other_team, name="Other account")
+        account = api.create_account_for_view(
+            team=other_team,
+            input=contracts.CreateAccountInput(name="Other account"),
+            user=self.user,
+            was_impersonated=False,
+        )
         assert self._post({"account_id": str(account.id)}).status_code == 404
         assert self._post({"assigned_to_id": 2147483647}).status_code == 400
-        assert not CustomerTask.objects.for_team(self.team.id).exists()
+        assert self._get_task_count() == 0

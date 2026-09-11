@@ -10,19 +10,16 @@ from rest_framework.response import Response
 
 from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
 from posthog.jwt import PosthogJwtAudience
-from posthog.models import Team
-from posthog.models.team.team import DEPRECATED_ATTRS
-from posthog.permissions import posthog_feature_flag_enabled
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade import contracts
-from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG
 from products.customer_analytics.backend.facade.workflow_customer_tasks import (
-    create_workflow_customer_task,
-    get_workflow_customer_task_id,
+    WorkflowCustomerTaskOwnerInactive,
+    WorkflowCustomerTaskProjectAccessDenied,
+    WorkflowCustomerTasksDisabled,
+    create_customer_task_from_workflow,
 )
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.facade.api import WorkflowNotFound
 
 
 class WorkflowCustomerTasksJWTAuthentication(ScopedServiceJWTAuthentication):
@@ -67,7 +64,9 @@ class WorkflowCustomerTaskViewSet(viewsets.GenericViewSet):
     serializer_class = WorkflowCustomerTaskCreateSerializer
 
     @extend_schema(
-        request=WorkflowCustomerTaskCreateSerializer, responses={201: WorkflowCustomerTaskResponseSerializer}
+        request=WorkflowCustomerTaskCreateSerializer,
+        responses={201: WorkflowCustomerTaskResponseSerializer},
+        extensions={"x-product": "workflows"},
     )
     def create(self, request: Request, **kwargs: Any) -> Response:
         serializer = WorkflowCustomerTaskCreateSerializer(data=request.data)
@@ -82,61 +81,29 @@ class WorkflowCustomerTaskViewSet(viewsets.GenericViewSet):
         except ValueError:
             raise AuthenticationFailed("Service token is missing its workflow claim.") from None
         team_id = cast(int, cast(InternalAPIUser, request.user).current_team_id)
-        task_id = _create_task(team_id, workflow_id, idempotency_key, contracts.CreateCustomerTaskInput(**data))
+        try:
+            task_id = create_customer_task_from_workflow(
+                team_id=team_id,
+                workflow_id=workflow_id,
+                idempotency_key=idempotency_key,
+                input=contracts.CreateCustomerTaskInput(**data),
+            )
+        except WorkflowNotFound:
+            raise NotFound("Workflow not found.") from None
+        except WorkflowCustomerTaskOwnerInactive:
+            raise PermissionDenied("Choose an active workflow owner before creating customer tasks.") from None
+        except WorkflowCustomerTaskProjectAccessDenied:
+            raise PermissionDenied("The workflow owner no longer has access to this project.") from None
+        except WorkflowCustomerTasksDisabled:
+            raise PermissionDenied("Enable customer tasks before using this workflow action.") from None
+        except contracts.CustomerTaskAccessDenied:
+            raise PermissionDenied(
+                "The workflow owner needs editor access to customer tasks in the canonical project."
+            ) from None
+        except contracts.CustomerTaskAccountNotFound:
+            raise NotFound("Account not found.") from None
+        except (contracts.CustomerTaskAssigneeInvalid, contracts.CustomerTaskAssigneeCannotViewAccount):
+            raise ValidationError(
+                {"assigned_to_id": "Choose a project member who can access the linked account."}
+            ) from None
         return Response(WorkflowCustomerTaskResponseSerializer({"id": task_id}).data, status=status.HTTP_201_CREATED)
-
-
-def _create_task(
-    team_id: int, workflow_id: UUID, idempotency_key: str, input: contracts.CreateCustomerTaskInput
-) -> UUID:
-    # `select_related` builds its columns from the related model rather than through `TeamManager`,
-    # so re-apply its defer to the joined parent. Without it every task creation in a child
-    # environment re-reads the deprecated taxonomy columns, which TOAST out to megabytes per team.
-    team = (
-        Team.objects.select_related("parent_team")
-        .defer(*(f"parent_team__{attr}" for attr in DEPRECATED_ATTRS))
-        .get(id=team_id)
-    )
-    canonical_team = team.parent_team or team
-    # A verified retry acknowledges a committed task without granting access to its contents.
-    existing_task_id = get_workflow_customer_task_id(
-        team_id=canonical_team.id, workflow_id=workflow_id, idempotency_key=idempotency_key
-    )
-    if existing_task_id is not None:
-        return existing_task_id
-    workflow = HogFlow.objects.filter(team_id=team_id, id=workflow_id).select_related("created_by").first()
-    if workflow is None:
-        raise NotFound("Workflow not found.")
-    owner = workflow.created_by
-    if owner is None or not owner.is_active:
-        raise PermissionDenied("Choose an active workflow owner before creating customer tasks.")
-    access = UserAccessControl(user=owner, team=team, organization_id=team.organization_id)
-    if not access.has_project_access:
-        raise PermissionDenied("The workflow owner no longer has access to this project.")
-    if not posthog_feature_flag_enabled(
-        CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG,
-        str(owner.distinct_id),
-        organization_id=team.organization_id,
-        team_id=team.id,
-    ):
-        raise PermissionDenied("Enable customer tasks before using this workflow action.")
-    canonical_access = UserAccessControl(user=owner, team=canonical_team, organization_id=team.organization_id)
-    try:
-        return create_workflow_customer_task(
-            team=canonical_team,
-            workflow_id=workflow_id,
-            idempotency_key=idempotency_key,
-            input=input,
-            actor=owner,
-            user_access_control=canonical_access,
-        )
-    except contracts.CustomerTaskAccessDenied:
-        raise PermissionDenied(
-            "The workflow owner needs editor access to customer tasks in the canonical project."
-        ) from None
-    except contracts.CustomerTaskAccountNotFound:
-        raise NotFound("Account not found.") from None
-    except (contracts.CustomerTaskAssigneeInvalid, contracts.CustomerTaskAssigneeCannotViewAccount):
-        raise ValidationError(
-            {"assigned_to_id": "Choose a project member who can access the linked account."}
-        ) from None
