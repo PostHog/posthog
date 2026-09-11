@@ -168,6 +168,24 @@ describe('BlockProxy', () => {
             expect(mockInternalFetch).toHaveBeenCalledTimes(3)
         })
 
+        // Separate from the give-up case above: the attempts are not exhausted, the render is
+        // canceled, and the page the caller holds is only released when this returns.
+        it('abandons the remaining attempts when the render is canceled', async () => {
+            const abort = new AbortController()
+            mockInternalFetch.mockImplementation(() => {
+                abort.abort()
+                return Promise.resolve({ status: 503, text: jest.fn().mockResolvedValue('upstream busy') })
+            })
+
+            const proxy = new BlockProxy({ ...testCfg, blockListingAttempts: 3 }, mockLog)
+
+            await expect(proxy.fetchBlocks(baseInput(), abort.signal)).rejects.toMatchObject({
+                retryable: true,
+                code: 'BLOCK_LISTING_FAILED',
+            })
+            expect(mockInternalFetch).toHaveBeenCalledTimes(1)
+        })
+
         it('marks a body read that aborts as retryable', async () => {
             mockInternalFetch.mockResolvedValue({
                 status: 200,

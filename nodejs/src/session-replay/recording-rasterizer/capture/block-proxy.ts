@@ -58,7 +58,7 @@ export class BlockProxy {
     // The listing reads ClickHouse through recording-api, so a timeout or a 5xx is usually a blip
     // rather than a broken recording. Retry here: the workflow's own retry relaunches Chromium and
     // redoes the whole render for what a second request often answers.
-    async fetchBlocks(input: RasterizeRecordingInput): Promise<number> {
+    async fetchBlocks(input: RasterizeRecordingInput, signal?: AbortSignal): Promise<number> {
         this.teamId = input.team_id
         this.sessionId = input.session_id
         this.recordingApiToken = input.recording_api_token ?? ''
@@ -80,6 +80,13 @@ export class BlockProxy {
                 }
                 this.log.warn({ attempt, attempts, err }, 'block listing fetch failed, retrying')
                 await sleep(BLOCK_LISTING_RETRY_BASE_MS * attempt)
+                if (signal?.aborted) {
+                    // The caller reserves a browser-pool page before it calls this and releases it
+                    // only when this returns, so a canceled render must not start another attempt.
+                    // The request in flight when the cancel lands still runs to its own timeout.
+                    this.log.warn({ attempt, attempts }, 'render canceled, abandoning block listing retries')
+                    throw err
+                }
             }
         }
     }
