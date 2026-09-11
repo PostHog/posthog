@@ -1,10 +1,13 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use futures::stream::{self, StreamExt, TryStreamExt};
 
 use personhog_common::grpc::{current_client_name, current_method_name};
 
-use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
-use crate::storage::error::StorageResult;
+use super::{
+    ConsistencyLevel, PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED,
+};
+use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::GroupStorage;
 use crate::storage::types::{Group, GroupIdentifier, GroupKey, GroupTypeMapping};
 
@@ -369,7 +372,7 @@ impl GroupStorage for PostgresStorage {
 
         let client = current_client_name();
         let method = current_method_name();
-        let pool_label = PostgresStorage::pool_label(consistency);
+        let pool_label = PostgresStorage::bulk_pool_label(consistency);
         let labels = [
             (
                 "operation".to_string(),
@@ -381,24 +384,50 @@ impl GroupStorage for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let pool = self.pool_for_consistency(consistency);
-        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
+        // Chunked on the bulk pool like get_distinct_ids_for_persons: callers send every
+        // project id in one array, so an unchunked read holds a fast-pool connection that
+        // feature flag evaluation needs.
+        let pool = self.bulk_pool_for_consistency(consistency).clone();
+        let chunks: Vec<Vec<i64>> = project_ids
+            .chunks(self.bulk_chunk_size)
+            .map(|c| c.to_vec())
+            .collect();
+        common_metrics::histogram(
+            DB_BULK_CHUNKS,
+            &[(
+                "operation".to_string(),
+                "get_group_type_mappings_by_project_ids".to_string(),
+            )],
+            chunks.len() as f64,
+        );
 
-        let rows = sqlx::query_as!(
-            GroupTypeMapping,
-            r#"
-            SELECT id::bigint as "id!", team_id::bigint as "team_id!",
-                   project_id as "project_id!",
-                   group_type, group_type_index,
-                   name_singular, name_plural, default_columns,
-                   detail_dashboard_id::bigint, created_at
-            FROM posthog_grouptypemapping
-            WHERE project_id = ANY($1)
-            "#,
-            project_ids
-        )
-        .fetch_all(&mut *conn)
+        let results: Vec<Vec<GroupTypeMapping>> = stream::iter(chunks.into_iter().map(|chunk| {
+            let pool = pool.clone();
+            async move {
+                let mut conn = PostgresStorage::acquire_timed(&pool, pool_label).await?;
+                let rows = sqlx::query_as!(
+                    GroupTypeMapping,
+                    r#"
+                    SELECT id::bigint as "id!", team_id::bigint as "team_id!",
+                           project_id as "project_id!",
+                           group_type, group_type_index,
+                           name_singular, name_plural, default_columns,
+                           detail_dashboard_id::bigint, created_at
+                    FROM posthog_grouptypemapping
+                    WHERE project_id = ANY($1)
+                    "#,
+                    &chunk
+                )
+                .fetch_all(&mut *conn)
+                .await?;
+                Ok::<_, StorageError>(rows)
+            }
+        }))
+        .buffer_unordered(self.bulk_max_concurrent_chunks)
+        .try_collect()
         .await?;
+
+        let rows: Vec<GroupTypeMapping> = results.into_iter().flatten().collect();
 
         common_metrics::histogram(
             DB_ROWS_RETURNED,
