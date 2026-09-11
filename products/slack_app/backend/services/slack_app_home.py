@@ -32,6 +32,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
+from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache, UntaggedFollowupMode
 from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_from_candidates
@@ -90,6 +91,10 @@ ACTION_TASKS_PAGE_NEXT = "slack_app_home:tasks_page_next"
 ACTION_STATS_WINDOW = "slack_app_home:stats_window"
 ACTION_STATS_REFRESH = "slack_app_home:stats_refresh"
 ACTION_SET_UNTAGGED_FOLLOWUP_MODE = "slack_app_home:set_untagged_followup_mode"
+# URL buttons: Slack opens the link itself and posts a block_actions payload we
+# only ack — the ids exist so the clicks still reach the usage-analytics capture.
+ACTION_GITHUB_SETTINGS = "slack_app_home:github_settings"
+ACTION_CONNECT_ACCOUNT = "slack_app_home:connect_account"
 
 # Every control the Home tab renders, in one place. The interactivity endpoint reads
 # this to claim region ownership and to dispatch, so a control that isn't listed here
@@ -111,6 +116,8 @@ HOME_ACTION_IDS: frozenset[str] = frozenset(
         ACTION_STATS_WINDOW,
         ACTION_STATS_REFRESH,
         ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
+        ACTION_GITHUB_SETTINGS,
+        ACTION_CONNECT_ACCOUNT,
     }
 )
 
@@ -790,6 +797,7 @@ def _posthog_account_button(account_state: AccountState) -> dict | None:
         return None
     return {
         "type": "button",
+        "action_id": ACTION_CONNECT_ACCOUNT,
         "url": account_state.link_url,
         "text": {"type": "plain_text", "text": "Connect to PostHog", "emoji": True},
         "style": "primary",
@@ -819,6 +827,8 @@ def _github_account_button(github_state: GitHubState) -> dict | None:
         label, style = "Manage GitHub", ""
     button: dict[str, Any] = {
         "type": "button",
+        "action_id": ACTION_GITHUB_SETTINGS,
+        "value": label.lower().replace(" ", "_"),
         "url": github_state.settings_url,
         "text": {"type": "plain_text", "text": label, "emoji": True},
     }
@@ -1550,6 +1560,13 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Inte
             slack_user_id=slack_user_id,
             slack_team_id=slack_team_id,
         )
+        capture_slack_event(
+            integration,
+            "slack app home opened",
+            slack_user_id=slack_user_id,
+            account_linked=bool(account_state.linked_email),
+            has_project_access=bool(accessible),
+        )
 
 
 def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpResponse:
@@ -1563,6 +1580,16 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
     integration = _resolve_interaction_integration(slack_team_id, slack_user_id)
     if integration is None:
         return HttpResponse(status=200)
+
+    capture_slack_event(
+        integration,
+        "slack app home action clicked",
+        slack_user_id=slack_user_id,
+        action=action_id,
+        # Which option the control carried: the follow-up mode, the picked project id,
+        # the stats window, the tasks page, or the GitHub button's connect/manage state.
+        value=(action.get("selected_option") or {}).get("value") or action.get("value"),
+    )
 
     # The Home tab keeps no server-side view state — every payload carries the whole
     # view's inputs instead. Read them all back once so any action republishes with the
@@ -1670,6 +1697,15 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
 
     _write_row(
         integration,
+        slack_user_id=slack_user_id,
+        runtime_adapter=runtime_adapter,
+        model=model,
+        reasoning_effort=reasoning_effort,
+    )
+
+    capture_slack_event(
+        integration,
+        "slack app ai preferences saved",
         slack_user_id=slack_user_id,
         runtime_adapter=runtime_adapter,
         model=model,
