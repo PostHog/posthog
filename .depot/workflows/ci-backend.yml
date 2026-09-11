@@ -10,9 +10,11 @@
 # Intentional deltas vs canonical (everything else is kept apples-to-apples):
 # - runs-on: depot-* labels instead of ubuntu-latest
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
-#   setup-sqlx-cli, setup-python-cached, setup-uv, and paths-filter mirror the canonical
-#   composites; any deltas are documented in each mirror's header). Keep the local
-#   action mirrors available in .depot/actions so Depot can resolve their manifests.
+#   setup-sqlx-cli, setup-python-cached, setup-uv, setup-turbo, and paths-filter mirror
+#   the canonical composites; any deltas are documented in each mirror's header). Every
+#   local action a depot workflow uses needs a mirror even when it is identical to
+#   canonical: Depot resolves ./.github/actions/<x> from .depot/actions/<x>, so a missing
+#   mirror fails the step at setup with "action manifest not found".
 # - permissions: pull-requests:read (no comment/auto-commit side effects)
 # - Stripped side effects: artifact uploads, CI report section posters (canonical
 #   additionally skips these on trunk-merge/** branches to save GITHUB_TOKEN budget;
@@ -939,7 +941,7 @@ jobs:
                         token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             # Needs pnpm from the block above, so it cannot run inside it.
             - name: Install turbo
-              uses: ./.github/actions/setup-turbo
+              uses: ./.depot/actions/setup-turbo
 
             - name: Install uv
               id: setup-uv
