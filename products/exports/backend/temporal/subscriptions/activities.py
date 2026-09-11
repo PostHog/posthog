@@ -100,6 +100,9 @@ _SUBSCRIPTION_UNCERTAIN_RECOVERY_BACKOFF = dt.timedelta(minutes=5)
 _SUBSCRIPTION_MAX_IN_FLIGHT = MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN
 _SUBSCRIPTION_MAX_IN_FLIGHT_PER_TENANT = DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN
 _SUBSCRIPTION_RECOVERY_CONCURRENCY = 20
+# Per-describe cap. The whole recovery pass is all-or-nothing under a 2-minute activity
+# timeout, so one Temporal frontend that stalls mid-response must not discard the page.
+_SUBSCRIPTION_RECOVERY_DESCRIBE_RPC_TIMEOUT = dt.timedelta(seconds=5)
 _SUBSCRIPTION_CANDIDATE_LIMIT = _SUBSCRIPTION_MAX_IN_FLIGHT + MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN + 1
 
 # Used only as the recipient_results error message — `no_assets` doesn't auto-disable
@@ -776,7 +779,9 @@ async def recover_subscription_scheduler_claims_activity(
     async def workflow_is_open(workflow_id: str) -> _WorkflowClaimStatus:
         async with semaphore:
             try:
-                description = await temporal.get_workflow_handle(workflow_id).describe()
+                description = await temporal.get_workflow_handle(workflow_id).describe(
+                    rpc_timeout=_SUBSCRIPTION_RECOVERY_DESCRIBE_RPC_TIMEOUT
+                )
             except RPCError as error:
                 if error.status == RPCStatusCode.NOT_FOUND:
                     return _WorkflowClaimStatus(is_open=False)

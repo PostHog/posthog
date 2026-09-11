@@ -48,6 +48,7 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExceeded
 from products.exports.backend.temporal.subscriptions.activities import (
+    _SUBSCRIPTION_RECOVERY_DESCRIBE_RPC_TIMEOUT,
     _resolve_exportable_insights,
     advance_next_delivery_date,
     advance_subscription_scheduler_cursor_activity,
@@ -3633,6 +3634,7 @@ async def test_recover_subscription_scheduler_claims_releases_closed_workflow(te
         )
 
     assert result == {"released": 1, "renewed": 0, "retained": 0, "pruned": 0}
+    assert handle.describe.await_args.kwargs["rpc_timeout"] == _SUBSCRIPTION_RECOVERY_DESCRIBE_RPC_TIMEOUT
     claim = await sync_to_async(TemporalSchedulerClaim.objects.get)(id=claim_id)
     assert claim.status == TemporalSchedulerClaim.Status.AVAILABLE
 
