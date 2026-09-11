@@ -335,9 +335,17 @@ function productOfFile(file) {
 }
 
 // A test-only change cannot change the product behavior that other products
-// consume. Keep this narrow: production code, test commands, and fixtures
-// outside a test directory still use the full non-isolated fallback.
-function getTestOnlyProducts(changedFiles) {
+// consume, with one exception: a test directory also holds the base classes and
+// the fixture data that other suites import, and those cross the product
+// boundary the same way production code does. `dependentsOf` answers who imports
+// a changed file, so a change to a shared helper takes the full fallback instead
+// of narrowing to the product that happens to own the file. It returns null when
+// the importers cannot be known, which widens the matrix the same way an
+// unreadable tach map does.
+//
+// Keep this narrow: production code, test commands, and fixtures outside a test
+// directory still use the full non-isolated fallback.
+function getTestOnlyProducts(changedFiles, dependentsOf) {
     if (changedFiles.length === 0) {
         return null
     }
@@ -346,6 +354,18 @@ function getTestOnlyProducts(changedFiles) {
     for (const file of changedFiles) {
         const match = file.match(/^products\/([^/]+)\/(?:backend|stats)\/(?:[^/]+\/)*tests?(?:\/|$)/)
         if (!match) {
+            return null
+        }
+        const dependents = dependentsOf(file)
+        if (dependents === null) {
+            console.error(`Cannot tell which suites import ${file} — testing all products + Django`)
+            return null
+        }
+        const outside = dependents.filter((dependent) => productOfFile(dependent) !== match[1])
+        if (outside.length > 0) {
+            console.error(
+                `${file} is imported from outside ${match[1]}: ${JSON.stringify(outside.slice(0, 5))} — testing all products + Django`
+            )
             return null
         }
         products.add(moduleToProduct(match[1]))
@@ -465,14 +485,26 @@ function tachDependents(changedProducts, moduleGraph, { direct = false } = {}) {
 // Turbo already selects.
 //
 // The run walks every Python file and takes seconds, so the result is kept per
-// process; a second caller gets the same graph, a failure included.
-const tachModuleGraphByRoot = new Map()
+// process; a second caller gets the same graph, a failure included. Both forms
+// are kept: the collapsed graph answers "which products depend on this product",
+// and the file map answers "which files import this file", which is what the
+// test-only shortcut needs. Both are cached together, so the collapse also runs
+// once per root.
+const tachMapByRoot = new Map()
+
+function loadTachMap(repoRoot) {
+    if (!tachMapByRoot.has(repoRoot)) {
+        tachMapByRoot.set(repoRoot, runTachMap(repoRoot))
+    }
+    return tachMapByRoot.get(repoRoot)
+}
 
 function loadTachModuleGraph(repoRoot = process.cwd()) {
-    if (!tachModuleGraphByRoot.has(repoRoot)) {
-        tachModuleGraphByRoot.set(repoRoot, runTachMap(repoRoot))
-    }
-    return tachModuleGraphByRoot.get(repoRoot)
+    return loadTachMap(repoRoot).graph
+}
+
+function loadTachFileMap(repoRoot = process.cwd()) {
+    return loadTachMap(repoRoot).fileMap
 }
 
 function runTachMap(repoRoot) {
@@ -481,13 +513,16 @@ function runTachMap(repoRoot) {
         raw = execFileSync('uv', ['run', '--no-project', TACH_MAP_SCRIPT], { ...TURBO_EXEC_OPTS, cwd: repoRoot })
     } catch (e) {
         console.error(`::warning::tach map failed (${e.message}) — the dependent cascade widens to every product`)
-        return null
+        return { fileMap: null, graph: null }
     }
     try {
-        return productGraphFromTachMap(JSON.parse(raw))
+        const fileMap = JSON.parse(raw)
+        // Collapsing here keeps "prints something that is not the map" a single
+        // null for both forms, rather than a parse that passes and a later throw.
+        return { fileMap, graph: productGraphFromTachMap(fileMap) }
     } catch (e) {
         console.error(`::warning::Could not parse the tach map (${e.message}) — the dependent cascade widens to every product`)
-        return null
+        return { fileMap: null, graph: null }
     }
 }
 
@@ -534,6 +569,23 @@ function tachDependentProducts(products, allProductSet) {
         return null
     }
     return tachDependents(products, tachGraph).filter((p) => allProductSet.has(p))
+}
+
+// Which files import `file`, per the tach map, or null when that cannot be known.
+// Two cases give null. Without the map there are no edges to read at all. A file
+// the head tree no longer has (the diff deleted it, or renamed it away) has no
+// edges left either, and an empty answer would read as "no suite imports this"
+// at exactly the moment a suite still does and can no longer import it.
+//
+// The map load stays lazy, so a run that never asks does not pay for the walk.
+function tachFileDependents(repoRoot = process.cwd()) {
+    return (file) => {
+        if (!fs.existsSync(path.join(repoRoot, file))) {
+            return null
+        }
+        const fileMap = loadTachFileMap(repoRoot)
+        return fileMap === null ? null : fileMap[file] || []
+    }
 }
 
 // Products a schema change reaches, [] for a purely additive change, or null when
@@ -1339,7 +1391,9 @@ if (legacyChanged) {
     const affectedProducts = getAffectedTaskProducts(affectedTestTasks)
     const nonIsolatedAffectedProducts = affectedProducts.filter((p) => !isolatedProducts.has(p))
     const testOnlyProducts =
-        process.env.SELECTION_APPLIES === 'true' ? getTestOnlyProducts(changedFilesSinceBase() || []) : null
+        process.env.SELECTION_APPLIES === 'true'
+            ? getTestOnlyProducts(changedFilesSinceBase() || [], tachFileDependents())
+            : null
     const onlyAffectedProductTestsChanged =
         testOnlyProducts !== null &&
         testOnlyProducts.length === affectedProducts.length &&

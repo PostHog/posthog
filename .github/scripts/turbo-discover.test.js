@@ -161,13 +161,39 @@ test('isolation needs both the contract-check script and narrowed contract input
 })
 
 test('test-only product changes select only their product suites', () => {
+    const importedBy = (fileMap) => (file) => fileMap[file] || []
+    const nothingImportsIt = importedBy({})
+
     assert.deepEqual(
-        getTestOnlyProducts([
-            'products/experiments/backend/test/test_migration_0035.py',
-            'products/experiments/stats/tests/test_statistics.py',
-        ]),
+        getTestOnlyProducts(
+            [
+                'products/experiments/backend/test/test_migration_0035.py',
+                'products/experiments/stats/tests/test_statistics.py',
+            ],
+            nothingImportsIt
+        ),
         ['experiments']
     )
-    assert.equal(getTestOnlyProducts(['products/experiments/backend/models/experiment.py']), null)
-    assert.equal(getTestOnlyProducts(['products/experiments/package.json']), null)
+    assert.equal(getTestOnlyProducts(['products/experiments/backend/models/experiment.py'], nothingImportsIt), null)
+    assert.equal(getTestOnlyProducts(['products/experiments/package.json'], nothingImportsIt), null)
+
+    // A base class under a test directory is the product's behavior to every
+    // suite that imports it, so narrowing to the owning product would run
+    // everything except the suite that breaks.
+    const base = 'products/experiments/backend/hogql_queries/test/experiment_query_runner/base.py'
+    assert.equal(
+        getTestOnlyProducts([base], importedBy({ [base]: ['posthog/temporal/experiments/test_cache_warming.py'] })),
+        null
+    )
+    assert.equal(
+        getTestOnlyProducts([base], importedBy({ [base]: ['products/workflows/backend/api/test/test_hog_flow.py'] })),
+        null
+    )
+    // An importer inside the owning product is the case the shortcut exists for.
+    assert.deepEqual(
+        getTestOnlyProducts([base], importedBy({ [base]: ['products/experiments/backend/test/test_mean_metric.py'] })),
+        ['experiments']
+    )
+    // No tach map, or a file the head tree no longer has: importers unknown.
+    assert.equal(getTestOnlyProducts([base], () => null), null)
 })
