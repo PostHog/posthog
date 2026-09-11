@@ -491,8 +491,8 @@ export const WEBSITE_METRICS_METRIC_CARD_TILES: DashboardTemplateStoredInsightTi
                     showAlertThresholdLines: false,
                 },
                 breakdownFilter: {
-                    breakdown: '$referring_domain',
-                    breakdown_type: 'event',
+                    breakdown: '$entry_referring_domain',
+                    breakdown_type: 'session',
                     breakdown_limit: 10,
                     breakdown_hide_other_aggregation: true,
                 },
