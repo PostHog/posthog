@@ -1,3 +1,11 @@
+"""Admission, claim, and permit primitives for recurring Temporal coordinators.
+
+Every public helper owns its transaction, which ``durable=True`` enforces. The permit pool row is a
+scheduler-and-region mutex, so a caller-owned transaction would hold it until that caller commits
+and make concurrent admissions fail on the lock timeout. Start Temporal work after the helper
+returns, not inside a transaction that wraps it.
+"""
+
 import uuid
 import hashlib
 from collections import Counter
@@ -143,7 +151,7 @@ def _deduplicate_requests(requests: Sequence[SchedulerClaimRequest]) -> tuple[li
 
 @contextmanager
 def _scheduler_lock_timeout() -> Iterator[None]:
-    """Bound scheduler locks without changing a caller-owned transaction's timeout."""
+    """Bound scheduler locks without leaking the timeout into an enclosing transaction."""
 
     with connection.cursor() as cursor:
         cursor.execute("SHOW lock_timeout")
@@ -209,7 +217,7 @@ def reserve_scheduler_claims(
     claim_time = _resolve_time(now)
     lease_expires_at = claim_time + limits.lease_duration
 
-    with transaction.atomic(), _scheduler_lock_timeout():
+    with transaction.atomic(durable=True), _scheduler_lock_timeout():
         global_pool = _lock_or_create_pool(scheduler, region, "")
         tenant_pools = _lock_or_create_tenant_pools(
             scheduler,
@@ -389,7 +397,7 @@ def confirm_scheduler_claim(
 ) -> bool:
     _validate_lease_duration(lease_duration)
     transition_time = _resolve_time(now)
-    with transaction.atomic(), _scheduler_lock_timeout():
+    with transaction.atomic(durable=True), _scheduler_lock_timeout():
         claim = (
             TemporalSchedulerClaim.objects.select_for_update()
             .filter(
@@ -429,7 +437,7 @@ def renew_scheduler_claim(
 ) -> bool:
     _validate_lease_duration(lease_duration)
     transition_time = _resolve_time(now)
-    with transaction.atomic(), _scheduler_lock_timeout():
+    with transaction.atomic(durable=True), _scheduler_lock_timeout():
         claim = (
             TemporalSchedulerClaim.objects.select_for_update()
             .filter(
@@ -524,7 +532,7 @@ def _finish_scheduler_claim(
     if snapshot is None:
         return False
 
-    with transaction.atomic(), _scheduler_lock_timeout():
+    with transaction.atomic(durable=True), _scheduler_lock_timeout():
         global_pool = _get_locked_existing_pool(snapshot["scheduler"], snapshot["region"], "")
         tenant_pool = _get_locked_existing_pool(snapshot["scheduler"], snapshot["region"], snapshot["tenant_key"])
         try:
@@ -666,7 +674,7 @@ def prune_inactive_scheduler_claims(
     if limit <= 0 or limit > MAX_PRUNE_CLAIMS_PER_CALL:
         raise ValueError(f"limit must contain between 1 and {MAX_PRUNE_CLAIMS_PER_CALL} items")
 
-    with transaction.atomic(), _scheduler_lock_timeout():
+    with transaction.atomic(durable=True), _scheduler_lock_timeout():
         completed_candidates = list(
             TemporalSchedulerClaim.objects.select_for_update(skip_locked=True)
             .filter(
