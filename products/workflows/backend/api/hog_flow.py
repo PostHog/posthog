@@ -56,6 +56,7 @@ from posthog.api.hog_invocation_cancel import (
 )
 from posthog.api.hog_invocation_rerun import HogInvocationRerunRequestSerializer, HogInvocationRerunResponseSerializer
 from posthog.api.hog_invocation_results import (
+    HogInvocationResultDetailRequestSerializer,
     HogInvocationResultDetailSerializer,
     HogInvocationResultsCountSerializer,
     HogInvocationResultSerializer,
@@ -4942,7 +4943,10 @@ class HogFlowViewSet(
 
     @extend_schema(
         operation_id="hog_flows_invocation_result_retrieve",
-        parameters=[OpenApiParameter("invocation_id", str, OpenApiParameter.PATH)],
+        parameters=[
+            OpenApiParameter("invocation_id", str, OpenApiParameter.PATH),
+            HogInvocationResultDetailRequestSerializer,
+        ],
         responses=HogInvocationResultDetailSerializer,
     )
     @action(
@@ -4955,11 +4959,15 @@ class HogFlowViewSet(
         obj = self.get_object()
         tag_invocation_results_query(self.function_kind)
 
+        param_serializer = HogInvocationResultDetailRequestSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+
         data = fetch_hog_invocation_result(
             team_id=self.team_id,
             function_kind=self.function_kind,
             function_id=str(obj.id),
             invocation_id=kwargs["invocation_id"],
+            include_globals=param_serializer.validated_data.get("include_globals"),
         )
         if data is None:
             raise exceptions.NotFound("Invocation not found.")

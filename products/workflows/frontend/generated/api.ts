@@ -31,6 +31,7 @@ import type {
     HogFlowUpdateApi,
     HogFlowsAssetContentRetrieveParams,
     HogFlowsAssetsRetrieveParams,
+    HogFlowsInvocationResultRetrieveParams,
     HogFlowsInvocationResultsCountRetrieveParams,
     HogFlowsInvocationResultsRetrieveParams,
     HogFlowsListParams,
@@ -543,18 +544,36 @@ export const hogFlowsInvocationResultsRetrieve = async (
     })
 }
 
-export const getHogFlowsInvocationResultRetrieveUrl = (projectId: string, id: string, invocationId: string) => {
-    return `/api/projects/${projectId}/hog_flows/${id}/invocation_results/${invocationId}/`
+export const getHogFlowsInvocationResultRetrieveUrl = (
+    projectId: string,
+    id: string,
+    invocationId: string,
+    params?: HogFlowsInvocationResultRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/invocation_results/${invocationId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/invocation_results/${invocationId}/`
 }
 
 export const hogFlowsInvocationResultRetrieve = async (
     projectId: string,
     id: string,
     invocationId: string,
+    params?: HogFlowsInvocationResultRetrieveParams,
     options?: RequestInit
 ): Promise<HogInvocationResultDetailApi> => {
     return apiMutator<HogInvocationResultDetailApi>(
-        getHogFlowsInvocationResultRetrieveUrl(projectId, id, invocationId),
+        getHogFlowsInvocationResultRetrieveUrl(projectId, id, invocationId, params),
         {
             ...options,
             method: 'GET',

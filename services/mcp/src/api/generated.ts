@@ -44843,12 +44843,28 @@ export namespace Schemas {
     }
 
     /**
-     * The triggering payload (event/person/groups) the run executed against, as a JSON object.
+     * The top-level keys of the stored run state named by 'include_globals'. Empty by default.
      */
     export type HogInvocationResultDetailInvocationGlobals = { [key: string]: unknown };
 
+    /**
+     * Byte size of each top-level key of the stored run state. Pass the keys you need to 'include_globals'.
+     */
+    export type InvocationGlobalsSummaryKeySizes = {[key: string]: number};
+
+    export interface InvocationGlobalsSummary {
+      /** Byte size of each top-level key of the stored run state. Pass the keys you need to 'include_globals'. */
+      key_sizes: InvocationGlobalsSummaryKeySizes;
+      /** @nullable */
+      event_name: string | null;
+      /** @nullable */
+      current_action_id: string | null;
+    }
+
     export interface HogInvocationResultDetail {
-      /** The triggering payload (event/person/groups) the run executed against, as a JSON object. */
+      /** What the stored run state holds, without the state itself. */
+      invocation_globals_summary: InvocationGlobalsSummary;
+      /** The top-level keys of the stored run state named by 'include_globals'. Empty by default. */
       invocation_globals: HogInvocationResultDetailInvocationGlobals;
       invocation_id: string;
       status: string;
@@ -98491,6 +98507,14 @@ export namespace Schemas {
      * @minLength 1
      */
     status?: string;
+    };
+
+    export type HogFlowsInvocationResultRetrieveParams = {
+    /**
+     * Comma-separated top-level keys of the stored run state to return in full, e.g. 'event'. Pass 'all' for the whole state. Omitted, the response stays bounded and describes the state in 'invocation_globals_summary' instead. The state holds the trigger event plus run bookkeeping such as 'personId', 'currentAction' and 'variables'. There is no top-level 'person' or 'groups' key, so ask only for the keys 'invocation_globals_summary' lists.
+     * @minLength 1
+     */
+    include_globals?: string;
     };
 
     export type HogFlowsInvocationResultsCountRetrieveParams = {
