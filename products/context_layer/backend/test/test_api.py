@@ -562,13 +562,80 @@ class TestContextLayerAPI(APIBaseTest):
         )
         assert changed_frontmatter.status_code == 403, changed_frontmatter.content
 
-        outside_channel = self.client.put(
-            f"{self.agent_url}/pages/",
-            {"path": "AGENTS.md", "content": "# Owned\n", "base_head": created.json()["head_sha"]},
-            format="json",
-            HTTP_AUTHORIZATION=f"Bearer {token}",
+        for path in (
+            "AGENTS.md",
+            "CLAUDE.md",
+            "index.md",
+            "scripts/publish",
+            "areas/index.md",
+            "areas/AGENTS.md",
+            "areas/claude.md",
+            "areas/../AGENTS.md",
+            "areas/../projects/overview.md",
+            f"projects/{self.team.id}/spaces/sales.md",
+        ):
+            outside_channel = self.client.put(
+                f"{self.agent_url}/pages/",
+                {"path": path, "content": _page("Protected"), "base_head": created.json()["head_sha"]},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+            assert outside_channel.status_code == 403, (path, outside_channel.content)
+
+    @parameterized.expand(["org/product.md", "areas/product.md", "decisions/2026-09-01-product.md"])
+    def test_task_token_updates_shared_content(self, _flag: MagicMock, path: str) -> None:
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
+            assert channel is not None
+        self._enable()
+        original = _page("Product").replace("status: active", "status: active\nsources: Product documentation")
+        created = self.client.put(f"{self.base_url}/pages/", {"path": path, "content": original}, format="json")
+        assert created.status_code == 200, created.content
+        task = apps.get_model("tasks", "Task").objects.create(
+            team=self.team, created_by=self.user, title="Update product context", channel_id=channel.id
         )
-        assert outside_channel.status_code == 403, outside_channel.content
+        token = self._bearer(
+            "task:read task:write internal_run:read context_layer_internal:write",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task.id,
+        )
+        self.client.logout()
+        content = original.replace("Product", "Updated product")
+        payload = {"path": path, "content": content, "base_head": created.json()["head_sha"]}
+
+        updated = self.client.put(
+            f"{self.agent_url}/pages/", payload, format="json", HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+        assert updated.status_code == 200, updated.content
+        page = self.client.get(f"{self.agent_url}/pages/", {"path": path}, HTTP_AUTHORIZATION=f"Bearer {token}")
+        assert page.json()["content"] == content
+        assert page.json()["head_sha"] == updated.json()["head_sha"]
+
+        stale = self.client.put(
+            f"{self.agent_url}/pages/", payload, format="json", HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+        assert stale.status_code == 409, stale.content
+        assert stale.json()["current_head"] == updated.json()["head_sha"]
+
+        for restricted_token, restricted_content in (
+            (self._loop_run_token(channel.id), content),
+            (
+                self._bearer(
+                    "task:read task:write internal_run:read",
+                    scoped_teams=[self.team.id],
+                    sandbox_task_id=task.id,
+                ),
+                content,
+            ),
+            (token, content.replace("status: active", f"status: active\nchannel_id: {channel.id}")),
+        ):
+            denied = self.client.put(
+                f"{self.agent_url}/pages/",
+                {"path": path, "content": restricted_content, "base_head": updated.json()["head_sha"]},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {restricted_token}",
+            )
+            assert denied.status_code == 403, denied.content
 
     def test_read_only_task_token_cannot_update_its_channel_page(self, _flag) -> None:
         with team_scope(self.team.id):

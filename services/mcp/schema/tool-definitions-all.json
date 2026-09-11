@@ -11769,7 +11769,7 @@
         "feature_flag": "context-layer"
     },
     "task-context-wiki-page-update": {
-        "description": "Replace the current task channel's context wiki page using base_head concurrency.",
+        "description": "Replace a shared Markdown page under org/, areas/, or decisions/, or the current task channel's context page. Read it first and pass head_sha as base_head. The server validates and commits the edit; no local Git commit or scripts/publish is needed. Instruction files, generated indexes, scripts, and other channels' pages cannot be edited. Shared pages must not include channel_id frontmatter.",
         "category": "Context wiki",
         "feature": "context_layer",
         "summary": "Update this task's context wiki page",

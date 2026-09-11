@@ -39,7 +39,7 @@ retrieved live from their authoritative system.
 
 - Keep pages in the directories above; `scripts/lint` checks the structure.
 - Write synthesized prose, not raw excerpts from source material.
-- If your work makes a page stale, correct those lines and commit the edit.
+- If your work makes a page stale, correct those lines and publish the edit.
 - Prune as you write; git history is the archive.
 - Keep decisions append-only. Replace one by setting `status: superseded` and linking its replacement.
 
@@ -47,8 +47,10 @@ retrieved live from their authoritative system.
 
 - `areas/`: Current state, Direction, Links.
 - `decisions/`: `sources:` frontmatter, then What, Why, Who.
-- In a sandbox, run `scripts/publish` to land your commits; a linter reviews
-  the structure before they land.
+- For a single-page correction in a task run, use `task-context-wiki-page-retrieve`, then `task-context-wiki-page-update` with the returned `head_sha` as `base_head`. The server validates and commits the edit; no local Git commit is needed.
+- Task runs with wiki write access can edit shared Markdown pages under `org/`, `areas/`, and `decisions/`, plus their own channel page. Shared pages must not include `channel_id` frontmatter. Loops can edit only their configured channel page.
+- Do not edit instruction files (`AGENTS.md` or `CLAUDE.md`), generated indexes, scripts, or other channels' pages through the task tool.
+- For a commit-based workflow, run `scripts/publish` to land your local wiki commits; a linter reviews the structure before they land.
 
 ## Frontmatter contract
 

@@ -123,15 +123,25 @@ def _read_page(organization_id, request: Request) -> Response:  # noqa: ANN001
     return Response(WikiPageSerializer(wiki_page).data)
 
 
+def _is_run_content_path(path: str) -> bool:
+    parts = path.split("/")
+    return (
+        parts[0] in {"org", "areas", "decisions", "projects"}
+        and path.endswith(".md")
+        and not any(part.lower() in {"", ".", "..", "agents.md", "claude.md", "index.md"} for part in parts)
+    )
+
+
 def _assert_run_write_in_scope(organization_id, team_id, request: Request, path: str, content: str) -> None:  # noqa: ANN001
-    """A sandbox run may only write the context page for its channel.
+    """Keep instruction files and other channels outside a sandbox run's writes.
 
     Reads stay open, because the wiki is organization-wide reference material
-    every agent is meant to draw on. Writes cannot be: the agent route's scope
+    every agent is meant to draw on. Writes must stay scoped: the agent route's scope
     override accepts server-minted task tokens, so without this a run steered by
     injected text could rewrite AGENTS.md, and with it the instructions every
-    agent in the organization starts from. Ordinary tasks bind to their owning
-    channel; loops bind to the context target in their frozen configuration.
+    agent in the organization starts from. Ordinary tasks can correct shared
+    content and their owning channel's page; loops stay bound to the context
+    target in their frozen configuration.
 
     A no-op for callers without run provenance, so direct human/API writes keep
     the organization-wide editing behavior of the non-agent route.
@@ -143,9 +153,14 @@ def _assert_run_write_in_scope(organization_id, team_id, request: Request, path:
     if not is_loop_run and not is_ordinary_run:
         return
 
-    denied = PermissionDenied("This run can update only the context page for its channel.")
+    denied = PermissionDenied(
+        "This loop can update only its configured channel's context page."
+        if is_loop_run
+        else "This task can update only shared wiki content or its own channel's context page. "
+        "Use a content page under org/, areas/, or decisions/, without channel_id frontmatter."
+    )
     sandbox_task_id = getattr(access_token, "sandbox_task_id", None)
-    if sandbox_task_id is None or team_id is None:
+    if sandbox_task_id is None or team_id is None or not _is_run_content_path(path):
         raise denied
 
     configured_channel_id = (
@@ -160,10 +175,15 @@ def _assert_run_write_in_scope(organization_id, team_id, request: Request, path:
     # Both sides resolve inside this organization's own wiki index, so a run
     # cannot reach another organization's pages even by naming its channel.
     requested_channel_id = facade.resolve_page_channel(organization_id, path)
+    content_channel_id = facade.page_frontmatter_channel_id(content)
     if (
-        configured_channel_id == requested_channel_id
-        and facade.page_frontmatter_channel_id(content) == configured_channel_id
+        not is_loop_run
+        and path.startswith(("org/", "areas/", "decisions/"))
+        and requested_channel_id is None
+        and content_channel_id is None
     ):
+        return
+    if configured_channel_id == requested_channel_id and content_channel_id == configured_channel_id:
         return
     if requested_channel_id is not None:
         raise denied
@@ -591,9 +611,7 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: ContextLayerStatusSerializer,
             400: LintErrorSerializer,
-            403: OpenApiResponse(
-                description="The wiki is unavailable, or a sandbox run targeted a page outside its channel."
-            ),
+            403: OpenApiResponse(description="The wiki is unavailable, or the run lacks permission to edit this page."),
             409: HeadConflictSerializer,
         },
         summary="Create or replace a wiki page",

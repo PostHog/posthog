@@ -38,6 +38,18 @@ Do not pass `--create-db` or override pytest `addopts` — either one discards t
 If pytest starts the full migration history, the VM image predates the database seed, or the test database was replaced.
 Let that migration finish before retrying. Interrupting it leaves a partial database that the next run must continue migrating.
 
+## Context wiki edits
+
+For a single-page correction, read the page with `task-context-wiki-page-retrieve`, then send the updated content to `task-context-wiki-page-update` with the returned `head_sha` as `base_head`.
+The server validates and commits the edit, so this path does not require a local Git commit or `scripts/publish`.
+If the wiki changes before the write, read the page again and apply the correction to the new version.
+
+Task runs with `context_layer_internal:write` can edit shared Markdown pages under `org/`, `areas/`, and `decisions/`, plus their own channel page.
+Shared pages must not include `channel_id` frontmatter.
+Instruction files (`AGENTS.md` and `CLAUDE.md`), generated indexes, scripts, and other channels' pages remain protected.
+Loops can edit only their configured channel page, and read-only task tokens cannot write wiki content.
+Do not grant broader token scopes to work around a denied write.
+
 ## Other differences
 
 - `hogli devex:feedback` is a no-op here. Do not run it from a cloud task.
