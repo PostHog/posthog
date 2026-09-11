@@ -301,7 +301,8 @@ class TestGmailSync(BaseTest):
         assert ctx.exception.retry_after == timedelta(seconds=45)
 
     def test_permanent_upstream_status_raises_without_the_response_body(self) -> None:
-        forbidden = MagicMock(status_code=403, headers={}, text='{"error": "rateLimitExceeded"}')
+        forbidden = MagicMock(status_code=403, headers={})
+        forbidden.json.return_value = {"error": {"code": 403, "errors": [{"reason": "insufficientPermissions"}]}}
         with patch.object(gmail_sync, "google_workspace_request", side_effect=[forbidden]):
             with self.assertRaises(gmail_sync.GmailSyncError) as ctx:
                 gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)

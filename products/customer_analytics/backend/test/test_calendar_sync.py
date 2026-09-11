@@ -154,7 +154,8 @@ class TestCalendarSync(BaseTest):
         assert ctx.exception.retry_after == timedelta(seconds=30)
 
     def test_permanent_upstream_status_raises_without_the_response_body(self) -> None:
-        forbidden = MagicMock(status_code=403, headers={}, text='{"error": "insufficientPermissions"}')
+        forbidden = MagicMock(status_code=403, headers={})
+        forbidden.json.return_value = {"error": {"code": 403, "errors": [{"reason": "insufficientPermissions"}]}}
         with self.assertRaises(calendar_sync.CalendarSyncError) as ctx:
             self._sync([forbidden])
         assert str(ctx.exception) == "Google Calendar API returned 403"
