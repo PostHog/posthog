@@ -3,8 +3,7 @@ from typing import Optional
 from django.db import models
 from django.utils import timezone
 
-from django_deprecate_fields import deprecate_field
-
+from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 
 
