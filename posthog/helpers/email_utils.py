@@ -261,11 +261,15 @@ def strip_email_alias(email: str) -> str:
     return f"{local}@{domain}"
 
 
+def _stripped_email(expression: "str | Value") -> Func:
+    return Func(Lower(expression), Value(r"\+[^@]*@"), Value("@"), function="regexp_replace")
+
+
 # SQL counterpart of `strip_email_alias`, lowercased. Shared by the lookup in
 # `EmailValidationHelper.user_exists_with_stripped_alias` and by the `user_stripped_alias_idx`
 # index on `User` that makes it an index lookup — Postgres only uses a functional index when
 # the query filters on the identical expression, so these must not drift apart.
-STRIPPED_EMAIL_EXPRESSION = Func(Lower("email"), Value(r"\+[^@]*@"), Value("@"), function="regexp_replace")
+STRIPPED_EMAIL_EXPRESSION = _stripped_email("email")
 
 
 def reject_plus_addressed_email(value: str) -> None:
@@ -280,6 +284,28 @@ def reject_plus_addressed_email(value: str) -> None:
 
 class EmailLookupHandler:
     @staticmethod
+    def users_matching_email(email: str, queryset: Optional[QuerySet] = None) -> QuerySet:
+        """
+        Return the users whose address matches `email` under the fold that email lookups share.
+
+        The fold is `LOWER`. `iexact` would fold on `UPPER`, which maps `ı` (U+0131) to `I` and `ſ`
+        (U+017F) to `S`, while `LOWER` leaves both alone; `LOWER` in turn maps `İ` (U+0130) to `i`.
+        Every case fold merges some characters, so what matters is that one fold is used everywhere.
+
+        Postgres folds both sides. Python's `str.lower()` is a different operation: it maps `İ` to
+        `i` plus a combining dot, where Postgres maps it to a plain `i`, so comparing a Postgres fold
+        against a Python fold stops the owner of such an address matching their own row.
+
+        A duplicate check on a path that writes `User.email` must use this fold. If it folds
+        differently, an account can store an address that this lookup then resolves to another
+        account, and that account's login and password reset reach the wrong row.
+        """
+        from posthog.models.user import User
+
+        base = queryset if queryset is not None else User.objects.all()
+        return base.alias(_lower_email=Lower("email")).filter(_lower_email=Lower(Value(email)))
+
+    @staticmethod
     def get_user_by_email(email: str, is_active: Optional[bool] = True) -> Optional["User"]:
         """
         Resolve an email address to a user, case-insensitively.
@@ -287,22 +313,13 @@ class EmailLookupHandler:
         Accounts created before signup lowercased emails can differ from a newer account only by
         letter case. One case-insensitive rule keeps every caller on the same account, so a login,
         a password reset, and the login precheck cannot disagree about who is signing in.
-        `EmailMultiRecordHandler` chooses between case variations when more than one matches.
-
-        The fold is `LOWER`, matching the duplicate check signup runs before it creates an account.
-        `iexact` would fold on `UPPER`, which is wider: `UPPER` maps `ı` (U+0131) to `I` and `ſ`
-        (U+017F) to `S`, while `LOWER` leaves both alone. Two addresses that differ only by one of
-        those characters are separate accounts at signup, so they have to stay separate here too.
-
-        Postgres folds both sides. Python's `str.lower()` is a different operation: it maps `İ`
-        (U+0130) to `i` plus a combining dot, where Postgres maps it to a plain `i`. Comparing a
-        Postgres fold against a Python fold would stop the owner of such an address matching
-        their own row.
+        `EmailMultiRecordHandler` chooses between case variations when more than one matches, and
+        `users_matching_email` holds the fold itself.
         """
         from posthog.models.user import User
 
         queryset = User.objects.filter(is_active=is_active) if is_active else User.objects.all()
-        matches = queryset.alias(_lower_email=Lower("email")).filter(_lower_email=Lower(Value(email)))
+        matches = EmailLookupHandler.users_matching_email(email, queryset)
 
         try:
             return matches.get()
@@ -375,13 +392,12 @@ class EmailValidationHelper:
         """
         from posthog.models.user import User
 
-        # Compared lowercased because the expression below (and the index backing it) lowercases
-        # first, so an equality match would otherwise miss legacy mixed-case rows.
-        stripped = strip_email_alias(email).lower()
+        # Postgres folds and strips `email` with the same expression as the column, so this check
+        # treats as taken every address that `EmailLookupHandler.users_matching_email` resolves.
         candidates = (
             User.objects.filter(is_active=True)
             .annotate(stripped_email=STRIPPED_EMAIL_EXPRESSION)
-            .filter(stripped_email=stripped)
+            .filter(stripped_email=_stripped_email(Value(email)))
         )
         if exclude_user_id is not None:
             candidates = candidates.exclude(pk=exclude_user_id)

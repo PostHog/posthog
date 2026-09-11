@@ -239,9 +239,12 @@ class TestUserExistsWithStrippedAlias(TestCase):
             # Guards the SQL side: the stored column is lowercased before stripping, so a legacy
             # mixed-case row still matches.
             ("stored_mixed_case", "Based+Old@Example.COM", "based@example.com"),
-            # Guards the Python side: the compared value is lowercased too. An equality match
+            # Guards the input side: the compared value is lowercased too. An equality match
             # against the lowercased expression silently returns False without it.
             ("looked_up_mixed_case", "based+old@example.com", "Based@Example.COM"),
+            # Guards the fold: Postgres lowercases `İ` (U+0130) to `i`, so login resolves this address
+            # to the stored one, and signup and email change must treat it as taken.
+            ("looked_up_dotted_capital_i", "bill@victim.example", "bill@vİctim.example"),
         ]
     )
     def test_matches_regardless_of_case(self, _name, stored_email, looked_up_email):
