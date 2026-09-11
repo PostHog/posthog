@@ -119,8 +119,8 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
     def test_person_id_follows_a_later_merge(self):
         # Ingestion never rewrites the person on the row, so only the read can correct it. Drop the
         # override join and `uniq(person_id)` counts the pre-merge and the post-merge person as two
-        # humans. The no-override half -- the stored person survives -- is the test above, which runs
-        # with no rows in the overrides table.
+        # humans. The case where no override exists is covered by the test above, which runs with no
+        # rows in the overrides table.
         merged_person_id = uuid.uuid4()
         sync_execute(
             "INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, version) VALUES",

@@ -22,22 +22,20 @@ from posthog.hogql.parser import parse_expr
 FLAG_EVALUATIONS_CLICKHOUSE_TABLE = "flag_evaluations"
 
 
-def _person_id_corrected_by_overrides() -> ExpressionField:
-    # The same correction the events table applies, so both tables resolve a distinct_id to the same person.
-    # A fresh field per call: the table and its `poe` subtable each hold one, and the resolver rewrites the
-    # expression it expands.
-    return ExpressionField(
-        name="person_id",
-        expr=parse_expr(
-            # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
-            "if(not(empty(override.distinct_id)), override.person_id, flag_evaluation_person_id)",
-            start=None,
-        ),
-        isolate_scope=True,
-        description="The person the evaluation is attributed to, corrected for any later identify or merge. The "
-        "row keeps the person it was attributed to when it happened; that stored id is remapped at read time via "
-        "`person_distinct_id_overrides`, so `uniq(person_id)` counts a merged human once.",
-    )
+# The same expression the events table uses, so both tables resolve one distinct_id to the same person.
+# The table and its `poe` subtable share this one field, so `person_id` and `person.id` cannot disagree.
+_PERSON_ID = ExpressionField(
+    name="person_id",
+    expr=parse_expr(
+        # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
+        "if(not(empty(override.distinct_id)), override.person_id, flag_evaluation_person_id)",
+        start=None,
+    ),
+    isolate_scope=True,
+    description="The person the evaluation is attributed to, corrected for any later identify or merge. The "
+    "row keeps the person it was attributed to when it happened; that stored id is remapped at read time via "
+    "`person_distinct_id_overrides`, so `uniq(person_id)` counts a merged human once.",
+)
 
 
 class FlagEvaluationsPersonSubTable(VirtualTable):
@@ -49,8 +47,7 @@ class FlagEvaluationsPersonSubTable(VirtualTable):
     """
 
     fields: dict[str, FieldOrTable] = {
-        # The same expression as the table's `person_id`, so `person.id` and `person_id` never disagree.
-        "id": _person_id_corrected_by_overrides(),
+        "id": _PERSON_ID,
     }
 
     def to_printed_clickhouse(self, context):
@@ -101,13 +98,13 @@ class FlagEvaluationsTable(Table):
         # The person written onto the row at ingestion time. Nothing rewrites it when a later identify or
         # merge joins that person to another, so it is hidden behind `person_id`, which corrects it.
         "flag_evaluation_person_id": UUIDDatabaseField(name="person_id", nullable=False, hidden=True),
-        # Lazy, so a query that never names `person_id` does not pay for the join.
+        # Joined only when a query reads `person_id`, so every other query pays nothing for it.
         "override": LazyJoin(
             from_field=["distinct_id"],
             join_table=PersonDistinctIdOverridesTable(),
             resolver=PERSON_DISTINCT_ID_OVERRIDES,
         ),
-        "person_id": _person_id_corrected_by_overrides(),
+        "person_id": _PERSON_ID,
         "flag_key": StringDatabaseField(
             name="flag_key",
             nullable=False,
@@ -127,7 +124,7 @@ class FlagEvaluationsTable(Table):
             nullable=False,
             description="Identifier of the flag-evaluation request, shared by every flag evaluated in it.",
         ),
-        # The person column on the row itself. Should not be used directly; reached via `person`.
+        # Should not be used directly; reached via `person`.
         "poe": FlagEvaluationsPersonSubTable(),
         "person": FieldTraverser(
             chain=["poe"],
