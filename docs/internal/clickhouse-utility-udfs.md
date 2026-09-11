@@ -5,6 +5,11 @@ Before emitting JSON for insertion, it sorts the keys in `$feature_flags` alphab
 This also applies to existing `$feature_flags` objects, after cleanup resolves duplicates and expands dotted keys.
 Flag values and person-property ordering follow the existing cleanup rules.
 
+Whole-properties reads omit empty defaults for declared array paths. Custom empty arrays and
+array positions remain intact; typed arrays cannot distinguish an absent field from an explicit empty array.
+Reads and existence checks of subobjects with declared children, such as `$groups`, run
+`JSONStripEmptyStringsAndNulls` on that subobject so absent groups do not appear as empty typed strings.
+
 Invalid scalar and array `$feature_flags` values are replaced with an empty map and retained in
 `$unparseable_properties`, alongside other invalid complex properties. This keeps malformed
 map values from failing insertion into the typed JSON column while preserving unrelated properties.
@@ -69,6 +74,18 @@ SELECT
 Both functions use the same executable. The temporary entry point uses `--temporary-properties` with the existing chunk protocol.
 
 Documents exceeding the shared depth limit produce `{}` in the temporary output; the permanent cleaner quarantines the original document.
+
+The native events ingestion view writes `temporary_properties` from the original event JSON and sets `inserted_at` when inserting. The temporary JSON column uses `max_dynamic_paths=32` to store up to 32 automatically selected paths separately while retaining other paths in shared storage. The storage column expires with `TTL toDateTime(inserted_at) + INTERVAL 60 DAY`; historical events receive the same retention window. Backfills set a fresh insertion time and run both cleaners without event-age checks. TTL merges clear the temporary column while retaining the event row. Expiration is asynchronous: values can remain after 60 days until a TTL merge processes their part.
+
+Migration `0289_events_json_schema` uses these helpers when initializing a fresh installation. It does not upgrade existing tables when the migration has already run. Keep native event reads disabled on an existing installation until its storage, distributed, Kafka, and materialized-view schemas match these definitions and the feature-flag compatibility layer is deployed. Cloud schema rollout is managed separately; these helpers do not deploy it.
+
+The native storage schema keeps parsing failures inside each JSON column under `$unparseable_properties`; it stores no separate quarantine or active-feature-flags columns. The ingestion view writes the cleaner outputs directly. Session and group compatibility aliases are computed on the distributed read table. Storage timestamps use `GCD` and Kafka metadata and event sizes use `T64`; distributed tables omit storage codecs.
+
+Native property reads return decoded strings. Legacy reads from the JSON string column retain JSON escapes, so a stored backslash reads as one character in the native schema and two in the legacy schema.
+
+When any event or person property is access-restricted, HogQL also hides that property's class of quarantine diagnostics. This applies to whole-property reads, direct `$unparseable_properties` reads, and JSON extraction, because the diagnostic string can contain a copy of a restricted value. Readers without restrictions retain diagnostic access.
+
+Property removal is not a supported service. Native JSON events do not support property rewriting; retained temporary properties and quarantine diagnostics are not covered by the legacy property-removal machinery. Person, event, and team deletion still remove complete rows, including those retained columns.
 
 ### Benchmarking the cleaner
 
@@ -285,3 +302,14 @@ This is a bounded compatibility check, not an exhaustive audit; the benchmark's 
 Native Zstandard is not integrated into the UDF. Both Linux artifacts still build with `CGO_ENABLED=0` and contain no native Zstandard dependency.
 A direct C binding requires CGO and a target C toolchain/library. Disabling CGO excludes files importing `C`; it does not automatically select another decoder.
 Dynamic native libraries also introduce target ABI and library-version dependencies. See the [Go CGO documentation](https://pkg.go.dev/cmd/cgo).
+
+## Running native JSON schema tests
+
+The `test-new-events-schema` PR label enables the additional backend CI jobs with
+`CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=true`. Native-schema-only tests must skip
+when that setting is false, including SQL-generation tests. Use `pytest.mark.skipif`
+against the setting; do not force it on with `override_settings`. Tests that support
+both schemas run with the job’s configured schema.
+
+For a local native-schema run, set `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=true`
+when invoking `hogli test`. Manual workflow dispatch also enables the native-schema jobs.

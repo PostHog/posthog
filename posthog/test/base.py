@@ -256,6 +256,7 @@ def _get_calling_frame_locals() -> dict[str, Any]:
 
 
 def clean_varying_query_parts(query, replace_all_numbers):
+    query = re.sub(r"http://host\.docker\.internal:\d+/", "http://host.docker.internal:19000/", query)
     # :TRICKY: team_id changes every test, avoid it messing with snapshots.
     if replace_all_numbers:
         query = re.sub(r"(\"?) = \d+", r"\1 = 99999", query)

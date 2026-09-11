@@ -1748,6 +1748,7 @@ Background calculation can be tracked using the `query_status` response field.""
 )
 class InsightViewSet(
     TeamAndOrgViewSetMixin,
+    QueryCoalescingMixin,
     AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
     ForbidDestroyModel,

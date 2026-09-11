@@ -18,6 +18,7 @@ import pytest_asyncio
 from structlog.testing import capture_logs
 from temporalio.testing import ActivityEnvironment
 
+from posthog.models.event.util import bulk_create_events
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import (
@@ -29,7 +30,6 @@ from posthog.temporal.common.clickhouse import (
 )
 from posthog.temporal.tests.utils.events import (
     generate_test_events,
-    insert_event_values_in_clickhouse,
     insert_sessions_in_clickhouse,
 )
 
@@ -1352,8 +1352,11 @@ class TestHogQLModel:
             event_name="test-{i}",
             properties={"$browser": "Chrome", "$session_id": session_id},
         )
-        await insert_event_values_in_clickhouse(
-            client=clickhouse_client, events=events + events_from_other_team, table="sharded_events"
+        await database_sync_to_async(bulk_create_events)(
+            [
+                {**event, "event_uuid": event["uuid"], "person_properties": event["person_properties"] or {}}
+                for event in events + events_from_other_team
+            ]
         )
         await insert_sessions_in_clickhouse(client=clickhouse_client, table="sharded_events")
 

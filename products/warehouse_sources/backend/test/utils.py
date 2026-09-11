@@ -1,6 +1,7 @@
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 
 import s3fs
 import pandas as pd
@@ -94,13 +95,17 @@ def create_data_warehouse_table_from_csv(
             }
         table_columns = normalized_columns
 
+    endpoint = urlsplit(OBJECT_STORAGE_ENDPOINT)
+    if endpoint.hostname == "localhost" or endpoint.hostname == "127.0.0.1":
+        endpoint = endpoint._replace(netloc=endpoint.netloc.replace(endpoint.hostname, "host.docker.internal", 1))
+
     table = DataWarehouseTable.objects.create(
         name=table_name,
         format=DataWarehouseTable.TableFormat.CSVWithNames,
         team=team,
         external_data_source=source,
         credential=credential,
-        url_pattern=f"http://host.docker.internal:19000/{folder}/*.csv",
+        url_pattern=f"{endpoint.geturl().rstrip('/')}/{folder}/*.csv",
         columns=table_columns,
         options={"csv_allow_double_quotes": True},
     )

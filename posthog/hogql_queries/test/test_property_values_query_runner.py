@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 
+import pytest
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -10,7 +11,7 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.conf import settings
 
 from parameterized import parameterized
 
@@ -43,7 +44,9 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         names = {r.name for r in results}
         assert names == {"Chrome", "Firefox"}
 
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    @pytest.mark.skipif(
+        not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, reason="Requires test-new-events-schema CI label (#63448)"
+    )
     def test_event_property_values_new_schema_uses_json_subcolumn(self):
         _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "Chrome"})
         flush_persons_and_events()
@@ -64,7 +67,9 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert "toJSONString" in physical_query.clickhouse
         assert "toString(events.properties)" not in physical_query.clickhouse
 
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    @pytest.mark.skipif(
+        not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, reason="Requires test-new-events-schema CI label (#63448)"
+    )
     def test_event_property_values_new_schema_includes_object_values(self):
         _create_event(
             event="$pageview",

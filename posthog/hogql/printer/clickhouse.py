@@ -12,6 +12,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
+    DatabaseField,
     SavedQuery,
     StringJSONDatabaseField,
     StructDatabaseField,
@@ -31,7 +32,10 @@ from posthog.hogql.escape_sql import (
 )
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
-from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
+from posthog.hogql.functions.udfs import (
+    JSON_DROP_KEYS_CLICKHOUSE_NAME,
+    JSON_STRIP_EMPTY_STRINGS_AND_NULLS_CLICKHOUSE_NAME,
+)
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
 from posthog.hogql.printer.hogql import HogQLPrinter
@@ -502,6 +506,29 @@ class ClickHousePrinter(BasePrinter):
 
     def visit_field_type(self, type: ast.FieldType):
         field_sql = super().visit_field_type(type)
+        if (
+            self.context.uses_new_events_schema()
+            and isinstance(type.table_type, ast.BaseTableType)
+            and isinstance(type.table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES)
+            and isinstance(field := type.resolve_database_field(self.context), DatabaseField)
+        ):
+            name = field.name
+            if name in {
+                "$session_id",
+                "$window_id",
+                "$session_id_uuid",
+                "$group_0",
+                "$group_1",
+                "$group_2",
+                "$group_3",
+                "$group_4",
+            }:
+                # Proxy ALIAS expansion collides with aggregate outputs that reuse the column name.
+                prefix = field_sql.removesuffix(self._print_identifier(name))
+                path = "$session_id" if name == "$session_id_uuid" else name
+                field_sql = f"{prefix}properties.{self._print_identifier(path)}"
+                if name == "$session_id_uuid":
+                    field_sql = f"toUInt128(toUUIDOrNull({field_sql}))"
         field_sql = self._maybe_stringify_events_json_field(type, field_sql)
         return self._maybe_apply_json_drop_keys(type, field_sql)
 
@@ -528,44 +555,43 @@ class ClickHousePrinter(BasePrinter):
         if not isinstance(type.table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES):
             return None
 
-        # toJSONString on a JSON column emits default values for every declared-but-absent typed path.
-        # Real JSON nulls cannot exist in the column, and typed path names are top-level, so dropping
-        # those declared defaults from a single serialization reproduces the original document.
-        filter_expr = self._events_json_serialized_pair_filter(resolved_field.name)
-        return (
-            "concat('{', arrayStringConcat("
-            "arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), "
-            f"arrayFilter(kv -> {filter_expr}, JSONExtractKeysAndValuesRaw(toJSONString({field_sql})))"
-            "), ','), '}')"
-        )
-
-    def _events_json_serialized_pair_filter(self, field_name: str) -> str:
+        serialized = f"toJSONString({field_sql})"
         subcolumns = (
-            EVENTS_PROPERTIES_JSON_SUBCOLUMNS if field_name == "properties" else PERSON_PROPERTIES_JSON_SUBCOLUMNS
+            EVENTS_PROPERTIES_JSON_SUBCOLUMNS
+            if resolved_field.name == "properties"
+            else PERSON_PROPERTIES_JSON_SUBCOLUMNS
         )
-        array_keys = []
-        map_keys = []
-        for key, column_type in subcolumns.items():
-            runtime_type = parse_sql_runtime_type(column_type)
-            if runtime_type.family == "array":
-                array_keys.append(key)
-            elif runtime_type.family == "map":
-                map_keys.append(key)
-
-        filters = ["kv.2 != 'null'"]
+        array_keys = [
+            key for key, column_type in subcolumns.items() if parse_sql_runtime_type(column_type).family == "array"
+        ]
         if array_keys:
-            filters.append(f"NOT (kv.2 = '[]' AND has({self._clickhouse_string_array(array_keys)}, kv.1))")
-        if map_keys:
-            filters.append(f"NOT (kv.2 = '{{}}' AND has({self._clickhouse_string_array(map_keys)}, kv.1))")
-        return " AND ".join(filters)
-
-    def _clickhouse_string_array(self, values: list[str]) -> str:
-        return "[" + ", ".join(escape_clickhouse_string(value) for value in values) + "]"
+            keys_sql = "[" + ", ".join(escape_clickhouse_string(key) for key in array_keys) + "]"
+            serialized = (
+                "concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), "
+                f"arrayFilter(kv -> kv.2 != '[]' OR NOT has({keys_sql}, kv.1), "
+                f"JSONExtractKeysAndValuesRaw({serialized}))), ','), '}}')"
+            )
+        return f"{JSON_STRIP_EMPTY_STRINGS_AND_NULLS_CLICKHOUSE_NAME}({serialized})"
 
     def _serialize_to_json_string_call(self, node: ast.Call) -> str | None:
         if node.name != "toJSONString" or len(node.args) != 1:
             return None
-        arg_type = resolve_field_type(node.args[0])
+        arg = node.args[0]
+        if isinstance(arg, ast.JsonSubcolumnAccess) and arg.access_type == "sub_object":
+            field_type = resolve_field_type(arg.expr)
+            if isinstance(field_type, ast.FieldType):
+                field = field_type.resolve_database_field(self.context)
+                assert isinstance(field, StringJSONDatabaseField)
+                subcolumns = (
+                    EVENTS_PROPERTIES_JSON_SUBCOLUMNS
+                    if field.name == "properties"
+                    else PERSON_PROPERTIES_JSON_SUBCOLUMNS
+                )
+                if any(path.startswith(".".join(arg.keys) + ".") for path in subcolumns):
+                    # Declared children materialize empty defaults even when the parent object is absent.
+                    return f"{JSON_STRIP_EMPTY_STRINGS_AND_NULLS_CLICKHOUSE_NAME}(toJSONString({self.visit(arg)}))"
+            return None
+        arg_type = resolve_field_type(arg)
         if not isinstance(arg_type, ast.FieldType):
             return None
         field_sql = super().visit_field_type(arg_type)

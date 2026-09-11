@@ -17,7 +17,7 @@ from products.cohorts.backend.models.cohort import Cohort
 class TestModifiers(BaseTest):
     def _expected_browser_select(self, materialization_mode: MaterializationMode) -> str:
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            column = "events.properties.`$browser`"
+            column = "nullIf(events.properties.`$browser`, '')"
             source = "events_json AS events"
             return f"SELECT {column} AS `$browser` FROM {source}"
         elif materialization_mode == MaterializationMode.DISABLED:
@@ -40,7 +40,7 @@ class TestModifiers(BaseTest):
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             # Whole-blob person_properties reads are reconstructed from the JSON column; assert the
             # reconstruction reads the on-events column rather than pinning the full expression.
-            return "JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties))"
+            return "JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties)) AS properties"
         return "events.person_properties AS properties"
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)

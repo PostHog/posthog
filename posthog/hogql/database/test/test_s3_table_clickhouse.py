@@ -5,6 +5,8 @@ import datetime
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from django.conf import settings
+
 import boto3
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -13,7 +15,6 @@ from botocore.exceptions import ClientError
 
 from posthog.clickhouse.client import sync_execute
 
-MINIO_ENDPOINT = "http://localhost:19000"
 MINIO_CH_ENDPOINT = "http://objectstorage:19000"
 MINIO_ACCESS_KEY = "object_storage_root_user"
 MINIO_SECRET_KEY = "object_storage_root_password"
@@ -27,7 +28,7 @@ def _upload_parquet_to_minio(table: pa.Table, key: str) -> str:
 
     s3 = boto3.client(
         "s3",
-        endpoint_url=MINIO_ENDPOINT,
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
         aws_access_key_id=MINIO_ACCESS_KEY,
         aws_secret_access_key=MINIO_SECRET_KEY,
         config=Config(signature_version="s3v4"),

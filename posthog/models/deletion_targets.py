@@ -180,7 +180,6 @@ EVENTS_JSON = DeletionTarget(
     cluster_setting="CLICKHOUSE_EVENTS_CLUSTER",
     node_role=NodeRole.EVENTS,
     hogql_schema=HogQLSchema.NATIVE_JSON,
-    accepts_property_rewrite=True,
     # Dual-written from the same events, so its uuids are the legacy table's.
     queue_uuid_candidates=False,
 )

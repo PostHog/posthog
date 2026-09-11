@@ -1029,6 +1029,8 @@ class HogQLSelectQueryField(serializers.Field):
                         team_id=self.context["team_id"],
                         user=self.context["request"].user,
                         enable_select_queries=True,
+                        # Stored export fragments run against legacy String-properties views.
+                        use_new_events_schema=False,
                         modifiers=HogQLQueryModifiers(
                             personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
                         ),
@@ -1658,6 +1660,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             context = HogQLContext(
                 team_id=self.context["team_id"],
                 enable_select_queries=True,
+                use_new_events_schema=False,
                 limit_top_select=False,
                 modifiers=HogQLQueryModifiers(
                     personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
@@ -1669,6 +1672,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             context = HogQLContext(
                 team_id=self.context["team_id"],
                 enable_select_queries=True,
+                use_new_events_schema=False,
                 limit_top_select=False,
             )
             batch_export_schema: BatchExportsSchema = {

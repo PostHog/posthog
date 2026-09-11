@@ -1,5 +1,6 @@
 import time as time_mod
 from datetime import UTC, datetime, timedelta
+from itertools import count
 
 import pytest
 import time_machine
@@ -3297,6 +3298,10 @@ class TestJobLifecycleCounters(BaseTest):
         # always return None simulates losing the partial-unique-index race on
         # every attempt; the executor times out shortly after.
         with (
+            patch(
+                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.time.monotonic",
+                side_effect=count(step=0.01),
+            ),
             patch(
                 "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.create_lazy_computation_job",
                 return_value=None,
