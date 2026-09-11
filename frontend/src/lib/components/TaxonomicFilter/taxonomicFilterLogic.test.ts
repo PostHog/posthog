@@ -1652,6 +1652,18 @@ describe('taxonomicFilterLogic', () => {
             const group = splitLogic.values.taxonomicGroups.find((g) => g.type === groupType)
             expect(isFeatureFlagParam(group?.endpoint)).toBe(expected)
         })
+
+        it.each([
+            TaxonomicFilterGroupType.EventFeatureFlags,
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.NumericalEventProperties,
+            TaxonomicFilterGroupType.PersonProperties,
+        ])('%s lists neither hidden nor restricted properties', (groupType) => {
+            const group = splitLogic.values.taxonomicGroups.find((g) => g.type === groupType)
+            const params = new URLSearchParams((group?.endpoint ?? '').split('?')[1] ?? '')
+            expect(params.get('exclude_hidden')).toBe('true')
+            expect(params.get('exclude_restricted')).toBe('true')
+        })
     })
 })
 

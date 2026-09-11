@@ -292,6 +292,19 @@ export function MenuFilterCombobox({
         )
     }, [])
 
+    // Per-group paging reported up by `Fetcher`, so one "Show more" row below the list can speak for
+    // every visible group at once.
+    const [pagingByType, setPagingByType] = useState<Record<string, GroupPaging>>({})
+    const reportPaging = useCallback((type: string, paging: GroupPaging): void => {
+        setPagingByType((prev) =>
+            prev[type]?.hasMore === paging.hasMore &&
+            prev[type]?.isLoadingMore === paging.isLoadingMore &&
+            prev[type]?.loadMore === paging.loadMore
+                ? prev
+                : { ...prev, [type]: paging }
+        )
+    }, [])
+
     // Chips show only when `drillTo='all'` — drilled scopes lock to one
     // category and hide the chip row per spec.
     const showChips = drillTo === 'all'
@@ -675,6 +688,17 @@ export function MenuFilterCombobox({
         }
         return targetGroups.some((g) => loadingByType[g.type])
     }, [drillItems, targetGroups, loadingByType])
+
+    const canLoadMore = !drillItems && targetGroups.some((g) => pagingByType[g.type]?.hasMore)
+    const isLoadingMore = targetGroups.some((g) => pagingByType[g.type]?.isLoadingMore)
+    const loadMoreForTargetGroups = useCallback((): void => {
+        for (const g of targetGroups) {
+            const paging = pagingByType[g.type]
+            if (paging?.hasMore) {
+                paging.loadMore()
+            }
+        }
+    }, [targetGroups, pagingByType])
 
     // ---- Reveal barrier ----------------------------------------------------
     // Close synchronously the instant the query changes (React "adjust state
@@ -1071,6 +1095,7 @@ export function MenuFilterCombobox({
                                     onItems={reportItems}
                                     onLoadingChange={reportLoading}
                                     onFetchingChange={reportFetching}
+                                    onPaging={reportPaging}
                                 />
                             ))}
                         <ScrollArea className="flex-1 min-h-0 scroll-py-8" alwaysShowScrollbars>
@@ -1144,6 +1169,20 @@ export function MenuFilterCombobox({
                                         />
                                     )}
                                 </Autocomplete.Collection>
+                                {canLoadMore && (
+                                    <div className="px-2 pt-1">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="w-full"
+                                            data-attr="menu-filter-show-more"
+                                            disabled={isLoadingMore}
+                                            onClick={loadMoreForTargetGroups}
+                                        >
+                                            {isLoadingMore ? 'Loading more…' : 'Show more'}
+                                        </Button>
+                                    </div>
+                                )}
                             </Autocomplete.List>
                         </ScrollArea>
                     </div>
@@ -1397,12 +1436,19 @@ function Row({
  * up via callback. Mounting one per visible group keeps the parent memo
  * cheap (no nested hook arrays).
  */
+interface GroupPaging {
+    hasMore: boolean
+    isLoadingMore: boolean
+    loadMore: () => void
+}
+
 function Fetcher({
     group,
     excludeStale,
     onItems,
     onLoadingChange,
     onFetchingChange,
+    onPaging,
 }: {
     group: TaxonomicFilterGroup
     /** Hide stale event definitions (event / custom-event groups only). */
@@ -1414,6 +1460,7 @@ function Fetcher({
     /** Reports `isFetching` (true during background refetches too) so the
      *  parent's reveal barrier holds the list until every group settles. */
     onFetchingChange: (type: string, fetching: boolean, query?: string) => void
+    onPaging: (type: string, paging: GroupPaging) => void
 }): null {
     const { getGroupListInput } = useTaxonomicFilterContext()
     const input = getGroupListInput(group)
@@ -1427,6 +1474,9 @@ function Fetcher({
     useEffect(() => {
         onFetchingChange(group.type, list.isFetching, input.searchQuery)
     }, [group.type, list.isFetching, input.searchQuery, onFetchingChange])
+    useEffect(() => {
+        onPaging(group.type, { hasMore: list.hasMore, isLoadingMore: list.isLoadingMore, loadMore: list.loadMore })
+    }, [group.type, list.hasMore, list.isLoadingMore, list.loadMore, onPaging])
     // Make sure we flip back to "not loading"/"not fetching" when this group
     // unmounts — otherwise a stale `true` from a previously-active chip would
     // keep the skeleton (or the reveal barrier) stuck after we switch scope.
@@ -1434,8 +1484,9 @@ function Fetcher({
         return () => {
             onLoadingChange(group.type, false)
             onFetchingChange(group.type, false)
+            onPaging(group.type, { hasMore: false, isLoadingMore: false, loadMore: () => {} })
         }
-    }, [group.type, onLoadingChange, onFetchingChange])
+    }, [group.type, onLoadingChange, onFetchingChange, onPaging])
     return null
 }
 

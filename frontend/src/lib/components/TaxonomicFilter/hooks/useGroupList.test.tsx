@@ -1,4 +1,4 @@
-import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
+import { act, cleanup, configure, renderHook, waitFor } from '@testing-library/react'
 
 import api from 'lib/api'
 
@@ -14,6 +14,10 @@ jest.mock('lib/api', () => ({
 }))
 
 const apiGet = api.get as jest.MockedFunction<typeof api.get>
+
+// A query change waits REMOTE_SEARCH_DEBOUNCE_MS before it fetches, so the default 1 s wait leaves too
+// little margin on a loaded machine.
+configure({ asyncUtilTimeout: 3000 })
 
 function makeGroup(overrides: Partial<TaxonomicFilterGroup> = {}): TaxonomicFilterGroup {
     return {
@@ -91,6 +95,98 @@ describe('useGroupList', () => {
             })
             const { result } = renderHook(() => useGroupList({ group, searchQuery: 'hello' }))
             expect((result.current.items[0] as any).name).toBe('custom: hello')
+        })
+    })
+
+    describe('debounced remote search', () => {
+        it('sends one request per pause in typing, not per keystroke', async () => {
+            apiGet.mockResolvedValue({ results: [], count: 0 })
+            const group = makeGroup({ endpoint: 'api/projects/1/event_definitions' })
+            const { result, rerender } = renderHook(({ q }: { q: string }) => useGroupList({ group, searchQuery: q }), {
+                initialProps: { q: '' },
+            })
+            expect(apiGet).toHaveBeenCalledTimes(1)
+
+            rerender({ q: 'e' })
+            rerender({ q: 'em' })
+            rerender({ q: 'ema' })
+            expect(apiGet).toHaveBeenCalledTimes(1)
+            expect(result.current.isFetching).toBe(true)
+            expect(result.current.isLoading).toBe(true)
+
+            await waitFor(() => expect(apiGet).toHaveBeenCalledTimes(2))
+            expect(apiGet.mock.calls[1][0]).toContain('search=ema')
+            await waitFor(() => expect(result.current.isFetching).toBe(false))
+        })
+
+        it('clears the search without waiting', () => {
+            apiGet.mockResolvedValue({ results: [], count: 0 })
+            const group = makeGroup({ endpoint: 'api/projects/1/event_definitions' })
+            const { rerender } = renderHook(({ q }: { q: string }) => useGroupList({ group, searchQuery: q }), {
+                initialProps: { q: 'email' },
+            })
+            expect(apiGet.mock.calls[0][0]).toContain('search=email')
+
+            rerender({ q: '' })
+            expect(apiGet).toHaveBeenCalledTimes(2)
+            expect(apiGet.mock.calls[1][0]).toContain('search=&')
+        })
+    })
+
+    describe('paging', () => {
+        const pageOf = (
+            offset: number,
+            size: number,
+            count: number
+        ): { results: { name: string }[]; count: number } => ({
+            results: Array.from({ length: size }, (_, i) => ({ name: `p${offset + i}` })),
+            count,
+        })
+        const offsetOf = (url: string): number =>
+            Number(new URL(url, 'http://localhost').searchParams.get('offset') ?? 0)
+
+        it('loadMore appends the next page and stops at the reported count', async () => {
+            apiGet.mockImplementation((url: string) =>
+                Promise.resolve(offsetOf(url) === 0 ? pageOf(0, 100, 150) : pageOf(100, 50, 150))
+            )
+            const group = makeGroup({ endpoint: 'api/projects/1/event_definitions' })
+            const { result } = renderHook(() => useGroupList({ group, searchQuery: '' }))
+            await waitFor(() => expect(result.current.items).toHaveLength(100))
+            expect(result.current.hasMore).toBe(true)
+            expect(result.current.totalResultCount).toBe(150)
+
+            act(() => result.current.loadMore())
+            expect(result.current.isLoadingMore).toBe(true)
+            await waitFor(() => expect(result.current.items).toHaveLength(150))
+            expect(apiGet.mock.calls[1][0]).toContain('offset=100')
+            expect(result.current.hasMore).toBe(false)
+            expect(result.current.isLoadingMore).toBe(false)
+            expect(result.current.totalResultCount).toBe(150)
+        })
+
+        it('a short page ends paging even under a capped count', async () => {
+            apiGet.mockResolvedValue(pageOf(0, 40, 10_000))
+            const group = makeGroup({ endpoint: 'api/projects/1/event_definitions' })
+            const { result } = renderHook(() => useGroupList({ group, searchQuery: '' }))
+            await waitFor(() => expect(result.current.items).toHaveLength(40))
+            expect(result.current.hasMore).toBe(false)
+        })
+
+        it('a new query starts from the first page again', async () => {
+            apiGet.mockImplementation((url: string) =>
+                Promise.resolve(url.includes('search=x') ? pageOf(0, 3, 3) : pageOf(offsetOf(url), 100, 300))
+            )
+            const group = makeGroup({ endpoint: 'api/projects/1/event_definitions' })
+            const { result, rerender } = renderHook(({ q }: { q: string }) => useGroupList({ group, searchQuery: q }), {
+                initialProps: { q: '' },
+            })
+            await waitFor(() => expect(result.current.items).toHaveLength(100))
+            act(() => result.current.loadMore())
+            await waitFor(() => expect(result.current.items).toHaveLength(200))
+
+            rerender({ q: 'x' })
+            await waitFor(() => expect(result.current.items).toHaveLength(3))
+            expect(offsetOf(apiGet.mock.calls.at(-1)![0])).toBe(0)
         })
     })
 
@@ -321,6 +417,9 @@ describe('useGroupList', () => {
             await waitFor(() => expect(result.current.totalResultCount).toBe(150))
             // "Needle cohort" is not in the first page — only a server search finds it.
             rerender({ q: 'needle' })
+            // While the server search waits for the debounce, the list must not read as "no results".
+            expect(result.current.isFetching).toBe(true)
+            expect(result.current.showEmptyState).toBe(false)
             await waitFor(() => expect(result.current.items.map((i: any) => i.name)).toEqual(['Needle cohort']))
         })
     })
