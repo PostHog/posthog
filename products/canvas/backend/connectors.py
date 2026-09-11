@@ -645,39 +645,40 @@ class ConnectorListing:
     tools: list[ConnectorToolListing]
 
 
-def _native_tool_schema(tool: NativeConnectorTool) -> dict[str, Any]:
-    return _native_field_schema(tool.payload_serializer())
-
-
-def _native_field_schema(field: serializers.Field) -> dict[str, Any]:
-    schema: dict[str, Any]
+def _native_field_type_schema(field: serializers.Field) -> dict[str, Any]:
     if isinstance(field, serializers.Serializer):
-        schema = {
+        return {
             "type": "object",
             "properties": {name: _native_field_schema(child) for name, child in field.fields.items()},
             "required": [name for name, child in field.fields.items() if child.required],
         }
-    elif isinstance(field, (serializers.ListField, serializers.ListSerializer)):
+    if isinstance(field, (serializers.ListField, serializers.ListSerializer)):
         assert field.child is not None
-        schema = {"type": "array", "items": _native_field_schema(field.child)}
-    elif isinstance(field, serializers.DictField):
-        schema = {"type": "object", "additionalProperties": _native_field_schema(field.child)}
-    elif isinstance(field, serializers.BooleanField):
-        schema = {"type": "boolean"}
-    elif isinstance(field, serializers.IntegerField):
-        schema = {"type": "integer"}
-    elif isinstance(field, serializers.FloatField):
-        schema = {"type": "number"}
-    elif isinstance(field, serializers.JSONField) or type(field) is serializers.Field:
-        schema = {}
-    else:
-        schema = {"type": "string"}
+        return {"type": "array", "items": _native_field_schema(field.child)}
+    if isinstance(field, serializers.DictField):
+        return {"type": "object", "additionalProperties": _native_field_schema(field.child)}
+    for field_type, schema_type in (
+        (serializers.BooleanField, "boolean"),
+        (serializers.IntegerField, "integer"),
+        (serializers.FloatField, "number"),
+    ):
+        if isinstance(field, field_type):
+            return {"type": schema_type}
+    if isinstance(field, serializers.JSONField) or type(field) is serializers.Field:
+        return {}
+    return {"type": "string"}
+
+
+def _add_choice_schema(field: serializers.Field, schema: dict[str, Any]) -> None:
     if isinstance(field, serializers.ChoiceField):
         schema["enum"] = list(field.choices)
         if all(isinstance(choice, bool) for choice in field.choices):
             schema["type"] = "boolean"
         elif all(isinstance(choice, int) for choice in field.choices):
             schema["type"] = "integer"
+
+
+def _add_field_limits(field: serializers.Field, schema: dict[str, Any]) -> None:
     for attribute, keyword in (
         ("min_value", "minimum"),
         ("max_value", "maximum"),
@@ -689,20 +690,42 @@ def _native_field_schema(field: serializers.Field) -> dict[str, Any]:
             schema[keyword] = value
     if isinstance(field, serializers.CharField) and not field.allow_blank:
         schema["minLength"] = max(schema.get("minLength", 0), 1)
+
+
+def _add_field_pattern(field: serializers.Field, schema: dict[str, Any]) -> None:
     for validator in field.validators:
         if isinstance(validator, RegexValidator):
             regex = validator.regex
             schema["pattern"] = regex if isinstance(regex, str) else regex.pattern
+
+
+def _add_nullable_schema(field: serializers.Field, schema: dict[str, Any]) -> None:
     if field.allow_null:
         if "type" in schema:
             schema["type"] = [schema["type"], "null"]
         if "enum" in schema:
             schema["enum"].append(None)
+
+
+def _add_field_metadata(field: serializers.Field, schema: dict[str, Any]) -> None:
     if field.default is not serializers.empty and not callable(field.default):
         schema["default"] = field.default
     if field.help_text:
         schema["description"] = str(field.help_text)
+
+
+def _native_field_schema(field: serializers.Field) -> dict[str, Any]:
+    schema = _native_field_type_schema(field)
+    _add_choice_schema(field, schema)
+    _add_field_limits(field, schema)
+    _add_field_pattern(field, schema)
+    _add_nullable_schema(field, schema)
+    _add_field_metadata(field, schema)
     return schema
+
+
+def _native_tool_schema(tool: NativeConnectorTool) -> dict[str, Any]:
+    return _native_field_schema(tool.payload_serializer())
 
 
 def _mcp_tool_listing(tool: McpConnectorTool) -> ConnectorToolListing:
