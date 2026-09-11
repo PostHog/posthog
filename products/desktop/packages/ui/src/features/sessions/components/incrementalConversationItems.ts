@@ -36,6 +36,17 @@ function extendsTimestampOrder<Event>(
   return true;
 }
 
+export interface IncrementalConversationBuilder<Event> {
+  /** Derives the transcript for `events`, reusing the work of earlier calls. */
+  update(
+    events: Event[],
+    isPromptPending: boolean | null,
+    options?: BuildConversationOptions,
+  ): BuildResult;
+  /** Drops the retained state so the next `update` starts from scratch. */
+  reset(): void;
+}
+
 /**
  * Incremental front end for `buildConversationItems`.
  *
@@ -52,7 +63,7 @@ function extendsTimestampOrder<Event>(
  * state (idle, non-append event change, options change, or a progress card in
  * an already-frozen turn being mutated).
  */
-export function createIncrementalConversationBuilder() {
+export function createIncrementalConversationBuilder(): IncrementalConversationBuilder<AcpMessage> {
   return createBuilder<AcpMessage>({
     timestamp: (event) => event.ts,
     process: processEvent,
@@ -60,7 +71,7 @@ export function createIncrementalConversationBuilder() {
   });
 }
 
-export function createIncrementalAgentConversationBuilder() {
+export function createIncrementalAgentConversationBuilder(): IncrementalConversationBuilder<AgentConversationEvent> {
   return createBuilder<AgentConversationEvent>({
     timestamp: (event) => event.timestamp,
     process: processAgentConversationEvent,
@@ -80,7 +91,7 @@ function createBuilder<Event>(adapter: {
     pending: boolean | null,
     options?: BuildConversationOptions,
   ) => BuildResult;
-}) {
+}): IncrementalConversationBuilder<Event> {
   let b: ItemBuilder | null = null;
   let processedCount = 0;
   let firstEventRef: Event | null = null;
