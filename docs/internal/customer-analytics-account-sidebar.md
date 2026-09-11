@@ -1,7 +1,20 @@
 # Account detail sidebar properties
 
 Each user can pin up to 50 account custom properties and relationships in their project.
-The Pin properties button and the Properties gear open the same ordered selector.
+When `customer-analytics-account-scene` is enabled, the Accounts list also shows these pins in expanded rows.
+The left arrow expands or collapses the row. The account name opens account details.
+Expanded pins use the same Properties section and editable fields as the account sidebar.
+They follow the saved order and wrap horizontally within the table container.
+Each property uses its content width, up to 16rem, with a 1rem gap between properties. An open editor uses the full 16rem width.
+Field headers reserve equal height with or without an edit button, so read-only and editable values align.
+Fixed-layout tables reserve 3rem for the expansion button so the icon does not get clipped.
+If no properties are pinned, the Pin properties button opens the selector in place.
+Only expanded accounts load property values. The list does not load the legacy detail tabs while this flag is enabled.
+With the flag disabled, the existing row expansion and account-name behavior remain unchanged.
+
+The Pin properties button and the Properties gear open the same ordered selector in both views.
+In expanded rows, the gear sits beside the Properties label. In the sidebar, it stays right-aligned.
+Only the panel that opened the selector renders it. Saving pins updates every mounted panel in the project.
 Dragging entries changes their saved display order. The sidebar scrolls independently of
 the main account content on wide account scenes.
 
@@ -32,12 +45,13 @@ Clearing every holder requires confirmation. Failed saves keep the editor open; 
 partial relationship failure, the sidebar reloads current assignments so a retry uses
 the latest state.
 
-Saved values report the same product events as the account list.
-Their source is the account sidebar.
+`AccountPinnedPropertiesPanel` connects both views to the same configuration, loading states, and editors.
+`AccountPropertyField` renders each label, source icon, value, and editor.
 
 Pin preferences belong to `accountSidebarConfigLogic`, keyed by project. Live values and
 editing state belong to `accountSidebarPropertiesLogic`, keyed by project and account.
 The Relationships tab and account list refresh after assignment changes.
-Successful sidebar writes emit the existing custom-property and role-assignment events
-with `source: account_sidebar`. Custom-property events exclude property names and values;
+Successful writes emit the existing custom-property and role-assignment events.
+The source is `account_sidebar` for sidebar edits and `list_expansion` for expanded-list edits.
+Custom-property events exclude property names and values;
 role-assignment events retain the existing role metadata and internal-user identifiers.

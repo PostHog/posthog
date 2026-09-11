@@ -375,6 +375,9 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "default_autostart_priority": "project PR threshold",
         "default_slack_notification_channel": "team Slack channel",
         "autostart_base_branches": "base branch overrides",
+        "issue_tracking_integration": "issue tracker",
+        "issue_tracking_config": "issue tracker target",
+        "default_open_pull_request_ready": "PRs open as",
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",
@@ -541,6 +544,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "subject_name",
         "subject_status",
         # Subject FKs are immutable after create and not JSON-serializable for the change detail.
+        "metric",
         "saved_query",
         "table",
     ],
@@ -851,12 +855,18 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # schema save (even ones that don't touch this field) — the extra queries have
         # deadlocked with concurrent DDL in production.
         "table",
+        # Written by the model on the stop-syncing transition to record whether PostHog halted
+        # the schema itself, so it is derived state and not user intent. Diffing it also puts a
+        # second change on the entry that turns syncing on or off, which makes the schema
+        # activity feed read "updated schema" in place of "enabled schema".
+        "auto_disabled_at",
     ],
     "Evaluation": [
         # The fail-closed relation cannot be resolved outside a team scope; the handler diffs IDs instead.
         "directory",
         # Reverse relations — auto-managed by FK creates, not user intent.
         "reports",
+        "backfills",
     ],
     "SignalScoutConfig": [
         # Run bookkeeping, not user intent — keep it out of change detection even when it

@@ -1,11 +1,14 @@
 import './AuthScene.scss'
 
+import { useValues } from 'kea'
 import { type ReactNode } from 'react'
 
 import { Logo } from 'lib/brand'
 import { cn } from 'lib/utils/css-classes'
 
+import { pendingOAuthConnectionLogic } from '../pendingOAuthConnectionLogic'
 import { DevLoginPanel } from './DevLoginPanel'
+import { PendingOAuthConnectionLogos } from './PendingOAuthConnectionLogos'
 import { Typewriter } from './Typewriter'
 
 export function AuthScene({ notes, children }: { notes: string[]; children: ReactNode }): JSX.Element {
@@ -32,14 +35,18 @@ export function AuthSceneCard({
     footer?: ReactNode
     children: ReactNode
 }): JSX.Element {
+    const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
+
     return (
         <>
-            {top === undefined ? (
+            {top !== undefined ? (
+                top
+            ) : pendingConnection ? (
+                <PendingOAuthConnectionLogos connection={pendingConnection} />
+            ) : (
                 <span className="AuthScene__logo block mb-4">
                     <Logo variant="gradient" size="lg" />
                 </span>
-            ) : (
-                top
             )}
             <div className="AuthScene__card w-full pt-8 px-5 sm:px-9 pb-8">{children}</div>
             {footer}

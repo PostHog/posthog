@@ -431,7 +431,7 @@ importers:
         version: 0.25.12
       jest:
         specifier: ^29.7.0
-        version: 29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
+        version: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
       puppeteer:
         specifier: 19.0.0
         version: 19.0.0(encoding@0.1.13)
@@ -621,8 +621,8 @@ importers:
         specifier: workspace:*
         version: link:../common/esbuilder
       '@posthog/hedgehog-mode':
-        specifier: ^0.0.54
-        version: 0.0.54(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: ^0.0.57
+        version: 0.0.57(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/hogql-parser':
         specifier: 1.3.84
         version: 1.3.84
@@ -749,6 +749,9 @@ importers:
       '@posthog/products-mcp-analytics':
         specifier: workspace:*
         version: link:../products/mcp_analytics
+      '@posthog/products-mcp-registry':
+        specifier: workspace:*
+        version: link:../products/mcp_registry
       '@posthog/products-mcp-store':
         specifier: workspace:*
         version: link:../products/mcp_store
@@ -2640,6 +2643,12 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
     devDependencies:
+      '@testing-library/jest-dom':
+        specifier: ^5.17.0
+        version: 5.17.0
+      '@testing-library/react':
+        specifier: ^14.3.1
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -2693,6 +2702,9 @@ importers:
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
+      '@testing-library/react':
+        specifier: ^14.3.1
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -3891,7 +3903,26 @@ importers:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
 
-  products/mcp_registry: {}
+  products/mcp_registry:
+    dependencies:
+      '@posthog/lemon-ui':
+        specifier: '*'
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+      kea-loaders:
+        specifier: 'catalog:'
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      kea-router:
+        specifier: 'catalog:'
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
 
   products/mcp_store:
     dependencies:
@@ -4061,15 +4092,15 @@ importers:
       '@posthog/quill-primitives':
         specifier: workspace:*
         version: link:../../packages/quill/packages/primitives
+      '@posthog/react':
+        specifier: 'catalog:'
+        version: 1.10.6(@types/react@18.3.27)(posthog-js@1.429.2(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
       '@tanstack/react-virtual':
         specifier: '*'
         version: 3.14.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@toon-format/toon':
-        specifier: ^2.1.0
-        version: 2.1.0
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -4140,6 +4171,9 @@ importers:
       '@posthog/quill-charts':
         specifier: workspace:*
         version: link:../../packages/quill/packages/charts
+      '@types/d3':
+        specifier: '*'
+        version: 7.4.3
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -4149,6 +4183,9 @@ importers:
       clsx:
         specifier: '*'
         version: 1.2.1
+      d3:
+        specifier: '*'
+        version: 7.9.0
       elkjs:
         specifier: '*'
         version: 0.10.0
@@ -4176,6 +4213,9 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+      react-toastify:
+        specifier: '*'
+        version: 10.0.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
       '@storybook/react':
         specifier: 'catalog:'
@@ -4323,6 +4363,9 @@ importers:
       kea-router:
         specifier: 'catalog:'
         version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      kea-subscriptions:
+        specifier: 'catalog:'
+        version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       lodash.uniqby:
         specifier: ^4.7.0
         version: 4.7.0
@@ -4934,6 +4977,12 @@ importers:
       '@posthog/lemon-ui':
         specifier: '*'
         version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/quill-components':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/components
+      '@posthog/quill-primitives':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/primitives
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -5166,8 +5215,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/llm-normalizer
       '@posthog/mcp-analytics':
-        specifier: npm:@posthog/mcp@0.14.1
-        version: '@posthog/mcp@0.14.1(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.51.8(rxjs@7.8.1))'
+        specifier: npm:@posthog/mcp@0.16.0
+        version: '@posthog/mcp@0.16.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.51.8(rxjs@7.8.1))'
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
@@ -10460,8 +10509,11 @@ packages:
   '@posthog/core@1.52.1':
     resolution: {integrity: sha512-WT4TUgmsyBYHAmhsifg+LdaFH9wzOcp3UNWnIaeVOgodfMeG/X39V9n0lyebaxoHLR/NMCMq8gsrF69ldzuMhg==}
 
-  '@posthog/hedgehog-mode@0.0.54':
-    resolution: {integrity: sha512-FBNsdZcqmSu++YkLXoGnWGEogWLKDIle8iMFDNbBKOdBoiNeKkiezwz5DnKvShZpKNLEvUVpoJh93vMOcuuLjQ==}
+  '@posthog/core@1.53.2':
+    resolution: {integrity: sha512-Knx8442G2LyPVIzLvhcBX/TIdeHpZhrYrtZou3Uw8FWfbr9gQtQeOZDCog3MWcDxJ+4vAnMAAOzf5cYpc7Gxyw==}
+
+  '@posthog/hedgehog-mode@0.0.57':
+    resolution: {integrity: sha512-50BR9KRFTkh4HszryGPZUdVdaSqbb4OuaxwmeONGEuI2TRFCyWgF6r7YdVg9ud7PVnp6R4L7O4oYhaARDHuP0g==}
     engines: {node: '>=18'}
     peerDependencies:
       react: 18.3.1
@@ -10485,8 +10537,8 @@ packages:
       react: 18.3.1
       react-dom: 18.3.1
 
-  '@posthog/mcp@0.14.1':
-    resolution: {integrity: sha512-OOuE9zf3FKdzxR8rvVo5lD4arbOUm2hoeZ3KysMhweBfTX9NjQdNllWg0PKqAHzUlwmd0ybYH/2Wfn2YCMNM+Q==}
+  '@posthog/mcp@0.16.0':
+    resolution: {integrity: sha512-NW9w0Cc0Dk95vsQy0g5G3//n7cljeWgF//yIbUsRofu0wsZ23bV9pY4XvnvKtHVh+iK3dji8zxzOJr3lXgL1rA==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       '@modelcontextprotocol/sdk': ^1.29.0
@@ -10526,6 +10578,9 @@ packages:
 
   '@posthog/types@1.410.0':
     resolution: {integrity: sha512-741sltt/h+l0eYH+Nkow96qKfDmRxwKacfjF93Z+kMySjzL0a87ptmpklZxGkbjBp/DJH/CSowGrolYWK/1ToA==}
+
+  '@posthog/types@1.411.1':
+    resolution: {integrity: sha512-Gd7tnSYctcSXup3naVlAgavvenByRao6rsSYdMgWgP35KE9jFn+rMHNRJeI5LNjJuLzMXHEVcgzAN7xcATefdw==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -13761,10 +13816,9 @@ packages:
   '@webgpu/types@0.1.72':
     resolution: {integrity: sha512-0cF7RFM2edNoiIS1ODJp0/Gzv4/xSXhwoR0YCza+OWpJWtn4wmo9DvK91aLlH9+uUnwIriP7ZiC3WitmyhuzBw==}
 
-  '@xmldom/xmldom@0.8.13':
-    resolution: {integrity: sha512-KRYzxepc14G/CEpEGc3Yn+JKaAeT63smlDr+vjB8jRfgTBBI9wRj/nkQEO+ucV8p8I9bfKLWp37uHgFrbntPvw==}
+  '@xmldom/xmldom@0.8.15':
+    resolution: {integrity: sha512-/5NV/vDALVFDXgLmfsy9TRCBlKwO2LNBFzpzvb9iIj+jR+eSc6DLYYvVOdivT/jm7MtU6TebYuRmzEOI7w40UA==}
     engines: {node: '>=10.0.0'}
-    deprecated: this version has critical issues, please update to the latest version
 
   '@xmldom/xmldom@0.9.10':
     resolution: {integrity: sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw==}
@@ -19644,8 +19698,8 @@ packages:
     resolution: {integrity: sha512-o8mkY4E/+LNUf6LzX96ht6k6CEDi65k9G2rjMtBe9Oo+VPKSvl+0GKHuH/AlG+GA5LPG/i5hrekkxUc3s2HU+Q==}
     hasBin: true
 
-  pixi.js@8.19.0:
-    resolution: {integrity: sha512-pq1O6emA/GFjjeF+8d3Pb5t7knD8FsnfWGqQcRjYjsqFZ7QdzG1XgjLDUu0DFJRbafjV5+g8iNLFBx0b9649lg==}
+  pixi.js@8.20.1:
+    resolution: {integrity: sha512-akLVBMLvQbaEViqsmVraK0Njer1q4Q4lm4iNKuzvBiFrV8q+6/+HluJN3sWIwO663IBeQtUUS/CaXFJZs6ffXQ==}
 
   pkce-challenge@5.0.0:
     resolution: {integrity: sha512-ueGLflrrnvwB3xuo/uGob5pd5FN7l0MsLf0Z87o/UQmRtwjvfylfc9MurIxRAWywCYTgrvpXBcqjV4OfCYGCIQ==}
@@ -22673,8 +22727,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.477.0:
-    resolution: {integrity: sha512-9FGVO9JJwaPkPP2lLhoPz8qt58Vy41XgygNBtkw2dBGKnn8Bi6WldOqhwqNMsWHsTbDorFJkn9v8ACng11hdBw==}
+  unlayer-types@1.480.0:
+    resolution: {integrity: sha512-c19lrSsP2PHLSmSa+4h2KWZ5McIYkIjJ8snUdNTxghJYLqXJHbngf/Su8S+CtPygzOifZJbV99zxslEIZqnbxQ==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -30035,12 +30089,15 @@ snapshots:
     dependencies:
       '@posthog/types': 1.410.0
 
-  '@posthog/hedgehog-mode@0.0.54(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+  '@posthog/core@1.53.2':
+    dependencies:
+      '@posthog/types': 1.411.1
+
+  '@posthog/hedgehog-mode@0.0.57(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       gsap: 3.14.2
-      lodash: 4.18.1
       matter-js: 0.20.0
-      pixi.js: 8.19.0
+      pixi.js: 8.20.1
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
       react-shadow: 20.6.0(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -30063,9 +30120,9 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@posthog/mcp@0.14.1(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.51.8(rxjs@7.8.1))':
+  '@posthog/mcp@0.16.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.51.8(rxjs@7.8.1))':
     dependencies:
-      '@posthog/core': 1.51.1
+      '@posthog/core': 1.53.2
       posthog-node: 5.51.8(rxjs@7.8.1)
     optionalDependencies:
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
@@ -30089,6 +30146,8 @@ snapshots:
   '@posthog/types@1.409.2': {}
 
   '@posthog/types@1.410.0': {}
+
+  '@posthog/types@1.411.1': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -33830,7 +33889,7 @@ snapshots:
 
   '@webgpu/types@0.1.72': {}
 
-  '@xmldom/xmldom@0.8.13': {}
+  '@xmldom/xmldom@0.8.15': {}
 
   '@xmldom/xmldom@0.9.10': {}
 
@@ -41813,12 +41872,12 @@ snapshots:
     dependencies:
       pngjs: 6.0.0
 
-  pixi.js@8.19.0:
+  pixi.js@8.20.1:
     dependencies:
       '@pixi/colord': 2.9.6
       '@types/earcut': 3.0.0
       '@webgpu/types': 0.1.72
-      '@xmldom/xmldom': 0.8.13
+      '@xmldom/xmldom': 0.8.15
       earcut: 3.0.2
       eventemitter3: 5.0.1
       gifuct-js: 2.1.2
@@ -43130,7 +43189,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.477.0
+      unlayer-types: 1.480.0
 
   react-grid-layout@2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -45445,7 +45504,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.477.0: {}
+  unlayer-types@1.480.0: {}
 
   unpipe@1.0.0: {}
 

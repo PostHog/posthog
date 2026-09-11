@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -146,8 +146,12 @@ class TestConfigEndpoints:
             _collect("nonexistent", _FakeManager(), monkeypatch, _FakeApi())
 
 
-@freeze_time("2026-07-09T12:00:00Z")
 class TestDailyEndpoints:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-07-09T12:00:00Z", tick=False):
+            yield
+
     def test_walks_days_from_watermark_to_today_inclusive(self, monkeypatch):
         # The watermark day is re-fetched: its previous sync may have run mid-day and captured
         # partial data. Skipping it would permanently freeze that day's rows.

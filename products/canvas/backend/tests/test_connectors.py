@@ -4,6 +4,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import serializers, status
@@ -21,6 +22,7 @@ from products.canvas.backend.connectors import (
 )
 from products.canvas.backend.models import Canvas
 from products.canvas.backend.tests.test_canvas_api import CanvasAPIBaseTest
+from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
 from products.tasks.backend.models import Task
 
 _GITHUB_PR = {
@@ -285,6 +287,41 @@ class TestCanvasConnectors(CanvasAPIBaseTest):
         body = response.json()
         assert body["status"] == "not_connected"
         assert body["connect_path"] == "/settings/mcp-servers"
+
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool", return_value={"content": []})
+    def test_mcp_call_requires_a_single_use_token_for_the_exact_arguments(self, upstream: MagicMock) -> None:
+        canvas_id = self._connectors_canvas([{"provider": "mcp:calendar.example.com", "tools": ["list_events"]}])
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            url="https://calendar.example.com/mcp",
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "test-only-key"},
+        )
+        MCPServerInstallationTool.objects.create(
+            installation=installation,
+            tool_name="list_events",
+            approval_state="needs_approval",
+            annotations={"readOnlyHint": True},
+            last_seen_at=timezone.now(),
+        )
+        url = f"/api/projects/{self.team.id}/canvases/{canvas_id}/connectors/call/"
+        payload = {"provider": "mcp:calendar.example.com", "tool": "list_events", "arguments": {"limit": 5}}
+        pending = self.client.post(url, {**payload, "approved": True}, format="json")
+        assert pending.status_code == 200
+        assert pending.json()["status"] == "needs_approval"
+        token = pending.json()["approval_token"]
+        assert token
+        upstream.assert_not_called()
+        changed = self.client.post(url, {**payload, "arguments": {"limit": 10}, "approval_token": token}, format="json")
+        assert changed.json()["status"] == "blocked"
+        upstream.assert_not_called()
+        allowed = self.client.post(url, {**payload, "approval_token": token}, format="json")
+        assert allowed.json()["status"] == "ok"
+        assert allowed.json()["approval_token"] is None
+        replay = self.client.post(url, {**payload, "approval_token": token}, format="json")
+        assert replay.json()["status"] == "blocked"
+        assert upstream.call_count == 1
 
     def test_catalog_lists_native_tools_with_the_callers_connection_state(self):
         response = self.client.get(f"/api/projects/{self.team.id}/canvases/connectors/")

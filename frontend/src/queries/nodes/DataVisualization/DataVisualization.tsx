@@ -7,6 +7,7 @@ import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { PIE_DISPLAY_TYPES } from 'lib/constants'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -190,8 +191,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         chartSettings,
         dashboardId,
         dataVisualizationProps,
-        presetChartHeight,
+        presetChartHeight: scenePresetChartHeight,
     } = useValues(dataVisualizationLogic)
+
+    const presetChartHeight = !props.embedded && scenePresetChartHeight
 
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
@@ -280,7 +283,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 />
             </BindLogic>
         )
-    } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
+    } else if (PIE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         // Pie charts can consume breakdown series totals directly, even when there isn't
         // a matching breakdown x-axis to swap in like the line/bar path expects.
@@ -291,6 +294,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 className="p-3"
                 xData={_xData}
                 yData={_yData}
+                visualizationType={effectiveVisualizationType}
                 chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}
             />
