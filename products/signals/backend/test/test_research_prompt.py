@@ -5,12 +5,20 @@ import pytest
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
     SignalFinding,
+    _render_previous_metrics_context,
     _render_signal_for_research,
     build_initial_research_prompt,
     build_report_presentation_prompt,
     build_signal_investigation_prompt,
 )
+from products.signals.backend.report_metrics import (
+    DEFAULT_LIVE_METRIC_DATE_FROM,
+    MAX_LIVE_METRIC_QUERY_POINTS,
+    MAX_LIVE_METRIC_QUERY_SERIES,
+    ReportMetric,
+)
 from products.signals.backend.temporal.types import SignalData
+from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 
 
 def _make_signal(extra: dict) -> SignalData:
@@ -156,9 +164,8 @@ def _make_chart() -> ReportChart:
 
 
 class TestBuildReportPresentationPrompt:
-    # A team that isn't opted in must never be steered to author charts: both the guidance section
-    # and the `charts` schema field have to stay out of the prompt on the fleet-wide path, so the
-    # model is never even shown a field whose description mentions authoring `chart:` links.
+    # Chart and metric rollouts are independent: a team can receive live impact measurements
+    # without enabling free-form report charts, or vice versa.
     def test_chart_guidance_and_schema_field_only_present_when_enabled(self):
         off = build_report_presentation_prompt(2, charts_enabled=False)
         on = build_report_presentation_prompt(2, charts_enabled=True)
@@ -167,6 +174,36 @@ class TestBuildReportPresentationPrompt:
         # The schema field is dropped when disabled and present when enabled.
         assert '"charts"' not in off
         assert '"charts"' in on
+
+    def test_metric_guidance_and_schema_field_only_present_when_enabled(self):
+        off = build_report_presentation_prompt(2, charts_enabled=True, metrics_enabled=False)
+        on = build_report_presentation_prompt(2, charts_enabled=False, metrics_enabled=True)
+
+        assert "Measuring impact" not in off
+        assert '"metrics"' not in off
+        assert f"at most {MAX_LIVE_METRIC_QUERY_POINTS} estimated interval points" not in off
+        assert "Attaching charts" in off
+        assert '"charts"' in off
+
+        assert "Measuring impact" in on
+        assert '"metrics"' in on
+        assert (
+            f'Default the query to `dateRange.date_from: "{DEFAULT_LIVE_METRIC_DATE_FROM}"` with `interval: "day"`'
+            in on
+        )
+        assert "Do not author comparisons" in on
+        assert f"at most {MAX_LIVE_METRIC_QUERY_POINTS} estimated interval points" in on
+        assert "Every source series must be an `EventsNode` or `ActionsNode`" in on
+        assert "Do not use a breakdown or compare mode on any report metric" in on
+        assert "exactly one output series per query" in on
+        assert f"up to {MAX_LIVE_METRIC_QUERY_SERIES} event/action source series as formula inputs" in on
+        assert "exactly one formula output" in on
+        assert "Consumers derive `BoldNumber`" in on
+        assert "and `ActionsBar`" in on
+        assert "bar or line response does not supply the whole-window total" in on
+        assert "must set `aggregationAxisFormat` to exactly the same value" in on
+        assert "Attaching charts" not in on
+        assert '"charts"' not in on
 
     # A DataVisualizationNode carrying `display` but no `chartSettings` stores and validates
     # cleanly, then draws every row at a single x position instead of a series. The guidance is
@@ -185,3 +222,24 @@ class TestBuildReportPresentationPrompt:
         assert "Charts this report already shows" in on
         assert "signups-drop" in on
         assert "Charts this report already shows" not in off
+
+    def test_previous_metric_context_omits_legacy_comparison(self):
+        metric = ReportMetric.model_validate(
+            {
+                "metric_id": "affected-users",
+                "title": "Affected users",
+                "kind": "affected_users",
+                "role": "primary",
+                "value": 17,
+                "value_at": "2026-08-29T12:00:00Z",
+                "value_format": "count",
+                "unit": "users",
+                "query": trends_metric_query(series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}]),
+                "comparison": {"value": 11, "label": "Previous period"},
+            }
+        )
+
+        prompt = _render_previous_metrics_context([metric])
+
+        assert '"comparison"' not in prompt
+        assert "Previous period" not in prompt
