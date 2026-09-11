@@ -70,6 +70,9 @@ export interface timeSensitiveAuthenticationLogicActions {
     setTimeSensitiveAuthenticationRequired: (required: boolean | [onSuccess: () => void, onFailure: () => void]) => {
         required: boolean | [onSuccess: () => void, onFailure: () => void]
     } // apiStatusLogic
+    resolveSensitiveAction: (outcome: 'success' | 'failure') => {
+        outcome: 'success' | 'failure'
+    } // apiStatusLogic
     loadUser: (resetOnFailure?: boolean | undefined) => {
         resetOnFailure: boolean | undefined
     } // userLogic
@@ -211,7 +214,12 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
             modalInterruptionTrackingLogic,
             ['interruptedForm'],
         ],
-        actions: [apiStatusLogic, ['setTimeSensitiveAuthenticationRequired'], userLogic, ['loadUser']],
+        actions: [
+            apiStatusLogic,
+            ['setTimeSensitiveAuthenticationRequired', 'resolveSensitiveAction'],
+            userLogic,
+            ['loadUser'],
+        ],
         logic: [modalInterruptionTrackingLogic],
     })),
     actions({
@@ -382,34 +390,24 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
 
     listeners(({ actions, values }) => ({
         submitReauthenticationSuccess: () => {
-            if (Array.isArray(values.timeSensitiveAuthenticationRequired)) {
-                values.timeSensitiveAuthenticationRequired[0]() // Signal success
-            }
             posthog.capture('reauthentication_completed')
-            actions.setTimeSensitiveAuthenticationRequired(false)
+            actions.resolveSensitiveAction('success')
             // Refresh the user so we know the new session expiry
             actions.loadUser()
         },
         beginPasskey2FASuccess: () => {
-            if (Array.isArray(values.timeSensitiveAuthenticationRequired)) {
-                values.timeSensitiveAuthenticationRequired[0]() // Signal success
-            }
             posthog.capture('reauthentication_completed', { method: 'passkey_2fa' })
-            actions.setTimeSensitiveAuthenticationRequired(false)
+            actions.resolveSensitiveAction('success')
             // Refresh the user so we know the new session expiry
             actions.loadUser()
         },
         submitReauthenticationFailure: () => {
-            if (Array.isArray(values.timeSensitiveAuthenticationRequired)) {
-                values.timeSensitiveAuthenticationRequired[1]() // Signal failure/dismissal
-            }
+            actions.resolveSensitiveAction('failure')
         },
         setDismissedReauthentication: ({ value }) => {
             if (value) {
-                if (Array.isArray(values.timeSensitiveAuthenticationRequired)) {
-                    values.timeSensitiveAuthenticationRequired[1]() // Signal failure/dismissal
-                }
                 posthog.capture('reauthentication_modal_dismissed')
+                actions.resolveSensitiveAction('failure')
             }
         },
         showSsoReauthenticationError: () => {

@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, kea, listeners, path, reducers } from 'kea'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -23,6 +24,9 @@ export interface apiStatusLogicActions {
         error: any
         response: Response | undefined
     }
+    resolveSensitiveAction: (outcome: 'success' | 'failure') => {
+        outcome: 'success' | 'failure'
+    }
     setInternetConnectionIssue: (issue: boolean) => {
         issue: boolean
     }
@@ -43,6 +47,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
     path(['lib', 'apiStatusLogic']),
     actions({
         onApiResponse: (response?: Response, error?: any) => ({ response, error }),
+        resolveSensitiveAction: (outcome: 'success' | 'failure') => ({ outcome }),
         setInternetConnectionIssue: (issue: boolean) => ({ issue }),
         setTimeSensitiveAuthenticationRequired: (
             required: boolean | [onSuccess: () => void, onFailure: () => void]
@@ -86,6 +91,22 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
         ],
     }),
     listeners(({ cache, actions, values }) => ({
+        resolveSensitiveAction: ({ outcome }) => {
+            const pending = values.timeSensitiveAuthenticationRequired
+            if (outcome === 'success') {
+                // Clear the gate first. A callback that throws is the caller's own bug, and it must
+                // not leave the user behind the re-authentication modal with the action blocked.
+                actions.setTimeSensitiveAuthenticationRequired(false)
+            }
+            if (!Array.isArray(pending)) {
+                return
+            }
+            try {
+                pending[outcome === 'success' ? 0 : 1]()
+            } catch (e) {
+                posthog.captureException(e)
+            }
+        },
         onApiResponse: async ({ response, error }, breakpoint) => {
             if (error || !response?.status) {
                 await breakpoint(50)
