@@ -685,6 +685,21 @@ describe('ToolExecutor metrics', () => {
                 expect(lastExtras()).not.toHaveProperty('$mcp_skill_body_offset')
             })
 
+            // The agent reads a lookup miss as a plain result, but the miss rate has to
+            // stay measurable. Recording the rewritten result as a success would hide
+            // every deleted or renamed skill agents keep asking for.
+            it('records a rewritten lookup miss as a failed call', async () => {
+                const response: any = await executor.handleToolCall(
+                    { name: 'exec', arguments: { command: 'call skill-get {"skill_name":"conductor"}' } },
+                    execStateWith(contextThatRejects())
+                )
+
+                expect(response.isError).toBeFalsy()
+                expect(mockTrackToolCall.mock.calls.at(-1)?.[2]).toBe(true)
+                expect(lastExtras()).toMatchObject({ $mcp_error_type: 'api_4xx', $mcp_error_status: 404 })
+                expect(callsFor(mockToolErrorsInc, 'skill-get')).toEqual([{ tool: 'skill-get', error_type: 'api_4xx' }])
+            })
+
             // Dropping the skill must not take the exec properties with it — those are
             // stamped on failures by design, and are the only record of what was tried.
             it('keeps the exec verb and target when a skill read fails', async () => {
