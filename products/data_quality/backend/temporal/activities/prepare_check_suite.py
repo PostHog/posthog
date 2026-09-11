@@ -10,6 +10,7 @@ from posthog.temporal.common.logger import get_logger
 from products.data_modeling.backend.facade import api as data_modeling_facade
 
 from ...facade.enums import SubjectType
+from ...logic.checks import live_subject_checks
 from ...logic.flags import is_data_quality_checks_enabled_for_team_id
 from ...models import DataQualityCheck, DataQualitySuiteRun
 from ..contracts import PreparedSuite, RunCheckSuiteInputs
@@ -72,15 +73,24 @@ def _single_subject_fields(inputs: RunCheckSuiteInputs) -> dict[str, str]:
     Leaving them out lets the model's own column defaults stand, which is what "this run has no one
     subject" looks like on the row.
     """
-    if len(inputs.saved_query_ids) == 1 and not inputs.table_ids:
-        return {"subject_type": SubjectType.VIEW, "subject_uuid": inputs.saved_query_ids[0]}
-    if len(inputs.table_ids) == 1 and not inputs.saved_query_ids:
-        return {"subject_type": SubjectType.TABLE, "subject_uuid": inputs.table_ids[0]}
+    subjects = [
+        (subject_type, subject_uuid)
+        for subject_type, identifiers in (
+            (SubjectType.VIEW, inputs.saved_query_ids),
+            (SubjectType.TABLE, inputs.table_ids),
+            (SubjectType.METRIC, inputs.metric_ids),
+        )
+        for subject_uuid in identifiers
+    ]
+    if len(subjects) == 1 and not inputs.node_ids and not inputs.check_ids:
+        return {"subject_type": subjects[0][0], "subject_uuid": subjects[0][1]}
     return {}
 
 
 def _select_checks(inputs: RunCheckSuiteInputs) -> list[str]:
-    runnable = DataQualityCheck.objects.for_team(inputs.team_id).filter(enabled=True, deleted=False)
+    runnable = live_subject_checks(
+        DataQualityCheck.objects.for_team(inputs.team_id).filter(enabled=True, deleted=False)
+    )
 
     if inputs.check_ids:
         runnable = runnable.filter(id__in=inputs.check_ids)
@@ -88,11 +98,13 @@ def _select_checks(inputs: RunCheckSuiteInputs) -> list[str]:
         saved_query_ids = list(inputs.saved_query_ids)
         if inputs.node_ids:
             saved_query_ids += data_modeling_facade.get_saved_query_ids_for_nodes(inputs.team_id, inputs.node_ids)
-        if not saved_query_ids and not inputs.table_ids:
+        if not saved_query_ids and not inputs.table_ids and not inputs.metric_ids:
             return []
         subject_filter = models.Q(saved_query_id__in=saved_query_ids)
         if inputs.table_ids:
             subject_filter |= models.Q(table_id__in=inputs.table_ids)
+        if inputs.metric_ids:
+            subject_filter |= models.Q(metric_id__in=inputs.metric_ids)
         runnable = runnable.filter(subject_filter)
 
     return [str(check_id) for check_id in runnable.values_list("id", flat=True)]

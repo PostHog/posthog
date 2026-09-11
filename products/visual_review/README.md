@@ -41,6 +41,59 @@ The windows and the reasons behind them are constants in `backend/logic/retentio
   An artifact row is what makes the CLI skip an upload, so a row without its object is the one state to avoid; a leaked object only costs storage.
 - Each invocation is capped by rows and by a time budget, so a backlog drains over days.
 
+### Daily debt digest
+
+A daily Celery task, `send visual review debt digests`, posts each team a Slack reminder about the visual review debt it still carries.
+The digest is stateless: every morning both conditions below are evaluated from current data, and nothing is stored about what was sent.
+An item repeats every day while it stands, and stops the day the condition no longer holds.
+
+Two conditions, and nothing else:
+
+- **Quarantine expiring.**
+  An active quarantine that runs out inside `FLAKINESS_EXPIRY_SOON_DAYS`.
+  It clears when somebody extends it past the window, lifts it, or lets it lapse.
+- **N accepted variants of the current baseline.**
+  `VARIANT_PILEUP_MIN` or more active intentional tolerations recorded against the hash the baseline currently holds, with no quarantine already covering the identity.
+  This is not the ninety-day tolerated count on the baselines page, which measures how often somebody accepted drift in a window.
+  This count has no window, because an accepted variant keeps matching without a new record.
+  It clears when the tolerations are removed, or when the baseline changes.
+
+A baseline change invalidates the tolerations recorded against the old baseline: they can never match again, so the count drops to zero.
+That is not evidence the story recovered.
+Reminders about retained exceptions repeat until they are removed or no longer apply.
+
+Attribution runs through the Storybook build behind the current baseline, and then through `owners.yaml`.
+The build uploads its story index as a GitHub Actions artifact, so the digest reads the artifact of the workflow run recorded on that baseline run (`metadata["github_run_id"]`), and the index names the file each story lives in.
+A snapshot identifier is a story id plus the theme, the browser when it is not chromium, and the viewport width for a story that snapshots several.
+The full story id is looked up first and the width suffix is only stripped when that misses, because a story can be named after a width.
+The parsed index is cached per repository and workflow run for two days, and the key rotates on its own whenever the baseline moves.
+Nothing is guessed from the identifier: a story name is not a path.
+Only Storybook runs are attributed today.
+
+Three outcomes have no owning team, and the digest keeps them apart:
+
+- **Nobody owns the file.** The story maps to a file, and no owners entry covers it. Add one for the path, which stays on the line.
+- **The story is not in the index.** It moved, was renamed, was deleted, or it only exists on a branch.
+- **Ownership could not be worked out.** The artifact was missing or expired, the download failed, the team has no GitHub integration, or the run type is not supported yet.
+
+All three go to whoever owns `products/visual_review/`, in a triage part of that team's digest kept separate from the items those maintainers own.
+Holding an item until a team takes it is not owning it, and the wording says so.
+A missing artifact never turns the digest into "nobody owns this": the items still go out, and the lead says ownership is worked out again tomorrow.
+When nobody owns `products/visual_review/` either, the items are logged and dropped rather than posted somewhere arbitrary.
+The artifact is kept for one day, which is enough for a daily read of a moving baseline.
+A baseline that has not moved for longer reads as ownership could not be worked out, and the digest says so instead of guessing.
+
+Routing goes to the team's `notifications` channel in the repository's root `owners.yaml` registry, under the `visual_review` producer.
+A team opts out with `notifications: {visual_review: false}` under its entry.
+A shared Slack channel is refused, so a name match never carries an internal reminder out of the workspace.
+
+There is nothing to configure.
+The daily beat task runs the digest for every repository, and a repository that owes nothing posts nothing.
+
+`./manage.py visual_review_debt_digest --repo owner/name [--mode preview]` runs one repository by hand.
+`--mode preview`, the default, renders every team's message and logs it without posting.
+`--mode live` posts.
+
 ## The flow
 
 ### Single-command flow (`vr submit`)
