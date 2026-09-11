@@ -34,6 +34,7 @@ import { InstallCliStep } from "@posthog/ui/features/onboarding/components/Insta
 import { useOnboardingFlow } from "@posthog/ui/features/onboarding/hooks/useOnboardingFlow";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { saveOnboardingRepository } from "@posthog/ui/features/onboarding/saveOnboardingRepository";
+import type { OnboardingStep } from "@posthog/ui/features/onboarding/types";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { shipIt } from "@posthog/ui/primitives/confetti";
 import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
@@ -239,6 +240,7 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
     hasGithubIntegration,
     consentSatisfied,
     consentRequirement,
+    currentStepPending,
   } = useOnboardingFlow();
   const completeOnboarding = useOnboardingStore(
     (state) => state.completeOnboarding,
@@ -279,15 +281,36 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
   const flowStartedAtRef = useRef(Date.now());
   const stepEnteredAtRef = useRef(Date.now());
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: fires once on mount; subsequent step views fire from handleNext/handleBack
   useEffect(() => {
     track(ANALYTICS_EVENTS.ONBOARDING_STARTED);
+  }, []);
+
+  // Entry is when the person arrives on the step, which is not always when the
+  // view is recorded: a pending gate delays the view but not the reading.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: currentStep is the trigger, not a value the body reads
+  useEffect(() => {
+    stepEnteredAtRef.current = Date.now();
+  }, [currentStep]);
+
+  const viewedStepRef = useRef<OnboardingStep | null>(null);
+  const recordStepViewed = () => {
+    if (currentIndex < 0 || viewedStepRef.current === currentStep) return;
+    viewedStepRef.current = currentStep;
     track(ANALYTICS_EVENTS.ONBOARDING_STEP_VIEWED, {
       step_id: currentStep,
       step_index: currentIndex,
       total_steps: activeSteps.length,
     });
-  }, []);
+  };
+
+  // The ordinary path: the step settles while the person is reading it. This
+  // also covers a step entered by the self-heal in useOnboardingFlow, which
+  // reaches the person without passing through handleNext.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: recordStepViewed reads the same values these deps carry
+  useEffect(() => {
+    if (currentStepPending) return;
+    recordStepViewed();
+  }, [currentStep, currentIndex, currentStepPending, activeSteps.length]);
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -318,17 +341,6 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
     );
   };
 
-  const trackStepViewed = (stepIndex: number) => {
-    const stepId = activeSteps[stepIndex];
-    if (!stepId) return;
-    track(ANALYTICS_EVENTS.ONBOARDING_STEP_VIEWED, {
-      step_id: stepId,
-      step_index: stepIndex,
-      total_steps: activeSteps.length,
-    });
-    stepEnteredAtRef.current = Date.now();
-  };
-
   const handleNext = (context?: StepCompletedContext) => {
     if (
       currentStep === "consent" &&
@@ -340,14 +352,15 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
     // into capture properties poisons the whole analytics batch.
     const safeContext =
       context && "nativeEvent" in context ? undefined : context;
+    // A person can leave a step before its gate answers, which the effect above
+    // skips. Record the view first, so a completion never arrives without one.
+    recordStepViewed();
     trackStepCompleted(safeContext);
-    trackStepViewed(currentIndex + 1);
     next();
   };
 
   const handleBack = () => {
     if (currentStep === "consent" && consentSubmitting) return;
-    trackStepViewed(currentIndex - 1);
     back();
   };
 
@@ -363,6 +376,7 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
   const handleComplete = async (repoSkipped: boolean) => {
     if (isCompleting) return;
     setIsCompleting(true);
+    recordStepViewed();
     if (repoSkipped) {
       track(ANALYTICS_EVENTS.ONBOARDING_STEP_SKIPPED, {
         step_id: currentStep,

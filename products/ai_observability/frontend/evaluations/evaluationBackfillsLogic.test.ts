@@ -18,6 +18,8 @@ import {
 } from '../generated/api'
 import type { EvaluationBackfillApi, EvaluationBackfillEstimateApi } from '../generated/api.schemas'
 import { evaluationBackfillsLogic } from './evaluationBackfillsLogic'
+import { llmEvaluationLogic } from './llmEvaluationLogic'
+import type { EvaluationConfig } from './types'
 
 jest.mock('../generated/api', () => ({
     ...jest.requireActual('../generated/api'),
@@ -129,6 +131,14 @@ describe('evaluationBackfillsLogic', () => {
         logic = evaluationBackfillsLogic({ evaluationId: EVALUATION_ID })
         logic.mount()
         return logic
+    }
+
+    /** The header Save button lives outside the tab, so a save arrives from the evaluation logic. */
+    function saveEvaluation(overrides: Partial<EvaluationConfig>): void {
+        llmEvaluationLogic({ evaluationId: EVALUATION_ID }).actions.saveEvaluationSuccess({
+            ...mockEvaluation,
+            ...overrides,
+        } as unknown as EvaluationConfig)
     }
 
     /** The tab opens on a default range and counts it once, so most cases start from that count. */
@@ -398,6 +408,51 @@ describe('evaluationBackfillsLogic', () => {
             'requestEstimate',
             'requestEstimateSuccess',
         ])
+        expect(estimateMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('recounts the range when the refresh after a create already shows the run finished', async () => {
+        await mountAndSettle()
+
+        // A short walk can be over before the first refresh lands, so the list never shows it running.
+        listMock.mockResolvedValue({ count: 1, results: [backfill({ status: 'completed' })] })
+        logic.actions.createBackfill()
+
+        await expectLogic(logic).toDispatchActions(['createBackfillDone', 'requestEstimate', 'requestEstimateSuccess'])
+        await expectLogic(logic).toMatchValues({
+            estimate: expect.objectContaining({ total_units: 42 }),
+            startDisabledReason: undefined,
+        })
+        expect(estimateMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('recounts after a save, because the server counts against the evaluation target', async () => {
+        await mountAndSettle()
+
+        // The target is not part of the request body, so the cached count cannot notice the change.
+        estimateMock.mockResolvedValue(estimate({ unit: 'trace', total_units: 7 }))
+        saveEvaluation({ target: 'trace' })
+
+        await expectLogic(logic).toDispatchActions(['requestEstimate', 'requestEstimateSuccess'])
+        expect(estimateMock).toHaveBeenCalledTimes(1)
+        await expectLogic(logic).toMatchValues({
+            unit: 'trace',
+            estimate: expect.objectContaining({ total_units: 7 }),
+        })
+    })
+
+    it('keeps edited condition sets through a save, and still recounts', async () => {
+        await mountAndSettle()
+
+        const edited = [{ id: 'cond-1', rollout_percentage: 25, properties: [] }]
+        logic.actions.setConditions(edited)
+        await expectLogic(logic).toDispatchActions(['requestEstimateSuccess'])
+        estimateMock.mockClear()
+
+        saveEvaluation({ target: 'trace' })
+
+        await expectLogic(logic).toDispatchActions(['requestEstimate', 'requestEstimateSuccess'])
+        await expectLogic(logic).toMatchValues({ conditions: edited })
         expect(estimateMock).toHaveBeenCalledTimes(1)
     })
 

@@ -467,7 +467,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
 # `end_run_when_done` gates the sandbox's `finish` tool for workflow runs; a key this
 # filter drops never reaches the agent server, so the gate would silently do nothing.
 # `store_skills` is the acting user's skills-store listing, so it is for their sandbox only.
-_TASK_RUN_AGENT_STATE_KEYS = frozenset({"end_run_when_done", "initial_prompt_override", "store_skills"})
+_TASK_RUN_AGENT_STATE_KEYS = frozenset({"end_run_when_done", "initial_prompt_override", "store_skills", "systemPrompt"})
 
 
 def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = False) -> dict:
@@ -2300,6 +2300,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "provider",
         "model",
         "reasoning_effort",
+        # The OpenAI queue the run's Codex turns join; `priority` costs more than standard.
+        "service_tier",
         "claude_model_access",
         "claude_subscription_user_id",
         "rtk_effective",

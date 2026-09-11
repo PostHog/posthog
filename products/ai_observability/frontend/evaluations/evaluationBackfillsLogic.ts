@@ -124,6 +124,9 @@ export interface evaluationBackfillsLogicActions {
         evaluation: EvaluationConfig | null
         requestedTab: string | null
     } // llmEvaluationLogic
+    saveEvaluationSuccess: (evaluation: EvaluationConfig) => {
+        evaluation: EvaluationConfig
+    } // llmEvaluationLogic
     cancelBackfill: (id: string) => {
         id: string
     }
@@ -224,7 +227,10 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
 
     connect((props: EvaluationBackfillsLogicProps) => ({
         values: [llmEvaluationLogic({ evaluationId: props.evaluationId }), ['evaluation'], teamLogic, ['timezone']],
-        actions: [llmEvaluationLogic({ evaluationId: props.evaluationId }), ['loadEvaluationSuccess']],
+        actions: [
+            llmEvaluationLogic({ evaluationId: props.evaluationId }),
+            ['loadEvaluationSuccess', 'saveEvaluationSuccess'],
+        ],
     })),
 
     actions({
@@ -426,25 +432,38 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                 return () => window.clearTimeout(timerId)
             }, POLL_KEY)
         }
+        /** The server counts against the evaluation's own target and target config, neither of
+         * which the request carries, so a save that changes either leaves the cached count
+         * describing a different unit. Seeding recounts on its own; an edited editor keeps its
+         * condition sets and only recounts. */
+        const followEvaluation = (): void => {
+            cache.lastEstimate = null
+            if (!values.conditionsDirty && values.evaluation) {
+                actions.seedConditions(values.evaluation.conditions.map(toBackfillCondition))
+            } else {
+                actions.requestEstimate()
+            }
+        }
         return {
-            loadEvaluationSuccess: () => {
-                if (!values.conditionsDirty && values.evaluation) {
-                    actions.seedConditions(values.evaluation.conditions.map(toBackfillCondition))
-                }
-            },
+            loadEvaluationSuccess: followEvaluation,
+            saveEvaluationSuccess: followEvaluation,
             loadBackfills: async ({ background }) => {
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
                     return
                 }
-                const wasActive = values.hasActiveBackfill
                 try {
                     const response = await evaluationsBackfillsList(String(teamId), props.evaluationId, {
                         limit: BACKFILL_PAGE_SIZE,
                     })
                     actions.loadBackfillsSuccess(response.results ?? [])
-                    if (wasActive && !values.hasActiveBackfill) {
-                        // A finished run changed which units already have a result, so the count is stale.
+                    if (values.hasActiveBackfill) {
+                        cache.recountWhenIdle = true
+                    } else if (cache.recountWhenIdle) {
+                        // A finished run changed which units already have a result, so the count is
+                        // stale. A short run can be over by the first refresh, so the recount hangs
+                        // off the run being gone rather than off having seen it running.
+                        cache.recountWhenIdle = false
                         cache.lastEstimate = null
                         actions.requestEstimate()
                     }
@@ -518,6 +537,7 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                     succeeded = true
                     // The units this run covers now have a result, so the count it started from is stale.
                     cache.lastEstimate = null
+                    cache.recountWhenIdle = true
                     lemonToast.success('Backfill started')
                     actions.loadBackfills()
                 } catch (error) {
