@@ -21,7 +21,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.dataclasses import frozen
-from posthog.models.temporal_scheduler import TemporalSchedulerState
+from posthog.models.temporal_scheduler import TemporalSchedulerClaim, TemporalSchedulerState
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.scheduler.admission import (
@@ -35,6 +35,7 @@ from posthog.temporal.scheduler.admission import (
     list_expired_scheduler_claims,
     prune_inactive_scheduler_claims,
     release_scheduler_claim,
+    renew_scheduler_claim,
     reserve_scheduler_claims,
 )
 from posthog.temporal.scheduler.metrics import DEFAULT_SCHEDULER_METRICS, record_scheduler_metrics_safely
@@ -58,6 +59,8 @@ from products.exports.backend.temporal.subscriptions.types import (
     AI_PROMPT_RESOURCE_TYPE,
     DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN,
     MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN,
+    SUBSCRIPTION_CLAIM_LEASE_SAFETY_MARGIN,
+    SUBSCRIPTION_WORKFLOW_EXECUTION_TIMEOUT,
     AdvanceNextDeliveryDateInputs,
     AdvanceSubscriptionSchedulerCursorInputs,
     CreateDeliveryRecordInputs,
@@ -98,7 +101,7 @@ LOGGER = get_logger(__name__)
 
 _SUBSCRIPTION_SCHEDULER_NAME = "subscriptions"
 _SUBSCRIPTION_RESERVATION_LEASE = dt.timedelta(minutes=25)
-_SUBSCRIPTION_EXECUTION_LEASE = dt.timedelta(hours=2, minutes=15)
+_SUBSCRIPTION_EXECUTION_LEASE = SUBSCRIPTION_WORKFLOW_EXECUTION_TIMEOUT + SUBSCRIPTION_CLAIM_LEASE_SAFETY_MARGIN
 _SUBSCRIPTION_UNCERTAIN_RECOVERY_BACKOFF = dt.timedelta(minutes=5)
 _SUBSCRIPTION_MAX_IN_FLIGHT = MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN
 _SUBSCRIPTION_MAX_IN_FLIGHT_PER_TENANT = DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN
@@ -151,7 +154,7 @@ class _ClaimReservations:
 
 @frozen
 class _ExpiredSchedulerClaimsSnapshot:
-    claims: list[tuple[uuid.UUID, uuid.UUID, str, dt.datetime]]
+    claims: list[tuple[uuid.UUID, uuid.UUID, str, str, dt.datetime]]
     pruned: int
 
 
@@ -198,17 +201,23 @@ def _defer_subscription_claim_after_recovery_error(
 def _reconcile_expired_subscription_claim(
     claim_id: uuid.UUID,
     claim_token: uuid.UUID,
+    claim_status: str,
     lease_expires_at: dt.datetime,
     status: _WorkflowClaimStatus,
 ) -> _ClaimRecoveryCounts:
     try:
         if status.is_open is True:
+            transition = (
+                renew_scheduler_claim
+                if claim_status == TemporalSchedulerClaim.Status.CONFIRMED
+                else confirm_scheduler_claim
+            )
             return _ClaimRecoveryCounts(
                 renewed=int(
-                    confirm_scheduler_claim(
+                    transition(
                         claim_id,
                         claim_token,
-                        lease_duration=_SUBSCRIPTION_EXECUTION_LEASE,
+                        lease_duration=_SUBSCRIPTION_UNCERTAIN_RECOVERY_BACKOFF,
                     )
                 ),
             )
@@ -244,7 +253,7 @@ def _reconcile_expired_subscription_claim(
 
 
 def _reconcile_expired_subscription_claims(
-    expired_claims: list[tuple[uuid.UUID, uuid.UUID, str, dt.datetime]],
+    expired_claims: list[tuple[uuid.UUID, uuid.UUID, str, str, dt.datetime]],
     statuses: typing.Sequence[_WorkflowClaimStatus | None],
     *,
     pruned: int,
@@ -255,7 +264,9 @@ def _reconcile_expired_subscription_claims(
     retained = 0
     processed = 0
     transition_headroom = 2 * SCHEDULER_LOCK_TIMEOUT_MS / 1000
-    for (claim_id, claim_token, _, lease_expires_at), status in zip(expired_claims, statuses, strict=True):
+    for (claim_id, claim_token, _, claim_status, lease_expires_at), status in zip(
+        expired_claims, statuses, strict=True
+    ):
         if status is None or _monotonic() + transition_headroom >= recovery_deadline:
             LOGGER.warning(
                 "subscription_scheduler.claim_recovery_budget_exhausted",
@@ -266,6 +277,7 @@ def _reconcile_expired_subscription_claims(
         counts = _reconcile_expired_subscription_claim(
             claim_id,
             claim_token,
+            claim_status,
             lease_expires_at,
             status,
         )
@@ -815,7 +827,7 @@ async def recover_subscription_scheduler_claims_activity(
     def load_expired_claims() -> _ExpiredSchedulerClaimsSnapshot:
         now = tz.now()
         expired = [
-            (claim.id, claim.claim_token, claim.workflow_id, claim.lease_expires_at)
+            (claim.id, claim.claim_token, claim.workflow_id, claim.status, claim.lease_expires_at)
             for claim in list_expired_scheduler_claims(
                 scheduler=_SUBSCRIPTION_SCHEDULER_NAME,
                 region=inputs.region,
@@ -858,7 +870,7 @@ async def recover_subscription_scheduler_claims_activity(
                 return _WorkflowClaimStatus(is_open=None, error=f"{type(error).__name__}: {error}")
             return _WorkflowClaimStatus(is_open=description.status == WorkflowExecutionStatus.RUNNING)
 
-    statuses = await asyncio.gather(*(workflow_is_open(workflow_id) for _, _, workflow_id, _ in expired_claims))
+    statuses = await asyncio.gather(*(workflow_is_open(workflow_id) for _, _, workflow_id, _, _ in expired_claims))
 
     result, unprocessed = await database_sync_to_async(_reconcile_expired_subscription_claims, thread_sensitive=False)(
         expired_claims,
@@ -872,10 +884,20 @@ async def recover_subscription_scheduler_claims_activity(
 
 @temporalio.activity.defn
 async def confirm_subscription_scheduler_claim_activity(inputs: SubscriptionSchedulerClaimInputs) -> bool:
+    now = tz.now()
+    lease_duration = _SUBSCRIPTION_EXECUTION_LEASE
+    if inputs.lease_expires_at is not None:
+        lease_expires_at = datetime.fromisoformat(inputs.lease_expires_at)
+        if lease_expires_at.tzinfo is None:
+            raise ValueError("lease_expires_at must include a timezone")
+        lease_duration = lease_expires_at - now
+        if lease_duration <= dt.timedelta(0):
+            return False
     return await database_sync_to_async(confirm_scheduler_claim, thread_sensitive=False)(
         uuid.UUID(inputs.claim_id),
         uuid.UUID(inputs.claim_token),
-        lease_duration=_SUBSCRIPTION_EXECUTION_LEASE,
+        lease_duration=lease_duration,
+        now=now,
     )
 
 

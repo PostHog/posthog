@@ -65,6 +65,8 @@ from products.exports.backend.temporal.subscriptions.retry_policy import (
 from products.exports.backend.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from products.exports.backend.temporal.subscriptions.types import (
     AI_PROMPT_RESOURCE_TYPE,
+    SUBSCRIPTION_CLAIM_LEASE_SAFETY_MARGIN,
+    SUBSCRIPTION_WORKFLOW_EXECUTION_TIMEOUT,
     AdvanceNextDeliveryDateInputs,
     AdvanceSubscriptionSchedulerCursorInputs,
     CreateDeliveryRecordInputs,
@@ -209,6 +211,8 @@ def _record_subscription_failure(
 
 def _build_scheduled_subscription_child(
     subscription: DueSubscription,
+    *,
+    scheduler_claim_lease_expires_at: str | None = None,
 ) -> _ScheduledSubscriptionChild:
     tracked = TrackedSubscriptionInputs(
         subscription_id=subscription.subscription_id,
@@ -219,6 +223,7 @@ def _build_scheduled_subscription_child(
         resource_type=subscription.resource_type,
         scheduler_claim_id=subscription.scheduler_claim_id,
         scheduler_claim_token=subscription.scheduler_claim_token,
+        scheduler_claim_lease_expires_at=scheduler_claim_lease_expires_at,
         slo=SloConfig(
             operation=SloOperation.SUBSCRIPTION_DELIVERY,
             area=SloArea.ANALYTIC_PLATFORM,
@@ -278,7 +283,7 @@ async def _run_legacy_subscription_children(subscription_infos: list[DueSubscrip
                 child.inputs,
                 id=child.workflow_id,
                 parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
-                execution_timeout=dt.timedelta(hours=2),
+                execution_timeout=SUBSCRIPTION_WORKFLOW_EXECUTION_TIMEOUT,
             )
         )
 
@@ -325,11 +330,18 @@ async def _start_claimed_subscription_children(subscription_infos: list[DueSubsc
         unique_subscription_infos.append(subscription)
 
     async def start_one(subscription: DueSubscription) -> tuple[str, int | None]:
-        child = _build_scheduled_subscription_child(subscription)
+        claim_lease_expires_at = (
+            temporalio.workflow.now() + SUBSCRIPTION_WORKFLOW_EXECUTION_TIMEOUT + SUBSCRIPTION_CLAIM_LEASE_SAFETY_MARGIN
+        ).isoformat()
+        child = _build_scheduled_subscription_child(
+            subscription,
+            scheduler_claim_lease_expires_at=claim_lease_expires_at,
+        )
         claim_inputs = (
             SubscriptionSchedulerClaimInputs(
                 claim_id=subscription.scheduler_claim_id,
                 claim_token=subscription.scheduler_claim_token,
+                lease_expires_at=claim_lease_expires_at,
             )
             if subscription.scheduler_claim_id and subscription.scheduler_claim_token
             else None
@@ -342,7 +354,7 @@ async def _start_claimed_subscription_children(subscription_infos: list[DueSubsc
                 child.inputs,
                 id=child.workflow_id,
                 parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
-                execution_timeout=dt.timedelta(hours=2),
+                execution_timeout=SUBSCRIPTION_WORKFLOW_EXECUTION_TIMEOUT,
             )
             return "accepted", None
         except WorkflowAlreadyStartedError:
@@ -413,6 +425,7 @@ def _scheduler_claim_inputs(inputs: TrackedSubscriptionInputs) -> SubscriptionSc
     return SubscriptionSchedulerClaimInputs(
         claim_id=inputs.scheduler_claim_id,
         claim_token=inputs.scheduler_claim_token,
+        lease_expires_at=inputs.scheduler_claim_lease_expires_at,
     )
 
 
