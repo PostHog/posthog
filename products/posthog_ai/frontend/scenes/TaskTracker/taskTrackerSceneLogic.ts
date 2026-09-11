@@ -85,6 +85,17 @@ export interface TaskTrackerSceneLogicProps {
 const LAST_REPOSITORY_CONFIG_STORAGE_KEY = 'posthog_ai.tasks.lastRepositoryConfig'
 
 /**
+ * The page a pending creation belongs to, before the created task has an id to compare against.
+ *
+ * `/ai` selects a task or a chat through the query string, so the pathname alone can't tell that the user
+ * opened a different one. `ask` is deliberately left out: the composer seed strips it from the URL as the
+ * seeded creation starts, and reading that as navigation would release the creation it just opened.
+ */
+function creationRouteKey(pathname: string, searchParams: Record<string, any>): string {
+    return `${pathname}|${searchParams.task ?? ''}|${searchParams.chat ?? ''}`
+}
+
+/**
  * The warm request for the current composer selection, or `null` when this selection can't be warmed.
  *
  * A repo-scoped warm must already know its branch: the backend matches branch as a `None`-normalized
@@ -656,7 +667,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 'active-creation',
                 { pauseOnPageHidden: false }
             )
-            cache.creationPath = router.values.location.pathname
+            cache.creationRoute = creationRouteKey(router.values.location.pathname, router.values.searchParams)
             actions.setActiveCreation({ streamKey, interactionKey: streamKey })
             stream.actions.startOptimisticRun(description)
 
@@ -924,7 +935,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 activeCreation &&
                 (activeCreation.taskId
                     ? activeCreation.taskId !== taskId
-                    : router.values.location.pathname !== cache.creationPath)
+                    : creationRouteKey(router.values.location.pathname, router.values.searchParams) !==
+                      cache.creationRoute)
             ) {
                 actions.clearActiveCreation()
             }
