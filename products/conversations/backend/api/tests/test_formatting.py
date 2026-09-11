@@ -217,7 +217,7 @@ class TestSlackFormatting(SimpleTestCase):
         ]
     )
     def test_block_kit_body_is_kept_instead_of_the_notification_fallback(
-        self, _name: str, blocks: list, expected: str
+        self, _name: str, blocks: list[dict], expected: str
     ) -> None:
         content, rich_content = slack_to_content_and_rich_content("short notification summary", blocks)
         assert content == expected
@@ -259,7 +259,9 @@ class TestSlackFormatting(SimpleTestCase):
             ("header", [{"type": "header", "text": {"type": "plain_text", "text": "   "}}]),
         ]
     )
-    def test_whitespace_only_block_leaves_the_notification_summary_in_place(self, _name: str, blocks: list) -> None:
+    def test_whitespace_only_block_leaves_the_notification_summary_in_place(
+        self, _name: str, blocks: list[dict]
+    ) -> None:
         content, _ = slack_to_content_and_rich_content("short notification summary", blocks)
 
         assert content == "short notification summary"
