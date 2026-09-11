@@ -81,11 +81,13 @@ function keepLeadingItems(items: unknown[], budget: number): { kept: unknown[]; 
     return { kept, chars }
 }
 
-/** Longest prefix of `text` within the budget, cut at a line boundary where there is one. */
+/** Longest prefix of `text` within the budget, cut at a line boundary when a whole line fits. */
 function clipText(text: string, budget: number): string {
     const head = text.slice(0, budget)
     const lastBreak = head.lastIndexOf('\n')
-    return lastBreak > budget / 2 ? head.slice(0, lastBreak) : head
+    // A row cut mid-value still reads as a whole row, so a partial line survives
+    // only when no whole line fits at all — prose, or a single-line body.
+    return lastBreak > 0 ? head.slice(0, lastBreak) : head
 }
 
 /**

@@ -30,6 +30,19 @@ function table(rows: number): string {
     return lines.join('\n')
 }
 
+/** A tabular result carrying one row wider than half a Codex budget, as a properties dump is. */
+function wideRowTable(): string {
+    const lines = ['id,properties', `1,${'P'.repeat(40_000)}`]
+    for (let i = 2; i < 100; i++) {
+        lines.push(`${i},small`)
+    }
+    return lines.join('\n')
+}
+
+function keptText(capped: ToolResultPayload): string {
+    return capped.content[0]!.text.split('\n\nResult shortened')[0]!
+}
+
 describe('capResponseToClientBudget', () => {
     it('returns a response that fits untouched', () => {
         const response = textPayload(table(10))
@@ -73,6 +86,28 @@ describe('capResponseToClientBudget', () => {
         for (const row of rows.slice(1)) {
             expect(row).toMatch(/^\d+,row-\d+,x{80}$/)
         }
+    })
+
+    // A row wider than half the budget used to fall through the line-boundary cut, so the
+    // kept text ended inside that row and a clipped value read as a complete one.
+    it('drops a row too wide to fit rather than keeping a fragment of it', () => {
+        const text = wideRowTable()
+
+        const capped = capResponseToClientBudget(textPayload(text), CODEX_BUDGET)
+
+        const sourceLines = new Set(text.split('\n'))
+        for (const row of keptText(capped.response).split('\n')) {
+            expect(sourceLines.has(row)).toBe(true)
+        }
+    })
+
+    // Text with no line to cut at is prose, where dropping the prefix would leave the
+    // agent the notice and nothing else.
+    it('keeps the prefix of a newline-free response', () => {
+        const capped = capResponseToClientBudget(textPayload('word '.repeat(20_000)), CODEX_BUDGET)
+
+        expect(estimateResponseTokens(capped.response)).toBeLessThanOrEqual(CODEX_BUDGET)
+        expect(keptText(capped.response).length).toBeGreaterThan(1_000)
     })
 
     // `output_format: 'json'` and `exec --json` return a serialized value the caller
