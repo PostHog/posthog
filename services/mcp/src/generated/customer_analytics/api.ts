@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 65 enabled ops
+ * PostHog API - MCP 72 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -916,6 +916,169 @@ export const CustomPropertySourcesRunsListQueryParams = () => zod.object({
  * incremental person/group-property update runs off that run.
  */
 export const CustomPropertySourcesSyncParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const CustomerTasksListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const customerTasksListQueryArchiveStateDefault = `active`
+export const customerTasksListQueryLimitDefault = 50
+export const customerTasksListQueryLimitMax = 100
+
+export const customerTasksListQueryOffsetDefault = 0
+export const customerTasksListQueryOffsetMin = 0
+
+export const CustomerTasksListQueryParams = () => zod.object({
+    account_id: zod.string().optional().describe('Filter by account UUID.'),
+    archive_state: zod
+        .enum(['active', 'archived', 'all'])
+        .default(customerTasksListQueryArchiveStateDefault)
+        .describe('Which archive state to include.\n\n\* `active` - active\n\* `archived` - archived\n\* `all` - all'),
+    assigned_to: zod.string().min(1).optional().describe('Filter by me, unassigned, or one user ID.'),
+    due_after: zod.iso.datetime({ offset: true }).optional().describe('Inclusive lower deadline bound.'),
+    due_before: zod.iso.datetime({ offset: true }).optional().describe('Exclusive upper deadline bound.'),
+    has_due_at: zod.boolean().optional().describe('Filter tasks by whether a deadline exists.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(customerTasksListQueryLimitMax)
+        .default(customerTasksListQueryLimitDefault)
+        .describe('Page size, from 1 to 100.'),
+    offset: zod
+        .number()
+        .min(customerTasksListQueryOffsetMin)
+        .default(customerTasksListQueryOffsetDefault)
+        .describe('Number of rows to skip.'),
+    ordering: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Sort by task name, status, assignee, deadline, last update, account, or creation time. Prefix with - for descending order.\n\n\* `name` - name\n\* `-name` - -name\n\* `status` - status\n\* `-status` - -status\n\* `assigned_to` - assigned_to\n\* `-assigned_to` - -assigned_to\n\* `due_at` - due_at\n\* `-due_at` - -due_at\n\* `updated_at` - updated_at\n\* `-updated_at` - -updated_at\n\* `account` - account\n\* `-account` - -account\n\* `created_at` - created_at\n\* `-created_at` - -created_at'
+        ),
+    search: zod.string().optional().describe('Search task name and description.'),
+    statuses: zod.string().min(1).optional().describe('Comma-separated task statuses.'),
+})
+
+export const CustomerTasksCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const customerTasksCreateBodyNameMax = 400
+
+export const customerTasksCreateBodyStatusDefault = `open`
+
+export const CustomerTasksCreateBody = () => zod.object({
+    account_id: zod.string().nullish().describe('UUID of a visible account, or null for an accountless task.'),
+    name: zod.string().max(customerTasksCreateBodyNameMax).describe('Task name.'),
+    description: zod.string().nullish().describe('Task description, or null to leave it empty.'),
+    assigned_to_id: zod.number().nullish().describe('PostHog user ID to assign, or null to leave unassigned.'),
+    due_at: zod.iso.datetime({ offset: true }).nullish().describe('ISO 8601 deadline, or null for no deadline.'),
+    status: zod
+        .enum(['open', 'in_progress', 'completed', 'canceled'])
+        .describe(
+            '\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+        )
+        .default(customerTasksCreateBodyStatusDefault)
+        .describe(
+            'Initial task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+        ),
+})
+
+export const CustomerTasksRetrieveParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const CustomerTasksPartialUpdateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const customerTasksPartialUpdateBodyNameMax = 400
+
+export const CustomerTasksPartialUpdateBody = () => zod.object({
+    account_id: zod.string().nullish().describe('UUID of a visible account, or null to remove the account link.'),
+    name: zod.string().max(customerTasksPartialUpdateBodyNameMax).optional().describe('Replacement task name.'),
+    description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
+    assigned_to_id: zod.number().nullish().describe('Replacement assignee ID, or null to unassign.'),
+    due_at: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('Replacement ISO 8601 deadline, or null to clear it.'),
+    status: zod
+        .enum(['open', 'in_progress', 'completed', 'canceled'])
+        .describe(
+            '\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+        )
+        .optional()
+        .describe(
+            'Replacement task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+        ),
+})
+
+export const CustomerTasksActivitiesListParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const customerTasksActivitiesListQueryLimitDefault = 50
+export const customerTasksActivitiesListQueryLimitMax = 100
+
+export const customerTasksActivitiesListQueryOffsetDefault = 0
+export const customerTasksActivitiesListQueryOffsetMin = 0
+
+export const CustomerTasksActivitiesListQueryParams = () => zod.object({
+    limit: zod
+        .number()
+        .min(1)
+        .max(customerTasksActivitiesListQueryLimitMax)
+        .default(customerTasksActivitiesListQueryLimitDefault)
+        .describe('Page size, from 1 to 100.'),
+    offset: zod
+        .number()
+        .min(customerTasksActivitiesListQueryOffsetMin)
+        .default(customerTasksActivitiesListQueryOffsetDefault)
+        .describe('Number of rows to skip.'),
+})
+
+export const CustomerTasksArchiveCreateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const CustomerTasksRestoreCreateParams = () => zod.object({
     id: zod.string(),
     project_id: zod
         .string()

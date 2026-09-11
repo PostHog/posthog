@@ -3,7 +3,7 @@ from collections.abc import Iterable
 from typing import Any, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -131,7 +131,7 @@ SAMPLE_PAYLOAD = [
 
 
 class TestMicrosoftClaritySource:
-    @freeze_time("2026-07-23T12:00:00Z")
+    @time_machine.travel("2026-07-23T12:00:00Z", tick=False)
     @mock.patch(SESSION_PATCH)
     def test_flattens_every_metric_and_information_row(self, MockSession: Any) -> None:
         session = MockSession.return_value

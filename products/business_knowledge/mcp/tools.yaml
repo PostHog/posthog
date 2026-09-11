@@ -54,6 +54,12 @@ tools:
     business-knowledge-gap-suggestions-list:
         operation: business_knowledge_gap_suggestions_list
         enabled: false
+    business-knowledge-settings-partial-update:
+        operation: business_knowledge_settings_partial_update
+        enabled: false
+    business-knowledge-settings-retrieve:
+        operation: business_knowledge_settings_retrieve
+        enabled: false
     business-knowledge-sources-destroy:
         operation: business_knowledge_sources_destroy
         enabled: false

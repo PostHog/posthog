@@ -174,8 +174,8 @@ class Subscription(ModelActivityMixin, models.Model):
     prompt = models.TextField(null=True, blank=True)
 
     # Frozen by the first successful delivery so later runs reuse the same HogQL deterministically
-    # instead of re-running the planner LLM; cleared on prompt change (see save()). Shape is versioned —
-    # see report_pipeline._plan_to_freeze.
+    # instead of re-running the planner LLM. Edits that require a fresh plan clear it in save().
+    # Shape is versioned; see report_pipeline._plan_to_freeze.
     ai_query_plan = models.JSONField(null=True, blank=True, default=None)
     # Source of truth for the shape: ee.api.subscription.AIPromptConfigSerializer (writes) and
     # normalize_ai_window below (reads).
@@ -232,6 +232,8 @@ class Subscription(ModelActivityMixin, models.Model):
             self._rrule = self.rrule
         if "prompt" not in self.get_deferred_fields():
             self._initial_prompt = self.prompt
+        if "delivery_config" not in self.get_deferred_fields():
+            self._initial_include_images = self.includes_delivery_part("include_images")
 
     def save(self, *args, **kwargs) -> None:
         # Only if the schedule has changed do we update the next delivery date
@@ -240,14 +242,36 @@ class Subscription(ModelActivityMixin, models.Model):
             self.set_next_delivery_date()
             if "update_fields" in kwargs:
                 kwargs["update_fields"].append("next_delivery_date")
-        # A changed prompt invalidates the frozen AI query plan at the model level (same pattern as
-        # next_delivery_date above), so ORM-path edits can't leave a plan answering the old prompt.
-        if self.id and self.prompt != getattr(self, "_initial_prompt", self.prompt) and self.ai_query_plan is not None:
+        include_images = self.includes_delivery_part("include_images")
+        initial_include_images = getattr(self, "_initial_include_images", None)
+        if initial_include_images is None and self.id:
+            persisted_delivery_config = (
+                type(self).objects.filter(id=self.id).values_list("delivery_config", flat=True).first()
+            )
+            initial_include_images = (
+                self._delivery_config_includes(persisted_delivery_config, "include_images")
+                if persisted_delivery_config is not None
+                else include_images
+            )
+        prompt_changed = self.prompt != getattr(self, "_initial_prompt", self.prompt)
+        images_just_enabled = include_images and not initial_include_images
+        # Frozen plans skip chart validation while images are hidden. Enabling images needs a new
+        # plan, while feedback and footer options only affect rendering.
+        if self.id and (prompt_changed or images_just_enabled) and self.ai_query_plan is not None:
             self.ai_query_plan = None
             if kwargs.get("update_fields") is not None:
                 kwargs["update_fields"] = [*kwargs["update_fields"], "ai_query_plan"]
         super().save(*args, **kwargs)
         self._initial_prompt = self.prompt
+        self._initial_include_images = include_images
+
+    @staticmethod
+    def _delivery_config_includes(delivery_config: Any, option: str) -> bool:
+        config = delivery_config if isinstance(delivery_config, dict) else {}
+        return bool(config.get(option, True))
+
+    def includes_delivery_part(self, option: str) -> bool:
+        return self._delivery_config_includes(self.delivery_config, option)
 
     @classmethod
     def derive_resource_type(cls, insight_id: int | None, dashboard_id: int | None, prompt: str | None) -> str:

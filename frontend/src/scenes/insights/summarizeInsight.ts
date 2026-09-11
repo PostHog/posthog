@@ -8,7 +8,6 @@ import {
     getDisplayNameFromEntityNode,
     humanizePathsEventTypes,
 } from 'scenes/insights/utils'
-import { retentionOptions } from 'scenes/retention/constants'
 import { MathCategory, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
 import type { mathsLogicType } from 'scenes/trends/mathsLogic'
 
@@ -45,6 +44,7 @@ import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { BreakdownKeyType, BreakdownType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
 
 import { summarizeJourneys } from 'products/product_analytics/frontend/insights/journeys/journeysSummary'
+import { retentionOptions } from 'products/product_analytics/frontend/insights/retention/constants'
 
 function summarizeSingularBreakdown(
     breakdown: BreakdownKeyType | undefined,

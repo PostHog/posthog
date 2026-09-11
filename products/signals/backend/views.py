@@ -498,7 +498,7 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(exclude=True)
     def create(self, request: Request, *args, **kwargs) -> Response:
         config = self._get_config()
-        serializer = SignalTeamConfigSerializer(config, data=request.data, partial=True)
+        serializer = self.get_serializer(config, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
@@ -994,7 +994,7 @@ class SignalReportViewSet(
         # The serializer renders the reverse OneToOne rows inline.
         return (
             queryset.filter(team=self.team)
-            .select_related("refund", "assignment", "assignment__actor_user")
+            .select_related("refund", "assignment", "assignment__actor_user", "tracker_issue")
             .annotate(
                 artefact_count=Coalesce(artefact_count_subquery, Value(0), output_field=IntegerField()),
                 channel_id=channel_id_subquery,
@@ -4756,6 +4756,8 @@ class SignalUserAutonomyConfigView(APIView):
             defaults["slack_notification_min_priority"] = validated.get("slack_notification_min_priority")
         if "github_assign_on_pull_request" in serializer.initial_data:
             defaults["github_assign_on_pull_request"] = validated.get("github_assign_on_pull_request", False)
+        if "github_open_pull_request_ready" in serializer.initial_data:
+            defaults["github_open_pull_request_ready"] = validated.get("github_open_pull_request_ready")
         if "slack_notification_channel" in serializer.initial_data:
             defaults["slack_notification_channel"] = validated.get("slack_notification_channel") or None
         integration_in_request = "slack_notification_integration_id" in serializer.initial_data

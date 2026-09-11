@@ -6,9 +6,12 @@ import type { InsightFetchResult } from "./posthogApi";
 // loadInsight reads a saved insight's stored result via posthogApi; stub the
 // module so the service never reaches the network.
 const fetchInsightByShortId = vi.fn();
+const runQuery = vi.fn();
+const readCachedQuery = vi.fn();
 vi.mock("./posthogApi", () => ({
   fetchInsightByShortId: (...args: unknown[]) => fetchInsightByShortId(...args),
-  runQuery: vi.fn(),
+  runQuery: (...args: unknown[]) => runQuery(...args),
+  readCachedQuery: (...args: unknown[]) => readCachedQuery(...args),
   fetchCurrentUser: vi.fn(),
 }));
 
@@ -31,6 +34,82 @@ function insight(partial: Partial<InsightFetchResult>): InsightFetchResult {
     ...partial,
   };
 }
+
+describe("CanvasDataService.query cache-first", () => {
+  beforeEach(() => {
+    runQuery.mockReset();
+    readCachedQuery.mockReset();
+  });
+
+  const node = { kind: "TrendsQuery" };
+
+  it("serves a cached result inside the declared window without computing", async () => {
+    readCachedQuery.mockResolvedValue({
+      columns: [],
+      results: [{ count: 5 }],
+      lastRefresh: new Date().toISOString(),
+    });
+
+    const result = await makeService().query({ query: node, refresh: 60 });
+
+    expect(result.results).toEqual([{ count: 5 }]);
+    expect(result.stale).toBeUndefined();
+    expect(runQuery).not.toHaveBeenCalled();
+  });
+
+  it("serves a stale cached result immediately and recomputes in the background once", async () => {
+    readCachedQuery.mockResolvedValue({
+      columns: [],
+      results: [{ count: 5 }],
+      lastRefresh: new Date(Date.now() - 10 * 60_000).toISOString(),
+    });
+    runQuery.mockResolvedValue({ columns: [], results: [], lastRefresh: null });
+    const service = makeService();
+
+    const first = await service.query({ query: node, refresh: 60 });
+    const second = await service.query({ query: node, refresh: 60 });
+
+    expect(first.stale).toBe(true);
+    expect(second.stale).toBe(true);
+    // The background recompute is rate-limited per query, so back-to-back
+    // stale reads must not stack ClickHouse runs.
+    expect(runQuery).toHaveBeenCalledTimes(1);
+    expect(runQuery).toHaveBeenCalledWith(expect.anything(), node, {
+      refresh: "force_async",
+    });
+  });
+
+  it("computes blocking on a cache miss", async () => {
+    readCachedQuery.mockResolvedValue(null);
+    runQuery.mockResolvedValue({
+      columns: [],
+      results: [{ count: 9 }],
+      lastRefresh: null,
+    });
+
+    const result = await makeService().query({ query: node, refresh: 60 });
+
+    expect(result.results).toEqual([{ count: 9 }]);
+    expect(runQuery).toHaveBeenCalledWith(expect.anything(), node, {
+      refresh: "blocking",
+    });
+  });
+
+  it("keeps one-shot semantics when no refresh window is declared", async () => {
+    runQuery.mockResolvedValue({
+      columns: [],
+      results: [{ count: 1 }],
+      lastRefresh: null,
+    });
+
+    await makeService().query({ query: node });
+
+    expect(readCachedQuery).not.toHaveBeenCalled();
+    expect(runQuery).toHaveBeenCalledWith(expect.anything(), node, {
+      refresh: "blocking",
+    });
+  });
+});
 
 describe("CanvasDataService.loadInsight", () => {
   beforeEach(() => {
