@@ -15,6 +15,7 @@ import {
   DismissReportDialog,
   type DismissReportDialogResult,
 } from "@posthog/ui/features/inbox/components/DismissReportDialog";
+import { useInboxReportStatusConfirmed } from "@posthog/ui/features/inbox/context/inboxReportStatusContext";
 import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
 import { useInboxReportActionDraftStore } from "@posthog/ui/features/inbox/stores/inboxReportActionDraftStore";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
@@ -62,6 +63,10 @@ export function useInboxReportDismissAction(
   );
 
   const isPending = bulkActions.isSuppressing || bulkActions.isSnoozing;
+  // On a detail screen the report's status is still being checked for one round
+  // trip after mount, and dismissing depends on that status. Elsewhere the
+  // context reads as confirmed, so the button behaves as before.
+  const statusConfirmed = useInboxReportStatusConfirmed();
 
   useEffect(() => {
     if (!retryDraft?.reopen) return;
@@ -111,7 +116,7 @@ export function useInboxReportDismissAction(
             size="icon-xs"
             className="h-7 w-7"
             aria-label="Dismiss this report for everyone in the project"
-            disabled={isPending}
+            disabled={isPending || !statusConfirmed}
             onClick={() => setOpen(true)}
           />
         }

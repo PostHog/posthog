@@ -244,11 +244,25 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 />
             </div>
         )
-    } else if (!response || responseLoading) {
+    } else if (responseLoading) {
         // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
         component = (
             <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
                 <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
+            </div>
+        )
+    } else if (!response) {
+        // The load has settled and produced neither a result nor an error. `dataNodeLogic` resolves
+        // with no response when it declines to run the source query at all. On this node the source
+        // is a `HogQLQuery`, so the causes are an empty query string, an invalid regex in the
+        // query's filters, and a shared or exported view whose team never loads. It also never runs
+        // a query on a node whose source is empty. Showing the spinner here left it turning for as
+        // long as the reader waited. This state offers no retry, because every one of those causes
+        // is a property of the query, so a forced refresh returns to this same branch. The query
+        // debugger the error state falls back to is the action that fits them.
+        component = (
+            <div className="rounded bg-surface-primary relative flex flex-1 flex-col p-2">
+                <InsightErrorState query={props.query} excludeDetail title="This chart didn't load" />
             </div>
         )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsTable) {

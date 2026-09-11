@@ -1,4 +1,5 @@
 import type { SignalReport, Task } from "@posthog/shared/types";
+import { InboxReportStatusConfirmedContext } from "@posthog/ui/features/inbox/context/inboxReportStatusContext";
 import type { ReportTaskData } from "@posthog/ui/features/inbox/hooks/useReportTasks";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { act, render, screen } from "@testing-library/react";
@@ -334,6 +335,37 @@ describe("ReportVerdictBanner", () => {
         channelId: "general-channel",
       }),
     );
+  });
+
+  it("holds the write actions until the report status is confirmed", async () => {
+    const user = userEvent.setup();
+    const actionableReport = {
+      ...report,
+      actionability: "immediately_actionable" as const,
+    };
+    const { rerender } = render(
+      <InboxReportStatusConfirmedContext.Provider value={false}>
+        <ReportVerdictBanner report={actionableReport} />
+      </InboxReportStatusConfirmedContext.Provider>,
+    );
+
+    for (const label of ["Implement", "Ask about it", "Dismiss…"]) {
+      expect(screen.getByText(label).closest("button")).toHaveAttribute(
+        "aria-disabled",
+        "true",
+      );
+    }
+    await user.click(screen.getByText("Implement"));
+    expect(openTaskInput).not.toHaveBeenCalled();
+
+    rerender(
+      <InboxReportStatusConfirmedContext.Provider value>
+        <ReportVerdictBanner report={actionableReport} />
+      </InboxReportStatusConfirmedContext.Provider>,
+    );
+
+    await user.click(screen.getByText("Implement"));
+    expect(openTaskInput).toHaveBeenCalledTimes(1);
   });
 
   it("opens the composer when artefacts are unavailable", async () => {

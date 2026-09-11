@@ -32,6 +32,7 @@ import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/use
 import { InboxReportCopyLinkMenu } from "@posthog/ui/features/inbox/components/InboxReportCopyLinkMenu";
 import { RefundReportDialog } from "@posthog/ui/features/inbox/components/RefundReportDialog";
 import { ReportChatToggle } from "@posthog/ui/features/inbox/components/ReportChatToggle";
+import { useInboxReportStatusConfirmed } from "@posthog/ui/features/inbox/context/inboxReportStatusContext";
 import { useCreateCanvasReport } from "@posthog/ui/features/inbox/hooks/useCreateCanvasReport";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
 import { useInboxReportResolveAction } from "@posthog/ui/features/inbox/hooks/useInboxReportResolveAction";
@@ -67,6 +68,10 @@ export function ReportDetailActions({
   // Resolved reports are terminal (their PR already merged), so the work actions
   // drop out; only the read-only overflow menu (copy link, PR link) stays.
   const isResolved = report.status === "resolved";
+  // Every action here writes, and the report's status decides which ones apply,
+  // so they wait out the detail screen's status check. Read-only actions (copy
+  // link, open the PR) stay live throughout.
+  const statusConfirmed = useInboxReportStatusConfirmed();
 
   const fireAction = useReportActionTracker(report);
   const setChatOpen = useReportChatPanelStore((s) => s.setOpen);
@@ -106,6 +111,8 @@ export function ReportDetailActions({
   const [refundOpen, setRefundOpen] = useState(false);
   const dismiss = useInboxReportDismissAction(report);
   const resolve = useInboxReportResolveAction(report);
+
+  const canvasBlocked = isCreatingCanvas || awaitingChannel || !statusConfirmed;
 
   const [canvasOpen, setCanvasOpen] = useState(false);
   const [canvasDirection, setCanvasDirection] = useState("");
@@ -162,7 +169,7 @@ export function ReportDetailActions({
         </DropdownMenuSub>
         {refund.canRefund && !isResolved && (
           <DropdownMenuItem
-            disabled={refund.disabledReason !== null}
+            disabled={refund.disabledReason !== null || !statusConfirmed}
             onClick={() => setRefundOpen(true)}
           >
             <ReceiptIcon size={13} />
@@ -210,7 +217,7 @@ export function ReportDetailActions({
             size="xs"
             className={HEADER_ACTION_CLASS}
             loading={resolve.isPending}
-            disabled={resolve.isPending}
+            disabled={resolve.isPending || !statusConfirmed}
             data-attr="inbox-report-resolve"
             onClick={() => resolve.openDialog()}
           >
@@ -224,6 +231,7 @@ export function ReportDetailActions({
             variant="outline"
             size="xs"
             className={HEADER_ACTION_CLASS}
+            disabled={!statusConfirmed}
             data-attr="inbox-report-dismiss"
             onClick={() => dismiss.openDialog()}
           >
@@ -256,7 +264,7 @@ export function ReportDetailActions({
                   size="icon-xs"
                   className="h-7 w-7"
                   aria-label="Refund"
-                  disabled={refund.disabledReason !== null}
+                  disabled={refund.disabledReason !== null || !statusConfirmed}
                   onClick={() => setRefundOpen(true)}
                 />
               }
@@ -315,7 +323,7 @@ export function ReportDetailActions({
                 type="button"
                 variant="outline"
                 size="xs"
-                disabled={isCreatingCanvas || awaitingChannel}
+                disabled={canvasBlocked}
                 className={HEADER_ACTION_CLASS}
                 title="Have the agent build a canvas from this report"
               >
@@ -356,7 +364,7 @@ export function ReportDetailActions({
                 type="button"
                 variant="primary"
                 size="sm"
-                disabled={isCreatingCanvas || awaitingChannel}
+                disabled={canvasBlocked}
                 onClick={handleCreateCanvas}
               >
                 Create canvas
