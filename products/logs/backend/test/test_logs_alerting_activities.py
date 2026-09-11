@@ -32,6 +32,7 @@ from products.logs.backend.alert_signal_emitter import AlertSignalAction, Notifi
 from products.logs.backend.alert_state_machine import AlertCheckOutcome, AlertState, CheckResult, NotificationAction
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.activities import (
+    CohortManifest,
     EmitAlertSignalsInput,
     EvaluateCohortBatchOutput,
     _AlertCohort,
@@ -2636,27 +2637,81 @@ class TestDiscoverCohortsActivity(NonAtomicBaseTest):
 
 
 class TestCohortFromManifest(unittest.TestCase):
-    def test_reconstructs_cohort_from_manifest_and_alerts(self):
-        from products.logs.backend.temporal.activities import CohortManifest, _cohort_from_manifest
+    @staticmethod
+    def _alert(
+        alert_id: str,
+        *,
+        window_minutes: int = 5,
+        evaluation_periods: int = 1,
+        check_interval_minutes: int = 5,
+    ) -> MagicMock:
+        return MagicMock(
+            id=alert_id,
+            team_id=7,
+            window_minutes=window_minutes,
+            evaluation_periods=evaluation_periods,
+            check_interval_minutes=check_interval_minutes,
+        )
 
-        alert_a = MagicMock(id="alert-a", team_id=7)
-        alert_b = MagicMock(id="alert-b", team_id=7)
-        alerts_by_id = cast(dict[str, LogsAlertConfiguration], {"alert-a": alert_a, "alert-b": alert_b})
-
-        manifest = CohortManifest(
+    @staticmethod
+    def _manifest(*alert_ids: str) -> CohortManifest:
+        return CohortManifest(
             team_id=7,
             projection_eligible=True,
             date_to_iso="2026-05-05T10:00:00+00:00",
-            alert_ids=["alert-a", "alert-b"],
+            alert_ids=list(alert_ids),
         )
 
-        cohort = _cohort_from_manifest(manifest, alerts_by_id)
+    def test_reconstructs_cohort_from_manifest_and_alerts(self):
+        from products.logs.backend.temporal.activities import _cohort_from_manifest
+
+        alert_a = self._alert("alert-a")
+        alert_b = self._alert("alert-b")
+        alerts_by_id = cast(dict[str, LogsAlertConfiguration], {"alert-a": alert_a, "alert-b": alert_b})
+
+        cohort = _cohort_from_manifest(self._manifest("alert-a", "alert-b"), alerts_by_id)
 
         assert len(cohort.alerts) == 2
         assert cohort.alerts[0] is alert_a
         assert cohort.alerts[1] is alert_b
         assert cohort.date_to == datetime(2026, 5, 5, 10, 0, tzinfo=UTC)
         assert cohort.projection_eligible is True
+
+    @parameterized.expand(
+        [
+            ("window_minutes", {"window_minutes": 60}),
+            ("evaluation_periods", {"evaluation_periods": 3}),
+            ("check_interval_minutes", {"check_interval_minutes": 15}),
+        ]
+    )
+    def test_drops_an_alert_whose_grid_changed_after_discovery(self, _name: str, edit: dict[str, int]):
+        # An alert edited between discovery and the evaluate reload no longer belongs
+        # to this cohort. Left in, it would hand its grid to the batched query for
+        # every other alert in the cohort.
+        from products.logs.backend.temporal.activities import _cohort_from_manifest
+
+        edited = self._alert("alert-edited", **edit)
+        alerts_by_id = cast(
+            dict[str, LogsAlertConfiguration],
+            {"alert-edited": edited, "alert-b": self._alert("alert-b"), "alert-c": self._alert("alert-c")},
+        )
+
+        cohort = _cohort_from_manifest(self._manifest("alert-edited", "alert-b", "alert-c"), alerts_by_id)
+
+        assert [str(alert.id) for alert in cohort.alerts] == ["alert-b", "alert-c"]
+        assert (cohort.window_minutes, cohort.evaluation_periods, cohort.check_interval_minutes) == (5, 1, 5)
+
+    def test_keeps_one_grid_when_a_two_alert_cohort_splits(self):
+        from products.logs.backend.temporal.activities import _cohort_from_manifest
+
+        alerts_by_id = cast(
+            dict[str, LogsAlertConfiguration],
+            {"alert-a": self._alert("alert-a"), "alert-b": self._alert("alert-b", window_minutes=60)},
+        )
+
+        cohort = _cohort_from_manifest(self._manifest("alert-a", "alert-b"), alerts_by_id)
+
+        assert len(cohort.alerts) == 1
 
     def test_raises_if_manifest_alert_id_not_loaded(self):
         # Defensive: if the evaluate activity's bulk-load missed an alert

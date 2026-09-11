@@ -963,8 +963,32 @@ def _cohort_from_manifest(
     manifest: CohortManifest,
     alerts_by_id: dict[str, LogsAlertConfiguration],
 ) -> _AlertCohort:
-    """Reconstruct an `_AlertCohort` from a manifest and a pre-loaded alerts dict."""
+    """Reconstruct an `_AlertCohort` from a manifest and a pre-loaded alerts dict.
+
+    The manifest carries alert ids, not the bucket grid discovery grouped them
+    by, and `_AlertCohort` reads that grid off its first alert for the whole
+    batched query. An alert whose grid changed between discovery and this reload
+    would therefore lend its new grid to every other alert in the cohort, so keep
+    only the largest group that still agrees on one grid. A dropped alert keeps
+    its own `next_check_at`, so it stays due and a later tick evaluates it on the
+    grid it now has.
+    """
     alerts = tuple(alerts_by_id[alert_id] for alert_id in manifest.alert_ids)
+    by_grid: defaultdict[tuple[int, int, int], list[LogsAlertConfiguration]] = defaultdict(list)
+    for alert in alerts:
+        by_grid[(alert.window_minutes, alert.evaluation_periods, alert.check_interval_minutes)].append(alert)
+    if len(by_grid) > 1:
+        # `max` returns the first largest group, so a tie falls to manifest order:
+        # arbitrary, but deterministic, and the kept alerts still share one grid.
+        kept = max(by_grid.values(), key=len)
+        kept_ids = {str(alert.id) for alert in kept}
+        logger.warning(
+            "Dropping alerts whose grid changed after cohort discovery",
+            team_id=manifest.team_id,
+            cohort_size=len(alerts),
+            dropped_alert_ids=[str(alert.id) for alert in alerts if str(alert.id) not in kept_ids],
+        )
+        alerts = tuple(kept)
     return _AlertCohort(
         alerts=alerts,
         date_to=datetime.fromisoformat(manifest.date_to_iso),
