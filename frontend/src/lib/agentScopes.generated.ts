@@ -9,6 +9,7 @@
 export const AGENT_USE_CASE_SCOPES = [
     'action:read',
     'action:write',
+    'access_control:read',
     'account:read',
     'account:write',
     'activity_log:read',
@@ -92,6 +93,7 @@ export const AGENT_USE_CASE_SCOPES = [
     'marketing_analytics:write',
     'mcp_analytics:read',
     'mcp_analytics:write',
+    'mcp_registry:read',
     'metrics:read',
     'notebook:read',
     'notebook:write',

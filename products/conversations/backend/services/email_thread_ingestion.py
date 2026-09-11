@@ -60,6 +60,7 @@ class ParsedEmail:
     capture_address: str
     attachments: tuple[UploadedFile, ...]
     forwarding_challenge_tokens: tuple[str, ...] = ()
+    auto_generated: bool = False
 
     def body_with_matching_html(self, *, prefer_stripped: bool) -> "EmailBody":
         """Return the body text we store paired with the HTML of the same scope.

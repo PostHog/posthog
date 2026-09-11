@@ -3,9 +3,10 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
 import { hogFunctionsPartialUpdate, hogFunctionsRetrieve } from 'products/cdp/frontend/generated/api'
-import { signalsScoutConfigDestroy } from 'products/signals/frontend/generated/api'
+import { signalsScoutConfigDestroy, signalsScoutConfigUpdate } from 'products/signals/frontend/generated/api'
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
 import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
+import { llmSkillsNamePartialUpdate } from 'products/skills/frontend/generated/api'
 
 import {
     visionScannersScoutReportsList,
@@ -93,6 +94,32 @@ describe('scannerScoutLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
     }
+
+    it('saves the display name without changing the skill or delivery', async () => {
+        await mountWithReports([])
+        const config = makeConfig({ output_destinations: {} })
+        scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([config])
+        logic.actions.openScoutSettings(SKILL_NAME)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadSkillPromptSuccess({ skillName: SKILL_NAME, body: 'Watch this scanner.' })
+        jest.mocked(signalsScoutConfigUpdate).mockResolvedValue({ ...config, display_name: 'Checkout / daily digest' })
+
+        logic.actions.saveScoutSettings({
+            name: '  Checkout / daily digest  ',
+            body: 'Watch this scanner.',
+            cron: config.run_cron_schedule!,
+            outputDestinations: {},
+            webhookUrl: '',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(signalsScoutConfigUpdate).toHaveBeenCalledWith(expect.any(String), config.id, {
+            display_name: 'Checkout / daily digest',
+        })
+        expect(llmSkillsNamePartialUpdate).not.toHaveBeenCalled()
+        expect(mockHogFunctionsPartialUpdate).not.toHaveBeenCalled()
+        expect(logic.values.settingsSkillName).toBeNull()
+    })
 
     it('resolves the latest report without waiting for the scout roster', async () => {
         // The card reads `latestReportRow` on a cold load, before the fleet logic has answered with
