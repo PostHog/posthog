@@ -8,6 +8,7 @@ from structlog import get_logger
 
 from posthog.scoping_audit import skip_team_scope_audit
 
+from products.approvals.backend.experiment_policy_sync import sync_experiment_policies
 from products.approvals.backend.models import ChangeRequest, ChangeRequestState, ValidationStatus
 from products.approvals.backend.notifications import send_approval_expired_notification
 
@@ -163,3 +164,9 @@ def expire_old_change_requests() -> dict[str, Any]:
 
     logger.info("expire_old_change_requests.complete", **result)
     return result
+
+
+@shared_task(ignore_result=True)
+@skip_team_scope_audit
+def sync_experiment_approval_policies() -> None:
+    sync_experiment_policies()
