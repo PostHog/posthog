@@ -1,5 +1,4 @@
 from collections import Counter
-from pathlib import Path
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
@@ -62,7 +61,10 @@ class Command(BaseCommand):
             "--output",
             type=str,
             default="action_selector_audit.json",
-            help="Report path; re-runs update it in place and print a diff (CSV written alongside)",
+            help=(
+                "Report location: a local path, or s3://<bucket>/<key> to keep it off an ephemeral machine. "
+                "Re-runs update it in place and print a diff (CSV written alongside)"
+            ),
         )
         parser.add_argument("--skip-references", action="store_true", help="Skip the referencing-objects lookup")
         parser.add_argument(
@@ -79,7 +81,7 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         log = self.stdout.write
-        output_path = Path(options["output"])
+        output_target: str = options["output"]
         applying = options["apply_safe_rewrites"] or options["apply_deploy_day_rewrites"]
         if options["live_run"] and not applying:
             raise CommandError("--live-run does nothing without --apply-safe-rewrites/--apply-deploy-day-rewrites")
@@ -102,7 +104,7 @@ class Command(BaseCommand):
                 "these rewrites only become faithful once PR #80653 is deployed"
             )
 
-        previous = load_report(output_path)
+        previous = load_report(output_target)
         rows = discover_rows(options["team_ids"])
         log(f"discovered {len(rows)} selector steps across {len({row['team_id'] for row in rows})} teams")
         if not rows:
@@ -120,7 +122,7 @@ class Command(BaseCommand):
         if options["measure"]:
             if options["resume"]:
                 resumed = prefill_counts_from_previous(rows, previous)
-                log(f"resume: reusing counts for {resumed} of {len(rows)} selector steps from {output_path}")
+                log(f"resume: reusing counts for {resumed} of {len(rows)} selector steps from {output_target}")
             else:
                 # Every checkpoint rewrites the report from the rows in memory, so
                 # measuring without --resume replaces recorded counts with nulls.
@@ -128,7 +130,7 @@ class Command(BaseCommand):
                 if already_measured:
                     log(
                         self.style.WARNING(
-                            f"{output_path} already holds counts for {already_measured} selector steps, and this "
+                            f"{output_target} already holds counts for {already_measured} selector steps, and this "
                             "run discards them because --resume was not passed"
                         )
                     )
@@ -138,7 +140,7 @@ class Command(BaseCommand):
                 # most one batch and can restart with --resume.
                 for checkpoint_row in rows:
                     decide_bucket(checkpoint_row, options["tolerance"], options["rewrite_gain_tolerance"])
-                save_report(output_path, build_report(rows, team_totals, run_params, live_compiler))
+                save_report(output_target, build_report(rows, team_totals, run_params, live_compiler))
 
             for team_id in team_ids:
                 team_rows = [row for row in rows if row["team_id"] == team_id]
@@ -189,7 +191,7 @@ class Command(BaseCommand):
 
         diff = diff_reports(previous, rows)
         report = build_report(rows, team_totals, run_params, live_compiler)
-        csv_path = save_report(output_path, report)
+        csv_path = save_report(output_target, report)
 
         buckets_histogram = Counter(row["bucket"] for row in rows)
         log("bucket summary: " + ", ".join(f"{bucket}={count}" for bucket, count in sorted(buckets_histogram.items())))
@@ -209,4 +211,4 @@ class Command(BaseCommand):
                 log(f"  fixed: {key}")
             for key in diff["new"]:
                 log(f"  new: {key}")
-        log(f"report written to {output_path} and {csv_path}")
+        log(f"report written to {output_target} and {csv_path}")

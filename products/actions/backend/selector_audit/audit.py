@@ -14,7 +14,8 @@ import json
 import time
 from collections.abc import Callable
 from datetime import timedelta
-from pathlib import Path
+from io import StringIO
+from pathlib import Path, PurePosixPath
 from typing import Any, Optional
 
 from django.db import transaction
@@ -26,6 +27,7 @@ from posthog.models import Team
 from posthog.models.event.event import Selector as LiveSelector
 from posthog.models.property.util import build_selector_regex as live_build_selector_regex
 from posthog.security.spreadsheet_safety import sanitize_formula_injection
+from posthog.storage import object_storage
 
 from products.actions.backend.models.action import Action
 from products.actions.backend.selector_audit.compilers import (
@@ -438,7 +440,35 @@ def build_report(
     }
 
 
-def load_report(path: Path) -> Optional[Report]:
+OBJECT_URI_SCHEME = "s3://"
+
+
+def is_object_uri(target: str) -> bool:
+    return target.startswith(OBJECT_URI_SCHEME)
+
+
+def split_object_uri(target: str) -> tuple[str, str]:
+    """The bucket and key of an `s3://bucket/key` report target."""
+    bucket, _, key = target[len(OBJECT_URI_SCHEME) :].partition("/")
+    if not bucket or not key:
+        raise ValueError(f"expected {OBJECT_URI_SCHEME}<bucket>/<key>, got {target!r}")
+    return bucket, key
+
+
+def csv_target_for(target: str) -> str:
+    """The CSV target written alongside a JSON report target."""
+    if is_object_uri(target):
+        bucket, key = split_object_uri(target)
+        return f"{OBJECT_URI_SCHEME}{bucket}/{PurePosixPath(key).with_suffix('.csv')}"
+    return str(Path(target).with_suffix(".csv"))
+
+
+def load_report(target: str) -> Optional[Report]:
+    if is_object_uri(target):
+        bucket, key = split_object_uri(target)
+        body = object_storage.read(key, bucket=bucket, missing_ok=True)
+        return json.loads(body) if body else None
+    path = Path(target)
     if not path.exists():
         return None
     with open(path) as file:
@@ -479,63 +509,84 @@ def diff_reports(previous: Optional[Report], rows: list[Row]) -> dict[str, list[
     }
 
 
-def save_report(path: Path, report: Report) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
+def render_report_csv(report: Report) -> str:
+    """The report's rows as CSV text, for a spreadsheet."""
+    buffer = StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(
+        [
+            "team_id",
+            "action_id",
+            "action_name",
+            "step_index",
+            "selector",
+            "rewrite",
+            "structure",
+            "nth_child",
+            "outside_old_allowlist",
+            "unsupported_css",
+            *COUNT_KEYS,
+            "bucket",
+            "suggested_selector",
+            "references",
+            "applied_at",
+        ]
+    )
+    for row in iter_report_rows(report):
+        cells = [
+            row["team_id"],
+            row["action_id"],
+            row["action_name"],
+            row["step_index"],
+            row["selector"],
+            row["rewrite"] or "",
+            row["structure"],
+            row["flags"]["nth_child"],
+            row["flags"]["outside_old_allowlist"],
+            row["flags"]["unsupported_css"],
+            *[row["counts"][key] if row["counts"][key] is not None else "" for key in COUNT_KEYS],
+            row["bucket"],
+            (row["suggestion"] or {}).get("selector", ""),
+            "|".join(f"{ref['type']}:{ref['id']}" for ref in row["references"] or []),
+            row["applied_at"] or "",
+        ]
+        # Action names and selectors are user-controlled and this file is meant
+        # to be opened in a spreadsheet, where a leading =, +, -, or @ executes
+        # as a formula.
+        writer.writerow([sanitize_formula_injection(cell) for cell in cells])
+    return buffer.getvalue()
+
+
+def _write_local(path: Path, body: str) -> None:
     # Written through a temporary file and renamed, because this runs after every
     # batch of a run an operator may interrupt. A write in place that is cut off
     # leaves JSON that --resume cannot read, discarding the whole measurement.
-    json_tmp = path.with_name(path.name + ".tmp")
-    with open(json_tmp, "w") as file:
-        json.dump(report, file, indent=2)
-        file.write("\n")
-    os.replace(json_tmp, path)
-    csv_path = path.with_suffix(".csv")
-    csv_tmp = csv_path.with_name(csv_path.name + ".tmp")
-    with open(csv_tmp, "w", newline="") as file:
-        writer = csv.writer(file)
-        writer.writerow(
-            [
-                "team_id",
-                "action_id",
-                "action_name",
-                "step_index",
-                "selector",
-                "rewrite",
-                "structure",
-                "nth_child",
-                "outside_old_allowlist",
-                "unsupported_css",
-                *COUNT_KEYS,
-                "bucket",
-                "suggested_selector",
-                "references",
-                "applied_at",
-            ]
-        )
-        for row in iter_report_rows(report):
-            cells = [
-                row["team_id"],
-                row["action_id"],
-                row["action_name"],
-                row["step_index"],
-                row["selector"],
-                row["rewrite"] or "",
-                row["structure"],
-                row["flags"]["nth_child"],
-                row["flags"]["outside_old_allowlist"],
-                row["flags"]["unsupported_css"],
-                *[row["counts"][key] if row["counts"][key] is not None else "" for key in COUNT_KEYS],
-                row["bucket"],
-                (row["suggestion"] or {}).get("selector", ""),
-                "|".join(f"{ref['type']}:{ref['id']}" for ref in row["references"] or []),
-                row["applied_at"] or "",
-            ]
-            # Action names and selectors are user-controlled and this file is meant
-            # to be opened in a spreadsheet, where a leading =, +, -, or @ executes
-            # as a formula.
-            writer.writerow([sanitize_formula_injection(cell) for cell in cells])
-    os.replace(csv_tmp, csv_path)
-    return csv_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", newline="") as file:
+        file.write(body)
+    os.replace(tmp, path)
+
+
+def save_report(target: str, report: Report) -> str:
+    """Write the report and its CSV, returning the CSV target.
+
+    A local target survives only as long as the machine, and an audit of every
+    team runs for hours, so an `s3://bucket/key` target keeps the measurement
+    when the pod holding it goes away. One PUT replaces the whole object, so the
+    object store needs no equivalent of the local temporary file.
+    """
+    csv_target = csv_target_for(target)
+    json_body = json.dumps(report, indent=2) + "\n"
+    csv_body = render_report_csv(report)
+    if is_object_uri(target):
+        bucket, key = split_object_uri(target)
+        object_storage.write(key, json_body, bucket=bucket)
+        object_storage.write(split_object_uri(csv_target)[1], csv_body, bucket=bucket)
+        return csv_target
+    _write_local(Path(target), json_body)
+    _write_local(Path(csv_target), csv_body)
+    return csv_target
 
 
 def _appliable_rows(

@@ -17,6 +17,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.storage import object_storage
 
 from products.actions.backend.models.action import Action
 from products.actions.backend.selector_audit.audit import (
@@ -34,6 +35,7 @@ from products.actions.backend.selector_audit.audit import (
     carry_over_previous,
     count_autocapture_events,
     count_autocapture_events_or_none,
+    csv_target_for,
     decide_bucket,
     detect_live_compiler,
     diff_reports,
@@ -43,6 +45,7 @@ from products.actions.backend.selector_audit.audit import (
     prefill_counts_from_previous,
     save_report,
     selector_compiles,
+    split_object_uri,
 )
 from products.actions.backend.selector_audit.compilers import (
     classify_selector,
@@ -283,11 +286,11 @@ class TestReportRoundtrip(SimpleTestCase):
         open_row = make_row(action_id=1, bucket=BUCKET_SAFE_REWRITE)
         fixed_row = make_row(action_id=2, bucket=BUCKET_NO_FAITHFUL_FIX)
         with TemporaryDirectory() as tmp:
-            path = Path(tmp) / "audit.json"
+            path = str(Path(tmp) / "audit.json")
             report = build_report([open_row, fixed_row], {1: 100}, {"days": 7}, "old")
             csv_path = save_report(path, report)
             assert load_report(path) == report
-            assert csv_path.read_text().count("\n") == 3
+            assert Path(csv_path).read_text().count("\n") == 3
 
             rerun_rows = [
                 make_row(action_id=1, bucket=BUCKET_SAFE_REWRITE),
@@ -302,7 +305,7 @@ class TestReportRoundtrip(SimpleTestCase):
     def test_csv_cells_cannot_start_a_spreadsheet_formula(self) -> None:
         hostile = make_row(action_name='=HYPERLINK("https://example.com")', selector="-moz-only > span")
         with TemporaryDirectory() as tmp:
-            csv_path = save_report(Path(tmp) / "audit.json", build_report([hostile], {}, {"days": 7}, "old"))
+            csv_path = save_report(str(Path(tmp) / "audit.json"), build_report([hostile], {}, {"days": 7}, "old"))
             with open(csv_path, newline="") as file:
                 data_row = list(csv.reader(file))[1]
         assert data_row[2] == '\'=HYPERLINK("https://example.com")'
@@ -320,6 +323,49 @@ class TestReportRoundtrip(SimpleTestCase):
         assert discovery_only["bucket"] == BUCKET_SAFE_REWRITE
         assert discovery_only["counts"] == counts
         assert discovery_only["applied_at"] == "2026-01-01T00:00:00Z"
+
+
+class TestObjectStorageTarget(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("a bucket and key", "s3://posthog/audits/run.json", ("posthog", "audits/run.json")),
+            ("a key at the bucket root", "s3://posthog/run.json", ("posthog", "run.json")),
+        ]
+    )
+    def test_a_uri_splits_into_bucket_and_key(self, _name: str, target: str, expected: tuple[str, str]) -> None:
+        assert split_object_uri(target) == expected
+
+    @parameterized.expand(
+        [("no key", "s3://posthog"), ("no key after the slash", "s3://posthog/"), ("no bucket", "s3:///run.json")]
+    )
+    def test_a_uri_without_both_parts_is_rejected(self, _name: str, target: str) -> None:
+        with self.assertRaises(ValueError):
+            split_object_uri(target)
+
+    def test_the_csv_sits_beside_the_json_in_the_same_bucket(self) -> None:
+        assert csv_target_for("s3://posthog/audits/run.json") == "s3://posthog/audits/run.csv"
+
+    def test_a_report_round_trips_through_object_storage(self) -> None:
+        stored: dict[tuple[str, str], str] = {}
+        report = build_report([make_row(action_id=1)], {1: 100}, {"days": 7}, "old")
+        target = "s3://audit-bucket/audits/run.json"
+
+        def fake_write(key: str, content: str, bucket: str | None = None, **_kwargs: Any) -> None:
+            stored[(bucket or "", key)] = content
+
+        def fake_read(key: str, bucket: str | None = None, **_kwargs: Any) -> str | None:
+            return stored.get((bucket or "", key))
+
+        with patch.object(object_storage, "write", fake_write), patch.object(object_storage, "read", fake_read):
+            csv_target = save_report(target, report)
+            assert load_report(target) == report
+
+        assert csv_target == "s3://audit-bucket/audits/run.csv"
+        assert sorted(stored) == [("audit-bucket", "audits/run.csv"), ("audit-bucket", "audits/run.json")]
+
+    def test_a_missing_object_reads_as_no_previous_report(self) -> None:
+        with patch.object(object_storage, "read", return_value=None):
+            assert load_report("s3://audit-bucket/audits/run.json") is None
 
 
 class TestCommandGates(SimpleTestCase):
