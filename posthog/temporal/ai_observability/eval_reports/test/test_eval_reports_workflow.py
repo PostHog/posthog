@@ -1,6 +1,8 @@
 import uuid
 import asyncio
+from datetime import datetime, timedelta
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 import pytest
 from unittest.mock import (
@@ -33,6 +35,7 @@ from posthog.temporal.ai_observability.eval_reports.constants import (
     COUNT_TRIGGER_CURSOR_ACK_SCHEDULE_TO_CLOSE_TIMEOUT,
     COUNT_TRIGGER_DISCOVERY_SCHEDULE_TO_CLOSE_TIMEOUT,
     COUNT_TRIGGER_MAX_CONCURRENT_CHECKS,
+    COUNT_TRIGGERED_COORDINATOR_RUN_BUDGET,
     FETCH_ACTIVITY_TIMEOUT,
     FETCH_RETRY_POLICY,
     GENERATE_EVAL_REPORT_WORKFLOW_NAME,
@@ -242,6 +245,7 @@ async def test_count_coordinator_acknowledges_cursor_after_due_child_starts() ->
         dispatch_due_reports,
         activity_schedule_to_close_timeout,
         incremental_ack,
+        run_deadline,
     ):
         events.append("check")
         assert dispatch_due_reports is True
@@ -252,6 +256,7 @@ async def test_count_coordinator_acknowledges_cursor_after_due_child_starts() ->
             team_by_report_id={"report-a": 42},
             activity_schedule_to_close_timeout=COUNT_TRIGGER_CURSOR_ACK_SCHEDULE_TO_CLOSE_TIMEOUT,
         )
+        assert run_deadline is not None
         events.append("start")
         return _DueReportCandidates(["report-a"], {"report-a": "count-window"})
 
@@ -263,6 +268,10 @@ async def test_count_coordinator_acknowledges_cursor_after_due_child_starts() ->
         patch(
             "posthog.temporal.ai_observability.eval_reports.workflow._check_count_triggered_eval_report_candidates_batched",
             new=fake_check_candidates,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.now",
+            return_value=datetime(2026, 9, 9, tzinfo=ZoneInfo("UTC")),
         ),
         patch(
             "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.patched",
@@ -978,6 +987,32 @@ async def test_batched_count_check_caps_concurrent_group_activities() -> None:
         await _check_count_triggered_eval_report_candidates_batched([[f"report-{index}"] for index in range(5)])
 
     assert max_active == 2
+
+
+@pytest.mark.asyncio
+async def test_batched_count_check_does_not_start_a_window_without_phase_headroom() -> None:
+    started_at = datetime(2026, 9, 9, tzinfo=ZoneInfo("UTC"))
+    check_window = AsyncMock(return_value=_CountCheckWindowResult([], {}, [], {}))
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.now",
+            side_effect=[started_at, started_at + timedelta(seconds=230)],
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow._check_count_triggered_window",
+            check_window,
+        ),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.COUNT_TRIGGER_MAX_CONCURRENT_CHECKS", 1),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.record_coordinator_reports_found"),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.logger"),
+    ):
+        await _check_count_triggered_eval_report_candidates_batched(
+            [["first"], ["second"]],
+            run_deadline=started_at + COUNT_TRIGGERED_COORDINATOR_RUN_BUDGET,
+        )
+
+    check_window.assert_awaited_once_with([["first"]], None)
 
 
 @pytest.mark.asyncio

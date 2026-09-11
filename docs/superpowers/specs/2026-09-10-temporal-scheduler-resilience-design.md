@@ -381,7 +381,7 @@ All schedule registrations set overlap, catch-up, execution timeout, and pause b
 - Short fire-and-forget coordinators may use `ALLOW_ALL` only when durable claims and admission permits make overlap safe.
 - Result-aggregating or state-mutating coordinators use `SKIP` or `BUFFER_ONE` according to their recovery semantics.
 - Catch-up windows prevent obsolete schedule ticks from replaying after a long outage.
-- Execution timeouts exceed a healthy coordinator run but remain below the interval where a new run should take over.
+- Execution timeouts exceed a healthy coordinator run. When rolling-deploy compatibility requires a longer server safety net, the versioned workflow enforces an internal phase deadline below the scheduling interval.
 
 The policy is tested as part of schedule creation. SDK defaults are not accepted as implicit design decisions.
 

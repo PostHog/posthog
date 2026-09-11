@@ -8,6 +8,7 @@ from temporalio.client import ScheduleActionStartWorkflow, ScheduleOverlapPolicy
 from posthog.temporal.ai_observability.eval_reports.constants import (
     COUNT_TRIGGERED_COORDINATOR_EXECUTION_TIMEOUT,
     COUNT_TRIGGERED_COORDINATOR_PHASE_BUDGET,
+    COUNT_TRIGGERED_COORDINATOR_RUN_BUDGET,
     SCHEDULED_COORDINATOR_EXECUTION_TIMEOUT,
 )
 from posthog.temporal.ai_observability.eval_reports.schedule import (
@@ -27,7 +28,7 @@ def test_count_triggered_report_cap_reserves_temporal_pending_child_headroom() -
 
 
 def test_count_triggered_coordinator_reserves_time_after_each_check_window() -> None:
-    assert COUNT_TRIGGERED_COORDINATOR_PHASE_BUDGET < COUNT_TRIGGERED_COORDINATOR_EXECUTION_TIMEOUT
+    assert COUNT_TRIGGERED_COORDINATOR_PHASE_BUDGET < COUNT_TRIGGERED_COORDINATOR_RUN_BUDGET
 
 
 @pytest.mark.asyncio
@@ -78,7 +79,10 @@ async def test_eval_report_schedules_have_bounded_inputs_and_explicit_recovery_p
         }
     ]
     assert schedule.action.execution_timeout == expected_execution_timeout
-    assert expected_execution_timeout < expected_catchup_window
+    if create_schedule is create_count_trigger_schedule:
+        assert COUNT_TRIGGERED_COORDINATOR_RUN_BUDGET < expected_catchup_window
+    else:
+        assert expected_execution_timeout < expected_catchup_window
     assert schedule.action.retry_policy is not None
     assert schedule.action.retry_policy.maximum_attempts == 1
     assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP

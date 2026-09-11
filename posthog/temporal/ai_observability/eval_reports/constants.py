@@ -23,7 +23,8 @@ WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
 # cursors, so it never needs the full hour. Staying below the hourly interval means a stalled run
 # cannot make ScheduleOverlapPolicy.SKIP drop the next hourly trigger.
 SCHEDULED_COORDINATOR_EXECUTION_TIMEOUT = timedelta(minutes=55)
-COUNT_TRIGGERED_COORDINATOR_EXECUTION_TIMEOUT = timedelta(minutes=4)
+COUNT_TRIGGERED_COORDINATOR_EXECUTION_TIMEOUT = timedelta(hours=2)
+COUNT_TRIGGERED_COORDINATOR_RUN_BUDGET = timedelta(minutes=4)
 
 # Activity timeouts
 FETCH_ACTIVITY_TIMEOUT = timedelta(seconds=60)
@@ -73,11 +74,13 @@ COUNT_TRIGGER_CURSOR_ACK_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=10)
 # which is one REPORT_START_BATCH_SIZE activation. Reserve an explicit slice for that
 # acceptance round plus workflow-task overhead before cursor acknowledgement.
 COUNT_TRIGGER_DISPATCH_HEADROOM = timedelta(seconds=20)
-COUNT_TRIGGERED_COORDINATOR_PHASE_BUDGET = (
-    COUNT_TRIGGER_DISCOVERY_SCHEDULE_TO_CLOSE_TIMEOUT
-    + COUNT_TRIGGER_CHECK_SCHEDULE_TO_CLOSE_TIMEOUT
+COUNT_TRIGGERED_WINDOW_PHASE_BUDGET = (
+    COUNT_TRIGGER_CHECK_SCHEDULE_TO_CLOSE_TIMEOUT
     + COUNT_TRIGGER_CURSOR_ACK_SCHEDULE_TO_CLOSE_TIMEOUT
     + COUNT_TRIGGER_DISPATCH_HEADROOM
+)
+COUNT_TRIGGERED_COORDINATOR_PHASE_BUDGET = (
+    COUNT_TRIGGER_DISCOVERY_SCHEDULE_TO_CLOSE_TIMEOUT + COUNT_TRIGGERED_WINDOW_PHASE_BUDGET
 )
 
 # Heartbeat timeouts

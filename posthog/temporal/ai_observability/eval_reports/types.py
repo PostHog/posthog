@@ -20,13 +20,13 @@ MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN = 1_500
 class ScheduleAllEvalReportsWorkflowInputs:
     buffer_minutes: int = 15
     max_reports_per_run: int = DEFAULT_MAX_SCHEDULED_EVAL_REPORTS_PER_RUN
-    region: str = "local"
+    region: str = ""
 
 
 @dataclasses.dataclass(frozen=True)
 class CheckCountTriggeredReportsWorkflowInputs:
     max_reports_per_run: int = DEFAULT_MAX_COUNT_TRIGGERED_EVAL_REPORTS_PER_RUN
-    region: str = "local"
+    region: str = ""
 
 
 @dataclasses.dataclass(frozen=True)

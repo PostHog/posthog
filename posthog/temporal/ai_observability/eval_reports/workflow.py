@@ -3,7 +3,7 @@
 import json
 import asyncio
 import hashlib
-from datetime import timedelta
+from datetime import datetime, timedelta
 from itertools import batched
 from typing import Any, NamedTuple
 
@@ -38,6 +38,8 @@ from posthog.temporal.ai_observability.eval_reports.constants import (
     COUNT_TRIGGER_CURSOR_ACK_SCHEDULE_TO_CLOSE_TIMEOUT,
     COUNT_TRIGGER_DISCOVERY_SCHEDULE_TO_CLOSE_TIMEOUT,
     COUNT_TRIGGER_MAX_CONCURRENT_CHECKS,
+    COUNT_TRIGGERED_COORDINATOR_RUN_BUDGET,
+    COUNT_TRIGGERED_WINDOW_PHASE_BUDGET,
     DELIVER_ACTIVITY_TIMEOUT,
     DELIVER_HEARTBEAT_TIMEOUT,
     DELIVER_RETRY_POLICY,
@@ -212,6 +214,9 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: CheckCountTriggeredReportsWorkflowInputs) -> None:
         bounded_phase_timeouts = temporalio.workflow.patched("eval-report-count-phase-budgets-2026-09")
+        run_deadline = (
+            temporalio.workflow.now() + COUNT_TRIGGERED_COORDINATOR_RUN_BUDGET if bounded_phase_timeouts else None
+        )
         discovery_options: dict[str, Any] = {
             "start_to_close_timeout": FETCH_ACTIVITY_TIMEOUT,
             "retry_policy": FETCH_RETRY_POLICY,
@@ -257,6 +262,7 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
                 dispatch_due_reports=windowed_dispatch,
                 activity_schedule_to_close_timeout=activity_schedule_to_close_timeout,
                 incremental_ack=incremental_ack,
+                run_deadline=run_deadline,
             )
         else:
             due_reports = await _check_count_triggered_eval_report_candidates(result.report_ids)
@@ -338,6 +344,7 @@ async def _check_count_triggered_eval_report_candidates_batched(
     dispatch_due_reports: bool = False,
     activity_schedule_to_close_timeout: timedelta | None = None,
     incremental_ack: _IncrementalCursorAck | None = None,
+    run_deadline: datetime | None = None,
 ) -> _DueReportCandidates:
     due_report_ids: list[str] = []
     occurrence_keys: dict[str, str] = {}
@@ -353,6 +360,12 @@ async def _check_count_triggered_eval_report_candidates_batched(
     # a ClickHouse failure is contained to that group. The window keeps at most
     # COUNT_TRIGGER_MAX_CONCURRENT_CHECKS count queries in flight — the legacy path's ceiling.
     for index in range(0, len(report_id_groups), COUNT_TRIGGER_MAX_CONCURRENT_CHECKS):
+        if run_deadline is not None and temporalio.workflow.now() + COUNT_TRIGGERED_WINDOW_PHASE_BUDGET > run_deadline:
+            temporalio.workflow.logger.info(
+                "llma_eval_reports_coordinator_count_triggered_budget_exhausted",
+                extra={"remaining_groups": len(report_id_groups) - index},
+            )
+            break
         window = report_id_groups[index : index + COUNT_TRIGGER_MAX_CONCURRENT_CHECKS]
         window_report_ids = [report_id for group in window for report_id in group]
         checked_report_count += len(window_report_ids)

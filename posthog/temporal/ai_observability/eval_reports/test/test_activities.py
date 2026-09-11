@@ -54,8 +54,10 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import E
 from posthog.temporal.ai_observability.eval_reports.targets import target_event_predicate
 from posthog.temporal.ai_observability.eval_reports.types import (
     AckEvalReportCursorRowsInput,
+    CheckCountTriggeredReportsWorkflowInputs,
     PrepareReportContextInput,
     RunEvalReportAgentInput,
+    ScheduleAllEvalReportsWorkflowInputs,
     StoreReportRunInput,
     UpdateNextDeliveryDateInput,
 )
@@ -607,6 +609,11 @@ async def test_prepare_activity_reads_detector_polarity_from_evaluation(team, us
 
 
 class TestEvalReportSchedulerRegion(SimpleTestCase):
+    def test_legacy_workflow_inputs_use_the_configured_deployment(self):
+        with self.settings(CLOUD_DEPLOYMENT="EU"):
+            assert _resolve_scheduler_region(ScheduleAllEvalReportsWorkflowInputs().region) == "eu"
+            assert _resolve_scheduler_region(CheckCountTriggeredReportsWorkflowInputs().region) == "eu"
+
     def test_empty_region_uses_the_configured_deployment(self):
         with self.settings(CLOUD_DEPLOYMENT="EU"):
             assert _resolve_scheduler_region("") == "eu"
