@@ -440,7 +440,10 @@ export function NavTabChat({
                                     onClick={() => loadMoreTasks()}
                                 >
                                     {tasksLoadingMore && <Spinner className="size-3" />}
-                                    Load more tasks
+                                    {/* Wrapped so the label is not a bare text node beside the conditional
+                                        spinner. A page translator swaps that node for a `<font>` element, and
+                                        React then inserts the spinner against a node the DOM no longer holds. */}
+                                    <span>Load more tasks</span>
                                 </ButtonPrimitive>
                             </div>
                         )}
