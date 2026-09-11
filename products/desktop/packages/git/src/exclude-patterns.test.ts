@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import {
   matchesExcludePatterns,
@@ -18,6 +19,24 @@ describe("parseExcludePatterns", () => {
   ])("produces no patterns from %s", (_label, content) => {
     expect(parseExcludePatterns(content)).toEqual([]);
   });
+
+  it.each([String.raw`[\]x`, String.raw`[a\]]`])(
+    "skips a syntax-invalid ambiguous class: %s",
+    (pattern) => {
+      const patterns = parseExcludePatterns(`${pattern}\n.env`);
+      expect(patterns).toHaveLength(1);
+      expect(matchesExcludePatterns(".env", patterns)).toBe(true);
+    },
+  );
+
+  it.each([String.raw`[\]a[bc]`, "[]a]", "[]|a]"])(
+    "surfaces accepted ambiguous class syntax to the caller's Git fallback: %s",
+    (pattern) => {
+      expect(() => parseExcludePatterns(pattern)).toThrow(
+        "Ambiguous exclude character class",
+      );
+    },
+  );
 });
 
 describe("matchesExcludePatterns", () => {
@@ -93,6 +112,27 @@ describe("matchesExcludePatterns", () => {
     ["escaped hash matches literal hash", "\\#file", "#file", true],
     ["trailing spaces are trimmed", ".env   ", ".env", true],
     ["CRLF line endings do not defeat matching", ".env\r\n", ".env", true],
+    ["escaped trailing space survives cleanup", "file\\   ", "file ", true],
+    ["only one final CR is removed", "file\r\r", "file\r", true],
+    ["trailing tabs remain literal", "file\t", "file\t", true],
+    ["a trailing backslash remains literal", "file\\", "file\\", true],
+    ["question marks consume UTF-16 units", "??", "😀", true],
+    ["one question mark rejects a surrogate pair", "?", "😀", false],
+    ["single star consumes newlines", "/a*b", "a\nb", true],
+    ["double star rejects newlines", "/a**b", "a\nb", false],
+    ["basename prefix rejects newlines", "b", "a\n/b", false],
+    ["directory glob rejects newlines", "a/**/b", "a/x\n/b", false],
+    ["literal ending rejects a final newline", "a", "a\n", false],
+    ["parent match stops before a newline", "a", "a/x\n", true],
+    ["character class permits slash", "a[/]b", "a/b", true],
+    ["negated empty class matches newline", "[^]", "\n", true],
+    ["bang empty class matches newline", "[!]", "\n", true],
+    ["native character class escape", String.raw`[\d]`, "1", true],
+    ["native character class hex escape", String.raw`[\x61]`, "a", true],
+    ["native character class identity escape", String.raw`[\q]`, "q", true],
+    ["class containing escaped backslash", String.raw`[\\]`, "\\", true],
+    ["invalid class range skips its line", "[z-a]\n.env", ".env", true],
+    ["unterminated bracket remains literal", "[[", "[[", true],
     [
       "consecutive double-star segments collapse",
       "**/**/logs",
@@ -110,15 +150,27 @@ describe("matchesExcludePatterns", () => {
     expect(matchesExcludePatterns(".envrc", patterns)).toBe(true);
   });
 
-  it("matches a pathological consecutive-double-star pattern in bounded time", () => {
-    // Regression for ReDoS: a run of `**/` used to compile to that many
-    // overlapping backtracking groups, blowing up exponentially with path depth.
-    const pattern = `${Array(30).fill("**").join("/")}/NOMATCH`;
-    const patterns = parseExcludePatterns(pattern);
-    const deepPath = `${Array.from({ length: 24 }, (_, i) => String.fromCharCode(97 + (i % 26))).join("/")}/`;
-    const start = performance.now();
-    expect(matchesExcludePatterns(deepPath, patterns)).toBe(false);
-    expect(performance.now() - start).toBeLessThan(1000);
+  it.each([
+    ["separated stars", `${"*a".repeat(12)}b`, "a".repeat(100)],
+    ["consecutive double stars", `${"**/".repeat(30)}NOMATCH`, "a/".repeat(24)],
+    ["trailing-space preprocessing", `${" ".repeat(64000)}!`, "a"],
+  ])("bounds %s in a killable child", (_label, content, entry) => {
+    const moduleUrl = new URL("./exclude-patterns.ts", import.meta.url).href;
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `
+      import { parseExcludePatterns, matchesExcludePatterns } from ${JSON.stringify(moduleUrl)};
+      process.stdout.write(JSON.stringify(matchesExcludePatterns(${JSON.stringify(entry)}, parseExcludePatterns(${JSON.stringify(content)}))));
+    `,
+      ],
+      { encoding: "utf8", timeout: 1500, killSignal: "SIGKILL" },
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe("false");
   });
 
   it("never matches entries only reachable through unrelated names", () => {
