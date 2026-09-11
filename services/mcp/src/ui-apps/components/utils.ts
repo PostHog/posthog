@@ -1,7 +1,12 @@
-import type { ChartDisplayType, FunnelResult, TrendsQuery } from './types'
+import type { ChartDisplayType, FunnelResult, InsightSummary, TrendsQuery } from './types'
 
 export function getDisplayType(query: TrendsQuery | undefined): ChartDisplayType {
     return query?.trendsFilter?.display || 'ActionsLineGraph'
+}
+
+/** Title for a saved insight. Undefined for an ad-hoc query, which has no name to show. */
+export function insightTitle(insight: InsightSummary | undefined): string | undefined {
+    return insight?.name?.trim() || insight?.derived_name?.trim() || undefined
 }
 
 export function formatNumber(value: number): string {

@@ -7,6 +7,7 @@ import {
     isBarFamily,
     resolveChartView,
     supportsPercentStack,
+    valueFormatFromTrendsFilter,
 } from '../../src/ui-apps/components/chartSettingsConfig'
 import type { ChartDisplayType, TrendsFilter } from '../../src/ui-apps/components/types'
 
@@ -39,6 +40,34 @@ describe('trends chart settings', () => {
             expect(chartConfigFromTrendsFilter({ display: 'ActionsBar', showLegend: true })).toEqual(
                 DEFAULT_CHART_CONFIG
             )
+        })
+    })
+
+    describe('valueFormatFromTrendsFilter', () => {
+        // The single-number view used to run a plain compact formatter, which dropped the
+        // percentage unit, the prefix/postfix and the decimal places the insight was saved with.
+        it('carries every unit setting the insight was saved with', () => {
+            const trendsFilter: TrendsFilter = {
+                display: 'BoldNumber',
+                aggregationAxisFormat: 'percentage',
+                aggregationAxisPrefix: '~',
+                aggregationAxisPostfix: ' of users',
+                decimalPlaces: 2,
+                minDecimalPlaces: 1,
+            }
+            const config = chartConfigFromTrendsFilter(trendsFilter)
+
+            expect(valueFormatFromTrendsFilter(trendsFilter, config.yUnit)).toEqual({
+                format: 'percentage',
+                prefix: '~',
+                suffix: ' of users',
+                decimalPlaces: 2,
+                minDecimalPlaces: 1,
+            })
+        })
+
+        it('follows the y-unit the reader picked over the saved one', () => {
+            expect(valueFormatFromTrendsFilter({ aggregationAxisFormat: 'numeric' }, 'short').format).toBe('short')
         })
     })
 

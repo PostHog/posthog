@@ -1,6 +1,8 @@
+import { act, cleanup, renderHook } from '@testing-library/react'
+
 import { dataColorPalette } from '@posthog/quill-tokens'
 
-import { DEFAULT_CHART_COLORS, themeFromCssVars } from './theme'
+import { DEFAULT_CHART_COLORS, themeFromCssVars, useChartTheme } from './theme'
 
 describe('chart theme', () => {
     afterEach(() => {
@@ -70,5 +72,32 @@ describe('chart theme', () => {
 
         expect(colors).toHaveLength(colorCount)
         expect(colors[DEFAULT_CHART_COLORS.length]).toBe(DEFAULT_CHART_COLORS[0])
+    })
+
+    describe('useChartTheme', () => {
+        afterEach(() => cleanup())
+
+        it('re-reads the vars when a host stylesheet lands after mount', async () => {
+            const { result } = renderHook(() => useChartTheme({ colorCount: 1 }))
+            expect(result.current.colors).toEqual([DEFAULT_CHART_COLORS[0]])
+
+            await act(async () => {
+                document.body.style.setProperty('--data-color-1', '#123456')
+                document.head.appendChild(document.createElement('link'))
+            })
+
+            expect(result.current.colors).toEqual(['#123456'])
+        })
+
+        it('keeps the same theme object when nothing the chart reads changed', async () => {
+            const { result } = renderHook(() => useChartTheme({ colorCount: 1 }))
+            const first = result.current
+
+            await act(async () => {
+                document.head.appendChild(document.createElement('link'))
+            })
+
+            expect(result.current).toBe(first)
+        })
     })
 })

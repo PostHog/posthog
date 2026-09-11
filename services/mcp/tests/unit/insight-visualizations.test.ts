@@ -16,6 +16,7 @@ import {
     formatPercent,
     getDisplayType,
     getSeriesLabel,
+    insightTitle,
     normalizeFunnelSteps,
 } from '@/ui-apps/components/utils'
 
@@ -243,6 +244,18 @@ describe('insight visualizations', () => {
                 expect(getDisplayType({ kind: 'TrendsQuery', trendsFilter: { display: 'BoldNumber' } })).toBe(
                     'BoldNumber'
                 )
+            })
+        })
+
+        describe('insightTitle', () => {
+            it('reads the saved insight name, falling back to the derived name', () => {
+                expect(insightTitle({ name: 'Weekly signups' })).toBe('Weekly signups')
+                expect(insightTitle({ name: '  ', derived_name: '$pageview count' })).toBe('$pageview count')
+            })
+
+            it('has no title for an ad-hoc query, so the visualizer keeps its own heading', () => {
+                expect(insightTitle(undefined)).toBeUndefined()
+                expect(insightTitle({ name: null, derived_name: null })).toBeUndefined()
             })
         })
 

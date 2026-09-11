@@ -1,5 +1,7 @@
 import type { ReactElement } from 'react'
 
+import { buildYTickFormatter, type YFormatterConfig } from '@posthog/quill-charts'
+
 import { formatNumber } from '../utils'
 
 // TODO(quill): replace with a Quill primitive (e.g. `BigNumber` /
@@ -11,9 +13,13 @@ import { formatNumber } from '../utils'
 export interface BigNumberProps {
     value: number
     label?: string | undefined
+    /** Unit settings from the insight (percentage, prefix, decimal places, …). Compact number when omitted. */
+    format?: YFormatterConfig | undefined
 }
 
-export function BigNumber({ value, label }: BigNumberProps): ReactElement {
+export function BigNumber({ value, label, format }: BigNumberProps): ReactElement {
+    const formatted = format ? buildYTickFormatter(format)(value) : formatNumber(value)
+
     return (
         <div style={{ textAlign: 'center', padding: '2rem' }}>
             <div
@@ -23,7 +29,7 @@ export function BigNumber({ value, label }: BigNumberProps): ReactElement {
                     color: 'var(--color-text-primary, #101828)',
                 }}
             >
-                {formatNumber(value)}
+                {formatted}
             </div>
             {label && (
                 <div

@@ -31,8 +31,8 @@ export default meta
 
 type Story = StoryObj<{}>
 
-const renderTrends = (query: TrendsQuery, results: TrendsResult): ReactElement => (
-    <TrendsVisualizer query={query} results={results} />
+const renderTrends = (query: TrendsQuery, results: TrendsResult, title?: string): ReactElement => (
+    <TrendsVisualizer query={query} results={results} title={title} />
 )
 
 export const SingleSeries: Story = {
@@ -94,4 +94,21 @@ export const BarValueManyBreakdowns: Story = {
             { label: 'India', aggregated_value: 1640 },
         ]),
     name: 'Bar value — many breakdowns',
+}
+
+export const BoldNumberRate: Story = {
+    render: () =>
+        renderTrends(
+            {
+                kind: 'TrendsQuery',
+                trendsFilter: {
+                    display: 'BoldNumber',
+                    aggregationAxisFormat: 'percentage',
+                    decimalPlaces: 1,
+                },
+            },
+            [{ label: 'Signup conversion', aggregated_value: 37.4562 }],
+            'Signup conversion rate'
+        ),
+    name: 'Bold number — rate with the insight name',
 }

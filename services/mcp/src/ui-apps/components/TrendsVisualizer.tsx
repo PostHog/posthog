@@ -33,6 +33,7 @@ import {
     isBarFamily,
     resolveChartView,
     supportsPercentStack,
+    valueFormatFromTrendsFilter,
 } from './chartSettingsConfig'
 import type { TrendsResultItem, TrendsVisualizerProps } from './types'
 import { formatDate, formatTooltipDate, getDisplayType, getSeriesLabel } from './utils'
@@ -70,7 +71,8 @@ function calculateTotal(results: TrendsResultItem[]): number {
     }, 0)
 }
 
-export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): ReactElement {
+export function TrendsVisualizer({ query, results, title }: TrendsVisualizerProps): ReactElement {
+    const heading = title || TITLE
     const displayType = getDisplayType(query)
     const [chartType, setChartType] = useState<ChartType>(defaultChartType(displayType))
     const [chartConfig, setChartConfig] = useState(() => chartConfigFromTrendsFilter(query?.trendsFilter))
@@ -79,7 +81,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
     if (!results || results.length === 0) {
         return (
             <div>
-                <ChartHeader title={TITLE} />
+                <ChartHeader title={heading} />
                 <Empty>
                     <EmptyHeader>
                         <EmptyMedia>{emptyStateIllustration('chart')}</EmptyMedia>
@@ -95,8 +97,12 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         const label = results[0] ? getSeriesLabel(results[0], 0) : 'Total'
         return (
             <div>
-                <ChartHeader title={TITLE} />
-                <BigNumber value={total} label={label} />
+                <ChartHeader title={heading} />
+                <BigNumber
+                    value={total}
+                    label={label}
+                    format={valueFormatFromTrendsFilter(query?.trendsFilter, chartConfig.yUnit)}
+                />
             </div>
         )
     }
@@ -111,7 +117,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         const barConfig = buildTrendsBarValueConfig()
         return (
             <div>
-                <ChartHeader title={TITLE} />
+                <ChartHeader title={heading} />
                 <div className="flex flex-col w-full h-[400px]">
                     <BarValueChart
                         series={barSeries}
@@ -213,7 +219,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
 
     return (
         <div>
-            <ChartHeader title={TITLE}>
+            <ChartHeader title={heading}>
                 {/* eslint-disable-next-line react/forbid-elements */}
                 <Select value={effectiveType} onChange={setChartType} options={chartTypeOptions} />
                 {effectiveType !== 'slope' && (

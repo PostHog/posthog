@@ -16,6 +16,7 @@ import type {
     FunnelResult,
     FunnelsQuery,
     HogQLResult,
+    InsightSummary,
     LifecycleQuery,
     LifecycleResult,
     PathsQuery,
@@ -27,6 +28,7 @@ import type {
     TrendsQuery,
     TrendsResult,
 } from './types'
+import { insightTitle } from './utils'
 
 /** Data payload from MCP tools */
 interface DataPayload {
@@ -38,6 +40,8 @@ interface DataPayload {
         | RetentionQuery
         | PathsQuery
         | Record<string, unknown>
+    /** Present when the payload came from a saved insight (`insight-query`). */
+    insight?: InsightSummary
     results:
         | TrendsResult
         | StickinessResult
@@ -56,6 +60,7 @@ export interface ComponentProps {
 export function Component({ data }: ComponentProps): ReactElement {
     const payload = data as DataPayload
     const visualizationType = inferVisualizationType(data)
+    const title = insightTitle(payload.insight)
 
     if (!visualizationType) {
         return (
@@ -84,12 +89,17 @@ export function Component({ data }: ComponentProps): ReactElement {
                         key={JSON.stringify(payload.query)}
                         query={payload.query as TrendsQuery}
                         results={payload.results as TrendsResult}
+                        title={title}
                     />
                 )
 
             case 'funnel':
                 return (
-                    <FunnelVisualizer query={payload.query as FunnelsQuery} results={payload.results as FunnelResult} />
+                    <FunnelVisualizer
+                        query={payload.query as FunnelsQuery}
+                        results={payload.results as FunnelResult}
+                        title={title}
+                    />
                 )
 
             case 'stickiness':
@@ -99,6 +109,7 @@ export function Component({ data }: ComponentProps): ReactElement {
                         key={JSON.stringify(payload.query)}
                         query={payload.query as StickinessQuery}
                         results={payload.results as StickinessResult}
+                        title={title}
                     />
                 )
 
@@ -107,6 +118,7 @@ export function Component({ data }: ComponentProps): ReactElement {
                     <LifecycleVisualizer
                         query={payload.query as LifecycleQuery}
                         results={payload.results as LifecycleResult}
+                        title={title}
                     />
                 )
 
@@ -115,14 +127,15 @@ export function Component({ data }: ComponentProps): ReactElement {
                     <RetentionVisualizer
                         query={payload.query as RetentionQuery}
                         results={payload.results as RetentionResult}
+                        title={title}
                     />
                 )
 
             case 'paths':
-                return <PathsVisualizer results={payload.results as PathsResult} />
+                return <PathsVisualizer results={payload.results as PathsResult} title={title} />
 
             case 'table':
-                return <TableVisualizer results={payload.results as HogQLResult} />
+                return <TableVisualizer results={payload.results as HogQLResult} title={title} />
 
             default:
                 return <div className="text-muted-foreground">Unknown visualization type: {visualizationType}</div>

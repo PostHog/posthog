@@ -121,7 +121,10 @@ export function themeFromCssVars(options: ThemeFromCssOptions = {}): ChartTheme 
  * React hook returning a {@link ChartTheme} read from the quill data-viz CSS
  * vars, kept in sync as the active theme changes. Watches the `class` / `theme`
  * attributes on both `<html>` and `<body>` (different toggling conventions set
- * one or the other) and re-reads the vars whenever they flip.
+ * one or the other) and re-reads the vars whenever they flip. It also watches
+ * `<head>`, because a host that injects its token stylesheet after mount
+ * changes no attribute and would otherwise leave the chart on the fallback
+ * palette until it remounts.
  */
 export function useChartTheme(options: ThemeFromCssOptions = {}): ChartTheme {
     const { root, colorCount } = options
@@ -131,12 +134,32 @@ export function useChartTheme(options: ThemeFromCssOptions = {}): ChartTheme {
         if (typeof document === 'undefined' || typeof MutationObserver !== 'function') {
             return
         }
-        const reread = (): void => setTheme(themeFromCssVars({ root, colorCount }))
+        // Keep the previous object when the vars read the same, so an unrelated `<head>`
+        // mutation doesn't hand every chart a new theme and repaint it.
+        const reread = (): void =>
+            setTheme((current) => {
+                const next = themeFromCssVars({ root, colorCount })
+                return JSON.stringify(current) === JSON.stringify(next) ? current : next
+            })
         reread()
-        const observer = new MutationObserver(reread)
-        const opts: MutationObserverInit = { attributes: true, attributeFilter: ['class', 'theme', 'data-theme'] }
-        observer.observe(document.documentElement, opts)
-        observer.observe(document.body, opts)
+        const observer = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                for (const node of mutation.addedNodes) {
+                    // A `<link>` applies its vars only once it loads, after this callback runs.
+                    if (node instanceof HTMLLinkElement) {
+                        node.addEventListener('load', reread, { once: true })
+                    }
+                }
+            }
+            reread()
+        })
+        const attributes: MutationObserverInit = {
+            attributes: true,
+            attributeFilter: ['class', 'theme', 'data-theme'],
+        }
+        observer.observe(document.documentElement, attributes)
+        observer.observe(document.body, attributes)
+        observer.observe(document.head, { childList: true, subtree: true })
         return () => observer.disconnect()
         // root/colorCount are the only inputs; options identity is intentionally ignored.
     }, [root, colorCount])
