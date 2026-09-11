@@ -42,7 +42,7 @@ describe('LegacyPluginExecutorService', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        service = new LegacyPluginExecutorService(hub.postgres, hub.geoipService)
+        service = new LegacyPluginExecutorService(hub.postgres, hub.geoipService, hub)
         team = (await createTestTeamFixture(hub.postgres)).team
 
         fn = createHogFunction({
@@ -327,7 +327,7 @@ describe('LegacyPluginExecutorService', () => {
             `)
         })
 
-        it('should handle and collect errors', async () => {
+        it('should handle and collect errors once the retries are spent', async () => {
             jest.spyOn(customerIoPlugin, 'onEvent')
 
             const invocation = createExampleInvocation(fn, globals)
@@ -335,6 +335,7 @@ describe('LegacyPluginExecutorService', () => {
             invocation.state.globals.event.properties = {
                 email: 'test@posthog.com',
             }
+            invocation.queueMetadata = { tries: hub.CDP_FETCH_RETRIES - 1 }
 
             // First fetch is successful (setup)
             // Second one not
@@ -364,6 +365,8 @@ describe('LegacyPluginExecutorService', () => {
             expect(customerIoPlugin.onEvent).toHaveBeenCalledTimes(1)
 
             expect(res.error).toBeInstanceOf(Error)
+            expect(res.finished).toBe(true)
+            expect(res.invocation.queueScheduledAt).toBeUndefined()
             expect(forSnapshot(getLogMessages(res.logs))).toMatchInlineSnapshot(`
                 [
                   "Successfully authenticated with Customer.io. Completing setupPlugin.",
@@ -377,6 +380,75 @@ describe('LegacyPluginExecutorService', () => {
             expect(res.error).toMatchInlineSnapshot(
                 `[RetryError: Received a potentially intermittent error from the Customer.io API. Response 500: {}]`
             )
+        })
+
+        describe('retries', () => {
+            beforeEach(() => {
+                // Setup succeeds, then every call the plugin makes fails with a retriable status
+                mockFetch.mockImplementation((url: string) =>
+                    Promise.resolve({
+                        status: url.includes('customers') ? 500 : 200,
+                        json: () => Promise.resolve({}),
+                        text: () => Promise.resolve(JSON.stringify({})),
+                        headers: {},
+                        dump: () => Promise.resolve(),
+                    })
+                )
+            })
+
+            const failingInvocation = (tries: number): CyclotronJobInvocationHogFunction => {
+                const invocation = createExampleInvocation(fn, globals)
+                invocation.state.globals.event.event = 'mycustomevent'
+                invocation.state.globals.event.properties = { email: 'test@posthog.com' }
+                invocation.queueMetadata = { tries }
+                return invocation
+            }
+
+            it.each([0, 1])('puts a RetryError back on the cyclotron queue after %i tries', async (tries) => {
+                const res = await service.execute(failingInvocation(tries))
+
+                expect(res.error).toBeUndefined()
+                expect(res.finished).toBe(false)
+                expect(res.invocation.queue).toBe('hog')
+                expect(res.invocation.queueMetadata).toEqual({ tries: tries + 1 })
+                expect(res.invocation.queuePriority).toBe(tries + 1)
+                // Backoff grows with the try count and is always in the future
+                expect(res.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
+                expect(getLogMessages(res.logs)).toContain(
+                    'Plugin execution failed, retrying: Received a potentially intermittent error from the Customer.io API. Response 500: {}'
+                )
+            })
+
+            // The Customer.io plugin deletes `$set` and `$set_once` from the event it is given before it
+            // sends anything, so a shared properties object would hand the retry a stripped event.
+            it('keeps the requeued event properties intact when the plugin mutates them', async () => {
+                jest.spyOn(customerIoPlugin, 'onEvent')
+
+                const invocation = failingInvocation(0)
+                const properties = {
+                    email: 'test@posthog.com',
+                    $set: { email: 'test@posthog.com' },
+                    $set_once: { initial_email: 'test@posthog.com' },
+                }
+                invocation.state.globals.event.properties = { ...properties }
+
+                const res = await service.execute(invocation)
+
+                expect(res.finished).toBe(false)
+                expect(customerIoPlugin.onEvent).toHaveBeenCalledTimes(1)
+                expect(res.invocation.state.globals.event.properties).toEqual(properties)
+            })
+
+            // The hog transformer builds the executor without retry settings, as transformations run
+            // inline in ingestion and have no cyclotron queue to return to.
+            it('does not reschedule when built without retry settings', async () => {
+                const withoutRetries = new LegacyPluginExecutorService(hub.postgres, hub.geoipService)
+                const res = await withoutRetries.execute(failingInvocation(0))
+
+                expect(res.error).toBeInstanceOf(Error)
+                expect(res.finished).toBe(true)
+                expect(res.invocation.queueScheduledAt).toBeUndefined()
+            })
         })
     })
 
