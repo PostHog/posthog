@@ -244,6 +244,9 @@ class CohortManifest:
     projection_eligible: bool
     date_to_iso: str
     alert_ids: list[str]
+    # Optional for Temporal replay compatibility with histories created before
+    # discovery recorded a per-alert configuration version.
+    updated_at_by_alert_id: dict[str, str | None] | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -282,7 +285,6 @@ class _AlertConcurrencySnapshot:
     snooze_until: datetime | None
     next_check_at: datetime | None
     schedule_restriction: dict[str, Any] | None
-    updated_at: datetime | None
 
 
 def _snapshot_alert_for_evaluation(alert: LogsAlertConfiguration) -> _AlertConcurrencySnapshot:
@@ -302,7 +304,6 @@ def _snapshot_alert_for_evaluation(alert: LogsAlertConfiguration) -> _AlertConcu
         snooze_until=alert.snooze_until,
         next_check_at=alert.next_check_at,
         schedule_restriction=alert.schedule_restriction,
-        updated_at=alert.updated_at,
     )
 
 
@@ -751,6 +752,7 @@ def _discover_cohorts_page_sync(input: DiscoverCohortsInput | None = None) -> _D
             "filters",
             "next_check_at",
             "schedule_restriction",
+            "updated_at",
         )
     }
     rows = [rows_by_id[alert_id] for alert_id in candidate_ids if alert_id in rows_by_id]
@@ -909,7 +911,9 @@ def _cohort_manifests_from_alerts(
     anyway, and one bad row must not brick discovery for the rest of the
     project.
     """
-    grouped: defaultdict[tuple[int, int, int, int, bool, datetime], list[str]] = defaultdict(list)
+    grouped: defaultdict[tuple[int, int, int, int, bool, datetime], list[tuple[str, str | None]]] = defaultdict(
+        list
+    )
     for row in rows:
         try:
             broken_reason = _detect_broken_filter_config(row["filters"])
@@ -933,7 +937,13 @@ def _cohort_manifests_from_alerts(
                 projection_eligible,
                 date_to,
             )
-            grouped[key].append(str(row["id"]))
+            updated_at = row.get("updated_at")
+            grouped[key].append(
+                (
+                    str(row["id"]),
+                    updated_at.isoformat() if isinstance(updated_at, datetime) else None,
+                )
+            )
         except Exception as e:
             # Any unexpected per-row failure must not brick discovery for the
             # rest of the project.
@@ -946,14 +956,15 @@ def _cohort_manifests_from_alerts(
             capture_exception(e)
 
     manifests: list[CohortManifest] = []
-    for (team_id, _wm, _ep, _cim, projection_eligible, date_to), alert_ids in grouped.items():
-        for chunk in batched(alert_ids, MAX_ALERT_COHORT_SIZE, strict=False):
+    for (team_id, _wm, _ep, _cim, projection_eligible, date_to), alert_versions in grouped.items():
+        for chunk in batched(alert_versions, MAX_ALERT_COHORT_SIZE, strict=False):
             manifests.append(
                 CohortManifest(
                     team_id=team_id,
                     projection_eligible=projection_eligible,
                     date_to_iso=date_to.isoformat(),
-                    alert_ids=list(chunk),
+                    alert_ids=[alert_id for alert_id, _updated_at in chunk],
+                    updated_at_by_alert_id={alert_id: updated_at for alert_id, updated_at in chunk},
                 )
             )
     return manifests
@@ -963,8 +974,37 @@ def _cohort_from_manifest(
     manifest: CohortManifest,
     alerts_by_id: dict[str, LogsAlertConfiguration],
 ) -> _AlertCohort:
-    """Reconstruct an `_AlertCohort` from a manifest and a pre-loaded alerts dict."""
+    """Reconstruct an `_AlertCohort` from a manifest and a pre-loaded alerts dict.
+
+    New manifests carry the row version observed at discovery, so alerts edited
+    before this reload are left due for the next scheduler tick. Legacy Temporal
+    histories do not have those versions; for those, keep one homogeneous grid
+    so one edited alert cannot lend its grid to every alert in the batched query.
+    """
     alerts = tuple(alerts_by_id[alert_id] for alert_id in manifest.alert_ids)
+    if manifest.updated_at_by_alert_id is not None:
+        alerts = tuple(
+            alert
+            for alert in alerts
+            if manifest.updated_at_by_alert_id.get(str(alert.id))
+            == (alert.updated_at.isoformat() if alert.updated_at is not None else None)
+        )
+
+    by_grid: defaultdict[tuple[int, int, int], list[LogsAlertConfiguration]] = defaultdict(list)
+    for alert in alerts:
+        by_grid[(alert.window_minutes, alert.evaluation_periods, alert.check_interval_minutes)].append(alert)
+    if len(by_grid) > 1:
+        # `max` returns the first largest group, so a tie falls to manifest order:
+        # arbitrary, but deterministic, and the kept alerts still share one grid.
+        kept = max(by_grid.values(), key=len)
+        kept_ids = {str(alert.id) for alert in kept}
+        logger.warning(
+            "Dropping alerts whose grid changed after cohort discovery",
+            team_id=manifest.team_id,
+            cohort_size=len(alerts),
+            dropped_alert_ids=[str(alert.id) for alert in alerts if str(alert.id) not in kept_ids],
+        )
+        alerts = tuple(kept)
     return _AlertCohort(
         alerts=alerts,
         date_to=datetime.fromisoformat(manifest.date_to_iso),
@@ -1016,6 +1056,16 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                     missing_count=len(manifest.alert_ids),
                 )
                 local_stats["errored"] += len(manifest.alert_ids)
+                return local_stats, local_notified
+
+            stale_alert_count = len(manifest.alert_ids) - len(cohort.alerts)
+            if stale_alert_count:
+                logger.info(
+                    "Skipping alerts changed since cohort discovery",
+                    team_id=manifest.team_id,
+                    stale_alert_count=stale_alert_count,
+                )
+            if not cohort.alerts:
                 return local_stats, local_notified
 
             _safe_record("cohort_size histogram", record_cohort_size, len(cohort.alerts))
