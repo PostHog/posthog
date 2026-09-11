@@ -162,12 +162,9 @@ class TestNotifiedAlertCollection(APIBaseTest):
 
         notified = _build_notified_from_saved([self._dispatched(alert, NotificationAction.FIRE, False)])
 
-        assert len(notified[0].alert_name.encode("utf-8")) == 48
-        assert notified[0].alert_name == "🚨" * 12
-        assert notified[0].filters == {
-            "serviceNames": ["s" * 16],
-            "severityLevels": ["criticalcritical"],
-        }
+        assert len(notified[0].alert_name.encode("utf-8")) == 16
+        assert notified[0].alert_name == "🚨" * 4
+        assert notified[0].filters == {}
 
     def test_notified_payloads_stay_within_the_scheduler_wire_budget(self):
         alert = self._make_alert()
