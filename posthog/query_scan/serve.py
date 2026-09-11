@@ -1,7 +1,8 @@
 """Put the stored analysis on a response, on a cache hit and on a fresh run alike.
 
-The slot is read only for a response whose ClickHouse duration crossed the floor, because a
-slot can only exist for such a run. That keeps a fleet-wide Redis read off every fast query.
+The stored analysis (the slot, see ``slot.py``) is read only for a response whose ClickHouse time
+reached the flag's ``floor_ms``, because no slot exists for a faster run. That keeps a fleet-wide
+Redis read off every fast query.
 
 Nothing here may change the response beyond the scan fields: a Redis failure drops the advice,
 never the results.

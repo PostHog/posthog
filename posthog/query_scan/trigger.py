@@ -1,7 +1,8 @@
 """Decide whether a finished run gets analyzed, print its SQL, and enqueue the job.
 
 The runner calls this once per blocking run. Everything before the enqueue is cheap; the run's SQL
-is printed only once a run crosses the floor, which costs a few milliseconds.
+is printed only once a run's ClickHouse time reaches the flag's ``floor_ms``, which costs a few
+milliseconds.
 
 Nothing here may change what the person gets. The analysis is advice, so a printer, broker or Redis
 failure drops the enqueue and reports a skip, never the query result.
