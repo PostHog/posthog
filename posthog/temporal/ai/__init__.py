@@ -15,6 +15,7 @@ from posthog.temporal.ai.slack_app.slack_app_fork import SlackAppForkThreadWorkf
 from posthog.temporal.ai.slack_app.slack_app_mention import SlackAppMentionWorkflow
 
 from products.posthog_ai.backend.temporal.activities import mirror_conversation_to_task_activity
+from products.posthog_ai.backend.temporal.workflows import ConversationMirrorWorkflow
 
 from .llm_traces_summaries.summarize_traces import (
     SummarizeLLMTracesInputs,
@@ -44,6 +45,7 @@ POSTHOG_CODE_SLACK_WORKFLOWS = [
 POSTHOG_CODE_SLACK_ACTIVITIES = [*SLACK_APP_ACTIVITIES]
 
 AI_WORKFLOWS = [
+    ConversationMirrorWorkflow,
     SyncVectorsWorkflow,
     AssistantConversationRunnerWorkflow,
     ChatAgentWorkflow,

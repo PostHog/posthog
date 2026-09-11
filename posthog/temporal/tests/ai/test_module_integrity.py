@@ -17,6 +17,7 @@ class TestAITemporalModuleIntegrity:
             "SyncVectorsWorkflow",
             "AssistantConversationRunnerWorkflow",
             "ChatAgentWorkflow",
+            "ConversationMirrorWorkflow",
             "ResearchAgentWorkflow",
             "SummarizeLLMTracesWorkflow",
             "AnomalyInvestigationWorkflow",
