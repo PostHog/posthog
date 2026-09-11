@@ -2,6 +2,27 @@
 
 Canvases can read third-party data with the current viewer's connection. Calls require the `canvas-connectors` team feature flag. The flag fails closed.
 
+## PR card actions
+
+From a user click, `ph.navigate.toNewTask({ prompt, repository })` opens a task form in a new tab.
+Both fields are optional. The prompt has a 16,000-character limit; the repository is an `owner/repo` name.
+A repository prefill selects cloud mode for this task only. The task stays in the canvas's space,
+but does not change the space's repository settings. The viewer must have access to the repository
+and must submit the form before a run starts. Omitting both fields opens the usual empty task form.
+Do not use `tasks.create_and_run` for a repository override: that action inherits the space settings.
+
+`ph.openExternal(url)` accepts HTTPS GitHub PR links as well as PostHog HTTPS URLs. GitHub links
+must use `github.com`, with no credentials, custom port, or query string. PR overview, files,
+commits, and checks paths are allowed, including fragment links. The host opens these PR links
+without a confirmation dialog, but still requires a user click and applies its existing rate limit.
+Other GitHub paths and other external domains remain blocked.
+
+These APIs require the updated Desktop host and canvas builder. Republish older canvases after
+deployment to include the new runtime. An older artifact can have no `ph.navigate`; show an update
+message rather than silently creating a task with the space's default repository.
+Prefilled forms use a separate `compose-task` navigation intent so older hosts reject the request
+instead of dropping its fields and opening a task with the wrong repository.
+
 ## Declare tools
 
 Declare each provider and tool in the source project's capabilities:
