@@ -86,6 +86,15 @@ Authoring a new canonical scout is just creating `signals-scout-<scope>/SKILL.md
 
 ## Testing
 
+Before using live project data or spending a scout run, validate the skill package locally:
+
+1. **Measure context.** Record tokens for the startup core, one representative route, one candidate-heavy route, and the full package. The routed counts include the core plus only the references that route loads.
+2. **Test routing deterministically.** Create fixtures for the common input shapes. For each fixture, assert the exact reference files that should load and whether the scout should stop. Include rejected-candidate and all-clear paths when they write task-specific memory.
+3. **Freeze golden behavior before editing.** Write cases for the important decisions, evidence requirements, safety rules, and required outputs. Derive these cases from the current skill before optimizing it.
+4. **Compare behavior.** Run the optimized route against the golden rubric. An LLM judge may score the result, but the deterministic route checks and explicit safety assertions remain authoritative.
+
+Do not ask an open-ended judge to compare the complete old and new skill bodies. Large prompt differences can produce false regressions, while a judge can still miss one exact rule. Judge the behavior produced for a defined case instead.
+
 **Dogfood the scout yourself first — before spending any real run.** The authoring agent has the same PostHog MCP tools a scout uses at runtime (`execute-sql`, `read-data-schema`, the per-product list tools, `scout-project-profile-get`), so the cheapest iteration is to walk the scout's own logic against the live project by hand: confirm the watched entity exists and has the assumed shape, run the **discriminator** to check it separates signal from noise on this project's data, and run each **explore pattern**'s queries.
 Free and instant — refine the body, re-run the queries, repeat, until the logic holds on real data.
 

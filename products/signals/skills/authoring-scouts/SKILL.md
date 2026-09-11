@@ -85,14 +85,17 @@ It also makes the key point that **a scout can watch any source PostHog ingests 
 And where a built-in signals source already covers the surface (GitHub and Linear issues), the issue-tracker pattern says where that source stops and a scout starts paying for itself.
 Find the closest pattern, then write the body.
 
-Follow [`references/scout-anatomy.md`](references/scout-anatomy.md) — it has the frontmatter schema (including the `allowed_tools` report-channel opt-in every scout needs), the canonical body structure (quick close-out → orient → domain discriminator → explore patterns → save-memory → decide → disqualifiers → close-out), the lean-body rule, and copy-ready skeleton templates for both a specialist and the generalist.
+Follow [`references/scout-anatomy.md`](references/scout-anatomy.md) — it has the frontmatter schema, the `allowed_tools` report-channel opt-in, and a copy-ready lean core/router skeleton.
+Keep the discriminator, safe stop gates, route conditions, pre-route invariants, and universal task rules in `SKILL.md`.
+Move lane-specific queries, thresholds, classification, disqualifiers, candidate handling, and memory formats into self-contained lazy references.
+Do not copy generic harness behavior for prior runs, notes, scratchpad use, report authoring, reviewer routing, tool discovery, or close-out into the scout.
 
-Two craft references the whole fleet reasons in terms of — a good scout's **Decide** and **memory** sections are built on them, so read them before writing those sections:
+Two craft references define the fleet-wide behavior. Read them before writing task-specific decision or memory rules:
 
 - [`references/report-contract.md`](references/report-contract.md) — the report tools (`scout-emit-report` / `scout-edit-report`), the report bar (author 1:1 only for a finding you'd own end-to-end), `suggested_reviewers` routing, the dedup-via-`report_id` discipline (the channel isn't idempotent — reconcile against existing reports via the vanilla `inbox-reports-list` / `inbox-reports-retrieve` before authoring), and the accepted caveat that the pipeline may later rewrite an authored title/summary.
-  This is how your scout decides _what clears the bar_ and _how to file it_.
+  Use it to define the task-specific evidence that clears the bar without copying the generic filing procedure into the scout.
 - [`references/dedupe-and-memory.md`](references/dedupe-and-memory.md) — the four-states classifier (net-new / material-update / already-covered / addressed-or-noise), the scratchpad key-prefix vocabulary, and the cross-project noise patterns.
-  This is how your scout avoids re-filing and learns across runs.
+  Use it to define only the task-specific keys or state a route must preserve.
 
 The single most important design decision in any scout is its **signal-vs-noise discriminator** — the cheap profile-shape read that separates "worth investigating" from "baseline".
 For error tracking it's the `count` vs `distinct_users` ratio; for CSP it's reach over raw count.
@@ -237,10 +240,10 @@ Keep the two in sync when the scout config / run / scratchpad surfaces change.
 
 - A named, cheap **signal-vs-noise discriminator** anchored near the top (on a measurement scout, the rubric and sampling recipe take this slot).
 - A **quick close-out** so a quiet run is cheap (don't pay for deep exploration when the watched surface is at baseline or absent) — except on a measurement scout, which exits early only when the window held no eligible items, since its ordinary judgments are the denominator.
-- 2–4 concrete **explore patterns** with the actual queries/tools to run — starting points, not a rigid checklist.
-- **Disqualifiers** listing this project's known noise (single-user quirks, dev-env bursts, allowlisted entities).
-- A **Decide** section calibrated against the report contract — author 1:1 only for a finding the scout would own end-to-end, set `suggested_reviewers`, and write memory instead when a candidate is below the bar.
-- **Save-memory** guidance using the scratchpad prefixes so the scout gets smarter each run.
-- A lean body (push depth into `references/`) — every line is a recurring token cost on every run.
+- Clear **route conditions** that name the exact reference file for each investigation lane.
+- Only the **pre-route invariants** and task rules that every lane needs.
+- Self-contained route references with concrete queries, thresholds, disqualifiers, task-specific Decide rules, and task-specific memory formats.
+- A lean body that does not repeat generic harness instructions — every line is a recurring token cost on every run.
+- Route fixtures and golden-behavior cases that pass before rollout; see [`references/lifecycle-and-testing.md`](references/lifecycle-and-testing.md).
 - A **tight frontmatter `description`** — a sentence or two naming the surface and the shapes it watches.
   Every scout's description loads into the caller's AI plugin together, so wordy descriptions waste token budget and get truncated; skip the fleet-wide boilerplate (report bar, durable memory, self-contained peer).
