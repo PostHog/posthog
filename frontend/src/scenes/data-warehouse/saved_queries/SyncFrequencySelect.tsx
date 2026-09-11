@@ -13,7 +13,8 @@ export type SyncFrequencyValue = DataModelingSyncInterval | 'never'
  * request the scheduler quietly tightens. The bar carries the wording once in its label, so each
  * segment only has to say which duration it is.
  */
-const CADENCE_LABELS: Record<DataModelingSyncInterval, string> = {
+/** How a cadence is spoken after "every", so every surface says "every 6 hours" the same way. */
+export const CADENCE_LABELS: Record<DataModelingSyncInterval, string> = {
     '15min': '15 minutes',
     '30min': '30 minutes',
     '1hour': '1 hour',
