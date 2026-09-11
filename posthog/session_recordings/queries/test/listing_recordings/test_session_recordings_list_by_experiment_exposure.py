@@ -247,10 +247,18 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
             expected_sessions,
         )
 
-    def test_links_server_side_exposures_through_the_person(self) -> None:
+    @parameterized.expand(
+        [
+            ("unpinned", None),
+            ("pinned", ["session-on-browser"]),
+        ]
+    )
+    def test_links_server_side_exposures_through_the_person(self, _name: str, session_ids: list[str] | None) -> None:
         # The case the person-scoped linkage exists for: the exposure event is captured
         # server-side under a backend distinct id and without a usable $session_id, while the
-        # recording belongs to the same person's browser distinct id.
+        # recording belongs to the same person's browser distinct id. A pinned list nominates its
+        # candidate distinct ids from the pinned sessions' rows, and must still expand them
+        # through the person to the server-side id the exposure was captured under.
         experiment = self._create_experiment()
         person = create_person(team=self.team, distinct_ids=["server-side-id", "browser-id"])
         exposure_time = BASE_TIME + timedelta(hours=2)
@@ -263,15 +271,24 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
         )
 
         self._assert_query_matches_session_ids(
-            {"experiment_exposure": {"experiment_id": experiment.id}},
+            {"session_ids": session_ids, "experiment_exposure": {"experiment_id": experiment.id}},
             ["session-on-browser"],
         )
 
-    def test_distinct_id_reassigned_away_from_an_exposed_person_stays_excluded(self) -> None:
-        # The linkage narrows its distinct-id scan to ids that ever mapped to an exposed person,
-        # then resolves each id's latest mapping over all its version rows. Resolving from only
-        # the exposed person's rows instead would resurrect the stale mapping here and leak the
-        # reassigned id's sessions into the exposed list.
+    @parameterized.expand(
+        [
+            ("unpinned", None),
+            ("pinned", ["session-of-exposed", "session-of-reassigned"]),
+        ]
+    )
+    def test_distinct_id_reassigned_away_from_an_exposed_person_stays_excluded(
+        self, _name: str, session_ids: list[str] | None
+    ) -> None:
+        # The linkage narrows its distinct-id scan to candidate ids (the ids that ever mapped to
+        # an exposed person, or the pinned sessions' ids), then resolves each id's latest mapping
+        # over all its version rows. Resolving from only the exposed person's rows instead would
+        # resurrect the stale mapping here and leak the reassigned id's sessions into the exposed
+        # list.
         experiment = self._create_experiment()
         exposed = create_person(team=self.team, distinct_ids=["exposed-id", "reassigned-id"])
         unexposed = create_person(team=self.team, distinct_ids=["unexposed-id"])
@@ -289,7 +306,7 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
         )
 
         self._assert_query_matches_session_ids(
-            {"experiment_exposure": {"experiment_id": experiment.id}},
+            {"session_ids": session_ids, "experiment_exposure": {"experiment_id": experiment.id}},
             ["session-of-exposed"],
         )
 
@@ -791,6 +808,32 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
         )
 
         assert [recording.session_id for recording in result.recordings] == ["session-of-exposed"]
+
+    def test_an_empty_pinned_set_answers_without_reaching_clickhouse(self) -> None:
+        # The recordings tab pins an empty id set for an empty metric bucket. The list can only
+        # be empty, but ClickHouse would still build the exposure join's GLOBAL side before it
+        # finds that out, and a precomputing team would first run the linkage's synchronous
+        # precompute inserts.
+        self._enable_precomputation()
+        experiment = self._create_experiment()
+
+        with (
+            patch("products.experiments.backend.replay_linkage.ensure_precomputed") as ensure_mock,
+            patch.object(
+                HogQLCursorPaginator,
+                "execute_hogql_query",
+                side_effect=AssertionError("an empty session set reached ClickHouse"),
+            ),
+        ):
+            result = filter_recordings_by(
+                team=self.team,
+                recordings_filter={"session_ids": [], "experiment_exposure": {"experiment_id": experiment.id}},
+                user=self.user,
+            )
+
+        assert result.results == []
+        assert result.has_more_recording is False
+        ensure_mock.assert_not_called()
 
     def test_precomputing_teams_read_exposures_from_the_preaggregated_table(self) -> None:
         # The default start_date is 34 hours before the frozen now, past the minimum

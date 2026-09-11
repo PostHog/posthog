@@ -236,6 +236,13 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery.run")
     def run(self) -> SessionRecordingQueryResult:
+        # An explicitly empty id set matches nothing, but ClickHouse only finds that out after it
+        # has built every subquery and GLOBAL JOIN side the filters ask for, and on precomputing
+        # teams the exposure resolution below would first run its synchronous inserts. Neither can
+        # change an empty result, so answer here and run nothing.
+        if isinstance(self._query.session_ids, list) and not self._query.session_ids:
+            return SessionRecordingQueryResult(results=[], has_more_recording=False)
+
         # Resolved before query construction: the resolution validates the experiment and can
         # run preaggregation-job bookkeeping and synchronous ClickHouse inserts, which is run
         # work, not AST building.
@@ -398,6 +405,24 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         self._resolve_experiment_exposure()
         assert self._experiment_exposure_linkage is not None
+
+        # The linkage's default candidate prefilter reads the team's whole distinct-id mapping to
+        # find the ids of exposed persons, and on large teams that read is most of the listing's
+        # cost. A pinned list can only ever join the distinct ids of the pinned sessions' rows,
+        # so those rows nominate the candidates instead. The candidate select reuses the
+        # listing's own session-scope predicates, so it always covers every row the join can
+        # see, and the linkage still resolves each candidate's latest person over all of its
+        # mapping rows. Unpinned lists keep the default: their sessions' distinct ids can cover
+        # most of the mapping, and the replay scan then costs more than the mapping read it
+        # replaces.
+        candidate_distinct_ids: ast.SelectQuery | None = None
+        if self._query.session_ids:
+            candidate_distinct_ids = ast.SelectQuery(
+                select=[ast.Field(chain=["s", "distinct_id"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["raw_session_replay_events"]), alias="s"),
+                where=ast.And(exprs=self._session_scope_predicates()),
+            )
+
         join = parsed_query.select_from
         assert join is not None
         while join.next_join is not None:
@@ -406,7 +431,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             # GLOBAL: the subquery scans events over the whole experiment window; without it,
             # every shard of the sharded replay table re-evaluates that scan independently.
             join_type="GLOBAL INNER JOIN",
-            table=exposed_distinct_ids_select(self._experiment_exposure_linkage),
+            table=exposed_distinct_ids_select(
+                self._experiment_exposure_linkage, candidate_distinct_ids=candidate_distinct_ids
+            ),
             alias="exposure",
             constraint=ast.JoinConstraint(
                 expr=ast.CompareOperation(
@@ -484,15 +511,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         elif len(person_subexprs) > 1:
             exprs.append(ast.Or(exprs=person_subexprs))
 
-        # we check for session_ids type not for truthiness since we want to allow empty lists
-        if isinstance(self._query.session_ids, list):
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
-                    left=ast.Field(chain=["session_id"]),
-                    right=ast.Constant(value=self._query.session_ids),
-                )
-            )
+        exprs.extend(self._session_scope_predicates())
 
         # Exclude already-viewed recordings (the "hide viewed recordings" filter). Unlike session_ids,
         # an empty list means "exclude nothing", so we only add the predicate when there's something to exclude.
@@ -504,45 +523,6 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                     right=ast.Constant(value=self._session_ids_to_exclude),
                 )
             )
-
-        # the replay-page list opts in so explicitly selected sessions are not hidden by the
-        # default date range. comment-derived session_ids (see session_recording_api) stay windowed,
-        # and event/person subqueries still scan within the date range either way.
-        bypass_date_window = (
-            self._bypass_date_window_for_session_ids
-            and isinstance(self._query.session_ids, list)
-            and len(self._query.session_ids) > 0
-            and not self._query.comment_text
-        )
-        if bypass_date_window:
-            # bound at the longest retention period (5y) to keep partition pruning
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["s", "min_first_timestamp"]),
-                    right=ast.Constant(value=datetime.now(UTC) - relativedelta(years=5)),
-                )
-            )
-        else:
-            query_date_from = self.query_date_range.date_from()
-            if query_date_from:
-                exprs.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.GtEq,
-                        left=ast.Field(chain=["s", "min_first_timestamp"]),
-                        right=ast.Constant(value=query_date_from),
-                    )
-                )
-
-            query_date_to = self.query_date_range.date_to()
-            if query_date_to:
-                exprs.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.LtEq,
-                        left=ast.Field(chain=["s", "min_first_timestamp"]),
-                        right=ast.Constant(value=query_date_to),
-                    )
-                )
 
         optional_exprs: list[ast.Expr] = []
 
@@ -739,9 +719,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             # Evidence lives inside the sessions being listed, so scanning outside the query's own
             # range (with the ±1 day session buffer the console-logs subquery also uses) could only
             # nominate sessions the date predicates already exclude. Skipped when pinned session_ids
-            # bypass the date window above: the listing then admits sessions from outside the range,
+            # bypass the date window: the listing then admits sessions from outside the range,
             # so their evidence must stay in scope too.
-            clamp = not bypass_date_window
+            clamp = not self._bypass_date_window()
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GlobalIn,
@@ -763,6 +743,67 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             )
 
         return ast.And(exprs=exprs)
+
+    def _bypass_date_window(self) -> bool:
+        # the replay-page list opts in so explicitly selected sessions are not hidden by the
+        # default date range. comment-derived session_ids (see session_recording_api) stay windowed,
+        # and event/person subqueries still scan within the date range either way.
+        return (
+            self._bypass_date_window_for_session_ids
+            and isinstance(self._query.session_ids, list)
+            and len(self._query.session_ids) > 0
+            and not self._query.comment_text
+        )
+
+    def _session_scope_predicates(self) -> list[ast.Expr]:
+        """The predicates that pick which replay rows are in scope: the pinned session ids and the date bound.
+
+        Shared by the listing's WHERE and the experiment exposure join's candidate select, so the
+        candidates can never cover fewer rows than the join sees.
+        """
+        exprs: list[ast.Expr] = []
+
+        # we check for session_ids type not for truthiness since we want to allow empty lists
+        if isinstance(self._query.session_ids, list):
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["session_id"]),
+                    right=ast.Constant(value=self._query.session_ids),
+                )
+            )
+
+        if self._bypass_date_window():
+            # bound at the longest retention period (5y) to keep partition pruning
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["s", "min_first_timestamp"]),
+                    right=ast.Constant(value=datetime.now(UTC) - relativedelta(years=5)),
+                )
+            )
+        else:
+            query_date_from = self.query_date_range.date_from()
+            if query_date_from:
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["s", "min_first_timestamp"]),
+                        right=ast.Constant(value=query_date_from),
+                    )
+                )
+
+            query_date_to = self.query_date_range.date_to()
+            if query_date_to:
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.LtEq,
+                        left=ast.Field(chain=["s", "min_first_timestamp"]),
+                        right=ast.Constant(value=query_date_to),
+                    )
+                )
+
+        return exprs
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery._having_predicates")
     def _having_predicates(self) -> ast.Expr | None:
