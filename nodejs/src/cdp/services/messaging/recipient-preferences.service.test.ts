@@ -236,6 +236,16 @@ describe('RecipientPreferencesService', () => {
                 )
             })
 
+            it('should name the wrong shape if the email to field is a plain address string', async () => {
+                const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
+                action.config.inputs!.email.value.to = 'test@example.com'
+                const invocation = createFunctionStepInvocation(action)
+
+                await expect(service.shouldSkipAction(invocation, action)).rejects.toThrow(
+                    `The email 'to' field on message action [Action:${action.id}] must be an object with an 'email' address, not a plain address. Open the step and set the recipient again.`
+                )
+            })
+
             it('should return true if recipient is opted out of all marketing messaging', async () => {
                 const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
                 const invocation = createFunctionStepInvocation(action)

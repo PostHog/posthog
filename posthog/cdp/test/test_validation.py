@@ -544,6 +544,75 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             validate_inputs(inputs_schema, {"email": {"value": value}})
         assert expected in str(ctx.value.detail)
 
+    @parameterized.expand(
+        [
+            ("plain_address", "a@b.com", {"email": "a@b.com"}),
+            ("templated_address", "{person.properties.email}", {"email": "{person.properties.email}"}),
+            ("padded_address", "  a@b.com  ", {"email": "a@b.com"}),
+            ("padded_address_in_an_object", {"email": " a@b.com "}, {"email": "a@b.com"}),
+            (
+                "padded_address_keeps_the_name",
+                {"email": " a@b.com ", "name": "Ada"},
+                {"email": "a@b.com", "name": "Ada"},
+            ),
+        ]
+    )
+    def test_native_email_normalizes_the_recipient_before_storing_it(self, _name, to_value, expected):
+        # The runtime reads to.email, so a string recipient saved cleanly and then failed every send.
+        # The opt-out lookup matches the address exactly, so padding would miss a recorded opt-out.
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True}]
+        value = {"from": {"integrationId": 1}, "to": to_value, "subject": "hi", "text": "hi"}
+
+        validated = validate_inputs(inputs_schema, {"email": {"value": value}})
+
+        assert validated["email"]["value"]["to"] == expected
+
+    @parameterized.expand(
+        [
+            ("object_without_an_address", {"name": "Ada"}),
+            ("whitespace_only_string", "   "),
+            ("whitespace_only_address", {"email": "   "}),
+        ]
+    )
+    def test_native_email_rejects_a_recipient_with_no_usable_address(self, _name, to_value):
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True}]
+        value = {"from": {"integrationId": 1}, "to": to_value, "subject": "hi", "text": "hi"}
+
+        with pytest.raises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, {"email": {"value": value}})
+        assert "Expected 'to' to be an object with an 'email' address" in str(ctx.value.detail)
+
+    @parameterized.expand(
+        [
+            ("email_not_a_string", {"email": 123}, "Expected string value for 'to.email'."),
+            ("email_a_list_of_addresses", {"email": ["a@b.com", "c@d.com"]}, "Expected string value for 'to.email'."),
+            ("name_not_a_string", {"email": "a@b.com", "name": 42}, "Expected string value for 'to.name'."),
+            (
+                "both_not_strings",
+                {"email": 123, "name": 42},
+                "Expected string values for 'to.email', 'to.name'.",
+            ),
+        ]
+    )
+    def test_native_email_recipient_fields_must_be_strings(self, _name, to_value, expected):
+        # The runtime's schema requires strings for both, so a non-string leaf saves fine without
+        # this check and then fails every send in the schema parse.
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True}]
+        value = {"from": {"integrationId": 1}, "to": to_value, "subject": "hi", "text": "hi"}
+
+        with pytest.raises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, {"email": {"value": value}})
+        assert expected in str(ctx.value.detail)
+
+    def test_legacy_email_keeps_a_string_recipient(self):
+        # The Mailgun destination templates `to` as a plain address string.
+        inputs_schema = [{"key": "template", "type": "email", "required": True}]
+        value = {"from": "hi@posthog.com", "to": "{person.properties.email}", "subject": "hi", "text": "hi"}
+
+        validated = validate_inputs(inputs_schema, {"template": {"value": value}})
+
+        assert validated["template"]["value"]["to"] == "{person.properties.email}"
+
     def test_email_from_overrides_accept_templated_strings(self):
         inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
         value = {

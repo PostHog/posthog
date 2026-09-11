@@ -682,6 +682,34 @@ class InputsItemSerializer(serializers.Serializer):
                 label = "value" if len(missing) == 1 else "values"
                 raise serializers.ValidationError({"input": f"Missing {label} for {', '.join(missing)}."})
 
+            # The native email runtime reads `to.email` and its schema requires strings, so a bare
+            # address string, or a non-string leaf, saves cleanly and then fails every send. The
+            # legacy `email` type keeps a plain string `to`.
+            if item_type == "native_email":
+                to_value = value.get("to")
+                if isinstance(to_value, str):
+                    to_value = {"email": to_value}
+                # The opt-out lookup matches the stored address exactly, while the opt-out write
+                # path trims it, so padding here would miss an opt-out the recipient made.
+                if isinstance(to_value, dict) and isinstance(to_value.get("email"), str):
+                    to_value = {**to_value, "email": to_value["email"].strip()}
+                if not isinstance(to_value, dict) or not to_value.get("email"):
+                    raise serializers.ValidationError(
+                        {"input": "Expected 'to' to be an object with an 'email' address, like {'email': ...}."}
+                    )
+                wrong_types = [
+                    f"'to.{key_}'"
+                    for key_ in ("email", "name")
+                    if to_value.get(key_) is not None and not isinstance(to_value[key_], str)
+                ]
+                if wrong_types:
+                    label = "value" if len(wrong_types) == 1 else "values"
+                    raise serializers.ValidationError(
+                        {"input": f"Expected string {label} for {', '.join(wrong_types)}."}
+                    )
+                value = {**value, "to": to_value}
+                attrs["value"] = value
+
             # Templated sender overrides on the `from` object. Non-string values would only
             # surface as a send-time failure in the runtime's schema parse, so reject them here.
             from_value = value.get("from")
