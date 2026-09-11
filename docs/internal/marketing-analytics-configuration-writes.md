@@ -21,3 +21,5 @@ With `new-marketing-analytics-dashboard` enabled, the dashboard shows visitors, 
 Engagement displays session duration and bounce rate from the same Web Overview response as Acquisition. Both sections share date, comparison and test-account filters; rendering Engagement adds no extra query.
 
 The new dashboard embeds the existing Attribution explorer as Conversion when `marketing-analytics-attribution` is enabled. It keeps goal selection, attribution models, conversion paths and the explorer’s date and test-account filters.
+
+With `new-marketing-analytics-dashboard` enabled, Ad performance reuses the existing ad spend dashboard. Its conversion-goal switch appears only when goals are configured and defaults to on. Turning it off limits the summary and table queries to ad-platform metrics, including platform-reported conversions, and omits saved and draft PostHog conversion goals. This preference applies only to Ad performance; leaving the tab or disabling the dashboard flag restores the legacy queries and saved column choices. Projects without ad sources can open Setup → Sources from the empty state without entering legacy onboarding.
