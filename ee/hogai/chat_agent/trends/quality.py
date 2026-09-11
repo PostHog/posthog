@@ -99,9 +99,9 @@ def _check_axis_format(query: AssistantTrendsQuery) -> list[str]:
                 f"Drop the postfix and use the `duration` format instead."
             )
 
+    # A formula reads the same series, so it cannot turn a set of counts into a length of time either.
     if (
         axis_format in DURATION_AXIS_FORMATS
-        and not trends_filter.formulaNodes
         and query.series
         and all(_never_produces_a_duration(series) for series in query.series)
     ):

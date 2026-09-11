@@ -93,6 +93,19 @@ class TestFindTrendsQualityIssues(SimpleTestCase):
                 ),
                 "No series produces a length of time",
             ),
+            (
+                "count_only_formula_formatted_as_duration",
+                AssistantTrendsQuery(
+                    series=[
+                        AssistantTrendsEventsNode(event="$pageview", math="dau"),
+                        AssistantTrendsEventsNode(event="$pageview", math="total"),
+                    ],
+                    trendsFilter=AssistantTrendsFilter(
+                        aggregationAxisFormat="duration", formulaNodes=[TrendsFormulaNode(formula="A/B")]
+                    ),
+                ),
+                "No series produces a length of time",
+            ),
             ("no_series", AssistantTrendsQuery(series=[]), "no series"),
         ]
     )
@@ -138,6 +151,18 @@ class TestFindTrendsQualityIssues(SimpleTestCase):
                     ],
                     trendsFilter=AssistantTrendsFilter(
                         aggregationAxisFormat="percentage_scaled", formulaNodes=[TrendsFormulaNode(formula="A/B")]
+                    ),
+                ),
+            ),
+            (
+                "formula_over_a_seconds_property_formatted_as_duration",
+                AssistantTrendsQuery(
+                    series=[
+                        AssistantTrendsEventsNode(event="$pageview", math="sum", math_property="$session_duration"),
+                        AssistantTrendsEventsNode(event="$pageview", math="dau"),
+                    ],
+                    trendsFilter=AssistantTrendsFilter(
+                        aggregationAxisFormat="duration", formulaNodes=[TrendsFormulaNode(formula="A/B")]
                     ),
                 ),
             ),
