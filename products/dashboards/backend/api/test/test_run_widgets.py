@@ -724,7 +724,10 @@ class TestDashboardRunWidgets(APIBaseTest):
 
         body = self._run(dashboard_id, [tile_id])
 
-        self.assertEqual(body["results"][0]["error"], "Rate limit exceeded. Expected available in 30 seconds.")
+        self.assertEqual(
+            body["results"][0]["error"],
+            "Rate limit exceeded. Recording list requests are limited to 12 per minute. Expected available in 30 seconds.",
+        )
         mock_list_recordings.assert_not_called()
 
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
