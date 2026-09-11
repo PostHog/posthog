@@ -98,6 +98,9 @@ def test_a_second_run_is_a_no_op(temp_tables):
 def test_the_drop_cannot_be_reversed():
     op = DropForeignKey("test_dropfk_child", column="owner_id")
 
+    # Migration.unapply checks the flag first and never reaches database_backwards, so the
+    # top-level path needs its own assertion.
+    assert op.reversible is False
     with pytest.raises(NotImplementedError, match="AddForeignKeyNotValid"):
         op.database_backwards("posthog", None, None, None)
 

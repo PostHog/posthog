@@ -983,6 +983,35 @@ class SafeRemoveIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
     operation_type = "SafeRemoveIndexConcurrently"
 
 
+class DropForeignKeyAnalyzer(OperationAnalyzer):
+    """The constraint drop that rides along with a state-only removal of a column or table.
+
+    Dropping a foreign key is a catalog change. It holds ACCESS EXCLUSIVE on the referenced
+    parent for microseconds and scans nothing, so it scores with `ADD CONSTRAINT ... NOT
+    VALID` rather than with the operations that rewrite a table.
+    """
+
+    operation_type = "DropForeignKey"
+    default_score = 1
+
+    def analyze(self, op) -> OperationRisk:
+        return OperationRisk(
+            type=self.operation_type,
+            score=1,
+            reason="DROP CONSTRAINT on a foreign key is a catalog change (brief lock on the parent, no table scan)",
+            details={
+                "table": getattr(op, "table", None),
+                "column": getattr(op, "column", None),
+                "to_table": getattr(op, "to_table", None),
+            },
+            guidance=f"""Required beside a state-only removal of the column or table this foreign key sits on. Django stops cascading into a relation it cannot see, and the deferred constraint then fails the parent delete at COMMIT.
+
+Irreversible. Add the constraint back with `AddForeignKeyNotValid` in a new migration rather than by unapplying this one.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
+        )
+
+
 class AddConstraintNotValidAnalyzer(OperationAnalyzer):
     """Phase 1 of the NOT VALID pattern - mirrors the score the RunSQL analyzer
     gives a hand-written `ADD CONSTRAINT ... NOT VALID` (safe: brief lock, no

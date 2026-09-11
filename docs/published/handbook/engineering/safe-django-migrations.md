@@ -164,7 +164,7 @@ class Migration(migrations.Migration):
 
 - Safe to leave unused tables temporarily, but long-term they can clutter schema introspection and slow migrations
 - Ensure no other models reference this table via foreign keys before dropping (Django won't cascade automatically)
-- `DROP TABLE` takes `ACCESS EXCLUSIVE` on every table its own foreign keys reference. Leave `lock_timeout` alone: migrations already run with one, and the point is to fail fast and let `bin/migrate` retry rather than queue that lock, because queries arriving while the request queues wait behind it. Never `SET lock_timeout = 0` on a drop that reaches a hot parent
+- `DROP TABLE` takes `ACCESS EXCLUSIVE` on every table its own foreign keys reference. Never `SET lock_timeout = 0` on a drop that reaches a hot parent: the point is to fail fast and let `bin/migrate` retry rather than queue that lock, because queries arriving while the request queues wait behind it. Migrations already run under `MIGRATE_LOCK_TIMEOUT` (`posthog/settings/data_stores.py`), which is 20 seconds by default. That is long enough that a drop reaching a hot parent still queues a 20-second `ACCESS EXCLUSIVE` request, so set a shorter `SET LOCAL lock_timeout` for that case
 - If you must drop it, use `RunSQL` with raw SQL (see example below)
 - In the PR description, reference the model removal PR (e.g., "Model removed in #12345, deployed X days ago") so reviewers can verify the safety window
 
@@ -273,6 +273,8 @@ operations = [untrack_field("mymodel", "myfield")]
 ```
 
 Delete the field from the model, run `makemigrations`, then replace the generated `RemoveField` operations with this. The column stays in Postgres.
+
+The field must already be `null=True` here too, and this helper cannot refuse it the way `deprecate_field()` does, because it takes field names rather than fields. Django stops naming the column in `INSERT`s as soon as the field leaves state, so a `NOT NULL` column with no database default rejects every insert the next release writes. Foreign key columns are usually `NOT NULL`, so check before you untrack one.
 
 Pick `deprecate_field()` when you want no migration and don't mind a dead line on the model. Pick `untrack_field()` when you want the model clean and don't mind a migration file.
 

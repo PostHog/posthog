@@ -16,6 +16,7 @@ from posthog.management.migration_analysis.operations import (
     CreateIndexConcurrentlyAnalyzer,
     CreateModelAnalyzer,
     DeleteModelAnalyzer,
+    DropForeignKeyAnalyzer,
     DropIndexConcurrentlyAnalyzer,
     ExtensionAnalyzer,
     RemoveFieldAnalyzer,
@@ -105,6 +106,7 @@ class RiskAnalyzer:
         "SafeRemoveIndexConcurrently": SafeRemoveIndexConcurrentlyAnalyzer(),
         "AddConstraintNotValid": AddConstraintNotValidAnalyzer(),
         "ValidateConstraint": ValidateConstraintAnalyzer(),
+        "DropForeignKey": DropForeignKeyAnalyzer(),
         "SeparateDatabaseAndState": SeparateDatabaseAndStateAnalyzer(),
         # Postgres extension installs are safe under live load. Sharing one
         # ExtensionAnalyzer instance across the named operations keeps the
