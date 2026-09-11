@@ -4648,6 +4648,8 @@ export interface MetricsQuerySeries {
     metricName?: string
     /** Clause alias that produced this series (`formula` for the formula result) */
     clause?: string
+    /** UCUM unit of the metric as ingested, e.g. "By", "ms", "1". Empty when the SDK did not set one. */
+    unit?: string
 }
 
 export interface MetricsQueryResponse extends AnalyticsQueryResponseBase {
@@ -4656,14 +4658,29 @@ export interface MetricsQueryResponse extends AnalyticsQueryResponseBase {
 export type CachedMetricsQueryResponse = CachedQueryResponse<MetricsQueryResponse>
 
 /** How a metrics result is charted. `stat` is a single headline value plus sparkline, not a time series. */
-export type MetricsDisplayType = 'line' | 'area' | 'bar' | 'stat'
+export type MetricsDisplayType = 'line' | 'area' | 'bar' | 'stat' | 'gauge' | 'bargauge' | 'table' | 'heatmap'
 
 /** Matches quill's `YAxisConfig.scale` verbatim, so no vocabulary translation is needed.
  * Deliberately not `YAxisSettings['scale']` ('logarithmic') or `TrendsFilter['yAxisScaleType']` ('log10'). */
 export type MetricsAxisScale = 'linear' | 'log'
 
-/** Which summary the `stat` display's headline value shows. */
+/** Which summary the `stat` display's headline value shows.
+ * @deprecated Use `MetricsDisplaySettings.reduce`. Kept so saved insights keep working. */
 export type MetricsStatSummary = 'latest' | 'average' | 'total'
+
+/** How a series collapses to one number for the scalar panels and legend calcs. */
+export type MetricsReducer = 'last' | 'mean' | 'min' | 'max' | 'sum' | 'delta'
+
+/** A threshold band: `color` applies from `value` up to the next step. */
+export interface MetricsThreshold {
+    /** Lower bound of this band. The lowest step is the base color below every other step. */
+    value: number
+    /** A named color token (e.g. "green", "red"), never raw hex, so light and dark themes both work. */
+    color: string
+}
+
+/** How a null bucket renders on a time-series chart. */
+export type MetricsNullMode = 'gap' | 'zero' | 'connect'
 
 export interface MetricsYAxisSettings {
     /** @default linear */
@@ -4687,8 +4704,21 @@ export interface MetricsDisplaySettings {
     goalLines?: GoalLine[]
     yAxis?: MetricsYAxisSettings
     /** `stat` display only: which summary the headline value shows.
-     * @default latest */
+     * @default latest
+     * @deprecated Use `reduce`. */
     statSummary?: MetricsStatSummary
+    /** How scalar panels and legend calcs collapse a series to one number.
+     * @default last */
+    reduce?: MetricsReducer
+    /** UCUM unit string as OTel writes it, e.g. "By", "ms", "%". Defaults from the response unit. */
+    unit?: string
+    /** Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter. */
+    thresholds?: MetricsThreshold[]
+    /** How a null bucket renders on a time-series chart.
+     * @default gap */
+    nullMode?: MetricsNullMode
+    /** Time-series panels only: which reducers the legend table shows. Empty means no legend calcs. */
+    legendCalcs?: MetricsReducer[]
 }
 
 export interface MetricsQuery extends DataNode<MetricsQueryResponse> {
