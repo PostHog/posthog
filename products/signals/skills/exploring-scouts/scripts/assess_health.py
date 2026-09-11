@@ -230,8 +230,10 @@ def render(scouts: list[dict], window_note: str, has_mem: bool, *, art: bool = T
 
     flags: list[str] = []
     for s in scouts:
+        if s["runs"] and not s["settled"]:
+            flags.append(f" * {s['name']}: {s['runs']} run(s) in the window but none settled (queued, in flight, or cancelled): NOT assessed, wait for an outcome.")
         if s["failed"] and s["completed"] == 0:
-            flags.append(f" * {s['name']}: EVERY settled run failed ({s['failed']}/{s['settled']}) — broken, not quiet.")
+            flags.append(f" * {s['name']}: EVERY settled run failed ({s['failed']}/{s['settled']}): broken, not quiet.")
         elif s["timeouts"]:
             flags.append(f" * {s['name']}: {s['timeouts']} timeout-shaped failure(s) (>={int(TIMEOUT_MINUTES)}m) — likely over-investigation; read the session log.")
         if s["stalls"]:
@@ -259,10 +261,10 @@ def render(scouts: list[dict], window_note: str, has_mem: bool, *, art: bool = T
 
     L += ["", "-" * 78, " column key", "-" * 78,
           " runs      runs in the window; (NF) = N of them failed",
-          " ok        success rate — % of settled runs (completed or failed; cancelled and",
+          " ok        success rate: % of settled runs (completed or failed; cancelled and",
           "           in-flight rows are excluded, as is a failed row whose error names a",
           "           cancellation) that reached a clean 'completed' status",
-          " wrote     report rate — % of settled runs that wrote or edited an inbox report (from",
+          " wrote     report rate: % of settled runs that wrote or edited an inbox report (from",
           "           emitted_report_ids / edited_report_ids on the run row; legacy",
           "           signal-channel emits count too). Most healthy scouts write rarely —",
           "           judge signal-to-noise against the report statuses in inbox-reports-list.",
