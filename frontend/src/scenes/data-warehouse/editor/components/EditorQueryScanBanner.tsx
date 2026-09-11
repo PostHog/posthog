@@ -15,8 +15,11 @@ export function EditorQueryScanBanner(): JSX.Element | null {
     // The editor registers the `execute_sql` tool with the current query, so the assistant reads the
     // query from there and writes its proposal back through the same tool.
     const askAssistant = (): void => {
-        const findings = fixableQueryScanFindings(queryScan?.findings ?? [])
-        openSidePanel(SidePanelTab.Max, autoRunMaxPrompt(queryScanAssistantPrompt(findings)))
+        if (!queryScan) {
+            return
+        }
+        const findings = fixableQueryScanFindings(queryScan.findings)
+        openSidePanel(SidePanelTab.Max, autoRunMaxPrompt(queryScanAssistantPrompt(queryScan.summary, findings)))
     }
 
     return <QueryScanBanner className="m-2" queryScan={queryScan} onFixWithAI={askAssistant} />

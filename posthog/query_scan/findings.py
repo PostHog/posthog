@@ -15,6 +15,24 @@ FindingReason = QueryScanFindingReason
 # Raw SQL gets a clause to add; an insight built from pickers gets the name of its picker.
 _SQL_QUERY_KIND = "HogQLQuery"
 
+# The goal and standing rules the assistant reads, shared by the `<query_scan_warning>` block and
+# mirrored word for word by the frontend "Fix with AI" message in `queryScan.ts`.
+ASSISTANT_GOAL = (
+    "Help me get what this query is trying to find, as fast as possible. Start by saying in one sentence what "
+    "you think the query is trying to find. If you cannot tell, or if a faster version would answer a different "
+    "question, ask me before rewriting. Otherwise propose the rewrite."
+)
+
+ASSISTANT_RULES = (
+    "The events table is sorted by project, day and event name, so a query is fast when it bounds `timestamp` "
+    "and names events; property filters and persons joins do not narrow the read. Use relative time bounds, "
+    "never a calendar date. Never invent event names, property values or dates; use only names seen in results "
+    "or given by the person. Run at most the one exploration query a finding's guidance names, always with a "
+    "recent time bound and a LIMIT, and none when the guidance says none. Propose the rewritten query and label "
+    "every change as same answer, narrower, or different. When a change would alter the answer and it is unclear "
+    "whether that is acceptable, ask instead of choosing."
+)
+
 
 @frozen
 class ScanThresholds:
@@ -45,9 +63,12 @@ _NO_EVENT_FILTER_SQL = _Copy(
     ),
     advice="If the question is about specific events, add `WHERE event IN ('…')` naming them.",
     fix=(
-        "If the query makes clear which events the question is about, add an event filter naming them and "
-        "change nothing else. If it does not, leave the query as it is; only the person knows which events "
-        "the question is about."
+        "The query names no events. If its other conditions imply specific events, run one query: "
+        "`SELECT event, count() FROM events WHERE <the other conditions> AND timestamp >= now() - interval 7 day "
+        "GROUP BY event ORDER BY count() DESC LIMIT 20`, then propose `event IN (...)` with the names seen and "
+        "say the result then covers only those. If the query is about the set of events itself, grouping or "
+        "counting by event with no other condition, an event filter would change the answer: do not add one, "
+        "propose the time bound, and ask which events matter if a narrower question would do."
     ),
 )
 
@@ -70,9 +91,12 @@ _NO_EVENT_FILTER_BY_REASON: dict[FindingReason, _Copy] = {
         ),
         advice="Put the event filter outside the OR: `WHERE event IN ('…') AND (… OR …)`.",
         fix=(
-            "If every branch of the OR names events, move the event filter out so it stands on its own, and "
-            "change nothing else. If moving it would change which rows match, leave the query as it is and "
-            "explain that ClickHouse cannot use an event filter inside an OR."
+            "The event condition is one branch of an OR, so the index cannot use it. Run one query for what the "
+            "other branch matches: `SELECT event, count() FROM events WHERE <the other branch> AND timestamp >= "
+            "now() - interval 7 day GROUP BY event ORDER BY count() DESC LIMIT 20`. If that is a few events, "
+            "rewrite as `event IN (<the named events>, <those found>)`, keeping the other branch's own condition "
+            "where the answer needs it, and say what changes. If it matches most events, an event filter cannot "
+            "help; propose the time bound only."
         ),
     ),
     FindingReason.WRAPPED: _Copy(
@@ -82,9 +106,10 @@ _NO_EVENT_FILTER_BY_REASON: dict[FindingReason, _Copy] = {
         ),
         advice="Compare `event` directly to the names.",
         fix=(
-            "If the function around `event` does not change which events match, compare `event` directly to "
-            "the names and change nothing else. If it does, leave the query as it is and explain that "
-            "ClickHouse cannot use an event filter with a function around the column."
+            "The condition applies a function to `event`, which the index cannot see through. Run one query to "
+            "learn the exact stored names: `SELECT DISTINCT event FROM events WHERE <the wrapped condition> AND "
+            "timestamp >= now() - interval 7 day LIMIT 20`, then compare `event` directly to those names. If the "
+            "names could vary over time, say the rewrite may miss older spellings and ask."
         ),
     ),
     FindingReason.NEGATED: _Copy(
@@ -94,9 +119,11 @@ _NO_EVENT_FILTER_BY_REASON: dict[FindingReason, _Copy] = {
         ),
         advice="Explicitly enumerate the events you want instead.",
         fix=(
-            "If the events to keep can be named, replace the exclusion with a filter that names them, and "
-            "change nothing else. If they cannot, leave the query as it is and explain that ClickHouse "
-            "cannot use an event filter that excludes events."
+            "The filter excludes events, and the index cannot use an exclusion, so it reads everything. "
+            'Exploration cannot reveal the intended set, because the query says "everything except". Ask whether '
+            "the person can name the events they want. If they can, replace the exclusion with `event IN (...)`; "
+            "if they cannot, keep the exclusion and add the time bound. Do not run exploratory queries for this "
+            "finding."
         ),
     ),
     FindingReason.DYNAMIC: _Copy(
@@ -106,9 +133,9 @@ _NO_EVENT_FILTER_BY_REASON: dict[FindingReason, _Copy] = {
         ),
         advice="Compare `event` to fixed names.",
         fix=(
-            "If the column or subquery stands for a fixed set of event names, compare `event` to those names "
-            "and change nothing else. If it does not, leave the query as it is and explain that ClickHouse "
-            "cannot use an event filter that compares `event` to data."
+            "`event` is compared to another column or expression, so there is no fixed name to prune on. If that "
+            "column has few values, run `SELECT DISTINCT <the column> FROM events WHERE timestamp >= now() - "
+            "interval 7 day LIMIT 20` and enumerate; otherwise keep the condition and add the time bound."
         ),
     ),
     FindingReason.NOT_PRUNED: _Copy(
@@ -117,7 +144,11 @@ _NO_EVENT_FILTER_BY_REASON: dict[FindingReason, _Copy] = {
             "filter, but it could not be used, so it still read every event, which is slow."
         ),
         advice="Compare `event` directly to fixed names, outside any OR.",
-        fix="Compare `event` directly to fixed event names, outside any OR. Change nothing else.",
+        fix=(
+            "The query names events, but the condition sits where ClickHouse cannot apply it to the events read, "
+            "after a join, in HAVING, or on a subquery's output. Move it, unchanged, into the WHERE of the events "
+            "read."
+        ),
     ),
 }
 
@@ -128,8 +159,10 @@ _NO_START_DATE_SQL = _Copy(
     ),
     advice="If you only need recent data, add `timestamp >= now() - interval 30 day` or the range you need.",
     fix=(
-        "Add a start date on `timestamp` relative to now, for example `timestamp >= now() - interval 30 day`. "
-        "Never write a specific calendar date. Change nothing else."
+        "Add a relative time bound on `timestamp` in the events read, `timestamp >= now() - interval N day`. "
+        "Take N from the question if it states a period. If the question implies all history, a lifetime total "
+        "or a first-ever date, say the bound would change the answer and ask how far back is needed. Otherwise "
+        "propose 30 days and say it can be widened. No exploration needed."
     ),
 )
 
@@ -139,7 +172,10 @@ _NO_START_DATE_FILTERS = _Copy(
         "dashboard, so this query reads all your data back to the beginning, which is slow."
     ),
     advice="Set a date range on the insight or the dashboard.",
-    fix="Set a date range on the insight or the dashboard. The SQL does not need to change.",
+    fix=(
+        "The SQL takes its date range from the insight's or dashboard's filters and none is set. Do not edit "
+        "the SQL; tell the person to set a date range on the insight or the dashboard."
+    ),
 )
 
 _NO_START_DATE_INSIGHT = _Copy(
@@ -158,8 +194,10 @@ _PERSONS_JOIN = _Copy(
     ),
     advice="Read person properties from the events table instead, for example `person.properties.email`.",
     fix=(
-        "Read person properties from the events table, for example `person.properties.email`, instead "
-        "of joining the persons table. Change nothing else."
+        "The query reads the persons table and that read is as large as the events read. If it filters or "
+        "selects a person property, use the copy stored on the event (`person.properties.x`) instead of "
+        "joining; if the join only resolves identity, drop it. Say what changes. If unsure whether the person "
+        "needs current or at-event property values, ask."
     ),
 )
 

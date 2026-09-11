@@ -26,7 +26,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.query_scan.findings import format_rows, format_seconds
+from posthog.query_scan.findings import ASSISTANT_GOAL, ASSISTANT_RULES, format_rows, format_seconds
 from posthog.query_scan.flag import DEFAULT_FLOOR_MS, get_query_scan_flag
 
 from .boxplot import BoxPlotResultsFormatter
@@ -69,17 +69,8 @@ _MAX_WARNING_CHARS = 300
 
 QUERY_SCAN_WARNING_TAG = "query_scan_warning"
 
-_QUERY_SCAN_LEAD = "This query read {rows} rows in {secs} s, far more than it needs."
+_QUERY_SCAN_LEAD = "This query read {rows} rows in {secs} s."
 _QUERY_SCAN_KILLED_LEAD = "ClickHouse stopped this query after {secs} s, having read {rows} rows."
-_QUERY_SCAN_INSTRUCTION = (
-    "First run bounded exploratory queries to see what the data looks like, each with a recent "
-    "`timestamp` bound and a `LIMIT`, for example `SELECT event, count() FROM events WHERE the other "
-    "conditions AND timestamp >= now() - interval 7 day GROUP BY event ORDER BY count() DESC LIMIT 20`. "
-    "Then tell the user which filter is missing, propose a rewrite that keeps the question the same, "
-    "and ask them to confirm before running it again. Do not narrow the query without saying so. "
-    "Never invent event names or dates: if you cannot tell which events the question is about, say so "
-    "and leave a `-- fill in the events this question is about` comment where the filter goes."
-)
 _QUERY_SCAN_SHORT_FORM = (
     "This query read {rows} rows in {secs} s. This is likely far more than needed; check the event "
     "filter and the start date before running it again."
@@ -89,9 +80,11 @@ _QUERY_SCAN_SHORT_FORM = (
 _COMPACT_BLOCK_MESSAGES = 2
 
 
-def _collapse_warning_line(message: str) -> str:
+def _collapse_warning_line(message: str, max_chars: int | None = _MAX_WARNING_CHARS) -> str:
     cleaned = re.sub(r"\s+", " ", message).strip()
-    return cleaned[:_MAX_WARNING_CHARS] + "…" if len(cleaned) > _MAX_WARNING_CHARS else cleaned
+    if max_chars is not None and len(cleaned) > max_chars:
+        return cleaned[:max_chars] + "…"
+    return cleaned
 
 
 def sanitize_warning_line(message: str) -> str:
@@ -99,14 +92,15 @@ def sanitize_warning_line(message: str) -> str:
     return _collapse_warning_line(_ANGLE_BRACKETS.sub(" ", _UNSAFE_WARNING_CHARS.sub(" ", message)))
 
 
-def sanitize_composed_warning_line(message: str) -> str:
+def sanitize_composed_warning_line(message: str, max_chars: int | None = _MAX_WARNING_CHARS) -> str:
     """For a line PostHog composes itself, where `timestamp >= now() - interval 30 day` has to reach
     the agent as written. Stripping the bracket would turn that advice into an equality test, so the
-    agent would propose a predicate matching almost nothing."""
+    agent would propose a predicate matching almost nothing. `max_chars=None` keeps a long build-time
+    line (a finding's guidance) whole; the cap is for lines that embed project-supplied names."""
     cleaned = _UNSAFE_WARNING_CHARS.sub(" ", message)
     while (without_tags := _WRAPPER_TAG.sub(" ", cleaned)) != cleaned:
         cleaned = without_tags
-    return _collapse_warning_line(cleaned)
+    return _collapse_warning_line(cleaned, max_chars)
 
 
 def _warnings_of_type(response: dict[str, Any], warning_type: str) -> list[dict[str, Any]]:
@@ -145,11 +139,13 @@ def format_access_control_warnings(response: dict[str, Any]) -> str:
 
 
 def format_query_scan_warnings(response: dict[str, Any], team: "Team | None" = None, *, compact: bool = False) -> str:
-    """Tell the agent that this run read far more data than the question needs, and what to change.
+    """Ask the agent to find what this slow query is trying to find, as fast as possible.
 
-    The block is the only channel to an outside MCP agent, so the standing instruction is inside it
-    rather than only in the in-app assistant's prompt. `log_only` teams get nothing: the flag mode
-    says what a client may show.
+    The block is the only channel to an outside MCP agent, so it carries the whole prompt: the goal,
+    the run's context, one entry per finding (its kind and reason, the plan evidence, and the
+    per-reason guidance from the finding's `fix`), and the standing rules. The frontend "Fix with
+    AI" message builds the same structure, so the two cannot drift. `log_only` teams get nothing:
+    the flag mode says what a client may show.
 
     `compact` caps the findings, for the killed-run block that has to share a capped error message.
     """
@@ -166,21 +162,54 @@ def format_query_scan_warnings(response: dict[str, Any], team: "Team | None" = N
     if not findings:
         return _format_pending_query_scan(scan, numbers, duration_ms, team)
 
-    messages = [sanitize_composed_warning_line(finding["message"]) for finding in findings]
     if compact:
-        messages = messages[:_COMPACT_BLOCK_MESSAGES]
+        findings = findings[:_COMPACT_BLOCK_MESSAGES]
     lead = _QUERY_SCAN_KILLED_LEAD if scan.get("killed") else _QUERY_SCAN_LEAD
     return "\n".join(
         [
             f"<{QUERY_SCAN_WARNING_TAG}>",
+            ASSISTANT_GOAL,
             lead.format(**numbers),
-            *(f"- {message}" for message in messages),
-            _QUERY_SCAN_INSTRUCTION,
+            *_query_scan_share_lines(scan),
+            *(_format_query_scan_finding(finding) for finding in findings),
+            ASSISTANT_RULES,
             f"</{QUERY_SCAN_WARNING_TAG}>",
             "",
             "",
         ]
     )
+
+
+def _query_scan_share_lines(scan: dict[str, Any]) -> list[str]:
+    """How much of the range and of the project this run read, each omitted when the analysis could
+    not measure it."""
+    lines: list[str] = []
+    range_share = scan.get("range_share")
+    if isinstance(range_share, int | float) and not isinstance(range_share, bool):
+        lines.append(f"It read about {round(range_share * 100)}% of the events in this date range.")
+    project_share = scan.get("project_share")
+    if isinstance(project_share, int | float) and not isinstance(project_share, bool):
+        lines.append(f"It read about {round(project_share * 100)}% of the project's events.")
+    return lines
+
+
+def _format_query_scan_finding(finding: dict[str, Any]) -> str:
+    """One finding as a bullet: its kind and reason, the plan evidence, then the per-reason guidance.
+
+    Every part comes from the finding, which can carry project-supplied names, so each is sanitized.
+    The guidance is our own long build-time text, so it is kept whole; the shorter evidence line,
+    which names index keys, keeps the length cap.
+    """
+    head = sanitize_warning_line(str(finding.get("kind") or ""))
+    reason = finding.get("reason")
+    if reason:
+        head = f"{head} ({sanitize_warning_line(str(reason))})"
+    parts = [f"{head}:"]
+    evidence = finding.get("evidence")
+    if evidence:
+        parts.append(sanitize_composed_warning_line(str(evidence)))
+    parts.append(sanitize_composed_warning_line(str(finding.get("fix") or ""), max_chars=None))
+    return "- " + " ".join(parts)
 
 
 def _format_pending_query_scan(

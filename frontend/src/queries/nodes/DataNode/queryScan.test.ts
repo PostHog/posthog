@@ -27,13 +27,6 @@ const FINDING: QueryScanWarning = {
     duration_ms: 19_000,
 }
 
-const START_DATE_FINDING: QueryScanWarning = {
-    ...FINDING,
-    kind: 'no_start_date',
-    message: 'This query has no start date.',
-    fix: 'Add a start date on `timestamp`.',
-}
-
 function tile(id: number, insight: Partial<QueryBasedInsightModel> | null): DashboardTile<QueryBasedInsightModel> {
     return { id, color: null, insight: insight ? (insight as QueryBasedInsightModel) : undefined }
 }
@@ -94,13 +87,44 @@ describe('queryScan', () => {
         }
     )
 
-    it('numbers every finding in the assistant prompt and asks it to explore the data first', () => {
-        const prompt = queryScanAssistantPrompt([FINDING, START_DATE_FINDING])
+    it('builds a goal-first prompt with the run, its shares, each finding and the standing rules', () => {
+        const summary: QueryScanSummary = { ...SUMMARY, range_share: 0.42, project_share: 0.07 }
+        const finding: QueryScanWarning = {
+            ...FINDING,
+            reason: 'in_or',
+            evidence: "ClickHouse's index used team_id and kept 5 of 100 granules.",
+            fix: 'Run one query for what the other branch matches.',
+        }
+        const prompt = queryScanAssistantPrompt(summary, [finding])
 
-        expect(prompt).toContain(`1. ${FINDING.message} Suggested change: ${FINDING.fix}`)
-        expect(prompt).toContain(`2. ${START_DATE_FINDING.message} Suggested change: ${START_DATE_FINDING.fix}`)
-        expect(prompt).toContain('run exploratory queries')
-        expect(prompt).toContain('-- fill in the events this question is about')
+        expect(prompt).toContain('Help me get what this query is trying to find')
+        expect(prompt).toContain('This query read 8,400,000,000 rows in 19.0 s.')
+        expect(prompt).toContain('It read about 42% of the events in this date range.')
+        expect(prompt).toContain("It read about 7% of the project's events.")
+        expect(prompt).toContain(`- no_event_filter (in_or): ${finding.evidence} ${finding.fix}`)
+        expect(prompt).toContain('The events table is sorted by project, day and event name')
+    })
+
+    it('leads with the kill and omits a share the analysis could not measure', () => {
+        const prompt = queryScanAssistantPrompt({ ...SUMMARY, killed: true }, [FINDING])
+
+        expect(prompt).toContain('ClickHouse stopped this query after 19.0 s, having read 8,400,000,000 rows.')
+        expect(prompt).not.toContain('of the events in this date range')
+        expect(prompt).not.toContain("of the project's events")
+    })
+
+    it.each([
+        ['in_or', 'Run one query for what the other branch matches.'],
+        ['wrapped', 'Run one query to learn the exact stored names.'],
+        ['negated', 'Do not run exploratory queries for this finding.'],
+        ['dynamic', 'There is no fixed name to prune on.'],
+        ['not_pruned', 'Move it into the WHERE of the events read.'],
+        [undefined, 'The query names no events.'],
+    ] as [QueryScanWarning['reason'], string][])('carries the %s guidance and tags the reason', (reason, fix) => {
+        const prompt = queryScanAssistantPrompt(SUMMARY, [{ ...FINDING, reason, fix }])
+
+        expect(prompt).toContain(fix)
+        expect(prompt).toContain(reason ? `no_event_filter (${reason}):` : 'no_event_filter:')
     })
 
     it('names only the insights whose last run has advice', () => {

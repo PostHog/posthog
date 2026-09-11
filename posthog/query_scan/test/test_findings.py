@@ -21,7 +21,44 @@ class TestFindings(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (FindingKind.NO_EVENT_FILTER, None, "HogQLQuery", "add `WHERE event IN", "add an event filter"),
+            # The `message` is the human banner; the `fix` is the assistant-facing guidance. Each SQL
+            # reason keeps its own guidance, including whether exploration helps and which query to run.
+            (FindingKind.NO_EVENT_FILTER, None, "HogQLQuery", "add `WHERE event IN", "The query names no events"),
+            (
+                FindingKind.NO_EVENT_FILTER,
+                FindingReason.IN_OR,
+                "HogQLQuery",
+                "names events only inside an OR",
+                "for what the other branch matches",
+            ),
+            (
+                FindingKind.NO_EVENT_FILTER,
+                FindingReason.WRAPPED,
+                "HogQLQuery",
+                "wraps `event` in a",
+                "SELECT DISTINCT event",
+            ),
+            (
+                FindingKind.NO_EVENT_FILTER,
+                FindingReason.NEGATED,
+                "HogQLQuery",
+                "only excludes",
+                "Do not run exploratory queries",
+            ),
+            (
+                FindingKind.NO_EVENT_FILTER,
+                FindingReason.DYNAMIC,
+                "HogQLQuery",
+                "compares `event` to another",
+                "no fixed name to prune on",
+            ),
+            (
+                FindingKind.NO_EVENT_FILTER,
+                FindingReason.NOT_PRUNED,
+                "HogQLQuery",
+                "has an event filter",
+                "into the WHERE of the events read",
+            ),
             (
                 FindingKind.NO_EVENT_FILTER,
                 None,
@@ -29,16 +66,16 @@ class TestFindings(SimpleTestCase):
                 "This insight looks at all events",
                 "instead of All events",
             ),
-            (FindingKind.NO_START_DATE, None, "HogQLQuery", "add `timestamp >= now()", "relative to now"),
+            (FindingKind.NO_START_DATE, None, "HogQLQuery", "add `timestamp >= now()", "relative time bound"),
             (
                 FindingKind.NO_START_DATE,
                 FindingReason.FILTERS,
                 "HogQLQuery",
                 "No date range is set on this insight or dashboard",
-                "The SQL does not need to change",
+                "Do not edit the SQL",
             ),
             (FindingKind.NO_START_DATE, None, "TrendsQuery", "This insight has no start date", "instead of All time"),
-            (FindingKind.PERSONS_JOIN, None, "HogQLQuery", "joins the persons table", "person.properties.email"),
+            (FindingKind.PERSONS_JOIN, None, "HogQLQuery", "joins the persons table", "person.properties.x"),
         ]
     )
     def test_copy_switches_between_sql_and_insight_wording(

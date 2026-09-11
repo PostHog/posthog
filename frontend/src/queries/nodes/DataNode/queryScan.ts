@@ -128,17 +128,63 @@ export function fixableQueryScanFindings(findings: QueryScanWarning[]): QuerySca
     return findings.filter((finding) => finding.reason !== 'filters')
 }
 
-/** The message "Fix with AI" sends to the assistant. */
-export function queryScanAssistantPrompt(findings: QueryScanWarning[]): string {
+// The goal and standing rules the assistant reads. These mirror `ASSISTANT_GOAL` and
+// `ASSISTANT_RULES` in `posthog/query_scan/findings.py` word for word, so the "Fix with AI" message
+// and the server-side `<query_scan_warning>` block read the same.
+const ASSISTANT_GOAL =
+    'Help me get what this query is trying to find, as fast as possible. Start by saying in one sentence what ' +
+    'you think the query is trying to find. If you cannot tell, or if a faster version would answer a different ' +
+    'question, ask me before rewriting. Otherwise propose the rewrite.'
+
+const ASSISTANT_RULES =
+    'The events table is sorted by project, day and event name, so a query is fast when it bounds `timestamp` ' +
+    'and names events; property filters and persons joins do not narrow the read. Use relative time bounds, ' +
+    'never a calendar date. Never invent event names, property values or dates; use only names seen in results ' +
+    "or given by the person. Run at most the one exploration query a finding's guidance names, always with a " +
+    'recent time bound and a LIMIT, and none when the guidance says none. Propose the rewritten query and label ' +
+    'every change as same answer, narrower, or different. When a change would alter the answer and it is unclear ' +
+    'whether that is acceptable, ask instead of choosing.'
+
+function queryScanLead(summary: QueryScanSummary): string {
+    const rows = formatRows(summary.rows_read)
+    const seconds = formatSeconds(summary.duration_ms)
+    if (summary.killed) {
+        return `ClickHouse stopped this query after ${seconds} s, having read ${rows} rows.`
+    }
+    return `This query read ${rows} rows in ${seconds} s.`
+}
+
+function queryScanShareLines(summary: QueryScanSummary): string[] {
+    const lines: string[] = []
+    if (typeof summary.range_share === 'number') {
+        lines.push(`It read about ${Math.round(summary.range_share * 100)}% of the events in this date range.`)
+    }
+    if (typeof summary.project_share === 'number') {
+        lines.push(`It read about ${Math.round(summary.project_share * 100)}% of the project's events.`)
+    }
+    return lines
+}
+
+function queryScanFindingLine(finding: QueryScanWarning): string {
+    const head = finding.reason ? `${finding.kind} (${finding.reason})` : finding.kind
+    const parts = [`${head}:`]
+    if (finding.evidence) {
+        parts.push(finding.evidence)
+    }
+    parts.push(finding.fix)
+    return `- ${parts.join(' ')}`
+}
+
+/** The message "Fix with AI" sends to the assistant, as the person's own (untrusted) message. */
+export function queryScanAssistantPrompt(summary: QueryScanSummary, findings: QueryScanWarning[]): string {
     return [
-        'Make this query faster without changing what it answers.',
+        ASSISTANT_GOAL,
         '',
-        'Here is what the slow query analysis found:',
-        ...findings.map((finding, index) => `${index + 1}. ${finding.message} Suggested change: ${finding.fix}`),
+        queryScanLead(summary),
+        ...queryScanShareLines(summary),
+        ...findings.map(queryScanFindingLine),
         '',
-        'Before you propose a rewrite, run exploratory queries to learn what the data looks like, for example which events satisfy the other conditions in the WHERE clause over the last 7 days, and how many rows each candidate change would read. Then propose the rewritten query and say what each change does to the results.',
-        '',
-        'Never invent event names or dates. If you cannot tell which events the question is about, say so and leave a `-- fill in the events this question is about` comment in the SQL where the filter goes.',
+        ASSISTANT_RULES,
     ].join('\n')
 }
 
