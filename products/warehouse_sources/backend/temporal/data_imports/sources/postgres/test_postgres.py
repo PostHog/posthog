@@ -51,6 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.types import Table
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.resolver import addrinfo
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
@@ -1924,6 +1925,118 @@ class TestSetupStatementTimeoutUnsupported:
             assert list(cast(Iterable[Any], response.items())) == []
 
 
+class TestPostgresSourceSyncAllProjection:
+    """Sync-all names the discovered columns rather than rendering `SELECT *`.
+
+    A source role that holds column grants instead of table grants cannot run `SELECT *`, because
+    the star expands to columns it may not read. The read names what the streaming connection
+    discovers, not what setup discovered minutes earlier. No other test covers this wiring, only
+    the query builders in isolation."""
+
+    class _Cursor:
+        def __init__(self, recorder: list[str]):
+            self._recorder = recorder
+            column = mock.Mock()
+            column.name = "id"
+            self.description = [column]
+
+        def execute(self, query, *args, **kwargs):
+            self._recorder.append(query.as_string() if isinstance(query, sql.Composed) else str(query))
+            return None
+
+        def fetchmany(self, _n: int):
+            return []
+
+        def fetchone(self):
+            return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _Connection:
+        def __init__(self, streaming_queries: list[str], setup_queries: list[str]):
+            self.autocommit = True
+            self.closed = False
+            self.broken = False
+            self.adapters = mock.Mock()
+            self._streaming_queries = streaming_queries
+            self._setup_queries = setup_queries
+
+        def cursor(self, *args, **kwargs):
+            recorder = self._streaming_queries if "name" in kwargs else self._setup_queries
+            return TestPostgresSourceSyncAllProjection._Cursor(recorder)
+
+        def commit(self):
+            return None
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def test_sync_all_names_the_columns_rediscovered_before_streaming(self):
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        def table_with(*columns: str) -> Table[PostgreSQLColumn]:
+            return Table(
+                name="companies",
+                parents=("public",),
+                columns=[PostgreSQLColumn(name=name, data_type="text", nullable=False) for name in columns],
+                type="table",
+            )
+
+        streaming_queries: list[str] = []
+        setup_queries: list[str] = []
+        connection = self._Connection(streaming_queries, setup_queries)
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.psycopg.connect", return_value=connection),
+            patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(setup_queries)),
+            # The source drops `nickname` between setup and the read. Naming it would fail the
+            # read as a permanent error, which disables the schema.
+            patch(
+                f"{module}._get_table",
+                side_effect=[table_with("id", "email", "nickname"), table_with("id", "email")],
+            ),
+            patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
+            patch(f"{module}._get_primary_keys", return_value=["id"]),
+            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=100, fetch_rows=100)),
+            patch(f"{module}._get_rows_to_sync", return_value=0),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=False,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=None,
+                team_id=1,
+            )
+            list(cast(Iterable[Any], response.items()))
+
+        assert [query for query in streaming_queries if query.startswith("SELECT")] == [
+            'SELECT "id", "email" FROM "public"."companies"'
+        ]
+
+
 class TestIsConnectionDroppedError:
     @pytest.mark.parametrize(
         "error",
@@ -3496,9 +3609,10 @@ class TestOffsetChunkingConnectRecoveryConflict:
 
         def connect_side_effect(*args, **kwargs):
             connect_calls["n"] += 1
-            # Calls 1 (setup) and 2 (initial server-cursor read) succeed; the offset-chunking
-            # bootstrap connect hits the recovery conflict twice before succeeding.
-            if connect_calls["n"] in (3, 4):
+            # Calls 1 (setup), 2 (catalog re-read before streaming) and 3 (initial server-cursor
+            # read) succeed; the offset-chunking bootstrap connect hits the recovery conflict
+            # twice before succeeding.
+            if connect_calls["n"] in (4, 5):
                 raise connect_error
             return connection
 
@@ -3533,8 +3647,9 @@ class TestOffsetChunkingConnectRecoveryConflict:
             # Before the fix the connect-time conflict escaped offset_chunking and raised here.
             list(cast(Iterable[Any], response.items()))
 
-        # 1 setup + 1 initial read + 3 offset-chunking connects (2 conflicts + 1 success).
-        assert connect_mock.call_count == 5
+        # 1 setup + 1 catalog re-read + 1 initial read + 3 offset-chunking connects (2 conflicts
+        # + 1 success).
+        assert connect_mock.call_count == 6
 
 
 class TestOffsetChunkingConnectTimeout:
@@ -3562,9 +3677,10 @@ class TestOffsetChunkingConnectTimeout:
 
         def connect_side_effect(*args, **kwargs):
             connect_calls["n"] += 1
-            # Calls 1 (setup) and 2 (initial server-cursor read) succeed; the offset-chunking
-            # bootstrap connect times out twice before succeeding.
-            if connect_calls["n"] in (3, 4):
+            # Calls 1 (setup), 2 (catalog re-read before streaming) and 3 (initial server-cursor
+            # read) succeed; the offset-chunking bootstrap connect times out twice before
+            # succeeding.
+            if connect_calls["n"] in (4, 5):
                 raise psycopg.errors.ConnectionTimeout("connection timeout expired")
             return connection
 
@@ -3602,8 +3718,9 @@ class TestOffsetChunkingConnectTimeout:
             # Before the fix the connect-time timeout escaped offset_chunking and raised here.
             list(cast(Iterable[Any], response.items()))
 
-        # 1 setup + 1 initial read + 3 offset-chunking connects (2 timeouts + 1 success).
-        assert connect_mock.call_count == 5
+        # 1 setup + 1 catalog re-read + 1 initial read + 3 offset-chunking connects (2 timeouts
+        # + 1 success).
+        assert connect_mock.call_count == 6
 
 
 class TestOffsetChunkingRecoveryConflictTimeout:
@@ -9201,10 +9318,11 @@ class TestPartitionIterationConnectRetry:
 
         def connect_side_effect(*args, **kwargs):
             connect_calls["n"] += 1
-            if connect_calls["n"] == 1:
-                # Setup connection (metadata probes are patched out).
+            if connect_calls["n"] in (1, 2):
+                # Setup connection, then the catalog re-read before streaming (metadata probes
+                # are patched out).
                 return TestPartitionIterationConnectRetry._WindowConnection()
-            if connect_calls["n"] == 2:
+            if connect_calls["n"] == 3:
                 # First per-window/per-partition connect: the setup commit() inside get_connection drops.
                 return TestPartitionIterationConnectRetry._WindowConnection(
                     commit_error=psycopg.OperationalError("the connection is lost")
@@ -9257,8 +9375,9 @@ class TestPartitionIterationConnectRetry:
             # Before the fix the connect drop escaped iterate_date_windows / iterate_partitions here.
             tables = list(cast(Iterable[Any], response.items()))
 
-        # 1 setup + 2 per-window/per-partition connects (1 dropped commit + 1 success).
-        assert connect_mock.call_count == 3
+        # 1 setup + 1 catalog re-read + 2 per-window/per-partition connects (1 dropped commit
+        # + 1 success).
+        assert connect_mock.call_count == 4
         assert sum(table.num_rows for table in tables) == 3
 
 
