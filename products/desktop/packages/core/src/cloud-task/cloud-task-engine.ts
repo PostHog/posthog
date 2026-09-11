@@ -99,6 +99,27 @@ class BackendStreamError extends Error {
   }
 }
 
+type CredentialFailureOutcome = "no_token" | "expired" | "rejected";
+
+const CREDENTIAL_FAILURE_MESSAGE: Record<CredentialFailureOutcome, string> = {
+  no_token:
+    "This run needs your Claude token. Save one in Settings > Harness, then retry.",
+  rejected:
+    "This account cannot send a Claude token to this run. Retry, or start a new task on PostHog billing.",
+  expired:
+    "Your Claude token did not reach the run in time. Retry to send it again.",
+};
+
+/** A token relay refusal that retrying cannot clear, so the delivery loop stops
+ *  instead of burning its deadline while the sandbox waits for a token that
+ *  never arrives. */
+class ClaudeTokenRelayRefused extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ClaudeTokenRelayRefused";
+  }
+}
+
 interface TaskRunResponse {
   id: string;
   log_url?: string | null;
@@ -572,7 +593,9 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     if (!this.claudeSubscriptionTokenStore) return;
     const context = await this.auth.getCloudContext({ includeAccount: true });
     if (!context?.accountKey)
-      throw new Error("Sign in before using your Claude plan.");
+      throw new ClaudeTokenRelayRefused(
+        "Sign in before using your Claude plan.",
+      );
     const base = new URL(context.apiHost);
     if (
       base.protocol !== "https:" &&
@@ -581,7 +604,9 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         ["localhost", "127.0.0.1", "[::1]"].includes(base.hostname)
       )
     ) {
-      throw new Error("Claude tokens require a secure connection.");
+      throw new ClaudeTokenRelayRefused(
+        "Claude tokens require a secure connection.",
+      );
     }
     const [userResponse, runResponse] = await Promise.all([
       this.auth.authenticatedFetch(`${base.origin}/api/users/@me/`, {
@@ -611,7 +636,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       !run.success ||
       run.data.state.claude_subscription_user_id !== user.data.id
     ) {
-      throw new Error(
+      throw new ClaudeTokenRelayRefused(
         "Only the user who started this run can send a Claude token.",
       );
     }
@@ -731,8 +756,9 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         credential: data.credential,
         outcome,
       });
-      if (outcome === "expired" || outcome === "rejected") {
+      if (outcome !== "sent") {
         this.log.warn("Claude token delivery failed", { outcome });
+        this.emitCredentialFailure(watcher, outcome);
       }
     };
     if (expiresAt <= Date.now()) {
@@ -780,7 +806,12 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         ) {
           return "rejected";
         }
-        await this.designateClaudeSubscription(watcher);
+        try {
+          await this.designateClaudeSubscription(watcher);
+        } catch (error) {
+          if (error instanceof ClaudeTokenRelayRefused) return "rejected";
+          throw error;
+        }
       }
       const destination = await this.credentialDestination(watcher);
       if (!destination) return "rejected";
@@ -823,6 +854,23 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     } catch {
       return "retry";
     }
+  }
+
+  /** The sandbox blocks its own startup until a token arrives, so a failure
+   *  that only reaches the log reads as a run that spins with every message
+   *  stuck in the queue. */
+  private emitCredentialFailure(
+    watcher: WatcherState,
+    outcome: CredentialFailureOutcome,
+  ): void {
+    this.emit(CloudTaskEvent.Update, {
+      taskId: watcher.taskId,
+      runId: watcher.runId,
+      kind: "error",
+      errorTitle: "Claude token not delivered",
+      errorMessage: CREDENTIAL_FAILURE_MESSAGE[outcome],
+      retryable: true,
+    });
   }
 
   private async credentialDestination(
