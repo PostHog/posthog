@@ -4,6 +4,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     current_job_context,
     scoped_job_context,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.streaming import response_text_stream
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
     DEFAULT_RETRY,
     TrackedHTTPAdapter,
@@ -19,5 +20,6 @@ __all__ = [
     "current_job_context",
     "make_tracked_adapter",
     "make_tracked_session",
+    "response_text_stream",
     "scoped_job_context",
 ]
