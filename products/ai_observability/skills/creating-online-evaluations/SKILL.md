@@ -238,6 +238,23 @@ No usable key does not block creation. Create the disabled draft with a valid `p
 the user to review. Do not spot-run or enable it, and ask the user to add or validate a key in the UI so it
 can be enabled later.
 
+An LLM judge can preprocess the text it receives with ordered regex replacements. Add
+`evaluation_config.input_transformations` only when captured input contains text that should not affect the
+verdict, such as injected instructions or changing identifiers. Each rule has a required RE2 `pattern` and an
+optional literal `replacement`. An omitted or empty replacement removes matches. Rules run from top to bottom
+before the judge input is shortened to fit its context window. They apply to generation, trace, and session
+targets without changing the stored events or trace.
+
+```json
+"evaluation_config": {
+  "prompt": "Return true when the assistant addresses the person's request.",
+  "input_transformations": [
+    { "pattern": "(?s)<injected_context>.*?</injected_context>", "replacement": "" },
+    { "pattern": "request-[0-9]+", "replacement": "[request id]" }
+  ]
+}
+```
+
 ### 2.4 — Create it disabled
 
 Create with `enabled: false` so nothing fires until the scope is verified. Minimal `hog` example:
