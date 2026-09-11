@@ -242,6 +242,8 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_by", "created_at", "updated_at"]
 
+    # TODO(experiment-approval-policies): temporary. Only the sync may write experiment policies.
+    # See experiment_policy_sync.py.
     def validate_action_key(self, value: str) -> str:
         if value in SYNCED_ACTION_KEYS:
             raise serializers.ValidationError("This approval action isn't available yet.")
