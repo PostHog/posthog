@@ -36,14 +36,13 @@ tools:
             has already been pushed to a remote branch: repository, branch, commit_sha, message — usually recorded
             automatically when you push via git_signed_commit. Only create one yourself for a commit pushed to a remote
             by other means; never record a commit that is not on a remote branch — an unpushed or local-only commit is
-            always a mistake),
-            `note` (free-form: note). Status types are latest-wins — appending a new version supersedes the previous one
-            as the report's canonical status: `priority_judgment` (explanation, priority P0–P4),
-            `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment` (choice),
-            `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}). Status judgments
-            are consequential, not advisory: the canonical priority/actionability steer what humans and agents pick up
-            next, and PostHog's automation uses them when deciding which reports to act on. `content` is a JSON object
-            matching the chosen type and is validated against its schema. Writes are attributed to your task
+            always a mistake), `note` (free-form: note). Status types are latest-wins — appending a new version
+            supersedes the previous one as the report's canonical status: `priority_judgment` (explanation, priority
+            P0–P4), `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment`
+            (choice), `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}). Status
+            judgments are consequential, not advisory: the canonical priority/actionability steer what humans and agents
+            pick up next, and PostHog's automation uses them when deciding which reports to act on. `content` is a JSON
+            object matching the chosen type and is validated against its schema. Writes are attributed to your task
             automatically. Pass claim_id to associate the work with your current claim; stale or foreign claims are
             rejected. Returns the created artefact including its id.
     inbox-report-artefacts-delete:
@@ -140,13 +139,13 @@ tools:
         description: >
             Start, resume, or release work on a report. Returns assignee.claim_id for the work attempt. Pass claim_id on
             subsequent updates; stale or foreign claims are rejected. For internal task agents, claiming automatically
-            records the task association. Task-run artefacts are read-only through the API. Another actor's active claim requires explicit
-            takeover=true. Add pull_requests (an array of GitHub URLs) in the same call, including when starting work.
-            Links are additive and retries are deduplicated. Use release=true to end ownership without removing PRs or
-            history. A report resolves when every linked PR is closed or merged and at least one merged; it is
-            suppressed when all closed without merging. Open, draft, unknown, or no PRs do not trigger completion.
-            Repositories without a connected GitHub integration retain unknown state and require manual report
-            resolution.
+            records the task association. Task-run artefacts are read-only through the API. Another actor's active claim
+            requires explicit takeover=true. Add pull_requests (an array of GitHub URLs) in the same call, including
+            when starting work. Links are additive and retries are deduplicated. Use release=true to end ownership
+            without removing PRs or history. A report resolves when every linked PR is closed or merged and at least one
+            merged; it is suppressed when all closed without merging. Open, draft, unknown, or no PRs do not trigger
+            completion. Repositories without a connected GitHub integration retain unknown state and require manual
+            report resolution.
         param_overrides:
             id:
                 aliases:
