@@ -13,6 +13,7 @@ from google.protobuf import (
     message as _message,
 )
 from google.protobuf.internal import containers as _containers
+
 from personhog.types.v1 import common_pb2 as _common_pb2
 
 DESCRIPTOR: _descriptor.FileDescriptor

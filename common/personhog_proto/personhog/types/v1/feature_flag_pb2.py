@@ -20,7 +20,7 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from ....personhog.types.v1 import common_pb2 as personhog_dot_types_dot_v1_dot_common__pb2
+from personhog.types.v1 import common_pb2 as personhog_dot_types_dot_v1_dot_common__pb2
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
     b'\n%personhog/types/v1/feature_flag.proto\x12\x12personhog.types.v1\x1a\x1fpersonhog/types/v1/common.proto"=\n\x0fHashKeyOverride\x12\x18\n\x10\x66\x65\x61ture_flag_key\x18\x01 \x01(\t\x12\x10\n\x08hash_key\x18\x02 \x01(\t"\x9c\x01\n\x16HashKeyOverrideContext\x12\x11\n\tperson_id\x18\x01 \x01(\x03\x12\x13\n\x0b\x64istinct_id\x18\x02 \x01(\t\x12\x36\n\toverrides\x18\x03 \x03(\x0b\x32#.personhog.types.v1.HashKeyOverride\x12"\n\x1a\x65xisting_feature_flag_keys\x18\x04 \x03(\t"\x9d\x01\n GetHashKeyOverrideContextRequest\x12\x0f\n\x07team_id\x18\x01 \x01(\x03\x12\x14\n\x0c\x64istinct_ids\x18\x02 \x03(\t\x12\x1b\n\x13\x63heck_person_exists\x18\x03 \x01(\x08\x12\x35\n\x0cread_options\x18\x04 \x01(\x0b\x32\x1f.personhog.types.v1.ReadOptions"`\n!GetHashKeyOverrideContextResponse\x12;\n\x07results\x18\x01 \x03(\x0b\x32*.personhog.types.v1.HashKeyOverrideContext"s\n\x1dUpsertHashKeyOverridesRequest\x12\x0f\n\x07team_id\x18\x01 \x01(\x03\x12\x14\n\x0c\x64istinct_ids\x18\x02 \x03(\t\x12\x10\n\x08hash_key\x18\x03 \x01(\t\x12\x19\n\x11\x66\x65\x61ture_flag_keys\x18\x04 \x03(\t"8\n\x1eUpsertHashKeyOverridesResponse\x12\x16\n\x0einserted_count\x18\x01 \x01(\x03"L\n$DeleteHashKeyOverridesByTeamsRequest\x12\x10\n\x08team_ids\x18\x01 \x03(\x03\x12\x12\n\nbatch_size\x18\x02 \x01(\x03">\n%DeleteHashKeyOverridesByTeamsResponse\x12\x15\n\rdeleted_count\x18\x01 \x01(\x03\x62\x06proto3'

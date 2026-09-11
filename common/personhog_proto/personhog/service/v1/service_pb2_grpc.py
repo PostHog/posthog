@@ -3,7 +3,7 @@
 
 import grpc
 
-from ....personhog.types.v1 import (
+from personhog.types.v1 import (
     cohort_pb2 as personhog_dot_types_dot_v1_dot_cohort__pb2,
     feature_flag_pb2 as personhog_dot_types_dot_v1_dot_feature__flag__pb2,
     group_pb2 as personhog_dot_types_dot_v1_dot_group__pb2,

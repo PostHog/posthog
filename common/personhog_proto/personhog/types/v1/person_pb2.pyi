@@ -16,6 +16,7 @@ from google.protobuf.internal import (
     containers as _containers,
     enum_type_wrapper as _enum_type_wrapper,
 )
+
 from personhog.types.v1 import common_pb2 as _common_pb2
 
 DESCRIPTOR: _descriptor.FileDescriptor

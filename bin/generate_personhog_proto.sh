@@ -4,13 +4,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROTO_DIR="$REPO_ROOT/proto"
-OUT_DIR="$REPO_ROOT/posthog/personhog_client/proto/generated"
+OUT_DIR="$REPO_ROOT/common/personhog_proto"
 
 python -c "import grpc_tools" 2>/dev/null || { echo "Error: grpcio-tools is not installed. Run: uv sync" >&2; exit 1; }
 
 echo "Cleaning old generated files..."
-rm -rf "$OUT_DIR"
-mkdir -p "$OUT_DIR"
+rm -rf "$OUT_DIR/personhog"
 
 mapfile -d '' PROTO_FILES < <(find "$PROTO_DIR/personhog/service" "$PROTO_DIR/personhog/types" -name '*.proto' -print0)
 
@@ -22,8 +21,8 @@ python -m grpc_tools.protoc \
     --grpc_python_out="$OUT_DIR" \
     "${PROTO_FILES[@]}"
 
-echo "Rewriting imports as relative..."
-python "$SCRIPT_DIR/helpers/relativize_proto_imports.py" "$OUT_DIR"
+# protoc emits no package markers; type checkers and wheel builds want regular packages.
+find "$OUT_DIR/personhog" -type d -exec touch {}/__init__.py \;
 
 echo "Linting and formatting generated files..."
 ruff check --fix --quiet "$OUT_DIR"

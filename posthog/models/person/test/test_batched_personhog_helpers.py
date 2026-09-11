@@ -3,6 +3,7 @@ from unittest.mock import ANY, MagicMock, patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from personhog.types.v1 import person_pb2
 
 from posthog.models.person.util import (
     _batched_get_distinct_ids_for_persons,
@@ -12,7 +13,6 @@ from posthog.models.person.util import (
 )
 from posthog.personhog_client.fake_client import fake_personhog_client
 from posthog.personhog_client.proto import ReadOptions
-from posthog.personhog_client.proto.generated.personhog.types.v1 import person_pb2
 
 
 class TestBatchedGetPersonsByUuids(SimpleTestCase):

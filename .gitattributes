@@ -21,7 +21,7 @@ services/mcp/src/api/generated.ts linguist-generated
 services/mcp/src/generated/** linguist-generated
 services/mcp/src/tools/generated/** linguist-generated
 
-posthog/personhog_client/proto/generated/** linguist-generated
+common/personhog_proto/personhog/** linguist-generated
 posthog/schema.py linguist-generated
 products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs.py linguist-generated
 posthog/temporal/proxy_service/proto/*_pb2*.py linguist-generated
