@@ -3,8 +3,9 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import type { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 
-import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
+import { STORYBOOK_FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { App } from 'scenes/App'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -84,3 +85,45 @@ export const SettingsProjectSurveys: Story = { args: { sectionId: 'project-surve
 export const SettingsProjectIntegrations: Story = { args: { sectionId: 'project-integrations' } }
 
 export const SettingsProjectAccessControl: Story = { args: { sectionId: 'project-access-control' } }
+
+export const SettingsProjectLogs: Story = {
+    args: { sectionId: 'project-logs' },
+    parameters: { featureFlags: [] },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/logs/sampling_rules/': { results: [] },
+                '/api/projects/:id/logs/alerts/': { results: [] },
+                '/api/projects/:id/logs_config/': {
+                    logs_distinct_id_attribute_key: 'posthogDistinctId',
+                    logs_distinct_id_attribute_keys: ['posthogDistinctId'],
+                    logs_session_id_attribute_keys: ['sessionId'],
+                    logs_pattern_message_keys: ['message', 'msg', 'event'],
+                },
+            },
+            patch: {
+                '/api/projects/:id/logs_config/': async ({ request }) => [
+                    200,
+                    {
+                        logs_distinct_id_attribute_key: 'posthogDistinctId',
+                        logs_distinct_id_attribute_keys: ['posthogDistinctId'],
+                        logs_session_id_attribute_keys: ['sessionId'],
+                        ...((await request.json()) as object),
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
+export const SettingsProjectLogsReadOnly: Story = {
+    ...SettingsProjectLogs,
+    render: ({ sectionId }) => {
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            effective_membership_level: OrganizationMembershipLevel.Member,
+        })
+        router.actions.push(urls.settings(sectionId))
+        return <App />
+    },
+}
