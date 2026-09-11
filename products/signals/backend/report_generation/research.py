@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from products.signals.backend.artefact_schemas import (
     ActionabilityAssessment,
     ActionabilityChoice,
+    NoteArtefact,
     Priority,
     PriorityAssessment,
     SignalFinding,
@@ -38,12 +39,14 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "ActionabilityAssessment",
     "ActionabilityChoice",
+    "FixVerificationOutput",
     "Priority",
     "PriorityAssessment",
     "ReportPresentationOutput",
     "ReportResearchOutput",
     "ResearchArtefactContent",
     "SignalFinding",
+    "build_fix_verification_prompt",
     "run_multi_turn_research",
 ]
 
@@ -109,6 +112,32 @@ Hard rules:
         return v
 
 
+class FixVerificationOutput(BaseModel):
+    """Session output for the final, actionable-only fix verification turn."""
+
+    steps: list[str] = Field(
+        min_length=2,
+        max_length=3,
+        description=(
+            "Two or three repeatable checks grounded in the completed research. Start with a 'Before changing code' "
+            "check for whether the issue still occurs, followed by 'After deployment' checks for the hypothetical fix. "
+            "Include runnable commands or queries, their inputs, measurement windows, and expected results."
+        ),
+    )
+
+    @field_validator("steps")
+    @classmethod
+    def steps_must_not_be_empty(cls, steps: list[str]) -> list[str]:
+        normalized = [step.strip() for step in steps]
+        if any(not step for step in normalized):
+            raise ValueError("Verification steps must not be empty")
+        return normalized
+
+    def to_note(self) -> NoteArtefact:
+        steps = "\n".join(f"{index}. {step}" for index, step in enumerate(self.steps, start=1))
+        return NoteArtefact(note=f"## Steps to verify fix\n\n{steps}")
+
+
 # The report artefacts a research run produces: one finding per signal plus the two assessments.
 ResearchArtefactContent = SignalFinding | ActionabilityAssessment | PriorityAssessment
 
@@ -125,6 +154,13 @@ class ReportResearchOutput(BaseModel):
         default=None,
         description="UUID of the sandbox task that performed the research; artefacts persisted from "
         "this output are attributed to it. None for saved fixtures / pre-existing outputs.",
+    )
+    verification_note: NoteArtefact | None = Field(
+        default=None,
+        description=(
+            "An optional final note with checks to reproduce the issue and verify a hypothetical fix after deployment. "
+            "Present only when the report is actionable."
+        ),
     )
     # The run's findings and assessments split by whether they changed: `old_artefacts` were
     # confirmed unchanged (already persisted — a re-research reusing them writes nothing) and
@@ -687,6 +723,35 @@ Respond with a JSON object matching this schema:
 </jsonschema>"""
 
 
+def build_fix_verification_prompt() -> str:
+    """Build the final follow-up for actionable reports after all research and presentation work."""
+    schema = json.dumps(FixVerificationOutput.model_json_schema(), indent=2)
+    return f"""As the final step, write the **steps to verify fix** note for this actionable report.
+
+Base the steps only on the evidence and successful checks from this research session. Do not do more research in this turn. Do not claim that a fix exists or has shipped.
+
+Return two or three self-contained steps. Do not add a heading or numbers because the pipeline adds them:
+
+- Label the first step `Before changing code`. Explain how to rerun the observed failure check against current data and what result confirms the issue still occurs.
+- Label the remaining steps `After deployment`. Explain how to repeat the measurement after rollout and what result would show that the fix worked.
+
+Make the note specific enough to execute without reconstructing this conversation:
+
+- Include the exact PostHog MCP command and full arguments, or the complete query, reused from a successful research check. A tool name alone is not enough. For a saved insight, include its actual ID and required date overrides.
+- Preserve the relevant entity IDs, event names, filters, aggregation, breakdowns, and numerator/denominator for rates. Name the user or system outcome being measured.
+- Specify bounded measurement windows. Separate the recorded research baseline from the fresh pre-change observation. For post-deployment checks, state how to set the time bounds from the actual rollout time so pre-fix data is excluded.
+- State the observed baseline and comparison criterion where the research established them. Explain what indicates failure, improvement, or an inconclusive result. Missing data, insufficient traffic, or a failed query does not prove the issue is fixed.
+- Do not invent tool arguments, IDs, events, baselines, or numerical thresholds. If a required input or success criterion is unknown, name it and say what must be established before drawing a conclusion.
+
+If the research established a code or test reproduction rather than a runnable metric check, give the exact command, inputs, and expected failing/passing behavior. Do not force an unrelated product metric. Do not include implementation instructions.
+
+Respond with a JSON object matching this schema. The pipeline will format it as a note with the heading `Steps to verify fix`:
+
+<jsonschema>
+{schema}
+</jsonschema>"""
+
+
 def _enforce_signal_id(finding: SignalFinding, expected_id: str) -> SignalFinding:
     """Correct the finding's signal_id if the model returned a wrong one."""
     if finding.signal_id != expected_id:
@@ -929,6 +994,30 @@ async def run_multi_turn_research(
         if output_fn:
             output_fn(f"Report title: {presentation_result.title}")
 
+        # Final turn, and only for reports with a path to code work: turn the evidence already
+        # gathered into a short operational check that the downstream implementation can run.
+        verification_note: NoteArtefact | None = None
+        if actionability_result.actionability != ActionabilityChoice.NOT_ACTIONABLE:
+            if output_fn:
+                output_fn("Generating fix verification steps...")
+            verification_prompt = build_fix_verification_prompt()
+            try:
+                verification_result = await session.send_followup(
+                    verification_prompt,
+                    FixVerificationOutput,
+                    label="fix_verification",
+                )
+                verification_note = verification_result.to_note()
+            except Exception:
+                logger.exception(
+                    "multi_turn_research: failed to generate fix verification note",
+                    extra={
+                        "research_task_id": str(session.task.id),
+                        "team_id": context.team_id,
+                        "report_id": signal_report_id,
+                    },
+                )
+
         await session.end()
     except (Exception, asyncio.CancelledError) as e:
         # Shield so the session ending cannot itself be canceled - must complete
@@ -948,6 +1037,7 @@ async def run_multi_turn_research(
         # change reintroduces the field into a disabled prompt.
         charts=presentation_result.charts if charts_enabled else [],
         research_task_id=str(session.task.id),
+        verification_note=verification_note,
         old_artefacts=old_artefacts,
         new_artefacts=new_artefacts,
     )

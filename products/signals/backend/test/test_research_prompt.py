@@ -4,8 +4,10 @@ import pytest
 
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
+    FixVerificationOutput,
     SignalFinding,
     _render_signal_for_research,
+    build_fix_verification_prompt,
     build_initial_research_prompt,
     build_report_presentation_prompt,
     build_signal_investigation_prompt,
@@ -142,6 +144,41 @@ class TestBuildInitialResearchPrompt:
         if not has_previous_finding:
             assert "There is no previous finding for this signal" in initial_prompt
             assert "There is no previous finding for this signal" in followup_prompt
+
+
+class TestBuildFixVerificationPrompt:
+    def test_is_a_final_step_based_on_completed_research(self):
+        prompt = build_fix_verification_prompt()
+
+        assert "As the final step" in prompt
+        assert "Do not do more research in this turn" in prompt
+        assert "Label the first step `Before changing code`" in prompt
+        assert "Label the remaining steps `After deployment`" in prompt
+        assert "exact PostHog MCP command and full arguments, or the complete query" in prompt
+        assert "entity IDs, event names, filters, aggregation, breakdowns, and numerator/denominator" in prompt
+        assert "time bounds from the actual rollout time so pre-fix data is excluded" in prompt
+        assert "Missing data, insufficient traffic, or a failed query does not prove the issue is fixed" in prompt
+        assert "Do not invent tool arguments, IDs, events, baselines, or numerical thresholds" in prompt
+        assert "what result would show that the fix worked" in prompt
+        assert '"minItems": 2' in prompt
+        assert '"maxItems": 3' in prompt
+
+    def test_formats_steps_as_a_note_with_the_expected_heading(self):
+        before = (
+            'Before changing code: run query-trends with {"kind":"TrendsQuery","dateRange":{"date_from":"-1h"},'
+            '"interval":"hour","series":[{"kind":"EventsNode","event":"upload_failed","math":"total"},'
+            '{"kind":"EventsNode","event":"upload_completed","math":"total"}]}. '
+            "Any upload_failed events confirm that uploads still fail. No upload events is inconclusive."
+        )
+        after = (
+            "After deployment: repeat the same query once an hour of traffic is available. Set date_from to the "
+            "actual rollout's ISO8601 timestamp and date_to to one hour later. Zero upload_failed events alongside "
+            "upload_completed events supports recovery; any failure means the issue still occurs. "
+            "No upload events or a failed query is inconclusive."
+        )
+        result = FixVerificationOutput(steps=[f" {before} ", after])
+
+        assert result.to_note().note == f"## Steps to verify fix\n\n1. {before}\n2. {after}"
 
 
 def _make_chart() -> ReportChart:
