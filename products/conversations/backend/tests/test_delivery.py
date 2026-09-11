@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
@@ -19,8 +20,14 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.models.delivery import DELIVERY_ERROR_MAX_LENGTH, DELIVERY_SNAPSHOT_MAX_BYTES
 
+if TYPE_CHECKING:
+    _DeliveryQueueRowTestsBase = BaseTest
+else:
+    # pytest collects every unittest.TestCase subclass, including mixins.
+    _DeliveryQueueRowTestsBase = object
 
-class _DeliveryQueueRowTests:
+
+class _DeliveryQueueRowTests(_DeliveryQueueRowTestsBase):
     model: type[ConversationDelivery] | type[ConversationDeliveryPart]
 
     def _create(self, **kwargs: object) -> ConversationDelivery | ConversationDeliveryPart:
@@ -126,7 +133,7 @@ class _DeliveryQueueRowTests:
 class TestConversationDelivery(_DeliveryQueueRowTests, BaseTest):
     model = ConversationDelivery
 
-    def _create(
+    def _create(  # type: ignore[override]
         self,
         *,
         team: Team | None = None,
@@ -213,7 +220,7 @@ class TestConversationDeliveryPart(_DeliveryQueueRowTests, BaseTest):
             provider_account_id="T00000001",
         )
 
-    def _create(
+    def _create(  # type: ignore[override]
         self,
         *,
         team: Team | None = None,

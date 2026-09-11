@@ -425,13 +425,25 @@ class Migration(migrations.Migration):
         # not fire inside Django TestCase (the test transaction never commits).
         # ON DELETE CASCADE: a default NO ACTION FK would race Django's deferred
         # delivery_id CASCADE and can reject parent deletes while parts still exist.
+        # NOT VALID skips the existing-row scan (the table is empty here). New rows
+        # are still checked. VALIDATE in this same operation leaves the constraint
+        # fully valid; Postgres no-ops VALIDATE if it already is.
         migrations.RunSQL(
             sql="""
+            DO $$ BEGIN
+              IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'delivery_part_matches_parent_team'
+              ) THEN
+                ALTER TABLE posthog_conversations_delivery_part
+                ADD CONSTRAINT delivery_part_matches_parent_team
+                FOREIGN KEY (delivery_id, team_id)
+                REFERENCES posthog_conversations_delivery (id, team_id)
+                ON DELETE CASCADE
+                NOT VALID;
+              END IF;
+            END $$;
             ALTER TABLE posthog_conversations_delivery_part
-            ADD CONSTRAINT delivery_part_matches_parent_team
-            FOREIGN KEY (delivery_id, team_id)
-            REFERENCES posthog_conversations_delivery (id, team_id)
-            ON DELETE CASCADE;
+            VALIDATE CONSTRAINT delivery_part_matches_parent_team;
             """,
             reverse_sql="""
             ALTER TABLE posthog_conversations_delivery_part

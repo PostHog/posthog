@@ -239,6 +239,9 @@ class ConversationDeliveryPart(DeliveryQueueRowMixin, TeamScopedRootMixin, UUIDM
 
     # db_constraint=False: a real FK constraint would take SHARE ROW EXCLUSIVE on the
     # hot posthog_team table on CreateModel. App-level enforcement is enough here.
+    # Keep the team_id index: unique (delivery, part_key) does not lead with team,
+    # and for_team() lookups need it. ConversationDelivery.team can omit the index
+    # because unique (team, channel, comment_id) already covers team_id.
     team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
