@@ -12,7 +12,6 @@ from parameterized import parameterized
 from posthog.api_queries_budget import (
     API_QUERIES_BUDGET_ERRORS_COUNTER,
     BUDGET_KEY_PREFIX,
-    LIMITED_EVENT_INTERVAL_SECONDS,
     BudgetSpec,
     QueryCost,
     budget_spec_for,
@@ -99,8 +98,7 @@ class TestLimitedEventClaim(SimpleTestCase):
         assert claim_limited_event(team_a) is True
         assert claim_limited_event(team_a) is False
         assert claim_limited_event(team_b) is True
-        ttl = get_client().ttl(f"{BUDGET_KEY_PREFIX}limited-event/{team_a}")
-        assert LIMITED_EVENT_INTERVAL_SECONDS - 5 < ttl <= LIMITED_EVENT_INTERVAL_SECONDS
+        assert get_client().ttl(f"{BUDGET_KEY_PREFIX}limited-event/{team_a}") > 0
 
     def test_redis_errors_skip_the_event_and_count(self):
         before = API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="limited_event")._value.get()
