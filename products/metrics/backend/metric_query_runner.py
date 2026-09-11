@@ -395,13 +395,35 @@ def type_filter_expr(metric_type: str | None) -> ast.Expr:
     return parse_expr("metric_type = {metric_type}", placeholders={"metric_type": ast.Constant(value=metric_type)})
 
 
-def series_scope_expr(metric_name: str, filters: Sequence[MetricFilter]) -> ast.Expr:
+def _active_since_expr(date_from: dt.datetime | None) -> ast.Expr:
+    """Bound a `metric_series` read to series still active at `date_from`.
+
+    A series' `last_seen` is its newest sample time, so a series with any sample
+    in `[date_from, ...]` has `last_seen >= date_from`. A chart, sample list or
+    filter that only covers that window need not read the label rows of series
+    that fell silent before it. `metric_series2` carries a minmax index on
+    `last_seen`, and its rows land in parts by insert time, so the bound skips
+    whole old parts rather than filtering row by row.
+
+    TRUE when `date_from` is None, for callers (the bucket decomposition) that
+    want every series regardless of when it was last seen.
+    """
+    if date_from is None:
+        return ast.Constant(value=True)
+    return parse_expr("last_seen >= {date_from}", placeholders={"date_from": ast.Constant(value=date_from)})
+
+
+def series_scope_expr(
+    metric_name: str, filters: Sequence[MetricFilter], date_from: dt.datetime | None = None
+) -> ast.Expr:
     """Restrict `metrics` rows to the series the label filters select.
 
     Labels live only on `metric_series`, so a filter becomes an IN over the
     fingerprints of the matching series. The subquery is pinned to one metric
     name because the series table sorts by `(team_id, metric_name,
-    series_fingerprint)`, which keeps the lookup to that metric's series.
+    series_fingerprint)`, which keeps the lookup to that metric's series, and
+    (when `date_from` is given) to the series active in the window, so the
+    IN-list holds only the fingerprints a windowed chart can actually match.
 
     TRUE when there are no filters, so a data point whose series row has not
     landed yet still counts. Once a filter is set there is no label set to
@@ -415,21 +437,29 @@ def series_scope_expr(metric_name: str, filters: Sequence[MetricFilter]) -> ast.
                 SELECT series_fingerprint
                 FROM posthog.metric_series
                 WHERE metric_name = {metric_name}
+                  AND {active_since}
                   AND {filters}
             )
         """,
-        placeholders={"metric_name": ast.Constant(value=metric_name), "filters": filters_expr(filters)},
+        placeholders={
+            "metric_name": ast.Constant(value=metric_name),
+            "active_since": _active_since_expr(date_from),
+            "filters": filters_expr(filters),
+        },
     )
 
 
-def series_labels_query(metric_name: str) -> ast.SelectQuery:
-    """One row per series of `metric_name` with its labels, for joining onto a
-    per-series reduction.
+def series_labels_query(metric_name: str, date_from: dt.datetime | None = None) -> ast.SelectQuery:
+    """One row per series of `metric_name` with its full label maps, for joining
+    onto a per-series reduction.
 
     Grouped rather than read with FINAL: ReplacingMergeTree duplicates share
     the fingerprint and carry the same labels, since the labels are the
     fingerprint's input, so `any()` cannot pick a stale value and the join
     never multiplies a series.
+
+    `date_from` bounds the join to series active in the window; left None it
+    reads every series, which the bucket decomposition needs.
     """
     query = parse_select(
         """
@@ -440,11 +470,44 @@ def series_labels_query(metric_name: str) -> ast.SelectQuery:
                 any(resource_attributes) AS resource_attributes
             FROM posthog.metric_series
             WHERE metric_name = {metric_name}
+              AND {active_since}
             GROUP BY series_fingerprint
         """,
-        placeholders={"metric_name": ast.Constant(value=metric_name)},
+        placeholders={"metric_name": ast.Constant(value=metric_name), "active_since": _active_since_expr(date_from)},
     )
     assert isinstance(query, ast.SelectQuery)
+    return query
+
+
+def series_group_labels_query(
+    metric_name: str, group_by: Sequence[MetricGroupBy], date_from: dt.datetime | None = None
+) -> ast.SelectQuery:
+    """One row per series with only the group-by label values, aliased
+    `group_0`, `group_1`, ...
+
+    The chart groups by a handful of labels, never by the whole map. Projecting
+    just those keys here, rather than joining the two full `Map` columns and
+    resolving the keys outside, keeps the join's hash table to a few strings per
+    series instead of two maps — the difference between gigabytes and megabytes
+    of query memory on a high-cardinality metric.
+
+    `any()` is safe for the same reason as `series_labels_query`: a label is
+    constant within a series.
+    """
+    query = parse_select(
+        """
+            SELECT series_fingerprint
+            FROM posthog.metric_series
+            WHERE metric_name = {metric_name}
+              AND {active_since}
+            GROUP BY series_fingerprint
+        """,
+        placeholders={"metric_name": ast.Constant(value=metric_name), "active_since": _active_since_expr(date_from)},
+    )
+    assert isinstance(query, ast.SelectQuery)
+    for index, group in enumerate(group_by):
+        label = ast.Call(name="toString", args=[attribute_field(group.key, scope=group.scope.value)])
+        query.select.append(ast.Alias(alias=f"group_{index}", expr=ast.Call(name="any", args=[label])))
     return query
 
 
@@ -596,23 +659,25 @@ class MetricQueryRunner:
         assert query.select_from is not None and query.select_from.alias == "s"
         query.select_from.next_join = ast.JoinExpr(
             join_type="LEFT JOIN",
-            table=series_labels_query(self.metric_name),
+            table=series_group_labels_query(self.metric_name, self.group_by, self.date_from),
             alias="ser",
             constraint=ast.JoinConstraint(
                 expr=parse_expr("s.series_fingerprint = ser.series_fingerprint"), constraint_type="ON"
             ),
         )
-        for index, group in enumerate(self.group_by):
+        # The label values are resolved inside the joined subquery (aliased
+        # `group_i`), so the outer query only reads them back off `ser` and
+        # groups on them — the two full label maps never cross the join.
+        for index in range(len(self.group_by)):
             alias = f"group_{index}"
-            label_expr: ast.Expr = ast.Call(name="toString", args=[attribute_field(group.key, scope=group.scope.value)])
-            query.select.insert(1 + index, ast.Alias(alias=alias, expr=label_expr))
+            query.select.insert(1 + index, ast.Alias(alias=alias, expr=ast.Field(chain=["ser", alias])))
             query.group_by.append(ast.Field(chain=[alias]))
 
     def _type_filter_expr(self) -> ast.Expr:
         return type_filter_expr(self.metric_type)
 
     def _series_scope_expr(self) -> ast.Expr:
-        return series_scope_expr(self.metric_name, self.filters)
+        return series_scope_expr(self.metric_name, self.filters, self.date_from)
 
     def _build_simple_query(self) -> ast.SelectQuery:
         """sum/avg/count/p95: collapse each series to one value per bucket,

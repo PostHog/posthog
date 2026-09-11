@@ -180,7 +180,7 @@ class MetricEventSamplesQueryRunner:
                 "trace_id": ast.Constant(value=self.trace_id),
                 "span_id": ast.Constant(value=self.span_id),
                 "type_filter": type_filter_expr(self.metric_type.value if self.metric_type else None),
-                "series_scope": series_scope_expr(self.metric_name, self.filters),
+                "series_scope": series_scope_expr(self.metric_name, self.filters, self.date_from),
                 "limit": ast.Constant(value=self.limit),
             },
         )
