@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
@@ -26,6 +28,9 @@ describe('PlayerShareMenu', () => {
         )
         await userEvent.click(screen.getByText('Share'))
         await userEvent.click(screen.getByText('Copy link'))
-        expect(copyToClipboard).toHaveBeenCalledWith(expect.stringContaining('abc123'), 'recording link')
+        expect(copyToClipboard).toHaveBeenCalledWith(
+            expect.stringContaining(`/project/${MOCK_TEAM_ID}/replay/abc123`),
+            'recording link'
+        )
     })
 })

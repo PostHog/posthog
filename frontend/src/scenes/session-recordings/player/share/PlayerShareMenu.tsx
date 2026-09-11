@@ -50,10 +50,12 @@ export function PlayerShareMenu(): JSX.Element {
     }
 
     const getRecordingUrl = (): string => {
-        const path = urls.replaySingle(sessionRecordingId)
         const timestamp = getCurrentPlayerTime()
-        const separator = path.includes('?') ? '&' : '?'
-        return `${window.location.origin}${path}${timestamp ? `${separator}t=${timestamp}` : ''}`
+        return urls.absolute(
+            urls.currentProject(
+                urls.replaySingle(sessionRecordingId, timestamp ? { secondsOffsetFromStart: timestamp } : undefined)
+            )
+        )
     }
 
     const onOpenInBrowserTab = (): void => {
