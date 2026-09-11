@@ -97,9 +97,7 @@ export const regexMatchingLogic: LogicWrapper<regexMatchingLogicType> = kea<rege
         cache.fingerprint = undefined
         actions.refresh()
     }),
-    propsChanged(({ actions, props }, oldProps) => {
-        if (JSON.stringify(props.checks) !== JSON.stringify(oldProps.checks)) {
-            actions.refresh()
-        }
+    propsChanged(({ actions }) => {
+        actions.refresh()
     }),
 ])

@@ -334,7 +334,8 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
                     const matches = new Set(regexMatchedEvents)
                     return visibleEvents.filter((event) => matches.has(event))
                 }
-                return visibleEvents.filter((event) => event.event.toLowerCase().includes(searchText.toLowerCase()))
+                const search = searchText.toLowerCase()
+                return visibleEvents.filter((event) => event.event.toLowerCase().includes(search))
             },
         ],
         searchFilteredEventsCount: [
