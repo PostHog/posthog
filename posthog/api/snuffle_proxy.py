@@ -70,6 +70,9 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @extend_schema(exclude=True)
     @action(detail=False, methods=["GET", "POST"], url_path=r"api/v1/(?P<path>[A-Za-z0-9_./-]+)")
     def proxy(self, request: Request, path: str, **kwargs) -> HttpResponse:
+        # The router's trailing slash is optional and the path group can capture it, so without
+        # this `.../api/v1/query/` misses the allowlist while `.../api/v1/query` matches.
+        path = path.rstrip("/")
         if not any(pattern.fullmatch(path) for pattern in self.allowed_paths):
             return _error_response(status.HTTP_404_NOT_FOUND, "not_found", f"unsupported endpoint: {path}")
 

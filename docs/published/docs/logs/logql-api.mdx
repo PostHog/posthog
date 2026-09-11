@@ -22,15 +22,15 @@ GET|POST /api/projects/:project_id/logs/loki/api/v1/query_range
 
 Supported paths:
 
-| Path | Purpose |
-| --- | --- |
-| `loki/api/v1/query` | Instant query |
-| `loki/api/v1/query_range` | Range query |
-| `loki/api/v1/labels` | List label names |
-| `loki/api/v1/label/:name/values` | List values for one label |
-| `loki/api/v1/series` | List log streams |
-| `loki/api/v1/index/stats` | Stream statistics for a selector |
-| `loki/api/v1/status/buildinfo` | Build information |
+| Path                             | Purpose                          |
+| -------------------------------- | -------------------------------- |
+| `loki/api/v1/query`              | Instant query                    |
+| `loki/api/v1/query_range`        | Range query                      |
+| `loki/api/v1/labels`             | List label names                 |
+| `loki/api/v1/label/:name/values` | List values for one label        |
+| `loki/api/v1/series`             | List log streams                 |
+| `loki/api/v1/index/stats`        | Stream statistics for a selector |
+| `loki/api/v1/status/buildinfo`   | Build information                |
 
 The API is read-only. `push` is not exposed. Send logs with the [OpenTelemetry exporter](/docs/logs/installation) instead.
 
@@ -66,8 +66,8 @@ The endpoint shares the [API rate limits](/docs/api#rate-limiting) of the projec
 
 The endpoint proxies to [Snuffle](https://github.com/PostHog/snuffle), which runs next to the logs ClickHouse cluster. Configure it with these environment variables on the web pods:
 
-| Variable | Purpose |
-| --- | --- |
-| `SNUFFLE_URL` | Base URL of Snuffle. Empty turns the endpoint off and it answers `501`. |
+| Variable                            | Purpose                                                                                              |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `SNUFFLE_URL`                       | Base URL of Snuffle. Empty turns the endpoint off and it answers `501`.                              |
 | `SNUFFLE_USER` / `SNUFFLE_PASSWORD` | ClickHouse credential that Snuffle uses. Defaults to the logs cluster user. Prefer a read-only user. |
-| `SNUFFLE_TIMEOUT_SECONDS` | Upstream request timeout. Default `60`. |
+| `SNUFFLE_TIMEOUT_SECONDS`           | Upstream request timeout. Default `60`.                                                              |

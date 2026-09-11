@@ -35,9 +35,10 @@ class TestLokiQueryApi(APIBaseTest):
         self.request_mock = patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_get_is_forwarded_with_team_header_and_credentials(self):
+    @parameterized.expand([("bare", "query_range"), ("trailing_slash", "query_range/")])
+    def test_get_is_forwarded_with_team_header_and_credentials(self, _name: str, path: str):
         response = self.client.get(
-            f"{self.base}/query_range",
+            f"{self.base}/{path}",
             {"query": '{service_name="api"} |= "error"', "start": "1", "end": "2", "limit": "100"},
         )
 
