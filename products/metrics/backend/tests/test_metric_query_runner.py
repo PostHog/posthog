@@ -434,12 +434,7 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestAttributeField(ClickhouseTestMixin, APIBaseTest):
-    """End-to-end tests for the `attribute_field` helper.
-
-    The helper builds an AST node; correctness depends on what ClickHouse
-    actually returns, so we execute a real query against `posthog.metric_series`
-    (where the label maps live) for each scope and assert the resolved value.
-    """
+    """Test `attribute_field` with real `metric_series` queries."""
 
     CLASS_DATA_LEVEL_SETUP = True
 
@@ -1451,8 +1446,7 @@ class TestMultiClauseAndFormulas(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestMetricTypeIsolation(ClickhouseTestMixin, APIBaseTest):
-    """One metric name existing as several types (e.g. a counter and a gauge)
-    must not blend into one aggregate — series identity includes the type."""
+    """Test type isolation for metrics with the same name."""
 
     CLASS_DATA_LEVEL_SETUP = True
 
@@ -1544,10 +1538,7 @@ class TestMetricTypeIsolation(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestNonFiniteAggregates(ClickhouseTestMixin, APIBaseTest):
-    """ClickHouse float aggregates can overflow to inf (two 1e308 series in
-    one bucket). A Python `inf` leaking into the response is at best invalid
-    JSON ("Infinity") and at worst a silent null downstream — the API contract
-    is an explicit null gap instead."""
+    """Test null gaps for non-finite aggregates."""
 
     CLASS_DATA_LEVEL_SETUP = True
 

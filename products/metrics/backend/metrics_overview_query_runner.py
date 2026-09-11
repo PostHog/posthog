@@ -1,18 +1,8 @@
-"""Ingestion rollup for the metrics overview page.
+"""Build metrics overview data from `metric_series`.
 
-Reads `metric_series` only — one row per (metric, label-set) with a
-materialized `last_seen`, sorted by `(team_id, metric_name,
-series_fingerprint)` — so the landing page never scans the raw datapoint
-table. Two queries: an unwindowed pass for freshness plus window-scoped
-inventory counts, and a windowed GROUP BY service.
-
-No FINAL, same argument as `MetricNamesQueryRunner`: ReplacingMergeTree
-duplicates share the fingerprint, `max(last_seen)` picks the row FINAL would
-keep, and `uniqExact(series_fingerprint)` counts duplicates once.
-
-Counts use a windowed query so `idx_last_seen_minmax` skips old parts.
-Freshness has no window. It reports the last data point and reads only
-`last_seen`. All three queries run concurrently.
+`max(last_seen)` and `uniqExact` handle duplicate rows without FINAL.
+Counts use a window so the index skips old parts. Freshness reads the last
+data point. All three queries run concurrently.
 """
 
 import datetime as dt
@@ -51,11 +41,7 @@ DEFAULT_LOOKBACK = dt.timedelta(days=1)
 
 
 def _set_query_timing_attributes(span: Span, response: HogQLQueryResponse) -> None:
-    """Split the HogQL root timing from the ClickHouse read.
-
-    `.` is the whole lifecycle (parse, resolve, print, execute), so a slow overview
-    trace needs `./clickhouse_execute` to tell a slow read from slow query building.
-    """
+    """Set separate timing attributes for the query and ClickHouse read."""
     timings = {timing.k: timing.t for timing in response.timings or ()}
     if (query_seconds := timings.get(".")) is not None:
         span.set_attribute("query.seconds", query_seconds)

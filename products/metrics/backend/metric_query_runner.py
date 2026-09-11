@@ -1,22 +1,8 @@
-"""Single-metric time-series query runner.
+"""Run time-series queries for one metric.
 
-Returns a list of `(time_bucket, value)` points for one metric over a date
-range, with a choice of aggregation. Modelled after the logs
-`SparklineQueryRunner` shape but flattened — we don't yet need the full
-`AnalyticsQueryRunner[LogsQueryResponse]` infrastructure since this product
-isn't going through HogQL `DataNode` caching, schema-gen or the data-viz
-pipeline yet.
-
-Every aggregation resolves per physical series (`_series_key_expr`) before
-combining across series: instant aggregations reduce each series to its last
-sample in the bucket, counter functions diff within a series. Aggregating raw
-samples instead would weight a series by how often it was scraped.
-
-Storage is the `metrics` / `metric_series` split: a data point row carries only
-its `series_fingerprint`, and the label maps live once per series on
-`metric_series`. Label filters therefore become a fingerprint IN-list resolved
-on the series table (`series_scope_expr`), and group-by labels come from a join
-to the series table after the per-series reduction (`_splice_group_columns`).
+Aggregate each physical series before combining series.
+Metric points store a fingerprint. Series rows store label maps.
+Filters use fingerprints, and group-by joins labels after reduction.
 """
 
 import re
@@ -64,30 +50,11 @@ _SERVICE_NAME_KEYS: frozenset[str] = frozenset({"service_name", "service.name"})
 
 
 def attribute_field(name: str, *, scope: AttributeScope = "auto") -> ast.Expr:
-    """Build the HogQL AST node that accesses a metric attribute by name.
+    """Return a HogQL AST expression for a metric attribute.
 
-    The expression reads the `attributes` / `resource_attributes` maps, which
-    exist only on `metric_series`, so it must land in a scope where that table
-    (or a subquery re-exporting those columns) is visible.
-
-    `scope` resolves *where* the attribute lives:
-
-    - ``"resource"`` — look in ``resource_attributes`` only (Prometheus-style
-      `service.name`, `k8s.pod.name` — set once per scrape target).
-    - ``"attribute"`` — look in ``attributes`` only. Per-data-point labels
-      like ``http.method`` live here.
-    - ``"auto"`` (default) — try resource first, fall back to attribute if
-      empty. Map lookups in ClickHouse return ``''`` for missing keys, not
-      NULL, so the fallback compares against the empty string.
-
-    The empty-string fallback is documented behavior, not a bug: it means
-    callers cannot meaningfully filter for "attribute equals empty string"
-    in auto scope. Use an explicit scope for that edge case.
-
-    ``service_name`` / ``service.name`` are special-cased to the first-class
-    ``service_name`` column regardless of scope: ingestion extracts the
-    service name out of the resource attributes into its own column, so a
-    map lookup would match nothing on real rows.
+    Labels are in `metric_series`. `scope` selects a resource, attribute, or
+    resource-first map. Use an explicit scope to match empty strings.
+    Service name always uses the extracted `service_name` column.
     """
     if scope not in _ALLOWED_ATTRIBUTE_SCOPES:
         raise ValueError(f"Unknown attribute scope: {scope!r}")
@@ -110,34 +77,19 @@ def attribute_field(name: str, *, scope: AttributeScope = "auto") -> ast.Expr:
 
 
 def _series_key_expr() -> ast.Expr:
-    """Identifies the physical series a row belongs to.
+    """Return the key for one physical series.
 
-    Every aggregation resolves per series before combining across series, so
-    all three query builders share this definition rather than restating it.
-
-    `series_fingerprint` is assigned once at ingest over the metric name, the
-    metric type, the service name and both label maps (`compute_series_fingerprint`
-    in `rust/capture-logs/src/metric_record.rs`), so it already separates a
-    counter from a gauge of the same name. Ingest fingerprints the series
-    before it adds the synthetic `$originalTimestamp` attribute to a skewed
-    point, so that per-sample value never shatters a series into one series
-    per sample.
+    Ingestion includes name, type, service, and labels. It excludes
+    `$originalTimestamp`.
     """
     return ast.Field(chain=["series_fingerprint"])
 
 
 def _aggregation_expr(name: str, value: ast.Expr) -> ast.Expr:
-    """Build the HogQL AST for the cross-series aggregations.
+    """Return a HogQL AST for cross-series aggregation.
 
-    `value` is the per-series value the inner query produced, never the raw
-    `value` column: aggregating raw rows counts each series once per sample, so
-    the result scales with the scrape rate. `count` takes no argument for the
-    same reason — one inner row per series means it counts series.
-
-    Kept as AST nodes (rather than string interpolation) so the
-    `hogql-no-fstring` semgrep rule doesn't have to special-case this
-    runner — the function name and percentile literal travel as a
-    typed expression, not as substituted text.
+    The inner query returns one value per series. This prevents scrape rate
+    from changing the result. `count` therefore counts series.
     """
     if name == "sum":
         return ast.Call(name="sum", args=[value])
@@ -155,10 +107,7 @@ def _aggregation_expr(name: str, value: ast.Expr) -> ast.Expr:
 
 
 def _finite_or_none(value: float | None) -> float | None:
-    """ClickHouse float aggregates can overflow to inf/-inf (or produce NaN);
-    a non-finite value has no JSON representation and downstream renderers
-    turn it into null anyway. Make the null explicit and deterministic here —
-    consumers render it as a gap."""
+    """Return null for non-finite values so clients render a gap."""
     if value is None or not math.isfinite(value):
         return None
     return value
@@ -173,12 +122,9 @@ _ALLOWED_METRIC_TYPES: frozenset[str] = frozenset(t.value for t in MetricType)
 
 
 def _histogram_quantile(quantile: float, bounds: list[float], counts: list[float]) -> float:
-    """Prometheus-style quantile from explicit-bounds bucket counts.
+    """Calculate a Prometheus-style quantile from bounded bucket counts.
 
-    `counts` has one entry per bound plus an overflow bucket. Linear
-    interpolation inside the bucket containing the rank; the overflow
-    bucket clamps to the highest finite bound; the first bucket's lower
-    edge is assumed 0 (negative-bound histograms get bounds[0]).
+    Interpolate in the selected bucket. Clamp overflow to the highest bound.
     """
     total = sum(counts)
     if total <= 0 or not bounds:
@@ -238,28 +184,10 @@ def _interval_step(name: str) -> dt.timedelta:
 
 
 def _align_to_interval(timestamp: dt.datetime, interval: str, *, tzinfo: ZoneInfo) -> dt.datetime:
-    """Floor `timestamp` onto the bucket grid `toStartOfInterval` uses.
+    """Floor a timestamp to the ClickHouse bucket grid.
 
-    The bucket labels come from `toStartOfInterval(sample_timestamp)`, so a
-    `date_from` inside a bucket would make that first bucket partial: labelled
-    as the whole interval but covering only the slice after `date_from`. Every
-    query scans and clips from this floor instead, so the first bucket holds
-    its full interval. Relative ranges like "-1h" resolve to now-minus-offset
-    with second precision, which makes the unaligned case the normal one.
-
-    The grid lives in `tzinfo`, the project's timezone, not in UTC. HogQL
-    rewrites a `DateTime` column read into `toTimeZone(<column>, <project
-    timezone>)` (`PropertySwapper.visit_field`), so `toStartOfInterval` sees a
-    local-time value and counts every step from local midnight. Flooring in UTC
-    instead lands on the same instant for the sub-hour steps, but drifts for
-    `hour_6`, `day` and `week`, and for `hour` in a zone whose offset is not a
-    whole number of hours (Asia/Kolkata is +05:30, so its hour boundaries sit
-    at :30 past each UTC hour).
-
-    Not `posthog.interval_specs.align`: that grid honors the team's
-    `week_start_day` and lacks the sub-hour steps, where `toStartOfInterval`
-    always counts weeks from Monday — the two would disagree exactly where
-    agreement with the SQL is the point.
+    Use the project timezone to keep the first bucket complete. Do not use
+    `interval_specs.align`, which uses different week and sub-hour rules.
     """
     if timestamp.tzinfo is None:
         timestamp = timestamp.replace(tzinfo=dt.UTC)
@@ -281,26 +209,18 @@ _MIN_COUNTER_LOOKBACK = dt.timedelta(minutes=5)
 
 
 def counter_lookback(interval: str) -> dt.timedelta:
-    """How far before `date_from` the counter and histogram scans reach.
+    """Return the counter and histogram predecessor lookback.
 
-    Those aggregations diff each sample against the one before it, so the last
-    sample *outside* the requested range is an input to the first bucket inside
-    it. Without it the first bucket diffs against nothing and is dropped as
-    uncomputable. The pre-range rows are cut again before bucketing, so the
-    returned grid is exactly the requested range.
-
-    `diagnostics.decompose_bucket` reads its raw samples over the same window
-    through this helper: a shorter reach there would find a different
-    predecessor and report a disagreement the chart does not have.
+    The first in-range sample needs its prior sample. Queries remove pre-range
+    rows before returning results. Diagnostics uses the same lookback.
     """
     return max(_interval_step(interval), _MIN_COUNTER_LOOKBACK)
 
 
 def _filter_condition(filter: MetricFilter) -> ast.Expr:
-    """One label predicate as a HogQL boolean expression.
+    """Return one label predicate as a HogQL boolean expression.
 
-    Missing map keys resolve to `''`, so `neq`/`not_regex` also match rows
-    that lack the key entirely — same as Prometheus negative matchers.
+    Negative matchers include missing map keys, as in Prometheus.
     """
     field = attribute_field(filter.key, scope=filter.scope.value)
     if filter.op in (FilterOp.REGEX, FilterOp.NOT_REGEX):
@@ -332,16 +252,10 @@ def filters_expr(filters: Sequence[MetricFilter]) -> ast.Expr:
 
 
 def time_range_expr(date_from: dt.datetime, date_to: dt.datetime) -> ast.Expr:
-    """Bound a `metrics` read to `[date_from, date_to)`.
+    """Limit a `metrics` read to `[date_from, date_to)`.
 
-    The `timestamp` pair is the exact bound. The `time_bucket` pair is what
-    lets ClickHouse skip granules: `metrics` sorts by `(team_id, metric_name,
-    time_bucket, ...)` and is partitioned by expiry, so a bare `timestamp`
-    predicate prunes nothing inside a metric and the read covers the metric's
-    whole retention. `time_bucket` is `toStartOfHour(timestamp)` in UTC, so
-    the bounds snap to the UTC hour here rather than in HogQL, where
-    `toStartOfHour` follows the project's timezone and lands on :30 for a
-    half-hour offset.
+    Timestamp gives the exact range. UTC `time_bucket` lets ClickHouse skip
+    granules.
     """
     return parse_expr(
         """
@@ -364,12 +278,11 @@ def _utc_hour(value: dt.datetime) -> dt.datetime:
 
 
 def type_filter_expr(metric_type: str | None) -> ast.Expr:
-    """Constrains rows to one metric type. A name can exist as several
-    types (a counter and a gauge); their series are distinct and must not
-    blend into one aggregate. TRUE when no type was requested.
+    """Limit rows to one metric type.
 
-    Both `metrics` and `metric_series` name the column `metric_type`, so the
-    same expression works against either table."""
+    The same name can have distinct counter and gauge series. Return true when
+    no type was requested.
+    """
     if metric_type is None:
         return ast.Constant(value=True)
     return parse_expr("metric_type = {metric_type}", placeholders={"metric_type": ast.Constant(value=metric_type)})
@@ -395,18 +308,10 @@ def _active_since_expr(date_from: dt.datetime | None) -> ast.Expr:
 def series_scope_expr(
     metric_name: str, filters: Sequence[MetricFilter], date_from: dt.datetime | None = None
 ) -> ast.Expr:
-    """Restrict `metrics` rows to the series the label filters select.
+    """Limit `metrics` rows to series that match label filters.
 
-    Labels live only on `metric_series`, so a filter becomes an IN over the
-    fingerprints of the matching series. The subquery is pinned to one metric
-    name because the series table sorts by `(team_id, metric_name,
-    series_fingerprint)`, which keeps the lookup to that metric's series, and
-    (when `date_from` is given) to the series active in the window, so the
-    IN-list holds only the fingerprints a windowed chart can actually match.
-
-    TRUE when there are no filters, so a data point whose series row has not
-    landed yet still counts. Once a filter is set there is no label set to
-    match such a point against, so it drops out.
+    Labels are in `metric_series`, so filters select matching fingerprints.
+    Without filters, points with missing series rows still count.
     """
     if not filters:
         return ast.Constant(value=True)
@@ -429,16 +334,10 @@ def series_scope_expr(
 
 
 def series_labels_query(metric_name: str, date_from: dt.datetime | None = None) -> ast.SelectQuery:
-    """One row per series of `metric_name` with its full label maps, for joining
-    onto a per-series reduction.
+    """Return full label maps for each metric series.
 
-    Grouped rather than read with FINAL: ReplacingMergeTree duplicates share
-    the fingerprint and carry the same labels, since the labels are the
-    fingerprint's input, so `any()` cannot pick a stale value and the join
-    never multiplies a series.
-
-    `date_from` bounds the join to series active in the window; left None it
-    reads every series, which the bucket decomposition needs.
+    Group rows to avoid duplicate joins. `date_from` limits active series.
+    Without it, return every series for bucket decomposition.
     """
     query = parse_select(
         """
@@ -461,17 +360,10 @@ def series_labels_query(metric_name: str, date_from: dt.datetime | None = None) 
 def series_group_labels_query(
     metric_name: str, group_by: Sequence[MetricGroupBy], date_from: dt.datetime | None = None
 ) -> ast.SelectQuery:
-    """One row per series with only the group-by label values, aliased
-    `group_0`, `group_1`, ...
+    """Return group-by labels for each series as `group_0`, `group_1`, and so on.
 
-    The chart groups by a handful of labels, never by the whole map. Projecting
-    just those keys here, rather than joining the two full `Map` columns and
-    resolving the keys outside, keeps the join's hash table to a few strings per
-    series instead of two maps — the difference between gigabytes and megabytes
-    of query memory on a high-cardinality metric.
-
-    `any()` is safe for the same reason as `series_labels_query`: a label is
-    constant within a series.
+    Read only the group labels to avoid joining full maps. `any()` is safe
+    because labels are constant within a series.
     """
     query = parse_select(
         """
@@ -538,8 +430,7 @@ class MetricQueryRunner:
         self.metric_type = metric_type
 
     def run(self) -> list[dict[str, Any]]:
-        """Bucketed rows: `{"time", "value", "labels"}`. `labels` carries one
-        entry per group_by key (always `{}` without group_by)."""
+        """Return bucketed rows with time, value, and group labels."""
         if self.aggregation == "histogram_quantile":
             return self._run_histogram_quantile()
         if self.aggregation in ("rate", "increase"):
@@ -569,9 +460,7 @@ class MetricQueryRunner:
         return rows
 
     def _run_histogram_quantile(self) -> list[dict[str, Any]]:
-        """ClickHouse sums the per-le distributions (temporality-aware,
-        per-series deltas like rate/increase); the quantile interpolation
-        happens here in Python where it is exact and unit-testable."""
+        """Calculate quantiles from the distributions that ClickHouse sums."""
         assert self.quantile is not None
         query = self._build_histogram_query()
         response = execute_hogql_query(
@@ -608,9 +497,7 @@ class MetricQueryRunner:
         return rows
 
     def _raise_on_truncation(self, results: list[Any]) -> None:
-        """A full page means ClickHouse hit the row LIMIT and dropped the
-        tail of the range (the most recent buckets) — fail loud rather than
-        return data that silently ends early."""
+        """Raise an error when the row limit drops recent buckets."""
         if len(results) >= _ROW_LIMIT:
             raise ValueError(
                 "query produced too many (time bucket, group) rows; "
@@ -618,16 +505,10 @@ class MetricQueryRunner:
             )
 
     def _splice_group_columns(self, query: ast.SelectQuery) -> None:
-        """Insert the group_by label columns between `time` and `value` —
-        parse_select placeholders can't express a variable column count.
+        """Add group labels between `time` and `value`.
 
-        `query` reads a per-series subquery aliased `s` that exports
-        `series_fingerprint`. The labels are not on that side, so a LEFT JOIN
-        to the metric's series (`series_labels_query`, aliased `ser`) is added
-        on the fingerprint, and each label resolves against `ser`. The join is
-        only attached when there is a group_by, so an ungrouped chart never
-        pays for it. A series whose row has not landed yet keeps its points
-        and groups under an empty label.
+        Join series labels by fingerprint only when the query groups results.
+        Missing series rows use empty labels.
         """
         if not self.group_by:
             return
@@ -655,21 +536,10 @@ class MetricQueryRunner:
         return series_scope_expr(self.metric_name, self.filters, self.date_from)
 
     def _build_simple_query(self) -> ast.SelectQuery:
-        """sum/avg/count/p95: collapse each series to one value per bucket,
-        then aggregate across series — PromQL instant-vector semantics.
+        """Build sum, average, count, and p95 queries.
 
-        The inner query takes each series' last sample in the bucket, so a
-        metric scraped ten times contributes once rather than ten times.
-        Aggregating raw rows instead multiplied the cross-series total by the
-        scrape count, and the multiplier moved with partial buckets and
-        dropped scrapes.
-
-        Two samples of one series sharing a timestamp (a duplicate scrape)
-        make `argMax` pick between them arbitrarily; they are the same
-        reading, so either answer is right.
-
-        Group-by labels join onto the reduced series by fingerprint. A label is
-        constant within a series, so the outer query groups on it directly.
+        Reduce each series to its last value per bucket before aggregation.
+        Group-by joins labels by fingerprint after reduction.
         """
         # `metrics` is registered only in the `posthog.` HogQL namespace.
         query = parse_select(
@@ -709,27 +579,11 @@ class MetricQueryRunner:
         return query
 
     def _build_counter_query(self) -> ast.SelectQuery:
-        """rate/increase: per-underlying-series deltas, then aggregate.
+        """Build rate and increase queries from per-series deltas.
 
-        Each physical series (`series_fingerprint`) gets its samples diffed in
-        timestamp order via a window function, Prometheus-style:
-
-        - cumulative temporality: contribution = value - prev, clamped for
-          counter resets (value < prev means the counter restarted, so the
-          post-reset absolute value IS the increase); a sample with no
-          predecessor within `counter_lookback` has an unknowable increase, so
-          it contributes NULL, and a bucket where nothing was computable is
-          dropped rather than plotted as 0 (the histogram path drops such
-          buckets too).
-        - delta temporality: each sample already is the increase, so it
-          contributes its own value.
-
-        `increase` sums contributions per bucket; `rate` divides by the
-        bucket length in seconds.
-
-        The scan starts a lookback before `date_from` so the first sample in
-        the range has a predecessor to diff against; the outer `WHERE` drops
-        those pre-range rows again, leaving the requested bucket grid.
+        Cumulative metrics diff each sample and handle resets. Delta metrics
+        use sample values. Missing predecessors produce gaps. The lookback
+        provides a predecessor before the requested range.
         """
         step_seconds = _interval_step(self.interval).total_seconds()
         divisor = step_seconds if self.aggregation == "rate" else 1.0
@@ -789,10 +643,7 @@ class MetricQueryRunner:
         return query
 
     def _build_histogram_query(self) -> ast.SelectQuery:
-        """Per-time-bucket summed bucket-count distributions for histogram
-        rows, with the same per-series temporality/reset handling as
-        rate/increase applied element-wise to the counts array — including the
-        lookback that gives the first in-range sample a predecessor."""
+        """Build histogram distributions with rate and increase semantics."""
         query = parse_select(
             """
                 SELECT

@@ -1,20 +1,8 @@
-"""Raw metric emissions for a metric, from the metrics/metric_series split.
+"""Return raw metric samples for the Samples and metric-to-trace views.
 
-Unlike `MetricQueryRunner` (which aggregates `metrics` into a time series), this
-returns individual emissions — value, attributes, and the trace linkage — newest
-first. It backs the Samples view and the metric->trace pivot.
-
-Joins `posthog.metrics` (one row per data point) to `posthog.metric_series`
-(the deduped label set) on `series_fingerprint`. Samples are filtered + limited
-first, then enriched with their series' labels; the series side is grouped so a
-ReplacingMergeTree duplicate never multiplies a sample. Everything except the
-two label maps comes from the sample row itself, so an emission whose series
-row hasn't landed yet still renders with its name and type (labels fall back
-to empty).
-
-Trace/span ids are stored base64-encoded (as capture-logs writes exemplars) but
-cross the API boundary as hex, matching the tracing product's contract — so a
-sample's trace_id can be passed straight to the trace endpoint / trace URL.
+Join samples to deduplicated series labels by `series_fingerprint`.
+The sample row supplies name and type if its series row is missing.
+The API uses hex trace IDs. Storage uses base64 trace IDs.
 """
 
 import base64
@@ -43,10 +31,9 @@ _QUERY_SETTINGS = HogQLGlobalSettings(
 
 
 def _normalise_to_base64(value: str) -> str:
-    """Hex trace/span ids (the API form) become the base64 the storage holds.
+    """Convert API hex trace or span IDs to storage base64.
 
-    No-op for values that aren't valid hex, mirroring the tracing product's
-    filter normalisation so both pivot directions accept the same id string.
+    Return invalid hex values unchanged to match tracing filters.
     """
     try:
         int(value, 16)
