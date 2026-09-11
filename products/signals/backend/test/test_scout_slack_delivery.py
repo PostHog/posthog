@@ -410,7 +410,10 @@ class TestScoutSlackDelivery(BaseTest):
         fake_client = MagicMock()
         fake_client.chat_postMessage.return_value = {"ts": "1785418710.000600"}
 
-        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+        with (
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
+            patch("products.signals.backend.scout_harness.slack_delivery.time.sleep") as sleep,
+        ):
             slack_integration.return_value.client = fake_client
             deliver_scout_slack_output.run(
                 self.team.id,
@@ -441,6 +444,7 @@ class TestScoutSlackDelivery(BaseTest):
         assert "Second" not in first_reply["blocks"][0]["text"]
         assert "Second" in second_reply["blocks"][0]["text"]
         assert calls[3].kwargs["blocks"][0]["type"] == "context"
+        sleep.assert_called_once_with(1)
 
     def test_threaded_report_without_section_labels_posts_a_single_message(self) -> None:
         # Headings and bold labels are the seams threading splits on. A summary with neither has
@@ -514,6 +518,7 @@ class TestScoutSlackDelivery(BaseTest):
         assert apply_async.call_args.kwargs["countdown"] == 120
         retry_kwargs = apply_async.call_args.kwargs["kwargs"]
         assert retry_kwargs["report_id"] == str(report.id)
+        assert retry_kwargs["report_revision"] == report.updated_at.isoformat()
         assert retry_kwargs["chunk_offset"] == 0
         assert len(retry_kwargs["reply_blocks"]) == 2
         assert "First body" in retry_kwargs["reply_blocks"][0][0]["text"]
@@ -525,7 +530,7 @@ class TestScoutSlackDelivery(BaseTest):
 
         assert _slack_retry_after_seconds(error) == 3600
 
-    @parameterized.expand([("suppressed",), ("newer_delivery",)])
+    @parameterized.expand([("suppressed",), ("newer_delivery",), ("edited",)])
     def test_delayed_thread_replies_revalidate_report(self, state: str) -> None:
         report = SignalReport.objects.create(
             team=self.team,
@@ -536,12 +541,16 @@ class TestScoutSlackDelivery(BaseTest):
         integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
         delivery_id = "01864f4c-6957-7d3f-8d85-1d775e527265"
         channel = "CSCOUTS|#scout-findings"
+        report_revision = report.updated_at.isoformat()
         if state == "suppressed":
             SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.SUPPRESSED)
-        else:
+        elif state == "newer_delivery":
             mark_latest_scout_report_delivery(
                 str(report.id), "0d1b6f3a-1d3f-4a6f-9d2c-7b3e2f1a9c44", integration.id, channel
             )
+        else:
+            report.title = "Redacted"
+            report.save()
 
         with patch("products.signals.backend.tasks.SlackIntegration") as slack_integration:
             deliver_scout_slack_thread_replies.run(
@@ -554,6 +563,7 @@ class TestScoutSlackDelivery(BaseTest):
                 "stale",
                 0,
                 report_id=str(report.id),
+                report_revision=report_revision,
             )
 
         slack_integration.return_value.client.chat_postMessage.assert_not_called()
@@ -586,13 +596,52 @@ class TestScoutSlackDelivery(BaseTest):
                 "remaining",
                 0,
                 report_id=str(report.id),
+                report_revision=report.updated_at.isoformat(),
             )
 
         assert apply_async.call_args.kwargs["countdown"] == 120
         retry_kwargs = apply_async.call_args.kwargs["kwargs"]
         assert retry_kwargs["report_id"] == str(report.id)
+        assert retry_kwargs["report_revision"] == report.updated_at.isoformat()
         assert retry_kwargs["attempt"] == 2
         slack_integration.return_value.client.chat_postMessage.assert_not_called()
+
+    def test_thread_reply_transport_failure_schedules_a_retry(self) -> None:
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Lead line.\n\n## First\nFirst body.\n\n## Second\nSecond body.",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.side_effect = [
+            {"ts": "1785418710.000800"},
+            ConnectionError("Slack unavailable"),
+            {"ts": "1785418710.000801"},
+        ]
+
+        with (
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
+            patch("products.signals.backend.tasks.deliver_scout_slack_thread_replies.apply_async") as apply_async,
+        ):
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+                thread_reports=True,
+            )
+
+        assert apply_async.call_args.kwargs["countdown"] == 60
+        retry_kwargs = apply_async.call_args.kwargs["kwargs"]
+        assert retry_kwargs["chunk_offset"] == 0
+        assert len(retry_kwargs["reply_blocks"]) == 2
 
     def test_reply_posted_regardless_of_ai_approval(self) -> None:
         # The Slack follow-up invite is unconditional — no AI-approval gate on scout output.

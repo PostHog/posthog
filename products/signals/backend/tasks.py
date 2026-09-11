@@ -197,6 +197,7 @@ def deliver_scout_slack_thread_replies(
     chunk_offset: int,
     attempt: int = 1,
     report_id: str | None = None,
+    report_revision: str | None = None,
 ) -> None:
     """Continue a rate-limited report thread without holding or retrying the lead-message worker."""
     team = Team.objects.only("project_id").get(id=team_id)
@@ -234,12 +235,13 @@ def deliver_scout_slack_thread_replies(
                 "chunk_offset": offset,
                 "attempt": attempt + 1,
                 **({"report_id": report_id} if report_id is not None else {}),
+                **({"report_revision": report_revision} if report_revision is not None else {}),
             },
             countdown=countdown,
         )
 
     if report_id is not None:
-        report = SignalReport.objects.filter(id=report_id, team_id=team_id).only("status").first()
+        report = SignalReport.objects.filter(id=report_id, team_id=team_id).only("status", "updated_at").first()
         if report is None:
             logger.info("scout_slack_report_thread_reply_report_missing", team_id=team_id, report_id=report_id)
             return
@@ -249,6 +251,13 @@ def deliver_scout_slack_thread_replies(
                 team_id=team_id,
                 report_id=report_id,
                 report_status=report.status,
+            )
+            return
+        if report_revision is not None and report.updated_at.isoformat() != report_revision:
+            logger.info(
+                "scout_slack_report_thread_reply_report_changed",
+                team_id=team_id,
+                report_id=report_id,
             )
             return
         if _newer_report_delivery_queued(report_id, delivery_id, integration_id, channel):
@@ -362,6 +371,7 @@ def deliver_scout_slack_output(
                         "fallback": fallback,
                         "chunk_offset": offset,
                         "report_id": output_id,
+                        "report_revision": report.updated_at.isoformat(),
                     },
                     countdown=countdown,
                 )

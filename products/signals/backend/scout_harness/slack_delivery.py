@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -61,6 +62,7 @@ _PERMANENT_SLACK_ERROR_CODES = frozenset(
 # with one of these when it cannot reach one. Neither code is permanent, so a chart Slack cannot
 # fetch would otherwise retry and then drop a report that used to post as text.
 _BLOCK_REJECTION_ERROR_CODES = frozenset({"invalid_blocks", "invalid_blocks_format"})
+_SCOUT_SLACK_REPLY_PACE_SECONDS = 1
 
 ScoutSlackOutputType = Literal["finding", "report"]
 ScoutSlackReplyRetryScheduler = Callable[[int, list[list[dict]], int, str, str], None]
@@ -572,25 +574,32 @@ def _post_scout_report_thread_replies(
 
     for index, blocks in enumerate(reply_blocks):
         chunk_index = chunk_offset + index
+        if index:
+            # Slack allows roughly one message per second per channel. Keep the bounded reply fan-out
+            # in this worker, but do not send it as one burst that consumes a retry per section.
+            time.sleep(_SCOUT_SLACK_REPLY_PACE_SECONDS)
         try:
             _post_reply(chunk_index, blocks)
         except Exception as exc:
-            if isinstance(exc, SlackApiError) and slack_api_error_code(exc) == "ratelimited":
-                schedule_retry(
-                    _slack_retry_after_seconds(exc) or 60,
-                    reply_blocks[index:],
-                    chunk_index,
-                    thread_ts,
-                    fallback,
-                )
-                return
+            error_code = slack_api_error_code(exc) if isinstance(exc, SlackApiError) else None
             logger.warning(
                 "scout_slack_report_thread_reply_failed",
                 channel=channel_id,
                 delivery_id=delivery_id,
                 chunk_index=chunk_index,
+                error_code=error_code,
                 exc_info=True,
             )
+            if error_code in _PERMANENT_SLACK_ERROR_CODES:
+                continue
+            schedule_retry(
+                _slack_retry_after_seconds(exc) or 60,
+                reply_blocks[index:],
+                chunk_index,
+                thread_ts,
+                fallback,
+            )
+            return
 
 
 def _post_scout_report_lead_message(
