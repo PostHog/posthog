@@ -121,6 +121,10 @@ python manage.py run_signals_scout --team-id 1 --skill-name signals-scout-genera
 # Optional: pin the sandbox repository
 python manage.py run_signals_scout --team-id 1 --skill-name signals-scout-general \
     --repository posthog/posthog --verbose
+
+# Steer this one run without leaving a note that would steer the scheduled ones too
+python manage.py run_signals_scout --team-id 1 --skill-name signals-scout-general \
+    --note "focus on the checkout regression"
 ```
 
 The team must have a `SignalScoutConfig` row for the scout (the coordinator auto-creates one; the command also seeds it). Configs default to `emit=False` — the scout runs and logs but `emit_finding` writes nothing, so no finding reaches the Signals inbox until you flip `emit=True` on that scout's config (e.g. via the `scout-config-update` MCP tool).
