@@ -2,6 +2,7 @@
 
 import math
 import time
+import hashlib
 import datetime as dt
 from collections import defaultdict
 from itertools import batched
@@ -70,6 +71,12 @@ class _FetchedDueEvalReports:
     report_ids: list[str]
     oldest_due_at: dt.datetime | None
     has_more: bool
+
+
+def _count_trigger_page_index(poll_number: int, page_count: int) -> int:
+    """Select a deterministic page without aliasing against skipped schedule intervals."""
+    digest = hashlib.blake2s(str(poll_number).encode(), digest_size=8).digest()
+    return int.from_bytes(digest, "big") % page_count
 
 
 @temporalio.activity.defn
@@ -246,7 +253,11 @@ def _fetch_count_triggered_eval_report_candidate_groups(
     page_count = math.ceil(candidate_count / max_reports_per_run)
     poll_time = now or dt.datetime.now(tz=dt.UTC)
     poll_number = int(poll_time.timestamp() // COUNT_TRIGGER_POLL_INTERVAL.total_seconds())
-    page_index = poll_number % page_count
+    # Hashing the absolute poll slot avoids the periodic aliasing produced by a plain
+    # modulo when Temporal skips overlapping ticks (for example, every second tick
+    # with two pages). The activity need not be replay-deterministic, but a stable
+    # mapping keeps selection observable and testable.
+    page_index = _count_trigger_page_index(poll_number, page_count)
     offset = page_index * max_reports_per_run
 
     ids_by_team: dict[int, list[str]] = defaultdict(list)

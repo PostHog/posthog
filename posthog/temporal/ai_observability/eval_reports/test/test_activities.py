@@ -627,25 +627,20 @@ class TestCountTriggeredReportChecks(BaseTest):
         self.assertEqual(groups, [team_a_report_ids[:2], team_a_report_ids[2:], [str(team_b_report.id)]])
         self.assertEqual(candidate_count, 4)
 
-    def test_fetch_candidates_rotates_bounded_pages_instead_of_starving_later_reports(self):
-        report_ids = {str(self._create_report().id) for _ in range(4)}
+    def test_fetch_candidates_rotates_bounded_pages_across_skipped_schedule_ticks(self):
+        report_ids = {str(self._create_report().id) for _ in range(8)}
         first_poll = dt.datetime(2026, 9, 11, 12, 0, tzinfo=dt.UTC)
 
-        first_groups, first_count = _fetch_count_triggered_eval_report_candidate_groups(
-            max_reports_per_run=2,
-            now=first_poll,
-        )
-        second_groups, second_count = _fetch_count_triggered_eval_report_candidate_groups(
-            max_reports_per_run=2,
-            now=first_poll + dt.timedelta(minutes=5),
-        )
+        selected_ids: set[str] = set()
+        for skipped_tick_count in range(8):
+            groups, candidate_count = _fetch_count_triggered_eval_report_candidate_groups(
+                max_reports_per_run=2,
+                now=first_poll + skipped_tick_count * dt.timedelta(minutes=10),
+            )
+            self.assertEqual(candidate_count, 8)
+            selected_ids.update(report_id for group in groups for report_id in group)
 
-        first_ids = {report_id for group in first_groups for report_id in group}
-        second_ids = {report_id for group in second_groups for report_id in group}
-        self.assertEqual(first_count, 4)
-        self.assertEqual(second_count, 4)
-        self.assertEqual(first_ids | second_ids, report_ids)
-        self.assertFalse(first_ids & second_ids)
+        self.assertEqual(selected_ids, report_ids)
 
     def test_fetch_scheduled_reports_limits_fairly_across_teams(self):
         other_team = Team.objects.create(organization=self.organization, name="other")
@@ -662,12 +657,14 @@ class TestCountTriggeredReportChecks(BaseTest):
         due_at = timezone.now() - dt.timedelta(minutes=30)
         EvaluationReport.objects.filter(id__in=[report.id for report in reports]).update(next_delivery_date=due_at)
 
-        report_ids, oldest_due_at, has_more = _fetch_due_eval_report_ids(timezone.now(), max_reports_per_run=2)
+        fetched = _fetch_due_eval_report_ids(timezone.now(), max_reports_per_run=2)
 
-        selected_team_ids = set(EvaluationReport.objects.filter(id__in=report_ids).values_list("team_id", flat=True))
+        selected_team_ids = set(
+            EvaluationReport.objects.filter(id__in=fetched.report_ids).values_list("team_id", flat=True)
+        )
         self.assertEqual(selected_team_ids, {self.team.id, other_team.id})
-        self.assertEqual(oldest_due_at, due_at)
-        self.assertTrue(has_more)
+        self.assertEqual(fetched.oldest_due_at, due_at)
+        self.assertTrue(fetched.has_more)
 
     def test_check_report_returns_due_when_threshold_is_crossed(self):
         report = self._create_report(trigger_threshold=100)
