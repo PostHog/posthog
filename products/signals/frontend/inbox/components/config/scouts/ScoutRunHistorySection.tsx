@@ -167,8 +167,9 @@ function QuietRunGroup({ runs, skillName }: { runs: SignalScoutRunSummary[]; ski
 
 /**
  * Consecutive failures, folded into one danger-tinted group: the count and time span, then one line
- * per run with its time, what it managed to say, and its own task-run link. Failures are what a
- * reader opens this list for, so they stay readable without expanding anything.
+ * per run with its time, whether it merely ran out of time, what it managed to say, and its own
+ * task-run link. Failures are what a reader opens this list for, so they stay readable without
+ * expanding anything.
  */
 function FailedRunGroup({ runs, skillName }: { runs: SignalScoutRunSummary[]; skillName: string }): JSX.Element {
     const now = new Date()
@@ -188,6 +189,12 @@ function FailedRunGroup({ runs, skillName }: { runs: SignalScoutRunSummary[]; sk
                     className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-3 pb-2 pl-9 text-[13px] leading-snug"
                 >
                     <ScoutTimestamp time={run.started_at} />
+                    {/* A run that only hit its deadline is marked, in the colour an unfolded row
+                        gives it. An error carries no mark: the group header already says failed,
+                        in the same red a row would use. */}
+                    {deriveRunFailureKind(run, now) === 'timed_out' && (
+                        <span className="whitespace-nowrap text-[11px] text-warning">· timed out</span>
+                    )}
                     <span className="min-w-0 flex-1 text-secondary">{scoutRunFailureLine(run, now)}</span>
                     <RunOutputTag run={run} />
                     {run.task_url && (
