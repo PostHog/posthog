@@ -21,7 +21,6 @@ import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import {
     ScenePanel,
@@ -58,7 +57,6 @@ export function DashboardScenePanel(): JSX.Element | null {
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
 
-    const { user } = useValues(userLogic)
     const { tags } = useValues(tagsModel)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const hasDashboardColors = useFeatureFlag('PRODUCT_ANALYTICS_DASHBOARD_COLORS')
@@ -148,19 +146,15 @@ export function DashboardScenePanel(): JSX.Element | null {
                                     },
                                     dataAttr: `${RESOURCE_TYPE}-export-png`,
                                 },
-                                ...(user?.is_staff
-                                    ? [
-                                          {
-                                              format: ExporterFormat.JSON,
-                                              context: {
-                                                  localData: JSON.stringify(asDashboardTemplate),
-                                                  filename: `dashboard-${slugify(dashboard?.name || 'nameless dashboard')}.json`,
-                                                  mediaType: ExporterFormat.JSON,
-                                              },
-                                              dataAttr: `${RESOURCE_TYPE}-export-json`,
-                                          },
-                                      ]
-                                    : []),
+                                {
+                                    format: ExporterFormat.JSON,
+                                    context: {
+                                        localData: JSON.stringify(asDashboardTemplate),
+                                        filename: `dashboard-${slugify(dashboard?.name || 'nameless dashboard')}.json`,
+                                        mediaType: ExporterFormat.JSON,
+                                    },
+                                    dataAttr: `${RESOURCE_TYPE}-export-json`,
+                                },
                             ]}
                         />
                     </>
