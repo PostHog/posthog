@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { NewMarketingAnalyticsDashboard } from './NewMarketingAnalyticsDashboard'
 
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useValues: jest.fn(), useActions: () => ({}) }))
-jest.mock('@posthog/lemon-ui', () => ({ LemonBanner: () => null, LemonButton: () => null }))
+jest.mock('@posthog/lemon-ui', () => ({ LemonBanner: () => null, LemonButton: () => null, LemonSkeleton: () => null }))
 jest.mock('lib/components/CompareFilter/CompareFilter', () => ({ CompareFilter: () => null }))
 jest.mock('lib/components/DateFilter/DateFilter', () => ({ DateFilter: () => null }))
 jest.mock('lib/logic/featureFlagLogic', () => ({ featureFlagLogic: {} }))
@@ -24,6 +24,13 @@ jest.mock('~/queries/nodes/WebOverview/WebOverview', () => ({ labelFromKey: () =
 jest.mock('~/queries/Query/Query', () => ({ Query: () => null }))
 jest.mock('scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTab', () => ({
     AttributionTab: () => <div>Attribution explorer</div>,
+}))
+jest.mock('scenes/teamLogic', () => ({ teamLogic: {} }))
+jest.mock('scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAttributionLogic', () => ({
+    marketingAttributionLogic: {},
+}))
+jest.mock('scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTable', () => ({
+    AttributionTable: () => null,
 }))
 jest.mock('scenes/web-analytics/tabs/marketing-analytics/frontend/components/RetentionTab/RetentionTab', () => ({
     RetentionTab: () => <div>Retention explorer</div>,
@@ -51,8 +58,8 @@ describe('NewMarketingAnalyticsDashboard', () => {
 
         render(<NewMarketingAnalyticsDashboard />)
 
-        expect(screen.getByRole('region', { name: 'Acquisition' })).not.toBeNull()
-        expect(screen.getByRole('region', { name: 'Engagement' })).not.toBeNull()
+        expect(screen.getByText('Acquisition')).not.toBeNull()
+        expect(screen.getByText('Engagement')).not.toBeNull()
         expect(screen.queryByText('Attribution explorer') !== null).toBe(conversion)
         expect(screen.queryByText('Retention explorer') !== null).toBe(retention)
     })

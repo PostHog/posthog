@@ -84,7 +84,7 @@ class MetronomeEndpointConfig:
     fanout: DependentEndpointConfig | None = None
     body_fanout: BodyFanoutConfig | None = None
     # `POST /v1/usage` needs a `window_size`/`starting_on`/`ending_before` window in its body. The
-    # window is computed per run, because `ending_before` is the sync time, so it can't live in the
+    # window is computed per run, because `ending_before` tracks the clock, so it can't live in the
     # static `json_body`. When set, the resource builder fills the window in. None means the
     # endpoint sends no window.
     window_size: WindowSize | None = None
