@@ -95,6 +95,31 @@ class TestPostGithubReview:
         assert payload["commit_id"] == "deadbeef"
         assert payload["comments"] == comments
 
+    def test_credential_shapes_are_scrubbed_before_posting(
+        self, mock_request: MagicMock, mock_paginated: MagicMock
+    ) -> None:
+        _wire_readbacks(mock_paginated)
+        comments: list[ReviewComment] = [
+            {"path": "a.py", "body": "ran with GH_TOKEN=ghs_abcdefghijklmnopqrstuvwxyz0123", "side": "RIGHT", "line": 1}
+        ]
+
+        _post_github_review(
+            "o",
+            "r",
+            1,
+            "key phx_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789 seen",
+            comments,
+            token="install-token",
+            head_sha="",
+            post_promo=False,
+            marker="m",
+            promo_marker="pm",
+        )
+
+        (payload,) = _review_posts(mock_request)
+        assert payload["body"] == "key [redacted] seen"
+        assert payload["comments"][0]["body"] == "ran with GH_TOKEN=[redacted]"
+
     def test_no_head_sha_posts_without_commit_pin(self, mock_request: MagicMock, mock_paginated: MagicMock) -> None:
         _wire_readbacks(mock_paginated)
 
