@@ -345,6 +345,7 @@ function ScoutSignalsPanel({ skillName }: { skillName: string }): JSX.Element {
     const { emissionRows, emissionsLoading, emissionsLoadFailed, scoutRunsLoadedOnce } = useValues(
         scoutDetailLogic({ skillName })
     )
+    const { loadEmissions } = useActions(scoutDetailLogic({ skillName }))
     const { selectedScoutFindingId } = useValues(inboxSceneLogic)
 
     // "Loading" until the fleet's per-scout runs have settled once AND this scout's emissions have
@@ -356,13 +357,27 @@ function ScoutSignalsPanel({ skillName }: { skillName: string }): JSX.Element {
     }
 
     if (!hasRows) {
+        // Every per-run emissions fetch failed while the rollup says these runs emitted, so don't
+        // claim "no signals". Nothing comes back on its own: the emitted runs are unchanged, so the
+        // key their subscription watches holds, and the runs poll refetches only the report links.
+        if (emissionsLoadFailed) {
+            return (
+                <div className="flex flex-col items-center gap-2 rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
+                    <span>Couldn't load signals for this scout.</span>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => loadEmissions()}
+                        loading={emissionsLoading}
+                    >
+                        Retry
+                    </LemonButton>
+                </div>
+            )
+        }
         return (
             <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
-                {emissionsLoadFailed
-                    ? // Every per-run emissions fetch failed while the rollup says these runs emitted —
-                      // don't claim "no signals". The 60s poll keeps retrying.
-                      'Couldn’t load signals for this scout. Retrying…'
-                    : `No signals emitted in the ${SCOUT_RUNS_PER_SCOUT_LABEL}.`}
+                {`No signals emitted in the ${SCOUT_RUNS_PER_SCOUT_LABEL}.`}
             </div>
         )
     }
