@@ -7,16 +7,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import {
-    nextRunAt,
-    SCOUT_GROUP_LABEL,
-    scoutCadenceLabel,
-    ScoutRosterRow,
-    scoutSubtitle,
-} from '../../../utils/scoutGroups'
+import { nextRunAt, SCOUT_GROUP_LABEL, ScoutRosterRow, scoutSubtitle } from '../../../utils/scoutGroups'
 import { scoutDisplayName } from '../../../utils/scoutRunsWindow'
 import { inboxCardRowClassName } from '../../cards/inboxCardRowClassName'
 import { ScoutLifecycleBadge } from './ScoutBadges'
+import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
 import { ScoutRunBoxes } from './ScoutRunBoxes'
@@ -41,7 +36,8 @@ function MetaSeparator(): JSX.Element {
  */
 export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
     const { config, group } = row
-    const { rollups, updatingScoutIds, scoutRunsLoadedOnce, scoutRunCosts } = useValues(scoutFleetLogic)
+    const { rollups, updatingScoutIds, scoutRunsLoadedOnce, scoutRunCosts, expensiveRunCostThreshold } =
+        useValues(scoutFleetLogic)
     const { updateScoutConfig } = useActions(scoutFleetLogic)
     const { currentTeam } = useValues(teamLogic)
     const now = new Date()
@@ -82,7 +78,9 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
                     <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs leading-none text-tertiary select-none">
                         <span>{SCOUT_GROUP_LABEL[group]}</span>
                         <MetaSeparator />
-                        <span>{scoutCadenceLabel(config)}</span>
+                        <span>
+                            <ScoutCadenceLabel config={config} />
+                        </span>
                         {hasNextRun && (
                             <>
                                 <MetaSeparator />
@@ -98,7 +96,7 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
                 {/* A fixed strip width on wide rows keeps every row's newest run on one vertical line. */}
                 <div className="flex min-w-0 justify-end @lg:w-52">
                     {runs.length > 0 ? (
-                        <ScoutRunBoxes runs={runs} costs={scoutRunCosts} />
+                        <ScoutRunBoxes runs={runs} costs={scoutRunCosts} costThreshold={expensiveRunCostThreshold} />
                     ) : (
                         // Until the runs request has landed once, an empty rollup means "not
                         // loaded", not "never ran"; the poll retries a failed load on its own.

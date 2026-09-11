@@ -793,6 +793,9 @@ tools:
     customer-analytics-accounts-table-query-create:
         operation: customer_analytics_accounts_table_query_create
         enabled: false
+    customer-analytics-external-account-retrieve:
+        operation: customer_analytics_external_account_retrieve
+        enabled: false
     customer-analytics-external-accounts-retrieve:
         operation: customer_analytics_external_accounts_retrieve
         enabled: false
