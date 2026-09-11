@@ -266,7 +266,10 @@ export interface mcpSessionsLogicMeta {
         selectedSessionToolCalls: (
             toolCalls: SessionToolCalls,
             selectedSessionId: string | null,
-            toolCallsLoading: boolean
+            toolCallsLoading: boolean,
+            sharedQueryFilters: Required<
+                Pick<import('~/queries/schema').HogQLFilters, 'filterTestAccounts' | 'properties'>
+            >
         ) => {
             calls: MCPToolCallApi[]
             hasNext: boolean

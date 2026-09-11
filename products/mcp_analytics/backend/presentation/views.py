@@ -293,7 +293,7 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @validated_request(
         query_serializer=MCPActivityOverviewQuerySerializer,
-        responses={200: MCPActivityOverviewSerializer},
+        responses={200: OpenApiResponse(response=MCPActivityOverviewSerializer)},
         operation_id="mcp_analytics_sessions_activity_overview",
         description=(
             "Aggregate counters, top tools, agent clients, and the most recent tool calls for the last 30 days, "
