@@ -46,6 +46,22 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
     const { scoutDetailTab } = useValues(inboxSceneLogic)
     const { setScoutDetailTab } = useActions(inboxSceneLogic)
     const [runFilter, setRunFilter] = useState<ScoutRunFilter>('all')
+    // Above the breakpoint both tab bars are on screen, so a click in one has to leave the other
+    // where it was. The URL has room for one pane, the one the last click opened, so each column
+    // also keeps its own last pane here. Following the URL rather than the click keeps these right
+    // through a Back press, which moves the pane without going through the bar.
+    const [mainColumnTab, setMainColumnTab] = useState<ScoutDetailTab | null>(null)
+    const [railColumnTab, setRailColumnTab] = useState<ScoutDetailTab>('told')
+    useEffect(() => {
+        if (!scoutDetailTab) {
+            return
+        }
+        if (isRailTab(scoutDetailTab)) {
+            setRailColumnTab(scoutDetailTab)
+        } else {
+            setMainColumnTab(scoutDetailTab)
+        }
+    }, [scoutDetailTab])
 
     // Deep-linking straight to a scout (or a narrow viewport where the roster isn't mounted)
     // means nobody else is polling the runs window, so the header + rollup would read empty
@@ -129,8 +145,8 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
     // a beat after the page opens.
     const defaultMainTab: ScoutDetailTab = !scoutRunsLoadedOnce || reportCount > 0 ? 'reports' : 'runs'
     const tab = scoutDetailTab ?? defaultMainTab
-    const mainTab = isRailTab(tab) ? defaultMainTab : tab
-    const railTab = isRailTab(tab) ? tab : 'told'
+    const mainTab = isRailTab(tab) ? (mainColumnTab ?? defaultMainTab) : tab
+    const railTab = isRailTab(tab) ? tab : railColumnTab
 
     const switchTab = (next: ScoutDetailTab): void => {
         captureScoutAction({
