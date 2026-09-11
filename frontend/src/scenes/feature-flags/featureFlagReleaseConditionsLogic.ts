@@ -173,6 +173,7 @@ export interface featureFlagReleaseConditionsLogicValues {
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
     currentProjectId: number | null // projectLogic
+    activityWindowDays: number | null
     affectedCounts: Record<string, number | undefined>
     aggregationTargetName: (conditionGroupTypeIndex?: number | null | undefined) => string
     blastRadiusErrors: Record<string, BlastRadiusError | undefined>
@@ -203,7 +204,6 @@ export interface featureFlagReleaseConditionsLogicValues {
         rollout_percentage: string | undefined
         variant: null
     }[]
-    activityWindowDays: number | null
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicGroupTypesForCondition: (conditionGroupTypeIndex: number | null | undefined) => TaxonomicFilterGroupType[]
     totalCounts: Record<string, number | undefined>
@@ -254,15 +254,15 @@ export interface featureFlagReleaseConditionsLogicActions {
         activeId: string
         overId: string
     }
+    setActivityWindowDays: (activityWindowDays: number | null) => {
+        activityWindowDays: number | null
+    }
     setAffectedCount: (
         sortKey: string,
         count?: number
     ) => {
         count: number | undefined
         sortKey: string
-    }
-    setActivityWindowDays: (activityWindowDays: number | null) => {
-        activityWindowDays: number | null
     }
     setAggregationGroupTypeIndex: (value: number | null) => {
         value: number | null
@@ -346,7 +346,7 @@ export interface featureFlagReleaseConditionsLogicMeta {
             filters: FeatureFlagFilters & {
                 groups: FeatureFlagGroupTypeWithSortKey[]
             },
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => (conditionGroupTypeIndex?: number | null | undefined) => string
         taxonomicGroupTypesForCondition: (
             filters: FeatureFlagFilters & {

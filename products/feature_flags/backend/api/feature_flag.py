@@ -4701,13 +4701,9 @@ class FeatureFlagViewSet(
             recently_active_only=recently_active_sizing_enabled(self.team),
         )
 
-        return Response(
-            {
-                "affected": result.affected,
-                "total": result.total,
-                "activity_window_days": result.activity_window_days,
-            }
-        )
+        # Serialize through the declared response serializer, so the wire shape cannot drift from
+        # the OpenAPI schema that the frontend and MCP types are generated from.
+        return Response(UserBlastRadiusResponseSerializer(result).data)
 
     @action(methods=["POST"], detail=True)
     def create_static_cohort_for_flag(self, request: request.Request, **kwargs):

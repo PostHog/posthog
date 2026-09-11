@@ -1,6 +1,6 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Optional
 
 from django.core.cache import cache
@@ -220,18 +220,18 @@ def get_user_blast_radius_persons(
             return _get_person_blast_radius_persons(team, cleaned_filter, cursor=cursor)
 
 
-def _recently_active_window() -> tuple[datetime, datetime]:
-    """Bounds of the blast-radius activity window, computed in Python so they respect freeze_time in
-    tests and do not depend on ClickHouse server time. The upper bound allows a day of clock skew
-    but stops a far-future event timestamp from keeping a person "active" for years."""
-    now = timezone.now()
-    return now - timedelta(days=RECENTLY_ACTIVE_DAYS), now + timedelta(days=1)
-
-
 def _recently_active_window_placeholders() -> dict[str, ast.Expr]:
-    """Bind the window bounds for the query text above."""
-    cutoff, upper = _recently_active_window()
-    return {"cutoff": ast.Constant(value=cutoff), "upper": ast.Constant(value=upper)}
+    """Bind the activity window bounds for the query text above.
+
+    Python computes them, so they respect freeze_time in tests and do not depend on ClickHouse
+    server time. The upper bound allows a day of clock skew, but stops a far-future event timestamp
+    from keeping a person "active" for years.
+    """
+    now = timezone.now()
+    return {
+        "cutoff": ast.Constant(value=now - timedelta(days=RECENTLY_ACTIVE_DAYS)),
+        "upper": ast.Constant(value=now + timedelta(days=1)),
+    }
 
 
 def _recently_active_persons_count(team: Team) -> int:
