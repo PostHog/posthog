@@ -6,7 +6,11 @@ from parameterized import parameterized
 
 from posthog.models.team import Team
 
-from products.product_analytics.backend.facade.api import insight_variables_for_team, record_insight_view
+from products.product_analytics.backend.facade.api import (
+    insight_variables_for_team,
+    insights_including_soft_deleted_for_team,
+    record_insight_view,
+)
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -54,3 +58,18 @@ class TestRecordInsightView(BaseTest):
         record_insight_view(insight_id=self.insight.pk)
 
         assert InsightViewed.objects.filter(insight_id=self.insight.pk).count() == 2
+
+
+class TestInsightReads(BaseTest):
+    def test_including_soft_deleted_insights_stays_scoped_to_the_team(self) -> None:
+        deleted_insight = Insight.objects.create(team=self.team, name="Deleted", deleted=True)
+        live_insight = Insight.objects.create(team=self.team, name="Live")
+        other_team = Team.objects.create(organization=self.organization)
+        other_team_insight = Insight.objects.create(team=other_team, name="Other team")
+
+        insights = insights_including_soft_deleted_for_team(
+            team_id=self.team.pk,
+            insight_ids={deleted_insight.pk, live_insight.pk, other_team_insight.pk},
+        )
+
+        assert {insight.pk for insight in insights} == {deleted_insight.pk, live_insight.pk}
