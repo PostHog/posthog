@@ -12,9 +12,8 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # tells the transport how to parse and normalize the response into flat rows.
 #
 # No function paginates. Most carry no server-side cursor either (no `updated_after`/`since` filter),
-# so they are full refresh only; time-series data is naturally append-only by date, so re-pulled rows
-# dedupe on the primary key at merge time. The two exceptions are NEWS_SENTIMENT (`time_from`) and
-# INSIDER_TRANSACTIONS (`from`), which do filter server-side and therefore sync incrementally.
+# so they are full refresh only, and re-pulled rows dedupe on the primary key at merge time.
+# NEWS_SENTIMENT (`time_from`) and INSIDER_TRANSACTIONS (`from`) are the two that do filter.
 ParseKind = Literal[
     "time_series",
     "quote",
@@ -37,8 +36,7 @@ class AlphaVantageEndpointConfig:
     function: str
     kind: ParseKind
     # Unique across the whole table. Every per-symbol endpoint fans out over the user's configured
-    # symbols, so the injected `symbol` is always part of the key; the market-wide tables carry the
-    # vendor's own symbol column instead.
+    # symbols, so `symbol` is always part of the key.
     primary_keys: list[str]
     # A stable date column used for datetime partitioning. Never a mutable field. None for snapshot
     # tables (latest quote, company overview) and for the low-volume corporate-action and listing
@@ -49,9 +47,9 @@ class AlphaVantageEndpointConfig:
     # free tier is rate limited (~25 requests/day), and each selected table costs one request/symbol.
     should_sync_default: bool = True
     # Advertised cursor options. Only set where the function takes a server-side timestamp filter;
-    # an empty list means the table is full refresh only. Never append-capable: the filters are
-    # coarser than the stored cursor (whole days, whole minutes), so every run re-delivers the rows
-    # sitting on the boundary and only a merge can dedupe them.
+    # an empty list means the table is full refresh only. Never append-capable, because those filters
+    # are coarser than the stored cursor, so every run re-delivers the rows on the boundary and only
+    # a merge can dedupe them.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # The order rows actually arrive in, which the pipeline's cursor watermark trusts.
     sort_mode: SortMode = "asc"
@@ -160,8 +158,7 @@ ALPHA_VANTAGE_ENDPOINTS: dict[str, AlphaVantageEndpointConfig] = {
         function="INSIDER_TRANSACTIONS",
         kind="insider",
         # Alpha Vantage issues no transaction id, so the filing's own fields are the only identity
-        # available. Two genuinely identical filings for one executive on one day therefore collapse
-        # into a single row; nothing in the response can tell them apart.
+        # available, and two identical filings on one day collapse into a single row.
         primary_keys=[
             "symbol",
             "transaction_date",
@@ -182,9 +179,8 @@ ALPHA_VANTAGE_ENDPOINTS: dict[str, AlphaVantageEndpointConfig] = {
         name="institutional_holdings",
         function="INSTITUTIONAL_HOLDINGS",
         kind="institutional",
-        # `holder_name` repeats within a symbol: separate filers share a display name, and one name can
-        # appear twice for the same reporting date with different positions. Adding the position makes
-        # the key unique against the live response.
+        # `holder_name` repeats within a symbol, because separate filers share a display name and one
+        # name can appear twice for the same reporting date. The position makes the key unique.
         primary_keys=["symbol", "holder_name", "last_reported", "shares_held"],
         description="Institutional holder positions per symbol, each row carrying the symbol's overall institutional ownership totals. Roughly 4,000 holders per symbol. Full refresh.",
         should_sync_default=False,

@@ -64,9 +64,8 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Only the functions carrying a server-side time filter can sync incrementally; the rest have
-        # no cursor at all. None supports append: those filters are coarser than the stored cursor, so
-        # every run re-delivers the rows on the boundary and only a merge can dedupe them.
+        # Only the functions carrying a server-side time filter can sync incrementally, and none
+        # supports append. See `incremental_fields` in settings.py for why.
         schemas = [
             SourceSchema(
                 name=endpoint.name,

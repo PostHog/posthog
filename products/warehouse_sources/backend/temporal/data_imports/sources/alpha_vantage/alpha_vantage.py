@@ -32,27 +32,20 @@ _ORDINAL_PREFIX = re.compile(r"^\d+\.\s*")
 # value is asset-lifecycle and survivorship research, which needs the delisted side too.
 LISTING_STATES = ("active", "delisted")
 
-# The CSV functions return tens of thousands of rows in one body, so yield in chunks rather than one
-# oversized batch.
+# The CSV functions return tens of thousands of rows in one body, so yield in chunks.
 CSV_CHUNK_SIZE = 5000
 
-# EARNINGS_CALENDAR covers the whole market in one call. 12 months is the widest horizon the function
-# offers, and it costs the same single request as the 3-month default.
+# The widest horizon the function offers, for the same single request as the 3-month default.
 EARNINGS_CALENDAR_HORIZON = "12month"
 
-# NEWS_SENTIMENT has no cursor pagination: `limit` caps one response at 1000 articles. The walk
-# advances `time_from` to the last article of each full page until a short page arrives, and the page
-# cap bounds a runaway walk over a symbol with a very deep archive.
+# NEWS_SENTIMENT has no cursor pagination; `limit` caps one response at 1000 articles. The page cap
+# bounds the time-window walk in `_news_rows` over a symbol with a very deep archive.
 NEWS_PAGE_LIMIT = 1000
 NEWS_MAX_PAGES = 20
 
-# `time_from` takes YYYYMMDDTHHMM while `time_published` is YYYYMMDDTHHMMSS, so truncating a published
-# timestamp to the minute gives the resume value.
+# `time_from` takes YYYYMMDDTHHMM, one granularity coarser than `time_published`.
 _NEWS_MINUTE_LENGTH = len("YYYYMMDDTHHMM")
 
-# A CSV function reports a refusal as the normal header followed by the JSON envelope's key spelled
-# one character per column ("I,n,f,o,r,m,a" for "Information"), not as a JSON body, so the envelope
-# check has to look at the first data row rather than at the start of the payload.
 _CSV_ENVELOPE_KEYS = ("Information", "Error Message", "Note")
 
 # Alpha Vantage writes an absent value as one of these placeholder strings rather than JSON null or an
@@ -136,9 +129,11 @@ def _fetch(session: requests.Session, params: dict[str, Any], logger: FilteringB
 def _raise_for_csv_envelope(csv_text: str) -> None:
     """Detect a JSON error envelope that leaked into a CSV body one character per column.
 
-    Only the envelope's key survives the vendor's truncation to the header's column count, so the
-    check is a prefix match against the keys `_raise_for_envelope` handles, with the same split
-    between the transient throttle and the permanent quota/premium refusal.
+    A refused CSV function answers with the normal header and then the envelope's key spread across
+    the columns ("I,n,f,o,r,m,a" for "Information"), rather than with a JSON body. Only the key
+    survives the vendor's truncation to the header's column count, so the check is a prefix match
+    against the keys `_raise_for_envelope` handles, with the same split between the transient
+    throttle and the permanent quota/premium refusal.
     """
     lines = csv_text.splitlines()
     if len(lines) < 2:
@@ -289,8 +284,6 @@ def _parse_news(body: dict[str, Any], symbol: str) -> Iterator[dict[str, Any]]:
         # strings, which keeps the column type stable across syncs where an article carries none.
         yield {
             "symbol": symbol,
-            # Access the primary-key field directly so an article with no URL raises instead of
-            # silently yielding a row without its key.
             "url": article["url"],
             **article,
         }
@@ -316,8 +309,7 @@ def _parse_institutional(body: dict[str, Any], symbol: str) -> Iterator[dict[str
     holdings = body.get("holdings")
     if not isinstance(holdings, list):
         return
-    # One function means one table, so the symbol-level ownership totals ride on every holder row
-    # rather than being dropped.
+    # One function means one table, so the symbol-level ownership totals ride on every holder row.
     totals = {key: _nullable(value) for key, value in body.items() if key not in ("holdings", "symbol")}
     for holding in holdings:
         if not isinstance(holding, dict):
@@ -373,8 +365,7 @@ def _news_rows(
             "function": "NEWS_SENTIMENT",
             "tickers": symbol,
             "limit": NEWS_PAGE_LIMIT,
-            # Oldest first, so the watermark advances monotonically and a full page can be resumed from
-            # its last article.
+            # Oldest first, so the watermark advances monotonically and a full page can be resumed.
             "sort": "EARLIEST",
             "apikey": api_key,
         }
@@ -383,7 +374,7 @@ def _news_rows(
 
         body = _fetch(session, params, logger)
         if "Error Message" in body:
-            # Scoped to this ticker (unknown or unsupported symbol); the rest of the symbols still sync.
+            # Scoped to this ticker, so the rest of the symbols still sync.
             logger.warning(f"Alpha Vantage: skipping symbol {symbol} for news_sentiment: {body['Error Message']}")
             return
 
@@ -400,8 +391,7 @@ def _news_rows(
             :_NEWS_MINUTE_LENGTH
         ]
         if len(next_time_from) < _NEWS_MINUTE_LENGTH or next_time_from == time_from:
-            # Nothing to advance to: either the timestamps are not in the documented format, or a full
-            # page fits inside the minute already requested, so another request would repeat it.
+            # Nothing to advance to, so another request would repeat the page forever.
             logger.warning(f"Alpha Vantage: stopping news_sentiment walk for {symbol}; cursor did not advance")
             return
         time_from = next_time_from
@@ -499,7 +489,6 @@ def get_rows(
         return
 
     if config.kind == "news":
-        # The only function that needs more than one request per symbol, so it walks its own pages.
         time_from = _news_time_from(db_incremental_field_last_value)
         for symbol in symbols:
             yield from _news_rows(session, api_key, symbol, time_from, logger)

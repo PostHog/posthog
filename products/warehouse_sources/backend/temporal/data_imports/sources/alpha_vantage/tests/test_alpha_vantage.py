@@ -442,8 +442,6 @@ class TestAlphaVantage:
         assert rows == [{"symbol": "IBM", "status": "Active"}]
 
     def test_parse_news_injects_symbol_and_keeps_the_nested_blocks(self) -> None:
-        # `topics` and `ticker_sentiment` stay nested; the pipeline writes them as JSON strings, so a
-        # parser that flattened them here would change the column shape.
         article = _article("https://news.example.com/a", "20260911T025650")
         assert list(_parse_news({"feed": [article]}, "IBM")) == [{"symbol": "IBM", **article}]
 
