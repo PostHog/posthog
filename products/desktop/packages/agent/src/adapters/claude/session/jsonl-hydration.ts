@@ -275,6 +275,7 @@ function estimateTurnTokens(turn: ConversationTurn): number {
   }
   if (turn.toolCalls) {
     for (const tc of turn.toolCalls) {
+      chars += tc.toolName.length;
       chars += JSON.stringify(tc.input ?? "").length;
       if (tc.result !== undefined) {
         chars +=

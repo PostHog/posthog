@@ -36,6 +36,31 @@ describe("formatConversationForResume", () => {
     expect(summary).toContain(`  - Read → ${"x".repeat(2000)}...(truncated)`);
   });
 
+  it("cuts a shell call named after its whole command to a first-line preview", () => {
+    const command = `cat > /tmp/out <<'EOF'\n${"payload line\n".repeat(5_000)}EOF`;
+
+    const summary = formatConversationForResume([
+      userTurn("write the file"),
+      {
+        role: "assistant",
+        content: [],
+        toolCalls: [
+          {
+            toolCallId: "call-1",
+            toolName: command,
+            input: {},
+            result: "done",
+          },
+        ],
+      },
+    ]);
+
+    expect(summary).toContain(
+      "  - cat > /tmp/out <<'EOF'...(truncated) → done",
+    );
+    expect(summary).not.toContain("payload line");
+  });
+
   it.each([
     {
       name: "a result under the cap in full",

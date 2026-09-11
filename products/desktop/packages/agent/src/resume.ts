@@ -106,6 +106,7 @@ export function conversationToPromptHistory(
 
 const RESUME_HISTORY_TOKEN_BUDGET = 50_000;
 const TOOL_RESULT_MAX_CHARS = 2000;
+const TOOL_NAME_MAX_CHARS = 120;
 
 const RESUME_CONTEXT_MARKERS = [
   "You are resuming a previous conversation",
@@ -122,6 +123,16 @@ function isResumeContextTurn(turn: ConversationTurn): boolean {
   return RESUME_CONTEXT_MARKERS.some((marker) => text.includes(marker));
 }
 
+/**
+ * The name the summary shows for one tool call, cut to a first-line preview.
+ * A shell call carries no tool name of its own, so it arrives named after the
+ * whole command — a heredoc can run to kilobytes across many lines.
+ */
+function renderToolName(toolName: string): string {
+  const preview = toolName.split("\n", 1)[0].slice(0, TOOL_NAME_MAX_CHARS);
+  return preview === toolName ? toolName : `${preview}...(truncated)`;
+}
+
 /** The result text the summary shows for one tool call, cut to the render cap. */
 function renderToolResult(result: unknown): string {
   const raw = typeof result === "string" ? result : JSON.stringify(result);
@@ -132,9 +143,9 @@ function renderToolResult(result: unknown): string {
 
 /**
  * Charge the history budget for what the summary renders. The summary shows a
- * call's name and a capped result and never its input, so estimating the stored
- * payloads instead sheds whole calls — and the turns around them — that would
- * have rendered in a few hundred characters.
+ * previewed call name and a capped result and never the input, so estimating
+ * the stored payloads instead sheds whole calls — and the turns around them —
+ * that would have rendered in a few hundred characters.
  */
 function withRenderedToolPayloads(turn: ConversationTurn): ConversationTurn {
   if (!turn.toolCalls?.length) return turn;
@@ -142,6 +153,7 @@ function withRenderedToolPayloads(turn: ConversationTurn): ConversationTurn {
     ...turn,
     toolCalls: turn.toolCalls.map((tc) => ({
       ...tc,
+      toolName: renderToolName(tc.toolName),
       input: undefined,
       result: tc.result === undefined ? undefined : renderToolResult(tc.result),
     })),
@@ -179,7 +191,7 @@ export function formatConversationForResume(
         .map((tc) => {
           const resultStr =
             tc.result === undefined ? "" : ` → ${renderToolResult(tc.result)}`;
-          return `  - ${tc.toolName}${resultStr}`;
+          return `  - ${renderToolName(tc.toolName)}${resultStr}`;
         })
         .join("\n");
       parts.push(`**${role} (tools)**:\n${toolSummary}`);
