@@ -13,6 +13,7 @@ import type { notebookNodeLogicType } from 'scenes/notebooks/Nodes/notebookNodeL
 import type { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogic'
 import {
     NotebookSelectButtonLogicProps,
+    notebookAccessDeniedReason,
     notebookSelectButtonLogic,
 } from 'scenes/notebooks/NotebookSelectButton/notebookSelectButtonLogic'
 import { NotebookListItemType, NotebookTarget } from 'scenes/notebooks/types'
@@ -78,6 +79,15 @@ export function SceneNotebookMenuItems({
         }
         // oxlint-disable-next-line exhaustive-deps
     }, [nodeLogic, resource])
+
+    const accessDeniedReason = notebookAccessDeniedReason()
+    if (accessDeniedReason) {
+        return (
+            <ButtonPrimitive menuItem inert className="text-tertiary">
+                {accessDeniedReason}
+            </ButtonPrimitive>
+        )
+    }
 
     return (
         <>

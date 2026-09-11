@@ -2,8 +2,16 @@ import { MakeLogicType, actions, kea, key, listeners, path, props, reducers, sel
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
+import { Scene } from 'scenes/sceneTypes'
 
 import { NotebookListItemType, NotebookNodeResource, NotebookNodeType } from '../types'
+
+/** The notebook list endpoint is access controlled, so it answers 403 for a role with no notebook
+ * access. Every picker surface opens before it knows that, so each one asks here first. */
+export const notebookAccessDeniedReason = (): string | undefined =>
+    getProductAccessDisabledReason({ sceneKey: Scene.Notebooks, displayLabel: 'notebooks' })
+
 export const NOTEBOOK_DROPDOWN_LIMIT = 50
 
 export interface NotebookSelectButtonLogicProps {
@@ -152,6 +160,9 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
             [] as NotebookListItemType[],
             {
                 loadAllNotebooks: async (_, breakpoint) => {
+                    if (notebookAccessDeniedReason()) {
+                        return []
+                    }
                     await breakpoint(100)
                     const response = await api.notebooks.list({
                         search: values.searchQuery || undefined,
@@ -167,10 +178,10 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
             [] as NotebookListItemType[],
             {
                 loadNotebooksContainingResource: async (_, breakpoint) => {
-                    await breakpoint(100)
-                    if (!props.resource) {
+                    if (!props.resource || notebookAccessDeniedReason()) {
                         return []
                     }
+                    await breakpoint(100)
                     const response = await api.notebooks.list({
                         contains:
                             props.resource && typeof props.resource !== 'boolean'

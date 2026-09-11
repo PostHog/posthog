@@ -16,6 +16,7 @@ import { Label } from 'lib/ui/Label/Label'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import {
     NotebookSelectButtonLogicProps,
+    notebookAccessDeniedReason,
     notebookSelectButtonLogic,
 } from 'scenes/notebooks/NotebookSelectButton/notebookSelectButtonLogic'
 
@@ -177,6 +178,11 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
         // oxlint-disable-next-line exhaustive-deps
     }, [loadAllNotebooks])
 
+    const accessDeniedReason = notebookAccessDeniedReason()
+    if (accessDeniedReason) {
+        return <div className="px-2 py-1">{accessDeniedReason}</div>
+    }
+
     return (
         <div className="flex flex-col flex-1 h-full">
             <div className="deprecated-space-y-2 flex-0">
@@ -309,9 +315,10 @@ export function NotebookSelectButton({ children, onNotebookOpened, ...props }: N
     const logic = notebookSelectButtonLogic({ ...props, onNotebookOpened })
     const { showPopover, notebooksContainingResource } = useValues(logic)
     const { loadNotebooksContainingResource } = useActions(logic)
+    const accessDeniedReason = notebookAccessDeniedReason()
 
     useEffect(() => {
-        if (!nodeLogic) {
+        if (!nodeLogic && !accessDeniedReason) {
             loadNotebooksContainingResource()
         }
         // oxlint-disable-next-line exhaustive-deps
@@ -328,6 +335,7 @@ export function NotebookSelectButton({ children, onNotebookOpened, ...props }: N
             sideIcon={null}
             {...props}
             active={showPopover}
+            disabledReason={accessDeniedReason ?? props.disabledReason}
             onClick={() => {
                 props.onClick?.()
                 if (nodeLogic) {
@@ -341,5 +349,5 @@ export function NotebookSelectButton({ children, onNotebookOpened, ...props }: N
         </LemonButton>
     )
 
-    return nodeLogic ? button : <NotebookSelectPopover {...props}>{button}</NotebookSelectPopover>
+    return nodeLogic || accessDeniedReason ? button : <NotebookSelectPopover {...props}>{button}</NotebookSelectPopover>
 }
