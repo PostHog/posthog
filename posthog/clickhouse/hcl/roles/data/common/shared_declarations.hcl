@@ -1169,8 +1169,12 @@ SQL
     column "retention_period_days" {
       type = "SimpleAggregateFunction(max, Nullable(Int64))"
     }
+    # Deprecated for reads: use snapshot_mode_v2 to avoid LowCardinality aggregate-state errors.
     column "snapshot_mode" {
       type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+    }
+    column "snapshot_mode_v2" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     engine "distributed" {
       cluster_name    = "posthog"
@@ -1501,8 +1505,12 @@ SQL
     column "retention_period_days" {
       type = "SimpleAggregateFunction(max, Nullable(Int64))"
     }
+    # Deprecated for reads: use snapshot_mode_v2 to avoid LowCardinality aggregate-state errors.
     column "snapshot_mode" {
       type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+    }
+    column "snapshot_mode_v2" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/{shard}/posthog.session_replay_events"

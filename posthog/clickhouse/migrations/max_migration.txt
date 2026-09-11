@@ -1,1 +1,1 @@
-0318_person_property_mutation_log
+0319_add_snapshot_mode_v2_to_session_replay_events
