@@ -1,8 +1,8 @@
 from datetime import UTC, datetime, timedelta
 
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
-from freezegun import freeze_time
 from parameterized import parameterized
 
 from posthog.hogql import ast
@@ -17,7 +17,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_sessions_preco
 )
 
 
-@freeze_time("2026-09-10T12:00:00Z")
+@time_machine.travel("2026-09-10T12:00:00Z", tick=False)
 class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand([(2,), (49,)])
     def test_pageview_bounds_include_the_full_session(self, duration_hours: int) -> None:
@@ -59,6 +59,7 @@ class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(response.results) == 1
+        assert response.columns is not None
         row = dict(zip(response.columns, response.results[0]))
         assert row["session_id"] == session_id
         assert row["min_event_timestamp"] == first_pageview
