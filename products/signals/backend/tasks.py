@@ -45,6 +45,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
     ScoutSlackOutputType,
     ScoutSlackPermanentDeliveryError,
     _ensure_dm_recipient_eligible,
+    _newer_report_delivery_queued,
     _post_scout_report_thread_replies,
     _slack_channel_id,
     _slack_integration_for_project,
@@ -195,13 +196,13 @@ def deliver_scout_slack_thread_replies(
     fallback: str,
     chunk_offset: int,
     attempt: int = 1,
+    report_id: str | None = None,
 ) -> None:
     """Continue a rate-limited report thread without holding or retrying the lead-message worker."""
     team = Team.objects.only("project_id").get(id=team_id)
     integration = _slack_integration_for_project(integration_id=integration_id, project_id=team.project_id)
     slack = SlackIntegration(integration)
     channel_id = _slack_channel_id(channel)
-    _ensure_dm_recipient_eligible(slack, channel_id)
 
     def _schedule_retry(
         countdown: int,
@@ -232,9 +233,46 @@ def deliver_scout_slack_thread_replies(
                 "fallback": retry_fallback,
                 "chunk_offset": offset,
                 "attempt": attempt + 1,
+                **({"report_id": report_id} if report_id is not None else {}),
             },
             countdown=countdown,
         )
+
+    if report_id is not None:
+        report = SignalReport.objects.filter(id=report_id, team_id=team_id).only("status").first()
+        if report is None:
+            logger.info("scout_slack_report_thread_reply_report_missing", team_id=team_id, report_id=report_id)
+            return
+        if report.status not in DELIVERABLE_REPORT_STATUSES:
+            logger.info(
+                "scout_slack_report_thread_reply_report_not_surfaced",
+                team_id=team_id,
+                report_id=report_id,
+                report_status=report.status,
+            )
+            return
+        if _newer_report_delivery_queued(report_id, delivery_id, integration_id, channel):
+            logger.info(
+                "scout_slack_report_thread_reply_yielded_to_newer_delivery",
+                team_id=team_id,
+                report_id=report_id,
+                delivery_id=delivery_id,
+            )
+            return
+
+    try:
+        _ensure_dm_recipient_eligible(slack, channel_id)
+    except ScoutSlackPermanentDeliveryError:
+        raise
+    except Exception as exc:
+        _schedule_retry(
+            _scout_slack_retry_countdown(exc, attempt - 1),
+            reply_blocks,
+            chunk_offset,
+            thread_ts,
+            fallback,
+        )
+        return
 
     _post_scout_report_thread_replies(
         slack.client,
@@ -323,6 +361,7 @@ def deliver_scout_slack_output(
                         "reply_blocks": blocks,
                         "fallback": fallback,
                         "chunk_offset": offset,
+                        "report_id": output_id,
                     },
                     countdown=countdown,
                 )

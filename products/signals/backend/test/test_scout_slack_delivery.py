@@ -30,7 +30,11 @@ from products.signals.backend.scout_harness.slack_delivery import (
     post_scout_emission_to_slack,
 )
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
-from products.signals.backend.tasks import deliver_scout_slack_output, enqueue_scout_slack_delivery
+from products.signals.backend.tasks import (
+    deliver_scout_slack_output,
+    deliver_scout_slack_thread_replies,
+    enqueue_scout_slack_delivery,
+)
 
 
 class FakeSlackResponse(dict):
@@ -509,6 +513,7 @@ class TestScoutSlackDelivery(BaseTest):
 
         assert apply_async.call_args.kwargs["countdown"] == 120
         retry_kwargs = apply_async.call_args.kwargs["kwargs"]
+        assert retry_kwargs["report_id"] == str(report.id)
         assert retry_kwargs["chunk_offset"] == 0
         assert len(retry_kwargs["reply_blocks"]) == 2
         assert "First body" in retry_kwargs["reply_blocks"][0][0]["text"]
@@ -519,6 +524,75 @@ class TestScoutSlackDelivery(BaseTest):
         error = SlackApiError(message="rate limited", response=response)
 
         assert _slack_retry_after_seconds(error) == 3600
+
+    @parameterized.expand([("suppressed",), ("newer_delivery",)])
+    def test_delayed_thread_replies_revalidate_report(self, state: str) -> None:
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Checkout failed",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        delivery_id = "01864f4c-6957-7d3f-8d85-1d775e527265"
+        channel = "CSCOUTS|#scout-findings"
+        if state == "suppressed":
+            SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.SUPPRESSED)
+        else:
+            mark_latest_scout_report_delivery(
+                str(report.id), "0d1b6f3a-1d3f-4a6f-9d2c-7b3e2f1a9c44", integration.id, channel
+            )
+
+        with patch("products.signals.backend.tasks.SlackIntegration") as slack_integration:
+            deliver_scout_slack_thread_replies.run(
+                self.team.id,
+                integration.id,
+                channel,
+                "1785418710.000800",
+                delivery_id,
+                [[{"type": "markdown", "text": "stale"}]],
+                "stale",
+                0,
+                report_id=str(report.id),
+            )
+
+        slack_integration.return_value.client.chat_postMessage.assert_not_called()
+
+    def test_delayed_dm_thread_replies_retry_recipient_lookup_failure(self) -> None:
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Checkout failed",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        error = SlackApiError(
+            message="rate limited",
+            response=FakeSlackResponse({"error": "ratelimited"}, headers={"retry-after": "120"}),
+        )
+
+        with (
+            patch("products.signals.backend.tasks.SlackIntegration") as slack_integration,
+            patch.object(deliver_scout_slack_thread_replies, "apply_async") as apply_async,
+        ):
+            slack_integration.return_value.get_user_by_id.side_effect = error
+            deliver_scout_slack_thread_replies.run(
+                self.team.id,
+                integration.id,
+                "U123ABC45|@andy",
+                "1785418710.000800",
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                [[{"type": "markdown", "text": "remaining"}]],
+                "remaining",
+                0,
+                report_id=str(report.id),
+            )
+
+        assert apply_async.call_args.kwargs["countdown"] == 120
+        retry_kwargs = apply_async.call_args.kwargs["kwargs"]
+        assert retry_kwargs["report_id"] == str(report.id)
+        assert retry_kwargs["attempt"] == 2
+        slack_integration.return_value.client.chat_postMessage.assert_not_called()
 
     def test_reply_posted_regardless_of_ai_approval(self) -> None:
         # The Slack follow-up invite is unconditional — no AI-approval gate on scout output.
