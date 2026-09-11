@@ -255,6 +255,7 @@ export interface inboxReportDetailLogicValues {
     displayReviewers: EnrichedReviewer[] | null
     draftThread: DraftThread | null
     editingCommentId: string | null
+    evidenceExpanded: boolean
     expandedTaskIds: string[]
     feedbackNoteDraft: string
     feedbackNoteOpen: boolean
@@ -309,6 +310,9 @@ export interface inboxReportDetailLogicActions {
     closeDraftThread: () => {
         value: true
     }
+    collapseEvidence: () => {
+        value: true
+    }
     deleteReviewComment: (commentId: string) => {
         commentId: string
     }
@@ -318,6 +322,9 @@ export interface inboxReportDetailLogicActions {
     ) => {
         body: string
         commentId: string
+    }
+    expandEvidence: () => {
+        value: true
     }
     loadAvailableReviewers: ({ query }?: { query?: string }) => {
         query?: string
@@ -588,6 +595,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     })),
 
     actions({
+        expandEvidence: true,
+        collapseEvidence: true,
         // Open a not-yet-posted comment thread on a diff line (one draft at a time).
         openDraftThread: (draft: DraftThread) => ({ draft }),
         closeDraftThread: true,
@@ -782,6 +791,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     })),
 
     reducers({
+        evidenceExpanded: [false, { expandEvidence: () => true, collapseEvidence: () => false }],
         report: [
             null as SignalReport | null,
             {
@@ -1203,6 +1213,18 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             // Reviewing the diff is the deepest engagement a report gets short of acting on it.
             if (tab === 'files' && values.report) {
                 captureInboxReportAction({ report: values.report, actionType: 'view_diff', surface: 'detail_pane' })
+            }
+        },
+        expandEvidence: () => {
+            // The two-card default is a guess. This is the only signal for how often a reader wants
+            // the rest of the evidence, so it carries how much there was to reach for.
+            if (values.report) {
+                captureInboxReportAction({
+                    report: values.report,
+                    actionType: 'show_more',
+                    surface: 'detail_pane',
+                    extra: { section: 'evidence', signal_count: values.reportSignals?.length ?? 0 },
+                })
             }
         },
         rateReport: ({ sentiment }) => {

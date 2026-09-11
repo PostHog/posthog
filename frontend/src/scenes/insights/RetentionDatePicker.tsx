@@ -5,7 +5,8 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { retentionLogic } from 'scenes/retention/retentionLogic'
+
+import { retentionLogic } from 'products/product_analytics/frontend/insights/retention/retentionLogic'
 
 export function RetentionDatePicker(): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)

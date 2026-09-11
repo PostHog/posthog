@@ -17,6 +17,7 @@ module-scope primitives.
 from __future__ import annotations
 
 import time
+import socket
 import datetime
 import collections
 from collections.abc import Callable, Iterator
@@ -25,11 +26,12 @@ from typing import Any, TypeVar
 
 from django.conf import settings
 
+import psycopg
 import pyarrow as pa
 import pymysql
 import structlog
 import pymysql.converters
-from pymysql.constants import FIELD_TYPE
+from pymysql.constants import CR, FIELD_TYPE
 from pymysql.cursors import Cursor, SSCursor
 from structlog.types import FilteringBoundLogger
 
@@ -37,6 +39,11 @@ from structlog.types import FilteringBoundLogger
 # explain_query, fetch_average_row_size) deliberately do NOT report handled failures here;
 # their guard tests patch `mysql.capture_exception` to enforce that.
 from posthog.exceptions_capture import capture_exception  # noqa: F401
+from posthog.psycopg_helpers import (
+    is_resolvable_hostname,
+    prefer_routable_addresses,
+    resolve_psycopg_hostaddr_with_timeout,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DEFAULT_NUMERIC_PRECISION,
@@ -46,7 +53,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     restrict_schema_to_columns,
     table_from_iterator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_ERROR,
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    HostNotAllowedError,
+    check_resolved_addresses,
+    host_lookup_is_skipped,
+    open_ssh_tunnel,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     BacktickIdentifierQuoter,
     Column,
@@ -586,18 +600,120 @@ def _is_transient_cant_create_thread(e: BaseException) -> bool:
     return code == _CANT_CREATE_THREAD_CODE
 
 
-def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
+def _pinned_addresses(host: str, port: int, connect_timeout: int, team_id: int | None) -> tuple[str, ...]:
+    """Resolve `host` once, validate the answer, and return the addresses the connection may dial.
+
+    pymysql resolves the hostname itself inside `Connection.connect`, and the tunnel layer only
+    checked the host without pinning, so that second lookup is the one that picks the socket
+    target. A record can answer public on the check and private on the connect. Resolving here and
+    dialing exactly this answer leaves it nothing to slip past.
+
+    Empty means there is nothing to pin and pymysql connects by name: an IP literal (the SSH
+    tunnel yields its loopback bind address this way), or an exempt host whose lookup failed. An
+    exempt host that resolved dials what it resolved. A refused host raises the typed rejection
+    the non-retryable classifiers match. The lookup is bounded by `connect_timeout`; a deadline
+    or a resolver "try again" answer raises the error pymysql raises for its own failed lookup,
+    so the transient-connect retry runs a fresh lookup on the next attempt.
+    """
+    if host_lookup_is_skipped():
+        return ()
+
+    if not is_resolvable_hostname(host):
+        return ()
+
+    try:
+        addresses = (
+            resolve_psycopg_hostaddr_with_timeout(host, port, connect_timeout, raise_on_temporary_failure=True) or []
+        )
+    except psycopg.OperationalError as e:
+        # The bounded resolver reports a blip and a deadline as a psycopg error. pymysql's own
+        # wording for the same failures is what the transient-connect classifiers match.
+        reason = (
+            _DNS_TEMPORARY_FAILURE_TOKEN if isinstance(e.__cause__, socket.gaierror) else "timed out resolving host"
+        )
+        raise pymysql.err.OperationalError(
+            CR.CR_CONN_HOST_ERROR, f"Can't connect to MySQL server on {host!r} ({reason})"
+        ) from e
+    except UnicodeError:
+        addresses = []
+
+    resolution = check_resolved_addresses(host, addresses, team_id)
+    if resolution.connect_host is None:
+        raise HostNotAllowedError(
+            f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error or DATABASE_HOST_NOT_ALLOWED_GUIDANCE}"
+        )
+    return tuple(prefer_routable_addresses(list(resolution.addresses)))
+
+
+def _dial_pinned_address(host: str, addresses: tuple[str, ...], port: int, connect_timeout: int) -> socket.socket:
+    """Open the TCP socket for pymysql to one of `addresses`, trying them in order.
+
+    pymysql skips its own socket setup when it is handed a socket, so this mirrors it: the same
+    keepalive and no-delay options, and the timeout cleared after the connect because pymysql
+    applies its read and write timeouts per operation. A failure is raised as the same
+    `OperationalError(2003)` pymysql raises for its own connect, so the transient-connect
+    classifiers keep matching on the message.
+    """
+    last_error: OSError | None = None
+    for address in addresses:
+        try:
+            sock = socket.create_connection((address, port), connect_timeout)
+        except OSError as e:
+            last_error = e
+            continue
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        sock.settimeout(None)
+        return sock
+    raise pymysql.err.OperationalError(
+        CR.CR_CONN_HOST_ERROR, f"Can't connect to MySQL server on {host!r} ({last_error})"
+    ) from last_error
+
+
+def _pinned_socket(host: str, port: int, connect_timeout: int, team_id: int | None) -> socket.socket | None:
+    """The socket pymysql connects over, or None when it may dial `host` by name."""
+    addresses = _pinned_addresses(host, port, connect_timeout, team_id)
+    if not addresses:
+        return None
+    return _dial_pinned_address(host, addresses, port, connect_timeout)
+
+
+def _reconnect_pinned(connection: pymysql.Connection, team_id: int | None) -> None:
+    """Reopen a dropped pymysql connection to a freshly validated address.
+
+    `Connection.connect()` with no socket resolves `connection.host` again and dials whatever
+    that lookup returns, which would reopen the gap the pinned first connect closed.
+    """
+    connection.connect(sock=_pinned_socket(connection.host, connection.port, connection.connect_timeout, team_id))
+
+
+def _open_pymysql_connection(kwargs: dict[str, Any], team_id: int | None) -> pymysql.Connection:
+    sock = _pinned_socket(kwargs["host"], kwargs["port"], kwargs["connect_timeout"], team_id)
+    if sock is None:
+        return pymysql.connect(**kwargs)
+
+    # `host` stays the hostname so pymysql sends it as the TLS server name, and PlanetScale, which
+    # turns on `ssl_verify_identity`, verifies the certificate against it. Python sends no SNI for
+    # an IP literal. Only the TCP connect goes to the pinned address.
+    connection = pymysql.connect(**kwargs, defer_connect=True)
+    connection.connect(sock=sock)
+    return connection
+
+
+def _connect_with_transient_retry(kwargs: dict[str, Any], team_id: int | None) -> pymysql.Connection:
     """Open a pymysql connection, retrying a transient drop or timeout on connect.
 
     Mirrors the in-process connect retry the Postgres source uses: a momentary
     drop or timeout while establishing the connection recovers on a fresh attempt,
     so retry it here with a bounded backoff instead of failing schema discovery /
     sync setup on the first blip and surfacing it as captured error-tracking noise.
+    The pinned lookup runs inside the loop, so a resolver blip retries with a
+    fresh answer rather than a stale address list.
     """
     attempt = 0
     while True:
         try:
-            return pymysql.connect(**kwargs)
+            return _open_pymysql_connection(kwargs, team_id)
         except pymysql.err.DatabaseError as e:
             attempt += 1
             if attempt >= _MAX_CONNECT_ATTEMPTS or not (
@@ -879,6 +995,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         config: MySQLSourceConfig,
         *,
         read_timeout: int | None = None,
+        team_id: int | None = None,
     ) -> Iterator[pymysql.Connection]:
         """Open a pymysql connection for the duration of the context.
 
@@ -894,7 +1011,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         if config.using_ssl:
             ssl_ca = "/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt"
 
-        with self._ssh_tunnel_endpoint(config) as (host, port):
+        with self._ssh_tunnel_endpoint(config, team_id) as (host, port):
             kwargs: dict[str, Any] = {
                 "host": host,
                 # pymysql rejects a non-int port; config.port can arrive as a string when the
@@ -910,11 +1027,11 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             }
             if read_timeout is not None:
                 kwargs["read_timeout"] = read_timeout
-            with _connect_with_transient_retry(kwargs) as conn:
+            with _connect_with_transient_retry(kwargs, team_id) as conn:
                 yield conn
 
     @contextmanager
-    def _ssh_tunnel_endpoint(self, config: MySQLSourceConfig) -> Iterator[tuple[str, int]]:
+    def _ssh_tunnel_endpoint(self, config: MySQLSourceConfig, team_id: int | None) -> Iterator[tuple[str, int]]:
         """Yield the `(host, port)` to connect to, going through the SSH tunnel if configured.
 
         Translates a bare paramiko handshake `EOFError` into `_SSH_HANDSHAKE_EOF_ERROR`. The
@@ -923,7 +1040,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         """
         with ExitStack() as stack:
             try:
-                host, port = stack.enter_context(open_ssh_tunnel(config))
+                host, port = stack.enter_context(open_ssh_tunnel(config, team_id))
             except EOFError as e:
                 raise Exception(_SSH_HANDSHAKE_EOF_ERROR) from e
             yield host, port
@@ -1427,7 +1544,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         row_filters = inputs.row_filters
 
         def _discover_metadata() -> tuple[list[str] | None, pa.Schema, int, PartitionSettings | None, int]:
-            with self.connect(config) as connection:
+            with self.connect(config, team_id=inputs.team_id) as connection:
                 with connection.cursor() as cursor:
                     primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
                     full_table = self.get_table_metadata(cursor, schema, table_name)
@@ -1480,7 +1597,9 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             replays a few already-processed rows; the delta merge
             dedupes by primary key.
             """
-            with self.connect(config, read_timeout=STATEMENT_TIMEOUT_SECONDS) as streaming_connection:
+            with self.connect(
+                config, read_timeout=STATEMENT_TIMEOUT_SECONDS, team_id=inputs.team_id
+            ) as streaming_connection:
                 # Bump server-side timeouts for large table scans. The
                 # defaults (60s each) are too low for multi-GB unbuffered
                 # queries — the server drops the connection before the
@@ -1530,7 +1649,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         # Detach the cursor bound to the dead socket first so its later teardown
                         # can't drain the freshly reopened connection (see _release_streaming_cursor).
                         _release_streaming_cursor(ss_cursor)
-                        streaming_connection.connect()
+                        _reconnect_pinned(streaming_connection, inputs.team_id)
                         ss_cursor = streaming_connection.cursor(SSCursor)
 
                     ss_cursor.execute(query, args)
@@ -1595,7 +1714,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     )
                     raise
 
-                with self.connect(config) as probe_connection:
+                with self.connect(config, team_id=inputs.team_id) as probe_connection:
                     with probe_connection.cursor() as probe_cursor:
                         force_index_name = self.find_index_for_cursor(
                             probe_cursor, schema, table_name, incremental_field, logger

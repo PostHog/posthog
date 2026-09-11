@@ -53,6 +53,7 @@ from products.signals.backend.scout_harness.tools.emit import (
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH, MAX_NOTES_LIST_LIMIT
 from products.signals.backend.scout_harness.tools.report import (
     MAX_EVIDENCE_DESCRIPTION_LENGTH,
+    MAX_IDEMPOTENCY_KEY_LENGTH,
     MAX_REPORT_SIGNALS,
     MAX_REPORT_SUMMARY_LENGTH,
     MAX_REPORT_TITLE_LENGTH,
@@ -101,6 +102,7 @@ logger = structlog.get_logger(__name__)
             "model": {"type": "string"},
             "runtime_adapter": {"type": "string"},
             "reasoning_effort": {"type": "string"},
+            "service_tier": {"type": "string"},
             "network_access": {"type": "string"},
             "write_scopes": {"type": "array", "items": {"type": "string"}},
             "triggered_by": {"type": "string"},
@@ -1346,6 +1348,18 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "research left open, phrased as the reader would send them."
         ),
     )
+    idempotency_key = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=MAX_IDEMPOTENCY_KEY_LENGTH,
+        help_text=(
+            "Optional name for this emission, unique within the run. Reuse it verbatim to retry a call "
+            "whose outcome you don't know (a timeout, a dropped connection): the retry returns the "
+            "report the first call authored, with `idempotent_replay` true, instead of a second report. "
+            "Omit it and the report's own content is the key, which covers a retry of the identical "
+            "call — pass one when a retry might reword the report."
+        ),
+    )
 
 
 class EmitReportResponseSerializer(serializers.Serializer):
@@ -1374,6 +1388,13 @@ class EmitReportResponseSerializer(serializers.Serializer):
             "One-line, actionable next step when `skipped_reason` is set and the block is fixable "
             "(e.g. an org admin must approve AI data processing). Null when the report was authored "
             "or the skip isn't something the scout can act on."
+        ),
+    )
+    idempotent_replay = serializers.BooleanField(
+        help_text=(
+            "True when this call authored nothing because the emission had already landed — the fields "
+            "above describe that first report. Expected on a retry; treat the report as filed and don't "
+            "send it again."
         ),
     )
 
