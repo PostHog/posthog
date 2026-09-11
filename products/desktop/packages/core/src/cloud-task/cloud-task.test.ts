@@ -4833,8 +4833,7 @@ describe("CloudTaskEngine credential relay", () => {
     const updates: unknown[] = [];
     relayService.on(CloudTaskEvent.Update, (payload) => updates.push(payload));
     tokenStore.get.mockResolvedValue("sk-ant-oat01-fake-test-token");
-    // The run belongs to another user's Claude plan, so the designation is
-    // refused for as long as the run exists.
+    // Another user's plan owns the run, so the designation stays refused.
     mockNetFetch.mockImplementation((url: string) =>
       Promise.resolve(
         createJsonResponse(

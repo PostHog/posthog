@@ -110,9 +110,8 @@ const CREDENTIAL_FAILURE_MESSAGE: Record<CredentialFailureOutcome, string> = {
     "Your Claude token did not reach the run in time. Retry to send it again.",
 };
 
-/** A token relay refusal that retrying cannot clear, so the delivery loop stops
- *  instead of burning its deadline while the sandbox waits for a token that
- *  never arrives. */
+/** A refusal retrying cannot clear, so the delivery loop stops instead of
+ *  burning its deadline while the sandbox waits for a token. */
 class ClaudeTokenRelayRefused extends Error {
   constructor(message: string) {
     super(message);
@@ -856,9 +855,8 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     }
   }
 
-  /** The sandbox blocks its own startup until a token arrives, so a failure
-   *  that only reaches the log reads as a run that spins with every message
-   *  stuck in the queue. */
+  /** The sandbox blocks startup until a token arrives, so a failure that only
+   *  reaches the log reads as a run that spins with its messages queued. */
   private emitCredentialFailure(
     watcher: WatcherState,
     outcome: CredentialFailureOutcome,
