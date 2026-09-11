@@ -3539,6 +3539,10 @@ async def test_fetch_due_subscriptions_claims_let_later_work_bypass_running_chil
     assert [item.subscription_id for item in second_page.subscriptions] == [subscriptions[1].id]
     assert first_page.subscriptions[0].scheduler_claim_id is not None
     assert second_page.subscriptions[0].scheduler_claim_id is not None
+    first_claim = await sync_to_async(TemporalSchedulerClaim.objects.get)(
+        id=first_page.subscriptions[0].scheduler_claim_id
+    )
+    assert first_claim.source_due_at == due_at
 
 
 async def test_fetch_due_subscriptions_activity_retry_recovers_its_reserved_claim(team, user):

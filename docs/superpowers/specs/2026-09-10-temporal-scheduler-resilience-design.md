@@ -175,7 +175,7 @@ Cursors contain stable scalar fields only. If a manifest can exceed the payload 
 
 Fair ranks are mutable when previously selected rows leave the due set. A cursor must therefore not depend on a rank recalculated from the remaining rows.
 
-Discovery claims rows transactionally before returning them. A claim records the scheduler, logical occurrence, claim token, workflow ID, and expiry. Later pages exclude active claims and use a fixed due-time cutoff from the first page.
+Discovery claims rows transactionally before returning them. A claim records the scheduler, logical occurrence, source due time, claim token, workflow ID, and expiry. Later pages exclude active claims and use a fixed due-time cutoff from the first page. Retaining the source due time lets freshness monitoring continue after an item leaves the eligible queue.
 
 The parent cannot atomically start a Temporal child and update a database claim. The parent therefore passes the claim token to the child, and the child confirms ownership idempotently before doing work.
 
@@ -320,6 +320,8 @@ Every coordinator emits low-cardinality metrics with `scheduler` and `region` la
 - hydrated configuration bytes;
 - pages admitted;
 - active dispatch claims and admission permits;
+- oldest source-due age across admitted but unfinished claims;
+- current quarantined occurrences and quarantine transitions;
 - claim cleanup and renewal lag;
 - child starts accepted, deduplicated, and failed;
 - schedule-to-start latency;
@@ -327,10 +329,15 @@ Every coordinator emits low-cardinality metrics with `scheduler` and `region` la
 - resource-exhausted failures; and
 - worker slots available and used.
 
-Permit and backlog values are authoritative snapshots written by whichever worker ran the latest
+Permit, claim-health, and backlog values are authoritative snapshots written by whichever worker ran the latest
 database activity. Companion snapshot-time gauges identify that writer: dashboards select the
 newest live target for each scheduler and region and reject samples older than the coordinator's
 freshness interval. They must not sum identical queue-wide snapshots across worker replicas.
+
+Freshness is the greater of the oldest eligible due-item age and the oldest admitted-but-unfinished
+source-due age. A child that renews its claim therefore remains visible after discovery excludes it.
+Quarantine has both a transition counter for immediate paging and a current-item gauge for detecting
+missed notifications or unresolved terminal work.
 
 Dashboards show current values, high-percentile values, and growth over time. Capacity planning compares trailing seven-day demand with the prior seven days.
 
@@ -349,14 +356,15 @@ The initial alert set covers:
 5. worker replicas reach their maximum while backlog grows;
 6. worker slot availability stays below 10%;
 7. coordinator timeouts repeat; and
-8. claim cleanup or renewal lag approaches the lease timeout; and
-9. any payload-budget or resource-exhausted failure occurs.
+8. claim cleanup or renewal lag approaches the lease timeout;
+9. any payload-budget or resource-exhausted failure occurs; and
+10. a new quarantine transition occurs or quarantined work remains unresolved.
 
 A capacity forecast also alerts before saturation when projected high-percentile demand will consume the recovery envelope within the planning horizon.
 
 The alerts route through infrastructure that does not depend on the monitored task queue. They notify the owning product team and the shared worker platform owner.
 
-Each notification includes the scheduler name, region, current limit, current backlog age, and the first remediation link.
+Each notification includes the scheduler name, region, current limit, current backlog age, and the first remediation link. Quarantine notifications link to a bounded error-summary lookup and the owning team's remediation runbook.
 
 ## Failure containment
 
