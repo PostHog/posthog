@@ -217,7 +217,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
     } = useActions(taxonomicFilterLogic)
 
     const _onChange = (query: string): void => {
-        // Keep the interaction action outside the batch so the controlled input updates synchronously.
+        // Batch the search query update to reduce re-renders while keeping the controlled input responsive.
         batchChanges(() => setTaxonomicSearchQuery(query))
         // Only the input's onChange path counts as user interaction. The controlled-prop
         // useEffect above also calls setSearchQuery directly, but that's programmatic and
