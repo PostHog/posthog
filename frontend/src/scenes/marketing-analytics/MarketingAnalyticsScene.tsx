@@ -34,7 +34,6 @@ import { IntegrationSettingsModal } from '../web-analytics/tabs/marketing-analyt
 import {
     MarketingAnalyticsTab,
     SETUP_ABSORBED_TABS,
-    SetupSection,
     marketingAnalyticsLogic,
 } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
@@ -118,7 +117,7 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { hasSources, hasNoConfiguredSources, loading, isAdPerformance, includeConversionGoals } =
         useValues(marketingAnalyticsLogic)
-    const { setAdPerformanceConversionGoals, setActiveTab, setSetupSection } = useActions(marketingAnalyticsLogic)
+    const { setAdPerformanceConversionGoals } = useActions(marketingAnalyticsLogic)
     const { loadSources } = useActions(sourcesDataLogic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { tiles: marketingTiles } = useValues(marketingAnalyticsTilesLogic)
@@ -186,25 +185,6 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
                 {feedbackBanner}
                 <MarketingAnalyticsDashboardSkeleton />
             </>
-        )
-    }
-
-    // Show onboarding if user hasn't completed it yet
-    if (isAdPerformance && hasNoConfiguredSources) {
-        return (
-            <LemonBanner
-                type="info"
-                className="mt-4"
-                action={{
-                    children: 'Connect ad platforms',
-                    onClick: () => {
-                        setSetupSection(SetupSection.SOURCES)
-                        setActiveTab(MarketingAnalyticsTab.SETUP)
-                    },
-                }}
-            >
-                Connect an ad platform to see your ad performance.
-            </LemonBanner>
         )
     }
 
