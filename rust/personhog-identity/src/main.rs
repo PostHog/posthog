@@ -217,7 +217,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let property_writer = Arc::new(
         RouterClient::new(&config.router_url, config.leader_request_timeout())
-            .expect("Invalid router URL"),
+            .expect("Invalid router URL")
+            .with_client_name("personhog-identity"),
     );
     // Both sagas' leader surface, reached through the router like the
     // property writes.
