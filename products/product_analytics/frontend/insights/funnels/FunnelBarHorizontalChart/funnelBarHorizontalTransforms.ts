@@ -3,7 +3,7 @@ import type { Series, TooltipContext } from '@posthog/quill-charts'
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
 import { type FunnelStepWithConversionMetrics } from '~/types'
 
-import { getStepBreakdownSeries, hasBreakdown } from '../funnelUtils'
+import { getStepBreakdownSeries, getVisibilityKey, hasBreakdown } from '../funnelUtils'
 import {
     buildFunnelBarHorizontalDropOff,
     buildFunnelBarHorizontalFiller,
@@ -120,7 +120,8 @@ export function buildFunnelBarHorizontalCompareData(
     const entryLevels = firstNested.map((variant) => variant.conversionRates.fromBasisStep * RATE_TO_PERCENT)
     return steps.map((step, stepIndex) => {
         const bars = (step.nested_breakdown ?? []).map((variant, breakdownIndex) => {
-            const representative = firstNested[breakdownIndex] ?? variant
+            const representative =
+                firstNested.find((candidate) => candidate.compare_label === variant.compare_label) ?? variant
             const segment: Series<FunnelBarHorizontalSegmentMeta> = {
                 key: `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}${breakdownIndex}`,
                 label: options.getLabel(variant),
@@ -282,7 +283,12 @@ function buildBreakdownCompareStacks(
         const current: Series<FunnelBarHorizontalSegmentMeta>[] = []
         const previous: Series<FunnelBarHorizontalSegmentMeta>[] = []
         ;(step.nested_breakdown ?? []).forEach((variant, breakdownIndex) => {
-            const representative = firstNested[breakdownIndex] ?? variant
+            const representative =
+                firstNested.find(
+                    (candidate) =>
+                        candidate.compare_label === variant.compare_label &&
+                        getVisibilityKey(candidate.breakdown_value) === getVisibilityKey(variant.breakdown_value)
+                ) ?? variant
             const segment: Series<FunnelBarHorizontalSegmentMeta> = {
                 key: `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}${breakdownIndex}`,
                 label: options.getLabel(variant),

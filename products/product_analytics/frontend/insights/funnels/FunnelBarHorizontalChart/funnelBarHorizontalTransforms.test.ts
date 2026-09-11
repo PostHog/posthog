@@ -392,6 +392,13 @@ describe('buildFunnelBarHorizontalData', () => {
                 ['current-100', 'previous-80'],
                 ['current-100', 'previous-80'],
             ])
+
+            const sparseSteps = [
+                compareSteps[0],
+                { ...compareSteps[1], nested_breakdown: [compareSteps[1].nested_breakdown![1]] },
+            ]
+            const sparseResult = buildFunnelBarHorizontalCompareData(sparseSteps, { ...options, getColor })
+            expect(sparseResult[1].bars[0].series[0].color).toBe('previous-80')
         })
 
         it('tags both the segment and filler of each bar with its period breakdownIndex', () => {
@@ -528,6 +535,17 @@ describe('buildFunnelBarHorizontalData', () => {
                         ['mobile-previous-45', 'desktop-previous-30'],
                     ],
                 ])
+
+                const sparseSteps = [
+                    breakdownCompareSteps[0],
+                    {
+                        ...breakdownCompareSteps[1],
+                        nested_breakdown: breakdownCompareSteps[1].nested_breakdown!.slice(2),
+                    },
+                ]
+                const sparseResult = buildFunnelBarHorizontalCompareData(sparseSteps, { ...options, getColor })
+                expect(sparseResult[1].bars[0].series[0].color).toBe('desktop-current-40')
+                expect(sparseResult[1].bars[1].series[0].color).toBe('desktop-previous-30')
             })
         })
     })
