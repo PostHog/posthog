@@ -2372,6 +2372,7 @@ class TestExternalDataSource(APIBaseTest):
                         supports_incremental=False,
                         supports_append=False,
                         columns=[("something", "DATE", False)],
+                        detected_primary_keys=["something"],
                     )
                 ],
             ),
@@ -4825,6 +4826,71 @@ class TestExternalDataSource(APIBaseTest):
         assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 0
         mock_setup_cdc_resources.assert_not_called()
 
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_create_rejects_incremental_for_a_table_with_no_key_to_merge_on(self, mock_get_source):
+        _configure_source_mock_versioning(mock_get_source)
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.schema = "public"
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="events",
+                supports_incremental=True,
+                supports_append=True,
+                columns=[("amount", "integer", False), ("updated_at", "timestamp", False)],
+                foreign_keys=[],
+                incremental_fields=[
+                    {
+                        "label": "updated_at",
+                        "type": IncrementalFieldType.Timestamp,
+                        "field": "updated_at",
+                        "field_type": IncrementalFieldType.Timestamp,
+                        "nullable": False,
+                    }
+                ],
+                detected_primary_keys=None,
+            ),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "schemas": [
+                        {
+                            "name": "events",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "updated_at",
+                            "incremental_field_type": "timestamp",
+                        },
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "no primary key" in response.json()["message"].lower()
+        assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 0
+
     @parameterized.expand(
         [
             # Frontend sends null when the user leaves the PK selector empty — backend falls
@@ -4833,8 +4899,8 @@ class TestExternalDataSource(APIBaseTest):
             ("fallback_to_detected", None, ["id"], ["id"]),
             # User explicitly overrides — caller value wins, detected is ignored.
             ("explicit_wins_over_detected", ["custom_pk"], ["id"], ["custom_pk"]),
-            # Nothing detected and nothing provided — key omitted from sync_type_config
-            # entirely (preserves pre-existing behaviour for tables without a PK).
+            # Nothing detected and nothing provided, but the table has an `id` column, which is
+            # what resolution falls back to — so the key is omitted here and found at sync time.
             ("both_absent_omits_key", None, None, None),
         ]
     )

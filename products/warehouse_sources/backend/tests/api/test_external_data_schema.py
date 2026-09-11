@@ -585,6 +585,60 @@ class TestExternalDataSchema(APIBaseTest):
             assert schema.sync_type_config.get("reset_pipeline") is None
             assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
+    @parameterized.expand(
+        [
+            ("no_key_and_no_id_column", [{"name": "amount"}], None, False),
+            ("id_column_is_the_fallback", [{"name": "id"}, {"name": "amount"}], None, True),
+            ("key_supplied_in_the_request", [{"name": "amount"}], ["order_id"], True),
+            ("columns_unknown", [], None, True),
+        ]
+    )
+    def test_switching_to_incremental_requires_a_key_the_merge_can_use(
+        self, _name: str, columns: list[dict[str, str]], requested_keys: list[str] | None, expected_ok: bool
+    ):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="orders",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type_config={"schema_metadata": {"columns": columns}},
+        )
+        payload: dict[str, Any] = {
+            "sync_type": "incremental",
+            "incremental_field": "created_at",
+            "incremental_field_type": "datetime",
+        }
+        if requested_keys is not None:
+            payload["primary_key_columns"] = requested_keys
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}", data=payload
+            )
+
+        if expected_ok:
+            assert response.status_code == 200, response.content
+        else:
+            assert response.status_code == 400, response.content
+            assert "no primary key" in str(response.json()).lower()
+
     def test_update_schema_sync_type_is_logged_to_activity(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
