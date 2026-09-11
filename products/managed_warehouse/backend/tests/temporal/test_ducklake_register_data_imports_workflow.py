@@ -16,6 +16,7 @@ from posthog.sync import database_sync_to_async
 from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseSourceJobStatus
 from products.managed_warehouse.backend.temporal import ducklake_register_data_imports_workflow as registration_module
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_workflow import (
+    DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG,
     S3_COPY_BATCH_SIZE,
     DuckLakeRegisterDataImportsActivityInputs,
     DuckLakeRegisterDataImportsGateInputs,
@@ -53,7 +54,7 @@ def _cp_no_rows():
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize("flag_enabled", [True, False])
-async def test_registration_gate_uses_data_warehouse_scene_flag(monkeypatch, ateam, flag_enabled):
+async def test_registration_gate_uses_independent_feature_flag(monkeypatch, ateam, flag_enabled):
     captured: dict[str, object] = {}
 
     def fake_feature_enabled(key, distinct_id, **kwargs):
@@ -65,10 +66,16 @@ async def test_registration_gate_uses_data_warehouse_scene_flag(monkeypatch, ate
     result = await ducklake_register_data_imports_gate_activity(DuckLakeRegisterDataImportsGateInputs(team_id=ateam.id))
 
     assert result is flag_enabled
-    assert captured["key"] == "data-warehouse-scene"
-    assert captured["distinct_id"] == str(ateam.organization_id)
-    assert captured["groups"] == {"organization": str(ateam.organization_id)}
-    assert captured["group_properties"] == {"organization": {"id": str(ateam.organization_id)}}
+    assert captured["key"] == DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG
+    assert captured["distinct_id"] == str(ateam.uuid)
+    assert captured["groups"] == {
+        "organization": str(ateam.organization_id),
+        "project": str(ateam.id),
+    }
+    assert captured["group_properties"] == {
+        "organization": {"id": str(ateam.organization_id)},
+        "project": {"id": str(ateam.id)},
+    }
     assert captured["only_evaluate_locally"] is True
     assert captured["send_feature_flag_events"] is False
 
