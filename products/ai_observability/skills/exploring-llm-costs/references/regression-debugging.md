@@ -81,8 +81,9 @@ ORDER BY day, model
 
 ## Step 4 — Look for cache degradation
 
-Track the cache-hit rate per model per day. A drop often follows a
-system-prompt change that invalidated the cached prefix:
+Track the cache-hit rate per model per day, on both sides of the jump.
+A drop often follows a system-prompt change that invalidated the cached prefix.
+Replace `<jump_day>` with the day Step 1 pointed at:
 
 ```sql
 posthog:execute-sql
@@ -103,7 +104,8 @@ SELECT
     round(sum(toFloat(properties.$ai_total_cost_usd)), 4) AS cost_usd
 FROM events
 WHERE event = '$ai_generation'
-    AND timestamp >= now() - INTERVAL 30 DAY
+    AND timestamp >= toDateTime('<jump_day>') - INTERVAL 14 DAY
+    AND timestamp < toDateTime('<jump_day>') + INTERVAL 14 DAY
 GROUP BY day, model
 ORDER BY day, model
 ```
