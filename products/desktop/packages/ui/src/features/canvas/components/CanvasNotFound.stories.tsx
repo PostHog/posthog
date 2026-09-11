@@ -1,10 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { CanvasNotFound } from "./CanvasNotFound";
+import { CanvasNotFoundView } from "./CanvasNotFound";
 
 const meta = {
   title: "Canvas/CanvasNotFound",
-  component: CanvasNotFound,
+  component: CanvasNotFoundView,
   parameters: { layout: "fullscreen" },
+  args: { projectName: "Marketing" },
   decorators: [
     (Story) => (
       <div className="h-100">
@@ -12,11 +13,15 @@ const meta = {
       </div>
     ),
   ],
-} satisfies Meta<typeof CanvasNotFound>;
+} satisfies Meta<typeof CanvasNotFoundView>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Default: Story = {
-  args: { channelId: "chan-1" },
+export const NoAccessOrOtherProject: Story = {
+  args: { channel: undefined },
+};
+
+export const DeletedFromVisibleChannel: Story = {
+  args: { channel: { id: "chan-1", name: "Growth" } },
 };
