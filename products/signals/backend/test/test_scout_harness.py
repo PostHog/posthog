@@ -744,9 +744,12 @@ class TestPromptBuilder(BaseTest):
             team_id=self.team.id,
             started_at=started_at,
         )
-        # Identity carries the skill name + version so bootstrap can reference it.
+        # Identity carries the skill name + version so bootstrap can reference it. The version
+        # renders as the bare number `skill-get` takes, since the endpoint validates it as an
+        # integer and the bootstrap points here rather than interpolating the value itself.
         assert "signals-scout-errors" in prompt
-        assert "(v1)" in prompt
+        assert "- **skill_version**: `1`" in prompt
+        assert "(v1)" not in prompt
         # The agent needs to know its own run id to attribute emits and memories.
         assert "00000000-0000-0000-0000-000000000abc" in prompt
         # Calling convention is stated up front: bare tool names resolve only
@@ -762,7 +765,7 @@ class TestPromptBuilder(BaseTest):
         # were snapshotted against v1, so the bootstrap fetch must lock to v1 too. The two values
         # ride in the run-identity block (asserted above), which is what keeps them out of the
         # cacheable prose; the bootstrap step still has to say the version is not optional.
-        assert "skill-get(skill_name=<the skill name there>, version=<the version there>)" in prompt
+        assert "skill-get(skill_name=<the skill_name there>, version=<the skill_version there>)" in prompt
         assert "Pin that version explicitly" in prompt
         assert "skill-file-get" in prompt
         assert "watch for spikes" not in prompt

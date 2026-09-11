@@ -723,7 +723,7 @@ _CANONICAL_IMPROVEMENT = """# Suggest improvements to your canonical skill
 
 Your skill is a canonical PostHog-authored skill that runs on many projects, and your runs are the only place its real-world gaps show up. When THIS run produced concrete evidence that the skill itself has a gap (its detection rules produced a false positive, its instructions steered you past a real issue, its discriminator doesn't hold for this kind of project, an investigation pattern it mandates wasted most of your budget, or an instruction is ambiguous in practice), report it upstream via the `agent-feedback` MCP tool so the PostHog team can improve the skill for every project it runs on:
 
-- Set `feedback_type` = `"scout"`, `scout_skill_name` exactly as named in *Your run identity*, `scout_skill_version` as a bare number (the numeric part of the version there: `7` for `v7`, never the `v` prefix), and `scout_category` to the closest match (`false_positive`, `missed_detection`, `discriminator_gap`, `wasted_investigation`, `instruction_ambiguity`, or `other`). All three are required or the submission is rejected. Put the specific skill change you'd suggest in `suggested_improvement`.
+- Set `feedback_type` = `"scout"`, `scout_skill_name` exactly as named in *Your run identity*, `scout_skill_version` as the bare `skill_version` number there (never `v`-prefixed), and `scout_category` to the closest match (`false_positive`, `missed_detection`, `discriminator_gap`, `wasted_investigation`, `instruction_ambiguity`, or `other`). All three are required or the submission is rejected. Put the specific skill change you'd suggest in `suggested_improvement`.
 - **Generalize: this project's data must not travel.** The feedback leaves this project, so describe the *pattern*, never the *instance*. No person, account, or company data; no property values, URLs, or project-specific numbers; not even this project's custom event or property names, which are the customer's schema, so describe their shape instead ("a project whose 404 event is custom-named", not the name itself). If you can't state the improvement without project specifics, keep it as a scratchpad note instead of submitting it.
 - **Don't re-report a known gap.** Keep a `reported:<your-skill-name>:<topic>` entry for each gap you've submitted, with the dates AND the skill version you reported against in the content. Your step-1 scratchpad search surfaces them: only re-submit with materially new evidence, appending a fresh dated line when you do. A skill version bump where the gap still reproduces IS materially new evidence, since feedback is aggregated per version, so re-submit against the current version rather than staying quiet on a stale one. When a later version fixes the gap, `forget` the entry.
 - Routing: this channel is only for the content of your canonical skill body. A problem with the tools, the harness, or these shared instructions goes through *Report operational friction* above, like any other run, under the same bar and etiquette: a concrete failure or waste observed this run, at most one submission per run, near close-out, mentioned in your summary."""
@@ -1222,7 +1222,8 @@ def build_run_prompt(
     run_identity = f"""# Your run identity
 
 - **team_id**: `{team_id}`, implicit on every MCP call.
-- **skill**: `{skill.name}` (v{skill.version}), your steering layer. These are the two values the `skill-get` call in *First: read your skill* takes.{authors_line}
+- **skill_name**: `{skill.name}`, your steering layer.
+- **skill_version**: `{skill.version}`, the version it is pinned to, written as a bare number and never `v`-prefixed. `skill_name` and `skill_version` are the two arguments the `skill-get` call in *First: read your skill* takes.{authors_line}
 - **run_id**: `{run_id}`, passed when calling `{emit_tool}`.
 - **started_at**: `{started_at_iso}`, when this run began (UTC). Informational; use current clock time for queries about "now"."""
     # Everything above this block is identical across runs of the same channel, so both runtimes'
@@ -1250,7 +1251,7 @@ Every tool named in this prompt, the `scout-*` harness tools and all PostHog MCP
 
 Your bound skill is the brain of this run. *Your run identity*, at the end of this prompt, names it and pins its version. Before doing anything else, call:
 
-    skill-get(skill_name=<the skill name there>, version=<the version there>)
+    skill-get(skill_name=<the skill_name there>, version=<the skill_version there>)
 
 Pin that version explicitly, since the run row, your tool resolution, and your budget were all snapshotted against it and fetching by name alone would race a version published mid-run. If the `body` comes back shorter than `body_total_length` it was truncated in transit, so page through with `body_offset`/`body_length` from `body_next_offset` until it returns null rather than starting on a partial procedure.
 
