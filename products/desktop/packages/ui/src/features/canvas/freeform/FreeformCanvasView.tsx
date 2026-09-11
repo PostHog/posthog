@@ -6,7 +6,6 @@ import {
   PencilSimpleIcon,
   ShapesIcon,
   SidebarSimpleIcon,
-  SpinnerGapIcon,
   WarningIcon,
 } from "@phosphor-icons/react";
 import {
@@ -68,6 +67,7 @@ import {
   useCanvasSource,
   useCanvasVersions,
   useDashboardMutations,
+  usePrimeCanvasView,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import {
@@ -85,8 +85,9 @@ import {
 import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import { useSessionForTask } from "@posthog/ui/features/sessions/useSession";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
-import { Spin } from "@posthog/ui/primitives/Spinner";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import {
@@ -119,6 +120,7 @@ import {
   shouldClearCanvasBrowse,
 } from "./canvasVersionNavigation";
 import { handleFreeformDataRequest } from "./freeformDataBridge";
+import { useCanvasConnectorPermission } from "./useCanvasConnectorPermission";
 import { useCanvasNavigation } from "./useCanvasNavigation";
 import { usePinnedArtifact } from "./usePinnedArtifact";
 
@@ -199,6 +201,15 @@ export function FreeformCanvasView({
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
   const authenticatedClient = useOptionalAuthenticatedClient();
+
+  // One combined round trip (record + live build + head source) that seeds the
+  // per-endpoint caches below where they're empty. On a cold open this removes
+  // the sequential source hop; after a hover prime it makes the whole open a
+  // cache hit. The per-endpoint queries stay authoritative once loaded.
+  const primeCanvasView = usePrimeCanvasView();
+  useEffect(() => {
+    if (dashboardId) primeCanvasView(dashboardId);
+  }, [dashboardId, primeCanvasView]);
 
   // The generation-task association lives in the canvas record's meta. Poll it
   // while a task is running so the fresh head version + the cleared association
@@ -610,11 +621,17 @@ export function FreeformCanvasView({
       setAgentRequest(null);
     }
   }, [dashboardId]);
+  const requestConnectorPermission = useCanvasConnectorPermission(
+    dashboardId,
+    displayedVersionId,
+  );
   const onDataRequest = useCallback(
     (method: string, payload: unknown) => {
       if (method !== "agentRequest") {
         return handleFreeformDataRequest(method, payload, queryClient, {
           dashboardId,
+          sourceVersionId: displayedVersionId ?? undefined,
+          requestConnectorPermission,
         });
       }
       const input = canvasAgentRequestInputSchema.parse(payload);
@@ -630,7 +647,7 @@ export function FreeformCanvasView({
         agentRequestPromiseRef.current = { resolve, reject };
       });
     },
-    [queryClient, dashboardId],
+    [queryClient, dashboardId, displayedVersionId, requestConnectorPermission],
   );
   const cancelAgentRequest = useCallback(() => {
     agentRequestPromiseRef.current?.reject(new Error("Agent request canceled"));
@@ -991,9 +1008,7 @@ export function FreeformCanvasView({
               {interactive &&
                 (isGenerating && effectiveTaskId ? (
                   <>
-                    <Spin className="text-accent-9">
-                      <SpinnerGapIcon size={14} />
-                    </Spin>
+                    <Spinner size="md" className="text-accent-9" />
                     <Text size="1" className="text-gray-10">
                       Generating
                     </Text>
@@ -1152,7 +1167,7 @@ export function FreeformCanvasView({
               </Flex>
             ) : buildsLoading ? (
               <ScrollArea className="h-full">
-                <LoadingState />
+                <LoadingState label="Loading canvas" />
               </ScrollArea>
             ) : (
               <ScrollArea className="h-full">
@@ -1251,7 +1266,10 @@ export function FreeformCanvasView({
                   taskId={effectiveTaskId ?? ""}
                 />
               ) : dashboardLoading || buildsLoading || headSourceLoading ? (
-                <LoadingState />
+                // Shown while the canvas record is still loading, so a canvas
+                // that actually has content doesn't flash the empty state
+                // before its source/builds resolve.
+                <LoadingState label="Loading canvas" />
               ) : hasSource ? (
                 // Source exists but nothing is renderable yet: a multi-file
                 // project whose build hasn't succeeded. The toolbar's build
@@ -1368,23 +1386,6 @@ export function FreeformCanvasView({
   );
 }
 
-// Shown while the canvas record is still loading, so a canvas that actually has
-// content doesn't flash the empty state before its source/builds resolve.
-function LoadingState() {
-  return (
-    <Empty className="h-full">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <Spin className="text-accent-9">
-            <SpinnerGapIcon size={18} />
-          </Spin>
-        </EmptyMedia>
-        <EmptyTitle>Loading canvas</EmptyTitle>
-      </EmptyHeader>
-    </Empty>
-  );
-}
-
 // Centered status shown while a generation task runs on an empty canvas, with a
 // button to jump to the task doing the work.
 function GeneratingState({
@@ -1398,9 +1399,7 @@ function GeneratingState({
     <Empty className="h-full border-0">
       <EmptyHeader>
         <EmptyMedia variant="icon">
-          <Spin className="text-accent-9">
-            <SpinnerGapIcon size={18} />
-          </Spin>
+          <Spinner size="md" className="text-accent-9" />
         </EmptyMedia>
         <EmptyTitle>Generating</EmptyTitle>
         <EmptyDescription>An agent is building this canvas.</EmptyDescription>

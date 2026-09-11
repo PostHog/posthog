@@ -26,7 +26,7 @@ describe('AccountsTabFilters', () => {
             get: {
                 '/api/organizations/:organization_id/members/': () => [200, { results: [] }],
                 '/api/projects/:team_id/tags': () => [200, []],
-                '/api/environments/:team_id/column_configurations': () => [
+                '/api/projects/:team_id/column_configurations': () => [
                     200,
                     { count: savedViews.length, results: savedViews },
                 ],
@@ -63,7 +63,7 @@ describe('AccountsTabFilters', () => {
         return screen.getByText('My accounts').closest('.LemonCheckbox')!.querySelector('input')!
     }
 
-    it('offers shared saved views when none is selected', async () => {
+    it('offers edit and delete for a shared saved view', async () => {
         savedViews = [
             {
                 id: 'shared-view',
@@ -83,7 +83,20 @@ describe('AccountsTabFilters', () => {
 
         fireEvent.click(await screen.findByText('Select view'))
 
-        expect(await screen.findByText('Shared accounts')).toBeInTheDocument()
+        const sharedViewLabel = await screen.findByText('Shared accounts')
+        const viewMenuItem = sharedViewLabel.closest('li')
+        expect(viewMenuItem).not.toBeNull()
+
+        const viewButtons = viewMenuItem!.querySelectorAll('button')
+        expect(viewButtons).toHaveLength(2)
+        fireEvent.click(viewButtons[1])
+
+        expect(await screen.findByText('Edit')).toBeInTheDocument()
+        expect(screen.getByText('Delete')).toBeInTheDocument()
+
+        fireEvent.click(screen.getByText('Edit'))
+        expect(await screen.findByText('Edit view')).toBeInTheDocument()
+        expect(screen.getByDisplayValue('Shared accounts')).toBeInTheDocument()
     })
 
     it('renders the "My accounts" checkbox', () => {

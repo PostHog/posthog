@@ -12,7 +12,7 @@ import { MARKETING_DEFAULT_SOURCE_MAPPINGS } from '~/queries/schema/schema-gener
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { getEnabledNativeMarketingSources } from '../../logic/utils'
-import { parseCommaSeparatedValues, removeSourceFromMappings } from '../NonIntegratedConversionsTable/mappingUtils'
+import { parseCommaSeparatedValues, removeSourceFromMappings } from '../CampaignMapping/mappingUtils'
 
 export interface CustomSourceMappingsConfigurationProps {
     sourceFilter?: string

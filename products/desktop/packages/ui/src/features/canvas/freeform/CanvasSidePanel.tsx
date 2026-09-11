@@ -1,8 +1,4 @@
-import {
-  ChatCircleIcon,
-  SidebarSimpleIcon,
-  SpinnerGapIcon,
-} from "@phosphor-icons/react";
+import { ChatCircleIcon, SidebarSimpleIcon } from "@phosphor-icons/react";
 import {
   Button,
   Empty,
@@ -25,7 +21,7 @@ import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canv
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
-import { Spin } from "@posthog/ui/primitives/Spinner";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useQuery } from "@tanstack/react-query";
 import { type Ref, useEffect, useRef } from "react";
 
@@ -173,13 +169,7 @@ function CanvasChatLoader({ taskId }: { taskId: string }) {
   const { data: task } = useQuery(taskDetailQuery(taskId));
 
   if (!task) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spin className="text-gray-9">
-          <SpinnerGapIcon size={18} />
-        </Spin>
-      </div>
-    );
+    return <LoadingState />;
   }
 
   return <EmbeddedSessionView task={task} />;
@@ -203,13 +193,7 @@ function CanvasCommentsLoader({
   const { data: task } = useQuery(taskDetailQuery(taskId));
 
   if (!task) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spin className="text-gray-9">
-          <SpinnerGapIcon size={18} />
-        </Spin>
-      </div>
-    );
+    return <LoadingState />;
   }
 
   return (

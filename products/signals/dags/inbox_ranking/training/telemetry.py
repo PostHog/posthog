@@ -2,9 +2,10 @@
 
 `metadata.json` is the durable record of a candidate, but one JSON object per day in S3 cannot be
 charted. Every training run also captures its metrics as events into the dogfood project, the
-same project the label events land in, keyed by `model_version` and stamped with the partition
-day. Per-head stability is then a trends insight with a `head` breakdown, and a drop in
-readability is an insight alert. Delivery is best-effort and never fails an asset.
+same project the label events land in, keyed by `model_name` and `model_version` and stamped with
+the partition day. Per-head stability is then a trends insight with a `head` breakdown, one line
+per model family, and a drop in readability is an insight alert. Delivery is best-effort and never
+fails an asset.
 """
 
 import datetime
@@ -36,6 +37,7 @@ UNSEEN_REPORT_GRADED_EVENT = "inbox_ranking_unseen_report_graded"
 
 # Candidate metadata copied onto every per-head event so a chart can filter or break down on it.
 _CANDIDATE_CONTEXT_KEYS = (
+    "model_name",
     "model_version",
     "run_id",
     "dataset_version",
@@ -89,16 +91,22 @@ def examples_events(
     *,
     partition_key: str,
     run_id: str,
+    feature_set: str,
     snapshots: int,
     backfilled_rows: int,
     per_head: Mapping[str, HeadExampleCounts],
 ) -> list[TrainingEvent]:
-    """One event per head with its example and positive counts; the run-level counts repeat on each."""
+    """One event per head with its example and positive counts; the run-level counts repeat on each.
+
+    Examples are per feature set, not per model family: every family on a set trains on one
+    Parquet, so `feature_set` is the dimension that separates two of these series.
+    """
     return [
         TrainingEvent(
             event=EXAMPLES_BUILT_EVENT,
             properties={
                 "model_version": partition_key,
+                "feature_set": feature_set,
                 "run_id": run_id,
                 "snapshots": snapshots,
                 "backfilled_state_rows_excluded": backfilled_rows,
@@ -115,6 +123,7 @@ def promotion_event(
     *,
     partition_key: str,
     run_id: str,
+    model_name: str,
     decision: PromotionDecision,
     promoted: bool,
     champion_version: str,
@@ -122,10 +131,12 @@ def promotion_event(
     champion_aucs: Mapping[str, float],
 ) -> TrainingEvent:
     """`champion_aucs` were scored by the incumbent on this candidate's holdout; after a promotion
-    `champion_version` is the candidate, so the incumbent is carried separately."""
+    `champion_version` is the candidate, so the incumbent is carried separately. Every version here
+    belongs to `model_name`: promotion compares a candidate to the champion of its own family."""
     return TrainingEvent(
         event=PROMOTION_DECIDED_EVENT,
         properties={
+            "model_name": model_name,
             "model_version": partition_key,
             "run_id": run_id,
             "would_promote": decision.promote,

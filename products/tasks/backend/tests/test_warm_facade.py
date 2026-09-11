@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -771,7 +771,9 @@ class TestCreateTaskWarmReuse(APIBaseTest):
                     retry_token += "invalid"
                 if outcome == "retry_workflow_changed":
                     TaskRun.update_state_atomic(run.id, updates={"workflow_id": "replacement-workflow"})
-                with freeze_time(django_timezone.now() + timedelta(seconds=61 if outcome == "retry_expired" else 0)):
+                with time_machine.travel(
+                    django_timezone.now() + timedelta(seconds=61 if outcome == "retry_expired" else 0), tick=False
+                ):
                     retry = self.client.post(url, payload, format="json", HTTP_X_POSTHOG_WARM_RETRY=retry_token)
                 if outcome != "retry":
                     assert retry.status_code == 503, retry.content
@@ -1548,7 +1550,8 @@ class TestRunTaskWarmActivation(APIBaseTest):
         run.refresh_from_db()
         assert run.state.get("await_user_message") is True
 
-    def test_context_window_mismatch_does_not_activate_warm_run(self):
+    @parameterized.expand([("context_window", "1m"), ("claude_model_access", "own-subscription")])
+    def test_runtime_selection_mismatch_does_not_activate_warm_run(self, field, value):
         task, run = self._warm_run()
         with (
             patch(f"{FACADE}.signal_task_run_user_message") as mock_signal,
@@ -1562,7 +1565,7 @@ class TestRunTaskWarmActivation(APIBaseTest):
                     "mode": "interactive",
                     "branch": "main",
                     "pending_user_message": "do it",
-                    "context_window": "1m",
+                    field: value,
                 },
             )
 

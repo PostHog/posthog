@@ -77,6 +77,7 @@ from products.signals.backend.scout_harness.run_gates import (
     check_run_in_flight,
     check_spend_gates,
 )
+from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW_DAYS, scout_costs
 from products.signals.backend.scout_harness.serializers import (
     EditReportRequestSerializer,
     EditReportResponseSerializer,
@@ -96,6 +97,8 @@ from products.signals.backend.scout_harness.serializers import (
     RecordStructuredOutputRequestSerializer,
     RecordStructuredOutputResponseSerializer,
     RememberRequestSerializer,
+    ScoutCostsQuerySerializer,
+    ScoutCostsSerializer,
     ScoutEmissionReportLinkSerializer,
     ScoutFleetSyncQuerySerializer,
     ScoutMemberSerializer,
@@ -443,12 +446,35 @@ def _resolve_emission_report_links(
     return links
 
 
+class ScoutCanonicalTeamAccessPermission(BasePermission):
+    """Authorize requests against the project that owns the scout data."""
+
+    message = "You don't have access to the project that owns this data."
+
+    def has_permission(self, request: Request, view) -> bool:
+        if not request.user.is_authenticated:
+            return True
+        team = view.team
+        if team.parent_team_id is None or team.parent_team_id == team.id or team.parent_team is None:
+            return True
+        authenticator = request.successful_authenticator
+        scoped_teams = None
+        if isinstance(authenticator, OAuthAccessTokenAuthentication):
+            scoped_teams = authenticator.access_token.scoped_teams
+        elif isinstance(authenticator, PersonalAPIKeyAuthentication):
+            scoped_teams = authenticator.personal_api_key.scoped_teams
+        if scoped_teams and team.parent_team_id not in scoped_teams:
+            return False
+        level = view.user_permissions.team(team.parent_team).effective_membership_level
+        return level is not None
+
+
 class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Run history + finding emission for the headless agent."""
 
     serializer_class = SignalScoutRunSummarySerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "signal_scout"
     # `.unscoped()` bypasses the fail-closed TeamScopedManager; this class-attribute queryset
     # evaluates at module-load time (before any request → no team context). All read paths
@@ -851,6 +877,48 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
     @validated_request(
+        query_serializer=ScoutCostsQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ScoutCostsSerializer,
+                description="Model spend and output per scout over the window.",
+            ),
+            403: OpenApiResponse(description="Caller is not PostHog staff."),
+        },
+        summary="Get what each scout spent over a window",
+        description=(
+            "Return what every scout on this project spent on model calls over the last `window_days`, "
+            "with how many runs it started, how many of those had spend attributed, and how many inbox "
+            "reports it filed or added to. Cost per day, per run, and per report are derived from those "
+            "numbers by the caller, so the endpoint stays a fact table and the definitions live in one "
+            "place. Spend is summed from the `$ai_generation` events the runs' sandboxes produced and "
+            "joined to the run rows by task run id, because a team-authored scout's generations all "
+            "carry the same stage tag and so cannot name it. Cached per project for 15 minutes: the "
+            "window's trailing edge moves and the newest runs may still be settling, so this is a "
+            "roughly current number, not a live one. `available` is false where the internal AI "
+            "observability project holding those events can't be read, so an unknown spend never reads "
+            "as zero. Staff-only, same gate as the per-run cost read. Strictly team-scoped."
+        ),
+        operation_id="signals_scout_runs_costs",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="costs",
+        required_scopes=["signal_scout:read"],
+        pagination_class=None,
+    )
+    def costs(self, request: Request, **kwargs) -> Response:
+        if not cast(User, request.user).is_staff:
+            raise exceptions.PermissionDenied("Only PostHog staff can read scout costs.")
+        validated = getattr(request, "validated_query_data", {}) or {}
+        costs = scout_costs(
+            team_id=_canonical_team_id(self),
+            window_days=validated.get("window_days") or SCOUT_COST_WINDOW_DAYS,
+        )
+        return Response(ScoutCostsSerializer(dataclasses.asdict(costs)).data)
+
+    @validated_request(
         request_serializer=EmitFindingRequestSerializer,
         parameters=[_RUN_ID_PATH_PARAMETER],
         responses={
@@ -999,8 +1067,10 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "The second emit channel: author a complete `SignalReport` directly instead of emitting a weak "
             "signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` "
             "call implies (or is suppressed). Backing `evidence` is written as bound signals so the report "
-            "behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `reports` to "
-            "find a prior report and `edit-report` to update it instead."
+            "behaves like a pipeline report. Safe to retry: resending an emission returns the report the first "
+            "call authored (`idempotent_replay` true) rather than a second one, keyed on `idempotency_key` or, "
+            "without one, on the report's content. Use `reports` to find a report from an earlier run and "
+            "`edit-report` to update it instead of authoring a near-duplicate."
         ),
         operation_id="signals_scout_emit_report",
     )
@@ -1033,6 +1103,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
                 charts=_to_report_charts(data.get("charts")),
                 suggested_prompts=data.get("suggested_prompts"),
+                idempotency_key=data.get("idempotency_key"),
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -1045,6 +1116,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "skipped_reason": result.skipped_reason,
                     "safety_explanation": result.safety_explanation,
                     "remediation": result.remediation,
+                    "idempotent_replay": result.idempotent_replay,
                 }
             ).data,
             status=status.HTTP_200_OK,
@@ -1341,42 +1413,6 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data = request.validated_data
         removed = forget(team_id=_canonical_team_id(self), key=data["key"])
         return Response(ForgetResponseSerializer({"deleted": removed}).data)
-
-
-class ScoutCanonicalTeamAccessPermission(BasePermission):
-    """Authorize against the canonical (data-owning) team, not just the URL environment team.
-
-    Scout notes are `TeamScopedRootMixin` rows that canonicalize to the parent (project-root)
-    team on save, so a request made against a child environment reads and writes the PARENT's
-    rows (`_canonical_team_id`). The default team gate only checks membership / token
-    team-scope for the URL team, so a user or key scoped solely to a child environment would
-    be authorized against one team while touching another's rows. Re-anchor both checks to
-    the canonical team. Mirrors `StamphogCanonicalTeamAccessPermission`. Root teams (no
-    parent) are unaffected — the default checks already cover them.
-    """
-
-    message = "You don't have access to the project that owns this data."
-
-    def has_permission(self, request: Request, view) -> bool:
-        if not request.user.is_authenticated:
-            return True  # IsAuthenticated handles the unauthenticated case first
-        team = view.team
-        if team.parent_team_id is None or team.parent_team_id == team.id or team.parent_team is None:
-            return True
-        # A team-scoped token must cover the CANONICAL team too: the default scope check
-        # accepted the URL (child) team, but the rows read and written belong to the parent.
-        authenticator = request.successful_authenticator
-        scoped_teams = None
-        if isinstance(authenticator, OAuthAccessTokenAuthentication):
-            scoped_teams = authenticator.access_token.scoped_teams
-        elif isinstance(authenticator, PersonalAPIKeyAuthentication):
-            scoped_teams = authenticator.personal_api_key.scoped_teams
-        if scoped_teams and team.parent_team_id not in scoped_teams:
-            return False
-        # Same helper the default gate uses, re-pointed at the parent. It accounts for a
-        # private parent team, so None means genuinely no access -> 403.
-        level = view.user_permissions.team(team.parent_team).effective_membership_level
-        return level is not None
 
 
 class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

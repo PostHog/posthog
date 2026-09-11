@@ -26,9 +26,31 @@ export function TaskRunLog({
     optimisticRunId?: string
 }): JSX.Element | null {
     const logic = taskDetailSceneLogic({ taskId })
-    const { runs, selectedRun, selectedRunId, runsError, selectedRunError, selectedRunNotFound, isRunPending } =
-        useValues(logic)
-    const { loadTaskRuns, loadSelectedTaskRun } = useActions(logic)
+    const {
+        runs,
+        selectedRun,
+        selectedRunId,
+        runsError,
+        selectedRunError,
+        selectedRunNotFound,
+        isRunPending,
+        runContinuation,
+    } = useValues(logic)
+    const { loadTaskRuns, loadSelectedTaskRun, clearContinuationDraft } = useActions(logic)
+
+    if (runContinuation && selectedRunId === runContinuation.run.id) {
+        return (
+            <div className="flex-1 min-h-0">
+                <TaskRunChat
+                    taskId={taskId}
+                    runId={runContinuation.run.id}
+                    streamKey={runContinuation.streamKey}
+                    initialDraft={runContinuation.draft}
+                    onDraftAdopted={() => clearContinuationDraft(runContinuation.run.id)}
+                />
+            </div>
+        )
+    }
 
     // Optimistic-create handoff: render the run immediately on the seeded stream, bypassing the runs-list
     // load (no skeleton re-flash). `selectedRunId ?? optimisticRunId` tracks the live id — the created run

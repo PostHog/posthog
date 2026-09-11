@@ -203,9 +203,9 @@ Each entry identifies one reviewer by **`github_login`**, **`user_uuid`**, or bo
 - **`github_login`** — a **bare, lowercase GitHub login** (e.g. `octocat`, not `@OctoCat`).
   Internal assignment matches it against each user's linked GitHub login by exact, lowercased comparison, so a mis-cased handle, an `@`-prefix, a display name, a CODEOWNERS **team** slug, or an email won't set `is_suggested_reviewer` for anyone (autostart's PR-selection path is more lenient, but the assignment path is not).
 - **`user_uuid`** — a **PostHog user UUID**.
-  The server resolves it to that org member's linked GitHub login for you (and it wins if you also pass a `github_login`).
-  Use this whenever your evidence already names a PostHog user — an account owner, an entity's `created_by`, a CSM — so you can route to them without ever looking up their handle.
-  A `user_uuid` that isn't an org member of this team **with a linked GitHub identity** is rejected (the whole call fails), so it never silently drops.
+  The server resolves it to that org member. It wins if you also pass a `github_login`.
+  Use this whenever your evidence already names a PostHog user. It works without a linked GitHub account.
+  A `user_uuid` that is not an org member of this team is rejected, so it never silently drops.
 
 So you have two routes to a reviewer.
 If you already hold a PostHog user UUID, prefer passing it as `user_uuid` — it's the most reliable.
@@ -219,7 +219,7 @@ Otherwise resolve a `github_login`, cheapest source first:
    `.github/CODEOWNERS` for the owning path, or the last `git log` author for the file.
    Neither usually hands you a usable login directly: CODEOWNERS entries are often **team** slugs (`@your-org/team-name`) and `git log` gives a name + email — both must be resolved to an **individual** GitHub login before you write the reviewer (a team slug or an email won't match any user).
 4. **`scout-members-list`** — the in-run roster lookup, for the cold-start case where the cheaper paths above don't resolve an owner.
-   It returns this project's members, each with `user_uuid`, `email`, name, and a resolved `github_login` (pass `search=` to narrow); match the owner and route to their `github_login`, or hand the `user_uuid` straight through and let the server resolve it.
+   It returns this project's members, each with `user_uuid`, email, name, and a resolved `github_login`. Pass `search=` to narrow the result. Match the owner and route with `user_uuid`.
    The org-scoped `org-members-list` / `org-member-get-github-login` tools are **not available in a scout run** — a scoped-team token can't reach the org-nested endpoint, so don't build a scout's reviewer recipe around them.
 
 **If you can't confidently identify a reviewer, leave `suggested_reviewers` empty** — the report still surfaces for a human to grab.
@@ -261,11 +261,14 @@ Before authoring, list the team's existing reports so you reconcile against one 
 - `inbox-reports-list` — filter by title/summary free-text (`search`), `status`, `source_product`, or your own `task_id`; newest-updated first.
 - `inbox-reports-retrieve` — fetch a single report by id (use the `report_id` you stashed in the scratchpad last run).
 
-## Dedup: the channel is NOT idempotent
+## Dedup: the retry is covered, the near-duplicate is not
 
-`emit_report` is **not idempotent** — a retried call authors a _second_ report.
-There is no server-side dedup key.
-The dedup story is two-sided and the scout owns it:
+`emit_report` carries an emit key, so resending a call that timed out returns the report the first one authored (`idempotent_replay` true) rather than a twin.
+The key is the `idempotency_key` you pass, or the report's own content when you pass none, and it is scoped to your run.
+Pass one when a retry might reword the report, since a reworded report is a different content key.
+
+That barrier covers the transport failure and nothing else.
+A report on a topic an earlier run already filed is a fresh emission with a fresh key, so the cross-run dedup is still two-sided and the scout owns it:
 
 1. **Before authoring**, `inbox-reports-list` for a prior report on the same topic.
    Found one?
@@ -273,8 +276,8 @@ The dedup story is two-sided and the scout owns it:
 2. **After authoring**, write a `report:<domain>:<entity>` scratchpad entry recording the `report_id` so the next run finds it (via `inbox-reports-retrieve`) without a title-search guess.
    (This is the report-channel member of the scratchpad key-prefix vocabulary — see [`dedupe-and-memory.md`](dedupe-and-memory.md).)
 
-**Never retry an `emit_report` / `edit_report` call that may have succeeded** — a transport error after the write commits, retried, double-files.
-If you're unsure whether a call landed, `inbox-reports-list` to check before retrying.
+`edit_report` has no such barrier: **never retry an `edit_report` call that may have succeeded**, since a transport error after the write commits, retried, appends a second note.
+If you're unsure whether an edit landed, `inbox-reports-retrieve` to check before retrying.
 
 ## The pipeline may rewrite what you authored (accepted)
 
