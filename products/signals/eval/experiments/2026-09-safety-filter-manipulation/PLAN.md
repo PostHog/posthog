@@ -28,7 +28,9 @@ The per-signal safety filter (`backend/temporal/safety_filter.py`) rejects too m
 
 - `SIGNAL_SAFETY_LLM_MODEL` env var, default = `claude-sonnet-5` rather than the matching model, so a matching-model swap can no longer silently retune the gate; both safety stages resolve their model from it.
 - One manipulation-only prompt for every source, replacing the two diverging prompts; source and current date injected in the user prompt.
-- No change to the report judge's prompt (it produces no false positives today); it only moves onto the shared safety model setting.
+- The report judge's prompt aligned to the same five-category definition. Its "0 rejections in ~59k reports" number was measured while the old filter removed the security-topic class before the judge saw it; replaying the newly admitted signals showed the old judge prompt rejected 20 of 33, and a judge rejection fails the whole report.
+- Delimiter hardening in both stages: the closing tag is neutralized in code, and each prompt states that only the header lines are metadata. Two forgery fixtures added.
+- Both prompts tell the model never to reproduce a secret value in the explanation, since the explanation is stored.
 
 ## Measurement after the change (separate, product-side)
 

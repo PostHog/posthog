@@ -1100,7 +1100,7 @@ This is the first line of defense; it prevents adversarial signals from consumin
 
 ### Report safety judge (`backend/temporal/report_safety_judge.py`)
 
-Report-level safety review that runs **before** repository selection and agentic research. It evaluates the underlying grouped signals for prompt injection or manipulation attempts that could steer a downstream coding agent toward malicious actions.
+Report-level safety review that runs **before** repository selection and agentic research. It evaluates the underlying grouped signals for manipulation attempts that could steer a downstream coding agent, under the same five-category definition the per-signal safety filter uses (instruction override, hidden instructions, encoded payload, secret exfiltration, remote code execution) and the same do-not-block list, so the two stages cannot disagree on a signal's topic. The rendered signals sit inside a `<signal_data>` block whose closing tag is neutralized in content, and the prompt treats everything inside the block as untrusted data.
 
 Returns `{"choice": bool, "explanation": "..."}` and stores the result as a `safety_judgment` artefact. Extended thinking is enabled.
 
