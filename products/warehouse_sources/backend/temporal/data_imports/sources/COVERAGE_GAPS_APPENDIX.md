@@ -475,14 +475,14 @@ Note: Genuinely a one-endpoint API, not a thin implementation. The docs sitemap 
 
 ## Argocd — gaps
 
-Today (5): `applications`, `clusters`, `deployment_history`, `projects`, `repositories`
+Today (9): `application_events`, `applications`, `clusters`, `deployment_history`, `managed_resources`, `projects`, `repositories`, `resource_tree`, `revision_metadata`
 
 Diffed against: <https://raw.githubusercontent.com/argoproj/argo-cd/master/assets/swagger.json>
 
-- [ ] `/api/v1/applications/{name}/events` — per-application Kubernetes event stream — the sync and health state-transition history behind each deployment (high)
-- [ ] `/api/v1/applications/{name}/revisions/{revision}/metadata` — lookup resolving the revision SHAs in deployment_history to commit author, message and date (high)
-- [ ] `/api/v1/applications/{applicationName}/managed-resources` — the resource inventory each app owns, with live vs target diff — the drift signal (high)
-- [ ] `/api/v1/applications/{applicationName}/resource-tree` — live resource hierarchy and per-resource health, one level below application health (medium)
+- [x] `/api/v1/applications/{name}/events` — per-application Kubernetes event stream — the sync and health state-transition history behind each deployment (high)
+- [x] `/api/v1/applications/{name}/revisions/{revision}/metadata` — lookup resolving the revision SHAs in deployment_history to commit author, message and date (high)
+- [x] `/api/v1/applications/{applicationName}/managed-resources` — the resource inventory each app owns, with live vs target diff — the drift signal (high)
+- [x] `/api/v1/applications/{applicationName}/resource-tree` — live resource hierarchy and per-resource health, one level below application health (medium)
 - [ ] `/api/v1/applicationsets` — lookup for the generator that produced each application in a templated setup (medium)
 - [ ] `/api/v1/projects/{name}/events` — project-level change history, useful for attributing policy changes to sync behavior (medium)
 - [ ] `/api/v1/applications/{name}/revisions/{revision}/chartdetails` — Helm chart version and metadata per deployed revision (low)
