@@ -18,7 +18,7 @@ import jwt
 import requests
 import structlog
 from requests import JSONDecodeError
-from rest_framework.exceptions import NotAuthenticated
+from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
@@ -33,7 +33,9 @@ from posthog.models.team.event_retention import (
 from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
 
+from ee.billing.access_token import mint_billing_access_token
 from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo
+from ee.billing.grants import EffectiveBillingGrants
 from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
@@ -226,6 +228,28 @@ def build_billing_provider_webhook_signature_headers(body: bytes) -> dict[str, s
         BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER: f"{BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION}={digest}",
         BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER: str(timestamp),
     }
+
+
+def _raise_for_organization_error(res: requests.Response, *, map_not_found: bool = True) -> None:
+    """Map billing's refusals on the organization routes onto the matching DRF errors.
+
+    The body is read defensively. A non-JSON error, from billing or from a proxy in front of it,
+    must not turn a mapped refusal into a 500.
+    """
+    if res.status_code not in (400, 403, 404):
+        return
+    try:
+        parsed = res.json()
+    except JSONDecodeError:
+        parsed = None
+    body = parsed if isinstance(parsed, dict) else {}
+    if res.status_code == 403:
+        raise PermissionDenied(body.get("detail", "You do not have access to Billing for this organization."))
+    if res.status_code == 404:
+        if not map_not_found:
+            return
+        raise NotFound(body.get("detail", "Not found."))
+    raise ValidationError(parsed if parsed else "Billing rejected the request.")
 
 
 def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 404, 401)) -> None:
@@ -736,6 +760,117 @@ class BillingManager:
             # Forward the end-user's IP so billing can attach it to activity-log records.
             headers["X-PostHog-Actor-IP"] = self.ip_address
         return headers
+
+    def organization_api_headers(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, str]:
+        """Headers for billing's /api/v2/billing/ routes: the PostHog-minted access token carrying the
+        caller's grants, plus the end-user IP as on every other call."""
+        headers = {"Authorization": f"Bearer {mint_billing_access_token(organization, grants, self.license)}"}
+        if self.ip_address:
+            headers["X-PostHog-Actor-IP"] = self.ip_address
+        return headers
+
+    def _organization_get(
+        self,
+        organization: Organization,
+        grants: EffectiveBillingGrants,
+        path: str,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """One read of billing's organization API routes, with the envelope removed. Billing's own refusals
+        come back as the matching DRF errors, so the caller sees why."""
+        res = http_session.get(
+            f"{BILLING_SERVICE_URL}/api/v2/billing/{path}",
+            headers=self.organization_api_headers(organization, grants),
+            params=params or None,
+            timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT,
+        )
+        _raise_for_organization_error(res)
+        handle_billing_service_error(res, valid_codes=(200,))
+        data = res.json()
+        data.pop("status", None)
+        data.pop("customer_id", None)
+        return data
+
+    def get_organization_subscription(
+        self, organization: Organization, grants: EffectiveBillingGrants
+    ) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "subscription/")
+
+    def get_organization_features(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "features/")
+
+    def get_organization_products(
+        self,
+        organization: Organization,
+        grants: EffectiveBillingGrants,
+        *,
+        include_plans: bool = False,
+        product_key: str | None = None,
+    ) -> dict[str, Any]:
+        path = f"products/{product_key}/" if product_key else "products/"
+        return self._organization_get(organization, grants, path, {"include_plans": "true"} if include_plans else None)
+
+    def get_organization_usage(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "usage/")
+
+    def get_organization_usage_status(
+        self, organization: Organization, grants: EffectiveBillingGrants
+    ) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "usage/status/")
+
+    def get_organization_spend(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "spend/")
+
+    def get_organization_forecast(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "forecast/")
+
+    def get_organization_invoices(
+        self,
+        organization: Organization,
+        grants: EffectiveBillingGrants,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        status: str | None = None,
+    ) -> dict[str, Any]:
+        params = {key: value for key, value in (("cursor", cursor), ("limit", limit), ("status", status)) if value}
+        return self._organization_get(organization, grants, "invoices/", params)
+
+    def get_organization_invoice_pdf_url(
+        self, organization: Organization, grants: EffectiveBillingGrants, invoice_id: str
+    ) -> str:
+        url = self._organization_get(organization, grants, f"invoices/{invoice_id}/pdf-url/").get("url")
+        if not url:
+            raise NotFound(f"No document for invoice {invoice_id}.")
+        return url
+
+    def get_organization_limits(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "limits/")
+
+    def get_organization_projects(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "projects/")
+
+    def get_organization_timeseries(
+        self, organization: Organization, grants: EffectiveBillingGrants, kind: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """The usage or spend timeseries copy. GET first, then POST when the query string is too long
+        for the organization's teams map, as the root usage and spend reads do."""
+        url = f"{BILLING_SERVICE_URL}/api/v2/billing/{kind}/timeseries/"
+        headers = self.organization_api_headers(organization, grants)
+        res = http_session.get(
+            url, headers=headers, params=self._to_query_params(params), timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT
+        )
+        if res.status_code in (414, 431):
+            res = http_session.post(
+                url, headers=headers, json=self._to_post_body(params), timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT
+            )
+        # A 404 here means the route is missing rather than the resource, so it stays a server error.
+        _raise_for_organization_error(res, map_not_found=False)
+        handle_billing_service_error(res, valid_codes=(200,))
+        data = res.json()
+        data.pop("status", None)
+        data.pop("customer_id", None)
+        return data
 
     def get_invoices(self, organization: Organization, status: str | None):
         res = http_session.get(

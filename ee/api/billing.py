@@ -32,11 +32,7 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
-from posthog.permissions import (
-    get_authenticator_scoped_team_ids,
-    get_authenticator_scopes,
-    posthog_feature_flag_enabled,
-)
+from posthog.permissions import get_authenticator_scoped_team_ids, get_authenticator_scopes
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 from posthog.user_permissions import UserPermissions
 from posthog.utils import generate_short_id, get_trusted_client_ip, relative_date_parse
@@ -45,15 +41,18 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 
 from ee.billing.billing_manager import BillingManager, http_session
 from ee.billing.billing_types import USAGE_TYPE_VALUES
+from ee.billing.grants import (
+    BILLING_LIMIT_TODAYS_USAGE_KEYS,
+    _billing_limit_todays_usage_enabled,
+    _member_billing_usage_spend_read_access_enabled,
+    _owner_only_billing_enabled,
+)
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
 logger = structlog.get_logger(__name__)
 
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
-OWNER_ONLY_BILLING_FLAG = "owner-only-billing"
-MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG = "member-billing-usage-spend-read-access"
-BILLING_LIMIT_TODAYS_USAGE_FLAG = "billing-limit-todays-usage"
 
 
 class BillingQueryTimeout(APIException):
@@ -124,24 +123,6 @@ BILLING_GUIDANCE_ERRORS: dict[str, type[APIException]] = {
 }
 
 
-BILLING_LIMIT_TODAYS_USAGE_KEYS = ("posthog_code_credits",)
-
-
-def _owner_only_billing_enabled(user: User, organization: Organization) -> Optional[bool]:
-    if not user.distinct_id:
-        return None
-
-    try:
-        return posthog_feature_flag_enabled(
-            OWNER_ONLY_BILLING_FLAG,
-            str(user.distinct_id),
-            organization_id=organization.id,
-        )
-    except Exception as e:
-        capture_exception(e, {"organization_id": organization.id, "flag": OWNER_ONLY_BILLING_FLAG})
-        return None
-
-
 def user_has_billing_access(user: User, organization: Organization) -> bool:
     membership = OrganizationMembership.objects.filter(user=user, organization=organization).only("level").first()
     if not membership:
@@ -155,42 +136,6 @@ def user_has_billing_access(user: User, organization: Organization) -> bool:
 
     # Only a confirmed disabled flag lets admins through. Unknown flag state fails closed to owners.
     return _owner_only_billing_enabled(user, organization) is False
-
-
-def _member_billing_usage_spend_read_access_enabled(user: User, organization: Organization) -> bool:
-    if not user.distinct_id:
-        return False
-
-    try:
-        return (
-            posthog_feature_flag_enabled(
-                MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG,
-                str(user.distinct_id),
-                organization_id=organization.id,
-            )
-            is True
-        )
-    except Exception as e:
-        capture_exception(e, {"organization_id": organization.id, "flag": MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG})
-        return False
-
-
-def _billing_limit_todays_usage_enabled(user: User, organization: Organization) -> bool:
-    if not user.distinct_id:
-        return False
-
-    try:
-        return (
-            posthog_feature_flag_enabled(
-                BILLING_LIMIT_TODAYS_USAGE_FLAG,
-                str(user.distinct_id),
-                organization_id=organization.id,
-            )
-            is True
-        )
-    except Exception as e:
-        capture_exception(e, {"organization_id": organization.id, "flag": BILLING_LIMIT_TODAYS_USAGE_FLAG})
-        return False
 
 
 def _todays_usage_value(usage_key: str, usage: dict[str, Any]) -> int:

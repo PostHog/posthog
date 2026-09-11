@@ -891,16 +891,36 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).not.toContain('notebooks-partial-update')
     })
 
-    it('billing-mcp-read-tools flag gates billing read tools', () => {
+    it('billing-mcp-read-tools flag gates the existing billing read tools', () => {
+        const existing = ['billing-overview-get', 'billing-usage-get', 'billing-spend-get']
         const off = getToolsForFeatures({ featureFlags: { 'billing-mcp-read-tools': false } })
-        expect(off).not.toContain('billing-overview-get')
-        expect(off).not.toContain('billing-usage-get')
-        expect(off).not.toContain('billing-spend-get')
+        for (const tool of existing) {
+            expect(off).not.toContain(tool)
+        }
 
         const on = getToolsForFeatures({ featureFlags: { 'billing-mcp-read-tools': true } })
-        expect(on).toContain('billing-overview-get')
-        expect(on).toContain('billing-usage-get')
-        expect(on).toContain('billing-spend-get')
+        for (const tool of existing) {
+            expect(on).toContain(tool)
+        }
+    })
+
+    it('organization-billing-api flag gates the tools that call the organization billing API', () => {
+        const gated = [
+            'billing-subscription-get',
+            'billing-usage-status-get',
+            'billing-usage-timeseries-get',
+            'billing-spend-timeseries-get',
+            'billing-projects-list',
+        ]
+        const off = getToolsForFeatures({ featureFlags: { 'organization-billing-api': false } })
+        for (const tool of gated) {
+            expect(off).not.toContain(tool)
+        }
+
+        const on = getToolsForFeatures({ featureFlags: { 'organization-billing-api': true } })
+        for (const tool of gated) {
+            expect(on).toContain(tool)
+        }
     })
 
     it('customer-analytics-csp flag gates account meeting tools', () => {
@@ -977,6 +997,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'warehouse-person-properties',
                 'billing-alerts',
                 'billing-mcp-read-tools',
+                'organization-billing-api',
                 'streamlit-apps',
                 'posthog-connect',
                 'experiment-behavior-comparison',
@@ -987,7 +1008,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'warehouse-multi-destination',
             ])
         )
-        expect(flags).toHaveLength(34)
+        expect(flags).toHaveLength(35)
     })
 
     it('every loops tool is gated on the loops flag', () => {

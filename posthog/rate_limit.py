@@ -526,6 +526,21 @@ class ClickHouseSustainedRateThrottle(PersonalApiKeyRateThrottle):
 # flagSelectionLogic.ts) awaits one copy_flags call per flag, sequentially, for up to 100 flags
 # in one operation, and does not retry on 429, so the burst rate has to clear a full legitimate
 # session (which can complete in well under a minute when each call is fast) without tripping.
+class BillingReadBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    """Burst limit on the organization billing API's reads, per personal key or, for session,
+    OAuth and MCP callers, per user. Its own scope, so a client hammering billing does not spend
+    the caller's general budget and vice versa. The rates start low and loosen with production
+    evidence."""
+
+    scope = "billing_read_burst"
+    rate = "30/minute"
+
+
+class BillingReadSustainedRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "billing_read_sustained"
+    rate = "300/hour"
+
+
 class CopyFlagsBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
     # 120/minute clears a full 100-call session with headroom even if every call returns quickly,
     # while still catching a tight scripted loop well beyond normal bulk-copy usage.
