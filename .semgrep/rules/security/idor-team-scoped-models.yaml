@@ -399,6 +399,7 @@ rules:
                               |UserRepoPreference
                               |VisionAlertConfiguration
                               |VisionAlertMatch
+                              |WikiPageProposal
                               |WarehouseColumnAnnotation
                               |WarehouseColumnStatistics
                               |WebAnalyticsAchievementProgress
@@ -798,6 +799,7 @@ rules:
                         |UserRepoPreference
                         |VisionAlertConfiguration
                         |VisionAlertMatch
+                        |WikiPageProposal
                         |WarehouseColumnAnnotation
                         |WarehouseColumnStatistics
                         |WebAnalyticsAchievementProgress
