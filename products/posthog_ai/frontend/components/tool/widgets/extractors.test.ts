@@ -4,7 +4,6 @@ import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTyp
 
 import {
     extractDashboard,
-    extractErrorTrackingResponse,
     extractQueryResult,
     extractRecordingFilters,
     extractVisualizationArtifact,
@@ -168,19 +167,32 @@ describe('mcp tool adapter extractors', () => {
         })
     })
 
-    describe('extractErrorTrackingResponse', () => {
-        it('accepts outputs carrying known search-response fields', () => {
-            const response = { status: 'active', search_query: 'TypeError', issues: [] }
-            expect(extractErrorTrackingResponse(toolMessage(response))).toBe(response)
-        })
-
-        it('rejects outputs without any known field', () => {
-            expect(extractErrorTrackingResponse(toolMessage({ results: [{ id: 'issue-1' }] }))).toBeNull()
-            expect(extractErrorTrackingResponse(toolMessage(undefined))).toBeNull()
-        })
-    })
-
     describe('extractQueryResult', () => {
+        it.each([
+            { kind: 'TrendsQuery', series: [] },
+            { kind: 'HogQLQuery', query: 'SELECT 1' },
+            { kind: 'InsightVizNode', source: { kind: 'StickinessQuery', series: [] } },
+            { kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: 'SELECT 1' } },
+            { kind: 'DataTableNode', source: { kind: 'EventsQuery', select: ['*'] } },
+        ])('preserves a saved insight query ($kind) and its overridden link', (query) => {
+            const url = '/project/1/insights/example?variables_override=%7B%7D'
+            const result = extractQueryResult(
+                toolMessage(
+                    {
+                        query,
+                        results: [],
+                        insight: { name: 'Synthetic insight', description: 'Saved query', url: '/insights/example' },
+                        _posthogUrl: url,
+                    },
+                    { insightId: 'example' },
+                    'insight-query'
+                )
+            )
+            expect(result?.content.query).toEqual(query)
+            expect(result?.content.name).toEqual('Synthetic insight')
+            expect(result?.url).toEqual(url)
+        })
+
         it.each(['TrendsQuery', 'FunnelsQuery', 'RetentionQuery', 'StickinessQuery', 'PathsQuery', 'LifecycleQuery'])(
             'passes a bare %s through for InsightVizNode wrapping downstream',
             (kind) => {
@@ -241,6 +253,10 @@ describe('mcp tool adapter extractors', () => {
             expect(extractQueryResult(toolMessage({ results: [] }))).toBeNull()
             expect(extractQueryResult(toolMessage({ query: 'not-an-object' }))).toBeNull()
             expect(extractQueryResult(toolMessage(undefined))).toBeNull()
+            expect(extractQueryResult(toolMessage(undefined, { insightId: 'example' }, 'insight-query'))).toBeNull()
+            expect(extractQueryResult(toolMessage({ query: { kind: 'InsightVizNode' } }))).toBeNull()
+            expect(extractQueryResult(toolMessage({ query: { kind: 'DataVisualizationNode' } }))).toBeNull()
+            expect(extractQueryResult(toolMessage({ query: { kind: 'DataTableNode' } }))).toBeNull()
         })
     })
 })

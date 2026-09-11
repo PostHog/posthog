@@ -1,15 +1,8 @@
 import { decode } from '@toon-format/toon'
 
-import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
-
+import type { ToolCallMessage } from '../../types/toolTypes'
 import { parseExecCall, parseExecCommand } from './posthogExecDisplay'
 import { getAllText } from './toolContentUtils'
-
-/**
- * Generic tool-output parsing, kept free of the entity-specific extractors so a product widget can
- * parse a tool's result through the `api/tools` facade without pulling the recordings / error-tracking
- * conversion deps that `widgets/extractors.ts` carries.
- */
 
 export function asRecord(value: unknown): Record<string, unknown> | null {
     return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
@@ -56,12 +49,7 @@ function unwrapToolOutput(rawOutput: unknown): unknown {
 }
 
 /**
- * Best-effort record from a tool call's `rawOutput`. Objects pass through; strings are parsed per the
- * exec `call` output contract: `--json` means the server responded with `JSON.stringify`, otherwise
- * TOON (`services/mcp/src/lib/response.ts`). The off-order format is still tried as a fallback, and
- * anything unparseable (or empty) resolves to null so the caller falls back to the generic card.
- * An MCP result envelope is unwrapped first, preferring its structured content because the text can be
- * an optimized summary without the entity fields.
+ * Prefer structured content because the text can be an optimized summary without the entity fields.
  */
 export function parseToolOutputRecord(message: ToolCallMessage): Record<string, unknown> | null {
     const rawOutput = unwrapToolOutput(message.rawOutput)

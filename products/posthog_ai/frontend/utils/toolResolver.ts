@@ -94,7 +94,7 @@ export function resolveToolCall(toolCall: ResolvableToolCall): ResolvedToolCall 
 
 /**
  * The proposed inner tool input for a permission request — the args a tool renderer or a
- * `renderPermissionPreview` needs to preview what an approval will do. For a PostHog exec call this is
+ * `PermissionPreview` needs to preview what an approval will do. For a PostHog exec call this is
  * the command-embedded JSON args (`call <sub-tool> {…}`), falling back to the explicit `input` field
  * when the agent sends args out of band. Returns an empty object when neither is present.
  */

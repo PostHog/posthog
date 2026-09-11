@@ -1,6 +1,5 @@
 import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 
-import { MaxErrorTrackingSearchResponse } from '~/queries/schema/schema-assistant-error-tracking'
 import {
     ArtifactContentType,
     ArtifactMessage,
@@ -9,18 +8,28 @@ import {
     VisualizationArtifactContent,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataTableNode, NodeKind, RecordingsQuery } from '~/queries/schema/schema-general'
-import { isInsightQueryNode } from '~/queries/utils'
+import {
+    isDataTableNode,
+    isDataVisualizationNode,
+    isHogQLQuery,
+    isInsightQueryNode,
+    isInsightVizNode,
+} from '~/queries/utils'
 import { RecordingUniversalFilters } from '~/types'
 
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
-import { asRecord, parseToolOutputRecord } from '../parseToolOutput'
+import { parseToolOutputRecord } from '../parseToolOutputRecord'
 
 /**
  * Shared shape extractors for the sandbox MCP tool renderer widgets. Each turns a flattened
  * `ToolCallMessage` (built by `runStreamLogic` from ACP frames) into the props the atomic
- * `messages/*` widgets expect. Generic output parsing lives in `../parseToolOutput`.
+ * `messages/*` widgets expect.
  */
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+    return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
+}
 
 function asString(value: unknown): string | undefined {
     return typeof value === 'string' ? value : undefined
@@ -123,7 +132,14 @@ export function extractQueryResult(message: ToolCallMessage): QueryResultExtract
     }
 
     let renderable: VisualizationArtifactContent['query'] | null = null
-    if (isInsightQueryNode(query)) {
+    if (
+        isInsightQueryNode(query) ||
+        isHogQLQuery(query) ||
+        (isInsightVizNode(query) && isInsightQueryNode(query.source)) ||
+        (isDataVisualizationNode(query) && isHogQLQuery(query.source)) ||
+        // A saved table insight arrives as a bare node; its source can be any table-readable kind.
+        (isDataTableNode(query) && typeof asRecord(query.source)?.kind === 'string')
+    ) {
         renderable = query as VisualizationArtifactContent['query']
     } else if (query.kind === NodeKind.TracesQuery || query.kind === NodeKind.ActorsQuery) {
         // The actors wrappers echo a ready-made ActorsQuery envelope; traces come back bare.
@@ -140,14 +156,15 @@ export function extractQueryResult(message: ToolCallMessage): QueryResultExtract
         return null
     }
 
+    const insight = asRecord(output?.insight)
     return {
         content: {
             content_type: ArtifactContentType.Visualization,
             query: renderable,
-            name: null,
-            description: null,
+            name: asString(insight?.name) ?? null,
+            description: asString(insight?.description) ?? null,
         },
-        url: asString(output?._posthogUrl) ?? null,
+        url: asString(output?._posthogUrl) ?? asString(insight?.url) ?? null,
     }
 }
 
@@ -205,25 +222,4 @@ export function extractRecordingFilters(message: ToolCallMessage): RecordingUniv
     }
 
     return null
-}
-
-const ERROR_TRACKING_RESPONSE_KEYS: readonly (keyof MaxErrorTrackingSearchResponse)[] = [
-    'issues',
-    'search_query',
-    'status',
-    'date_from',
-    'order_by',
-]
-
-/**
- * Error-tracking search output is a `MaxErrorTrackingSearchResponse` (a filters echo plus issue
- * previews) for `ErrorTrackingFiltersWidget`. Outputs that carry none of its fields — e.g. a raw
- * REST issues list — fall back to the generic card instead of rendering empty filter chips.
- */
-export function extractErrorTrackingResponse(message: ToolCallMessage): MaxErrorTrackingSearchResponse | null {
-    const output = parseToolOutputRecord(message)
-    if (!output || !ERROR_TRACKING_RESPONSE_KEYS.some((key) => key in output)) {
-        return null
-    }
-    return output as MaxErrorTrackingSearchResponse
 }
