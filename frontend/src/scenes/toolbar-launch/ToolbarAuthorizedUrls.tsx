@@ -39,6 +39,7 @@ import {
 } from '@posthog/quill'
 
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.Element {
@@ -201,10 +202,7 @@ export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.El
                                                 <Button
                                                     variant="primary"
                                                     size="sm"
-                                                    render={
-                                                        // eslint-disable-next-line react/forbid-elements
-                                                        <a href={target} target="_blank" rel="noopener noreferrer" />
-                                                    }
+                                                    render={<LinkPrimitive to={target} target="_blank" />}
                                                     data-attr="toolbar-open"
                                                 >
                                                     <IconExternal />
