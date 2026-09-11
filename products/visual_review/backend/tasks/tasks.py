@@ -12,6 +12,8 @@ import time
 from datetime import date
 from uuid import UUID
 
+from django.core.cache import cache
+
 import structlog
 from celery import shared_task
 from opentelemetry import trace
@@ -27,6 +29,15 @@ from ..models import Repo
 
 logger = structlog.get_logger(__name__)
 TRACER = trace.get_tracer(__name__)
+
+# Long enough that a slow repo's Slack round trips finish inside it, short enough that a worker
+# killed mid-run does not hold the next scheduled run out. A held lock costs one day of reminders,
+# which the next run resends.
+_DEBT_DIGEST_LOCK_SECONDS = 900
+
+# A child task worth running is a child task worth running today. A worker draining a backlog past
+# this drops it, and the next morning's run recomputes what is still owed.
+_DEBT_DIGEST_EXPIRY_SECONDS = 60 * 60
 
 
 @shared_task(
@@ -210,3 +221,47 @@ def sweep_visual_review_retention() -> None:
             objects_leaked=result.objects_leaked,
             duration_seconds=round(time.monotonic() - started, 1),
         )
+
+
+@shared_task(
+    name="products.visual_review.backend.tasks.send_visual_review_debt_digests",
+    ignore_result=True,
+)
+@skip_team_scope_audit  # cross-team beat sweep; the per-repo task below scopes every query
+def send_visual_review_debt_digests() -> None:
+    """Fan out to every repo, one task each.
+
+    One repo's failure must not stop the rest, and nothing is stored about what was sent, so the
+    next morning's run recomputes and resends whatever is still owed.
+    """
+    from ..logic import debt_digest  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    for repo in debt_digest.repos_in_scope():
+        send_visual_review_debt_digest.apply_async(
+            args=(repo.team_id, str(repo.id)), expires=_DEBT_DIGEST_EXPIRY_SECONDS
+        )
+
+
+@shared_task(
+    name="products.visual_review.backend.tasks.send_visual_review_debt_digest",
+    ignore_result=True,
+)
+@with_team_scope()
+def send_visual_review_debt_digest(team_id: int, repo_id: str) -> None:
+    """Post one repo's digest.
+
+    The lock is what stops a retried or double-scheduled run from posting the same reminders twice.
+    Nothing records what was sent, so an overlapping run has no other way to tell.
+    """
+    from ..logic import debt_digest  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    lock_key = f"visual_review_debt_digest:{repo_id}"
+    if not cache.add(lock_key, "locked", timeout=_DEBT_DIGEST_LOCK_SECONDS):
+        logger.info("visual_review.debt_digest_already_running", repo_id=repo_id, team_id=team_id)
+        return
+
+    repo = Repo.objects.filter(id=UUID(repo_id), team_id=team_id).first()
+    if repo is None:
+        logger.warning("visual_review.debt_digest_repo_missing", repo_id=repo_id, team_id=team_id)
+        return
+    debt_digest.send_debt_digest(repo, mode=debt_digest.MODE_LIVE)

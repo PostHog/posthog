@@ -53,6 +53,7 @@ _ACCOUNT_COMMUNICATION_LAZY_FIELDS = frozenset({"email_threads", "support_ticket
 # Canvas grants share one cache key, and the narrower one is served the wider one's Canvas rows.
 _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
     "system.activity_logs": frozenset({"canvas"}),
+    "system.customer_tasks": frozenset({"account"}),
 }
 
 
@@ -143,6 +144,7 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
         # allowed one's check configs and run counts on a hit. The specific denied object IDs fold
         # into the key via AnalyticsQueryRunner._get_object_access_restrictions.
         if table_names & _DATA_QUALITY_INFORMATION_SCHEMA_TABLES:
+            scopes.add("data_catalog")
             scopes.add("warehouse_table")
             scopes.add("warehouse_view")
 
