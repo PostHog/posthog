@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { uuid } from 'lib/utils/dom'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
@@ -13,7 +14,7 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
-import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
+import { runnerPanelLogic, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 import type { ActiveCreation } from 'products/posthog_ai/frontend/api/logics'
 import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
 import type { Task, TaskRun } from 'products/posthog_ai/frontend/types/taskTypes'
@@ -37,6 +38,8 @@ import { aiConsentDisabledReason } from './utils/aiConsent'
 
 export const REPORT_AI_PANEL = 'inbox-report'
 export const REPORT_AI_PANEL_ID = 'max-side-panel'
+
+const OPTIMISTIC_REPORT_STREAM = 'optimistic-report-stream'
 
 export interface ReportChatContext {
     report: SignalReport
@@ -243,10 +246,10 @@ async function createReportTask(
 /**
  * Whether the AI panel is still about this report, so a finished kickoff may open its task.
  *
- * Creating the task and starting its run take two round trips, and a report keeps its View task
- * button live throughout, so the reader can open another report's run while this one is in flight.
- * The panel state is shared, so opening unconditionally would pull the sidebar off that newer pick.
- * The run starts either way, and its own report offers View task to reach it.
+ * Creating the task and starting its run take two round trips, so the reader can open another
+ * report's run while this one is in flight. The panel state is shared, so opening unconditionally
+ * would pull the sidebar off that newer pick. The run starts either way and remains in the report's
+ * Runs section.
  */
 function panelStillOnReport(context: ReportChatContext | null, reportId: string): boolean {
     return !context || context.report.id === reportId
@@ -257,6 +260,7 @@ export interface inboxTaskKickoffLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     dataProcessingApprovalDisabledReason: string | null // aiConsentLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    activeCreation: ActiveCreation | null // runnerPanelLogic
     aiConsentDisabledReason: string | null
     createPrDisabledReason: string | null
     freeTrialDisabledReason: string | null
@@ -321,10 +325,12 @@ export interface inboxTaskKickoffLogicActions {
     openReportTask: (
         report: SignalReport,
         taskId: string,
-        runId: string
+        runId: string,
+        streamKey?: string
     ) => {
         report: SignalReport
         runId: string
+        streamKey: string | undefined
         taskId: string
     }
 }
@@ -362,6 +368,8 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             ['openSidePanel'],
         ],
         values: [
+            runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }),
+            ['activeCreation'],
             aiConsentLogic,
             ['dataProcessingAccepted', 'dataProcessingApprovalDisabledReason'],
             featureFlagLogic,
@@ -371,7 +379,12 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
 
     actions({
         openReportDiscussion: (report: SignalReport, reportUrl: string) => ({ report, reportUrl }),
-        openReportTask: (report: SignalReport, taskId: string, runId: string) => ({ report, taskId, runId }),
+        openReportTask: (report: SignalReport, taskId: string, runId: string, streamKey?: string) => ({
+            report,
+            taskId,
+            runId,
+            streamKey,
+        }),
         discussReport: (report: SignalReport, reportUrl: string, question: string) => ({ report, reportUrl, question }),
         createPrFromReport: (report: SignalReport, feedback?: string) => ({ report, feedback }),
         discussReportSuccess: true,
@@ -431,19 +444,28 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, cache, values }) => ({
         openReportDiscussion: () => {
+            cache.disposables.dispose(OPTIMISTIC_REPORT_STREAM)
             actions.clearActiveCreation()
             actions.setHistoryExpanded(false)
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
         },
-        openReportTask: ({ taskId, runId }) => {
+        openReportTask: ({ taskId, runId, streamKey }) => {
+            const currentStreamKey =
+                values.activeCreation?.taskId === taskId && values.activeCreation.runId === runId
+                    ? values.activeCreation.streamKey
+                    : undefined
+            const resolvedStreamKey = streamKey ?? currentStreamKey
+            if (!resolvedStreamKey) {
+                cache.disposables.dispose(OPTIMISTIC_REPORT_STREAM)
+            }
             // The panel is shared with the PostHog AI side panel, where the task history can be left
             // expanded. Collapse it first, like the discussion entry point does: `setActiveCreation`
             // would otherwise record the run as opened from history, and Back would land on the
             // generic task list instead of this report's composer.
             actions.setHistoryExpanded(false)
-            actions.setActiveCreation({ streamKey: runId, taskId, runId })
+            actions.setActiveCreation({ streamKey: resolvedStreamKey ?? runId, taskId, runId })
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
         },
         discussReport: async ({ report, reportUrl, question }) => {
@@ -487,7 +509,13 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     question
                 )
                 if (panelStillOnReport(values.reportChatContext, report.id)) {
-                    actions.openReportTask(report, task.id, run.id)
+                    const streamKey = `report-discussion-${uuid()}`
+                    const stream = runStreamLogic({ streamKey })
+                    cache.disposables.add(() => stream.mount(), OPTIMISTIC_REPORT_STREAM, {
+                        pauseOnPageHidden: false,
+                    })
+                    stream.actions.startOptimisticRun(question)
+                    actions.openReportTask(report, task.id, run.id, streamKey)
                 }
                 captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'success' })
                 actions.discussReportSuccess()
@@ -512,6 +540,12 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 report,
                 `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
             )
+            const streamKey = `report-implementation-${uuid()}`
+            const stream = runStreamLogic({ streamKey })
+            const disposables = cache.disposables
+            disposables.add(() => stream.mount(), OPTIMISTIC_REPORT_STREAM, { pauseOnPageHidden: false })
+            stream.actions.startOptimisticRun()
+            actions.setActiveCreation({ streamKey })
             try {
                 const { task, run } = await createReportTask(
                     report,
@@ -520,12 +554,22 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     'Implement report fix',
                     CREATE_PR_RUNTIME
                 )
+                if (disposables.isDisposed) {
+                    return
+                }
                 if (panelStillOnReport(values.reportChatContext, report.id)) {
-                    actions.openReportTask(report, task.id, run.id)
+                    actions.openReportTask(report, task.id, run.id, streamKey)
                 }
                 captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'success' })
                 actions.createPrSuccess()
             } catch (error: any) {
+                if (disposables.isDisposed) {
+                    return
+                }
+                if (values.activeCreation?.streamKey === streamKey) {
+                    disposables.dispose(OPTIMISTIC_REPORT_STREAM)
+                    actions.clearActiveCreation()
+                }
                 handleKickoffError(error, report, 'create_pr', "Couldn't start the PR task. Try again.")
                 actions.createPrFailure()
             }

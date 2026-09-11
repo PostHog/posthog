@@ -305,5 +305,22 @@ describe('RunSurface', () => {
                 expect(screen.queryByTestId('run-log-skeleton')).not.toBeInTheDocument()
             }
         )
+
+        it('keeps an optimistic provisioning thread visible while task metadata loads', () => {
+            setValues({ bootstrapLoading: true, threadItems: [], task: null })
+            render(
+                <RunSurface.Root
+                    taskId="task-1"
+                    runId="run-1"
+                    streamKey="report-implementation-client-stream"
+                    interaction="live"
+                >
+                    <RunSurface.Thread />
+                </RunSurface.Root>
+            )
+
+            expect(screen.getByTestId('thread')).toBeInTheDocument()
+            expect(screen.queryByTestId('run-log-skeleton')).not.toBeInTheDocument()
+        })
     })
 })

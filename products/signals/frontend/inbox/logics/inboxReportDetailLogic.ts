@@ -573,10 +573,7 @@ export interface inboxReportDetailLogicMeta {
         isReResearch: (reportTasks: ReportTaskEntry[] | null) => boolean
         implementationSlotClaim: (reportTasks: ReportTaskEntry[] | null) => ImplementationSlotClaim | null
         primaryTask: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
-        reportTaskToOpen: (
-            primaryTask: ReportTaskEntry | null,
-            reportTasks: ReportTaskEntry[] | null
-        ) => ReportTaskEntry | null
+        reportTaskToOpen: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
         selectedTask: (
             reportTasks: ReportTaskEntry[] | null,
             selectedTaskId: string | null,
@@ -987,9 +984,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // hands the Create PR slot back. Without this clause the action stays disabled on a ready report
         // until the pane is reopened, and the server's 429 cannot correct it because the failure runs the
         // other way: the press is refused in the UI that the server would now accept.
-        // A discussion or research run has to hold it open too. Its cached status is what
-        // `reportTaskToOpen` reads, so while that stays non-terminal the action row keeps offering
-        // View task in place of Implement, and nothing else re-reads the task list.
+        // Discussion and research runs hold it open too so their status in the Runs section settles
+        // without requiring the reader to reopen the report.
         shouldPollReportTasks: [
             (s) => [s.isReportActive, s.reportTasks],
             (isReportActive: boolean, reportTasks: ReportTaskEntry[] | null): boolean =>
@@ -1213,13 +1209,18 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             },
         ],
         reportTaskToOpen: [
-            (s) => [s.primaryTask, s.reportTasks],
-            (primaryTask: ReportTaskEntry | null, reportTasks: ReportTaskEntry[] | null): ReportTaskEntry | null => {
-                if (
-                    primaryTask?.task.latest_run &&
-                    !TERMINAL_RUN_STATUSES.includes(primaryTask.task.latest_run.status)
-                ) {
-                    return primaryTask
+            (s) => [s.reportTasks],
+            (reportTasks: ReportTaskEntry[] | null): ReportTaskEntry | null => {
+                const activeImplementation = (reportTasks ?? [])
+                    .filter(
+                        (entry) =>
+                            entry.purpose === 'implementation' &&
+                            entry.task.latest_run &&
+                            !TERMINAL_RUN_STATUSES.includes(entry.task.latest_run.status)
+                    )
+                    .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())[0]
+                if (activeImplementation) {
+                    return activeImplementation
                 }
                 return (
                     reportTasks?.find((entry) => entry.purpose === 'implementation' && getTaskPrUrl(entry.task)) ?? null

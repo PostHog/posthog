@@ -9,7 +9,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
-import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
+import { runnerPanelLogic, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { makeReport } from './__mocks__/inboxMocks'
 import {
@@ -85,10 +85,17 @@ describe('inboxTaskKickoffLogic', () => {
                 expect(router.values.location.pathname).toBe(originalPath)
                 expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
                 expect(sidePanelStateLogic.values.selectedTabOptions).toBe(REPORT_AI_PANEL)
-                expect(runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation).toMatchObject({
+                const activeCreation = runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation
+                expect(activeCreation).toMatchObject({
                     taskId: 'report-task',
                     runId: 'report-run',
                 })
+                expect(activeCreation?.streamKey).not.toBe('report-run')
+                const stream = runStreamLogic({ streamKey: activeCreation!.streamKey })
+                const unmountStream = stream.mount()
+                expect(stream.values.awaitingOptimisticAttach).toBe(true)
+                expect(stream.values.hasThreadItems).toBe(relationship === 'discussion')
+                unmountStream()
                 expect(logic.values.reportChatContext?.report.id).toBe(report.id)
 
                 logic.actions.openReportTask(report, 'report-task', 'report-run')
@@ -97,9 +104,49 @@ describe('inboxTaskKickoffLogic', () => {
             }
         )
 
-        // A kickoff is two round trips, and a report's View task button stays live throughout, so the
-        // reader can open another report's run before this one lands. The panel is shared, so opening
-        // the finished task regardless would pull the sidebar off whatever they picked last.
+        it('shows implementation provisioning before the run request finishes and attaches the result in place', async () => {
+            let optimisticStreamKey: string | undefined
+            onRunRequest = () => {
+                const activeCreation = runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation
+                expect(activeCreation?.taskId).toBeUndefined()
+                expect(activeCreation?.runId).toBeUndefined()
+                optimisticStreamKey = activeCreation?.streamKey
+                expect(optimisticStreamKey).toMatch(/^report-implementation-/)
+
+                const stream = runStreamLogic({ streamKey: optimisticStreamKey! })
+                expect(stream.values.awaitingOptimisticAttach).toBe(true)
+                expect(stream.values.streamPhase).toBe('provisioning')
+                expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
+                expect(sidePanelStateLogic.values.selectedTabOptions).toBe(REPORT_AI_PANEL)
+            }
+
+            await expectLogic(logic, () => logic.actions.createPrFromReport(report)).toFinishAllListeners()
+
+            expect(optimisticStreamKey).not.toBeUndefined()
+            expect(runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation).toEqual({
+                streamKey: optimisticStreamKey,
+                taskId: 'report-task',
+                runId: 'report-run',
+            })
+        })
+
+        it('keeps the optimistic stream when View task opens the run already shown in the panel', () => {
+            const panel = runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID })
+            panel.actions.setActiveCreation({
+                streamKey: 'report-implementation-stream',
+                taskId: 'report-task',
+                runId: 'report-run',
+            })
+
+            logic.actions.openReportTask(report, 'report-task', 'report-run')
+
+            expect(panel.values.activeCreation).toEqual({
+                streamKey: 'report-implementation-stream',
+                taskId: 'report-task',
+                runId: 'report-run',
+            })
+        })
+
         it.each(['implementation', 'discussion'] as const)(
             'leaves a newer pick in the sidebar when the %s kickoff lands after it',
             async (relationship) => {
