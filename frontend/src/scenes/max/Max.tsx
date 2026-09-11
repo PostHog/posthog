@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import React from 'react'
 
 import {
@@ -49,20 +50,36 @@ import { SandboxComposerSurfaces, Thread } from './Thread'
 
 interface MaxProps {
     tabId?: string
+    /**
+     * The scene logic's prop only. The rendered component never receives it, because the app spreads
+     * just the route's path params into the element, so `Max` reads the task from the router instead.
+     */
     taskId?: string
+}
+
+/**
+ * The task `/ai?task=` selects, or `undefined` when the URL names none.
+ *
+ * `isUUIDLike` rejects a path-shaped value, because this id is interpolated into API paths.
+ */
+function selectedTaskId(searchParams: Record<string, any>): string | undefined {
+    const taskId = searchParams.task
+
+    return typeof taskId === 'string' && isUUIDLike(taskId) ? taskId : undefined
 }
 
 export const scene: SceneExport<MaxProps> = {
     component: Max,
     logic: maxLogic,
-    paramsToProps: ({ searchParams }) => {
-        const taskId = searchParams.task
-
-        return { taskId: typeof taskId === 'string' && isUUIDLike(taskId) ? taskId : undefined }
-    },
+    paramsToProps: ({ searchParams }) => ({ taskId: selectedTaskId(searchParams) }),
 }
 
-export function Max({ tabId, taskId }: MaxProps): JSX.Element {
+export function Max({ tabId }: MaxProps): JSX.Element {
+    // `paramsToProps` builds the scene logic's props, and the app spreads only the route's path
+    // params into the component. `/ai` declares none and carries the task in its query string, so
+    // the selected task has to come from the router here or every task link opens the composer.
+    const { searchParams } = useValues(router)
+    const taskId = selectedTaskId(searchParams)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { conversationId: tabConversationId } = useValues(maxLogic({ panelId: tabId }))
