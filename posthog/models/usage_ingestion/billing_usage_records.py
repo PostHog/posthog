@@ -129,6 +129,17 @@ ENGINE = {
 """.strip()
 
 
+def BILLING_USAGE_RECORDS_HOURLY_EXISTING_ROWS_SQL(
+    table_name: str = BILLING_USAGE_RECORDS_HOURLY_TABLE,
+) -> str:
+    return f"""
+SELECT count()
+FROM {table_name} FINAL
+WHERE hour >= %(day_start)s
+  AND hour < %(day_end)s
+"""
+
+
 def BILLING_USAGE_RECORDS_HOURLY_ROLLUP_SQL(
     source_table: str = BILLING_USAGE_RECORDS_TABLE,
     target_table: str = BILLING_USAGE_RECORDS_HOURLY_TABLE,
