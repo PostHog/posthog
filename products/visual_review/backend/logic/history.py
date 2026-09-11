@@ -1,4 +1,8 @@
-"""Baseline timeline for a single snapshot identifier."""
+"""Baseline timeline for a single snapshot identifier.
+
+The timeline reaches back only as far as retention keeps default-branch runs,
+which is `retention.DEFAULT_BRANCH_RUN_RETENTION_DAYS`.
+"""
 
 from __future__ import annotations
 

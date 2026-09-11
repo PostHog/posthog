@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -409,6 +410,44 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        reviewSuggestion: ({ suggestion }) => {
+            if (suggestion) {
+                posthog.capture('marketing analytics setup suggestion reviewed', {
+                    kind: suggestion.kind,
+                    source: suggestion.source,
+                    integration: suggestion.integration,
+                })
+            }
+        },
+        reviewSafeBatch: () => {
+            posthog.capture('marketing analytics setup batch reviewed', { count: values.safeBatch.length })
+        },
+        dismissSuggestion: ({ id }) => {
+            const suggestion = values.suggestions.find((item) => item.id === id)
+            if (suggestion) {
+                posthog.capture('marketing analytics setup suggestion dismissed', { kind: suggestion.kind })
+            }
+        },
+        restoreSuggestion: ({ id }) => {
+            const suggestion = values.suggestions.find((item) => item.id === id)
+            if (suggestion) {
+                posthog.capture('marketing analytics setup suggestion restored', { kind: suggestion.kind })
+            }
+        },
+        restoreAllDismissed: () => {
+            posthog.capture('marketing analytics setup suggestions restored')
+        },
+        toggleShowDismissed: () => {
+            posthog.capture('marketing analytics setup dismissed toggled', { shown: values.showDismissed })
+        },
+        focusCapability: () => {
+            posthog.capture('marketing analytics setup capability filtered', { capability: values.focusedCapability })
+        },
+        loadSetupPlan: ({ refresh } = {}) => {
+            if (refresh) {
+                posthog.capture('marketing analytics setup rescan requested')
+            }
+        },
         retrySync: async ({ suggestionId, targets }) => {
             // Goes straight to the warehouse endpoint rather than through
             // apply_setup_ops: the warehouse owns this action and its permissions, and
@@ -426,6 +465,10 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
                         failed.push(target.display_name)
                     }
                 }
+                posthog.capture('marketing analytics setup sync retry completed', {
+                    requested_count: targets.length,
+                    failed_count: failed.length,
+                })
                 if (failed.length === targets.length) {
                     lemonToast.error(`Could not retry ${failed.join(', ')}.`)
                 } else if (failed.length) {
@@ -520,12 +563,23 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
             // the global set meant an undo — which starts no rows of its own — would
             // adopt a concurrent apply's ids and mark those rows applied when it landed.
             const inFlight = options.suggestionIds ?? []
+            const properties = {
+                source: options.source,
+                operation_types: [...new Set(ops.map(({ op }) => op))],
+                requested_count: ops.length,
+                is_undo: !options.undoable,
+            }
+            posthog.capture('marketing analytics setup change submitted', properties)
             try {
                 const response: ApplyResponse = await api.create(
                     `api/projects/${values.currentTeamId}/marketing_analytics/apply_setup_ops`,
                     { ops, source: options.source }
                 )
 
+                posthog.capture('marketing analytics setup change completed', {
+                    ...properties,
+                    applied_count: response.applied.length,
+                })
                 actions.markApplied(inFlight)
                 lemonToast.success(options.label, {
                     button:
@@ -544,6 +598,7 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
                             : undefined,
                 })
             } catch (error: any) {
+                posthog.capture('marketing analytics setup change failed', properties)
                 lemonToast.error(error?.detail ?? 'Could not apply that change.')
             } finally {
                 actions.setApplying(inFlight, false)

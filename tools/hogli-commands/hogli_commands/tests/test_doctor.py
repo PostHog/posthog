@@ -17,8 +17,11 @@ from hogli_commands.doctor import (
     _GIT_HOUSEKEEPING_PGREP_PATTERN,
     FLOX_LOG_MAX_AGE_DAYS,
     FLOX_LOG_MAX_TOTAL_BYTES,
+    CleanupEstimate,
+    GitHealth,
     _binary_arches,
     _check_git_health,
+    _cleanup_git,
     _collect_import_targets,
     _config_procs,
     _confirm_stack_teardown,
@@ -1299,7 +1302,10 @@ def test_doctor_git_spawns_the_repack_detached_instead_of_blocking(
     )
     ran: list[list[str]] = []
     spawned: list[list[str]] = []
-    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", lambda cmd, **kw: ran.append(cmd))
+    monkeypatch.setattr(
+        "hogli_commands.doctor.subprocess.run",
+        lambda cmd, **kw: ran.append(cmd) or SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
     monkeypatch.setattr(
         "hogli_commands.doctor.subprocess.Popen",
         lambda cmd, **kw: spawned.append(cmd) or SimpleNamespace(pid=1),
@@ -1440,6 +1446,172 @@ def test_doctor_git_fix_reports_a_failed_step_instead_of_success(
 
     assert result.exit_code == 1
     assert "Done." not in result.output
+
+
+def _git(cwd: Path, *args: str) -> str:
+    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+
+
+def _commit_is_readable(repo: Path, oid: str) -> bool:
+    # Without GIT_NO_LAZY_FETCH, git fetches a missing commit back during the check.
+    result = subprocess.run(
+        ["git", "cat-file", "-e", oid], cwd=repo, env={**os.environ, "GIT_NO_LAZY_FETCH": "1"}, check=False
+    )
+    return result.returncode == 0
+
+
+def _push_commit(seed: Path, name: str) -> str:
+    (seed / name).write_text(name)
+    _git(seed, "add", name)
+    _git(seed, "commit", "-qm", name)
+    _git(seed, "push", "-q", "origin", "HEAD:main")
+    return _git(seed, "rev-parse", "HEAD")
+
+
+@pytest.fixture
+def isolated_git_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    global_config = tmp_path / "gitconfig"
+    global_config.write_text("[user]\n\tname = test\n\temail = test@example.com\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(global_config))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
+@pytest.fixture
+def git_origin(tmp_path: Path, isolated_git_config: None) -> tuple[Path, Path]:
+    remote = tmp_path / "origin.git"
+    _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(remote))
+    _git(remote, "config", "uploadpack.allowFilter", "true")
+    _git(remote, "config", "uploadpack.allowAnySHA1InWant", "true")
+    seed = tmp_path / "seed"
+    _git(tmp_path, "init", "-q", "-b", "main", str(seed))
+    _git(seed, "remote", "add", "origin", remote.as_uri())
+    return remote, seed
+
+
+def _clone_with_commits_behind_a_promisor_commit(tmp_path: Path, remote: Path, seed: Path) -> tuple[Path, list[str]]:
+    older = [_push_commit(seed, name) for name in ("a", "b", "c")]
+    clone = tmp_path / "clone"
+    _git(tmp_path, "clone", "-q", "--filter=blob:none", remote.as_uri(), str(clone))
+    pack_dir = clone / ".git" / "objects" / "pack"
+    packs_before_child = list(pack_dir.glob("*.pack"))
+    _push_commit(seed, "d")
+    _git(clone, "fetch", "-q", "origin")
+    # incremental-repack moves older fetched objects into a pack without a .promisor
+    # file and leaves the newest fetch as a promisor pack. Removing the marker from
+    # the older packs gives the same state.
+    for pack in packs_before_child:
+        pack.with_suffix(".promisor").unlink(missing_ok=True)
+    _git(clone, "multi-pack-index", "write")
+    # Only the promisor commit at origin/main reaches the older commits now.
+    _git(clone, "checkout", "-q", "--detach", "origin/main")
+    _git(clone, "branch", "-q", "-D", "main")
+    _git(clone, "reflog", "expire", "--expire=now", "--all")
+    return clone, older
+
+
+def _mock_git_health(monkeypatch: pytest.MonkeyPatch, clone: Path, *, packs_high: bool, has_promisor: bool) -> None:
+    monkeypatch.setattr("hogli_commands.doctor.REPO_ROOT", clone)
+    monkeypatch.setattr("hogli_commands.doctor._git_housekeeping_running", lambda *a: False)
+    monkeypatch.setattr("hogli_commands.doctor._git_maintenance_registered", lambda _: True)
+    monkeypatch.setattr(
+        "hogli_commands.doctor._git_health",
+        lambda common, pack_cap: GitHealth(
+            pack_count=pack_cap + 1 if packs_high else 0,
+            packs_capped=False,
+            has_promisor=has_promisor,
+            stale_lock=None,
+            missing_commit_graph=False,
+        ),
+    )
+
+
+def test_doctor_git_fix_keeps_fetched_commits_that_lost_promisor_status(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, git_origin: tuple[Path, Path]
+) -> None:
+    # `repack -a -d` deleted these commits, and `git fetch` then failed with
+    # "Could not read <sha>".
+    remote, seed = git_origin
+    clone, older = _clone_with_commits_behind_a_promisor_commit(tmp_path, remote, seed)
+    _mock_git_health(monkeypatch, clone, packs_high=True, has_promisor=True)
+    # --fix fetches missing commits back. An unreachable origin stops that, so the
+    # result shows what the repack alone did.
+    _git(clone, "remote", "set-url", "origin", str(tmp_path / "unreachable.git"))
+
+    result = CliRunner().invoke(doctor_git, ["--fix"])
+
+    _git(clone, "remote", "set-url", "origin", remote.as_uri())
+    assert result.exit_code == 0, result.output
+    assert [oid for oid in older if not _commit_is_readable(clone, oid)] == []
+    _push_commit(seed, "e")
+    _git(clone, "fetch", "-q", "origin")
+
+
+def test_cleanup_git_does_not_run_gc_on_a_partial_clone(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # On git 2.50, `git gc` deletes fetched commits that lost promisor status when their
+    # pack is older than two weeks. Git's behavior needs a real repo and an old pack, so
+    # the doctor:git test above covers the repack itself.
+    ran: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        ran.append(cmd)
+        stdout = "remote.origin.promisor true\n" if "--get-regexp" in cmd else ""
+        return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
+
+    _cleanup_git(CleanupEstimate(total_size=0.0), tmp_path)
+
+    assert not any("gc" in cmd for cmd in ran)
+    assert any("--keep-unreachable" in cmd for cmd in ran)
+
+
+@pytest.mark.parametrize(
+    "clone_args",
+    [[], ["--filter=blob:none", "--origin", "upstream"]],
+    ids=["full-clone", "blobless-clone-with-renamed-remote"],
+)
+def test_doctor_git_fix_fetches_commits_that_the_commit_graph_still_lists(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, git_origin: tuple[Path, Path], clone_args: list[str]
+) -> None:
+    # The stale graph hid the deleted commit from the missing-commit walk, and the
+    # per-commit lazy fetch that followed does not exist in a full clone.
+    remote, seed = git_origin
+    lost = _push_commit(seed, "a")
+    _push_commit(seed, "b")
+    clone = tmp_path / "clone"
+    _git(tmp_path, "clone", "-q", *clone_args, remote.as_uri(), str(clone))
+    _git(clone, "commit-graph", "write", "--reachable")
+    # Unpack every object into a loose file, so that one commit can be deleted.
+    pack_dir = clone / ".git" / "objects" / "pack"
+    for pack in list(pack_dir.glob("*.pack")):
+        objects = pack.read_bytes()
+        for path in pack_dir.glob(f"{pack.stem}.*"):
+            path.unlink()
+        subprocess.run(["git", "unpack-objects", "-q"], cwd=clone, input=objects, check=True)
+    (clone / ".git" / "objects" / lost[:2] / lost[2:]).unlink()
+    _mock_git_health(monkeypatch, clone, packs_high=False, has_promisor=False)
+
+    result = CliRunner().invoke(doctor_git, ["--fix"])
+
+    assert result.exit_code == 0, result.output
+    assert _commit_is_readable(clone, lost)
+
+
+def test_doctor_git_turns_off_incremental_repack_on_a_partial_clone(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolated_git_config: None
+) -> None:
+    # incremental-repack moves fetched commits out of promisor packs, and a later gc or
+    # repack can then delete them. The capped pack scan can miss every .promisor file,
+    # so the promisor remote in the config must decide, whatever the remote's name.
+    repo = tmp_path / "repo"
+    _git(tmp_path, "init", "-q", str(repo))
+    _git(repo, "config", "remote.upstream.promisor", "true")
+    _mock_git_health(monkeypatch, repo, packs_high=False, has_promisor=False)
+
+    result = CliRunner().invoke(doctor_git, [])
+
+    assert result.exit_code == 0, result.output
+    assert _git(repo, "config", "--type=bool", "maintenance.incremental-repack.enabled") == "false"
 
 
 @pytest.mark.parametrize(

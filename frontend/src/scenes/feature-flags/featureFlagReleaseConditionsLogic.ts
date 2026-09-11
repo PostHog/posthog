@@ -17,6 +17,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { v4 as uuidv4 } from 'uuid'
 
 import api from 'lib/api'
+import { ApiError, CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE } from 'lib/api-error'
 import { cachedFindGroups } from 'lib/components/PropertyFilters/components/groupKeyTooltipLogic'
 import { groupKeyNamesOf, isEmptyProperty, isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
@@ -28,6 +29,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
+import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
 import {
     AnyPropertyFilter,
     FeatureFlagEvaluationRuntime,
@@ -149,6 +151,44 @@ export function withResolvedGroupKeyNames(
     })
 }
 
+// What we keep from a failed blast-radius request so the UI can pick a message and decide whether
+// a retry is worth offering.
+export interface BlastRadiusError {
+    status?: number
+    code?: string | null
+    detail?: string | null
+}
+
+export function toBlastRadiusError(error: unknown): BlastRadiusError {
+    if (error instanceof ApiError) {
+        return { status: error.status, code: error.code, detail: error.detail }
+    }
+    return {}
+}
+
+// A retry only helps when the failure was transient — a timeout, a rate limit (429), or a
+// server-side blip. A 512 (too-slow estimate) or a per-query memory limit will fail the same way
+// next time, and any other 4xx means the request itself is the problem.
+export function isBlastRadiusErrorRetryable(error: BlastRadiusError): boolean {
+    if (error.status === 429) {
+        return true
+    }
+    if (error.status !== undefined && error.status >= 400 && error.status < 500) {
+        return false
+    }
+    if (error.status === 512 || error.code === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE) {
+        return false
+    }
+    return true
+}
+
+// The backend sends actionable copy for bad input, a too-slow estimate, and memory-limit
+// failures; show it verbatim. Other failures are opaque server faults, so we fall back to a
+// generic line.
+export function getBlastRadiusErrorMessage(error: BlastRadiusError, pluralName: string): string {
+    return extractValidationError(error) ?? `Couldn't estimate how many ${pluralName} match.`
+}
+
 // Gates the release-condition save on the same rules the backend enforces, so a bad value is
 // surfaced inline instead of failing with an opaque 400 on submit.
 function getPropertyValueError(property: AnyPropertyFilter): string | undefined {
@@ -238,7 +278,7 @@ export interface featureFlagReleaseConditionsLogicValues {
     affectedCounts: Record<string, number | undefined>
     aggregationTargetName: (conditionGroupTypeIndex?: number | null | undefined) => string
     apiGroupKeyNames: Record<string, string>
-    blastRadiusErrors: Record<string, boolean>
+    blastRadiusErrors: Record<string, BlastRadiusError | undefined>
     computeBlastRadiusPercentage: (rolloutPercentage: any, sortKey: any) => any
     distinctIdNameCache: Record<string, string>
     distinctIds: string[]
@@ -332,7 +372,11 @@ export interface featureFlagReleaseConditionsLogicActions {
     setAggregationGroupTypeIndex: (value: number | null) => {
         value: number | null
     }
-    setBlastRadiusError: (sortKey: string) => {
+    setBlastRadiusError: (
+        sortKey: string,
+        error: BlastRadiusError
+    ) => {
+        error: BlastRadiusError
         sortKey: string
     }
     setConditionAggregation: (
@@ -517,7 +561,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             sortKey,
             count,
         }),
-        setBlastRadiusError: (sortKey: string) => ({ sortKey }),
+        setBlastRadiusError: (sortKey: string, error: BlastRadiusError) => ({ sortKey, error }),
         calculateBlastRadius: true,
         calculateBlastRadiusForCondition: (
             sortKey: string,
@@ -749,14 +793,15 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 }),
             },
         ],
-        // Tracks conditions whose blast-radius estimate failed, so the UI can distinguish a
-        // genuine error from the still-loading (undefined) state instead of spinning forever.
+        // Tracks conditions whose blast-radius estimate failed, keyed by sort_key. Holds the
+        // caught error so the UI can explain why (and decide whether a retry is worth offering)
+        // instead of just distinguishing failure from the still-loading (undefined) state.
         blastRadiusErrors: [
-            {} as Record<string, boolean>,
+            {} as Record<string, BlastRadiusError | undefined>,
             {
-                setBlastRadiusError: (state, { sortKey }) => ({
+                setBlastRadiusError: (state, { sortKey, error }) => ({
                     ...state,
-                    [sortKey]: true,
+                    [sortKey]: error,
                 }),
                 // Cleared when setAffectedCount fires (reset or result); the two counts are always
                 // written together, so listening to setAffectedCount alone is sufficient.
@@ -970,10 +1015,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 )
                 actions.setAffectedCount(sortKey, response.affected)
                 actions.setTotalCount(sortKey, response.total)
-            } catch {
-                // Surface the failure to the UI rather than masking it as -1, which the
-                // render path can't tell apart from "still loading".
-                actions.setBlastRadiusError(sortKey)
+            } catch (error) {
+                // Keep the caught error so the UI can show what went wrong and hide a retry that
+                // can't help, rather than masking it as -1, which the render path can't tell
+                // apart from "still loading".
+                actions.setBlastRadiusError(sortKey, toBlastRadiusError(error))
             }
         },
         calculateBlastRadius: () => {

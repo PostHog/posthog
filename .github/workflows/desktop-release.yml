@@ -240,15 +240,18 @@ jobs:
                     echo "OK: codex-acp/$f"
                   done
 
-            - name: Install Rosetta for the x64 smoke test
+            - name: Install Rosetta for the x64 e2e run
               if: matrix.arch == 'x64'
               run: pgrep -xq oahd || sudo softwareupdate --install-rosetta --agree-to-license
 
-            - name: Smoke test packaged app
+            # The PR gate runs the Electron suite on Linux, so this is the only macOS
+            # run left in the pipeline. It carries the boot and IPC coverage for the
+            # signed build, so it runs the whole suite instead of the smoke spec.
+            - name: Run the Electron e2e suite against the packaged app
               env:
                   CI: true
                   E2E_APP_ARCH: ${{ matrix.arch }}
-              run: pnpm --filter code exec playwright test --config=tests/e2e/playwright.config.ts tests/e2e/tests/smoke.spec.ts
+              run: pnpm --filter code exec playwright test --config=tests/e2e/playwright.config.ts
 
             - name: Upload Playwright report
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -328,6 +331,9 @@ jobs:
             POSTHOG_SOURCEMAP_API_KEY: ${{ secrets.DESKTOP_POSTHOG_SOURCEMAP_API_KEY }}
             POSTHOG_ENV_ID: ${{ vars.DESKTOP_POSTHOG_ENV_ID }}
             POSTHOG_HOST: ${{ secrets.DESKTOP_POSTHOG_HOST }}
+            AZURE_TENANT_ID: ${{ secrets.DESKTOP_AZURE_CODESIGN_TENANT_ID }}
+            AZURE_CLIENT_ID: ${{ secrets.DESKTOP_AZURE_CODESIGN_CLIENT_ID }}
+            AZURE_CLIENT_SECRET: ${{ secrets.DESKTOP_AZURE_CODESIGN_CLIENT_SECRET }}
         steps:
             - name: Get app token
               id: app-token
@@ -426,6 +432,13 @@ jobs:
                     }
                     echo "OK: codex-acp/$f"
                   }
+
+            # Runs unconditionally: a release with the secrets missing or
+            # misnamed must fail here, before the upload steps.
+            - name: Verify signatures
+              shell: pwsh
+              run: |
+                  & "$env:GITHUB_WORKSPACE/.github/scripts/desktop/verify-windows-signatures.ps1" -OutDir apps/code/out
 
             - name: Upload release artifacts
               shell: pwsh

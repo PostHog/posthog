@@ -15,8 +15,19 @@ vi.mock('@/lib/posthog', () => ({
     })),
 }))
 
-import { trackExecuteSqlGeneration, trackInitEvent, trackToolCall, trackToolSpan } from '@/hono/analytics'
+import {
+    trackExecuteSqlGeneration,
+    trackInitEvent,
+    trackSkillInvoked,
+    trackToolCall,
+    trackToolSpan,
+} from '@/hono/analytics'
+import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
+import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
+import { MCPClientProfile } from '@/lib/client-detection'
+import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
+import type { SkillInvocation } from '@/tools/exec-learn'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolDefinition } from '@/tools/toolDefinitions'
 
 function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
@@ -351,6 +362,31 @@ describe('Hono MCP analytics contexts', () => {
     })
 
     describe('trackToolSpan', () => {
+        it.each(['posthog_ai', 'claude'])(
+            'captures model output without adding native widget data for %s',
+            async (consumer) => {
+                const state = makeState()
+                const appData = { rows: [{ value: 'widget-only-data' }] }
+                const output = {
+                    content: [{ type: 'text', text: '1 row' }],
+                    _meta: { 'com.posthog.mcp/app_data': appData, resourceUri: 'ui://query' },
+                }
+                await trackToolSpan(
+                    'query-trends',
+                    {
+                        ...state,
+                        clientProfile: new MCPClientProfile({ consumer }),
+                    },
+                    { durationMs: 100, isError: false, output }
+                )
+
+                const captured = JSON.parse(mockCapture.mock.calls[0]![0].properties.$ai_output_state)
+                expect(captured.content).toEqual(output.content)
+                expect(captured._meta).toEqual(consumer === 'posthog_ai' ? { resourceUri: 'ui://query' } : output._meta)
+                expect(output._meta['com.posthog.mcp/app_data']).toBe(appData)
+            }
+        )
+
         it.each([
             ['a non-execute-sql tool', 'data-catalog-metric-run', { name: 'mrr' }, true],
             ['any other non-execute-sql tool', 'query-logs', { query: 'SELECT 1' }, true],
@@ -479,6 +515,70 @@ describe('Hono MCP analytics contexts', () => {
 
             const { $ai_input_state } = mockCapture.mock.calls[0]![0].properties
             expect(JSON.parse($ai_input_state).payload[field]).toBe(redacted ? '[redacted]' : 'sensitive-value')
+        })
+    })
+
+    describe('trackSkillInvoked', () => {
+        it.each<SkillInvocation['readKind']>(['skill', 'file', 'file_search', 'file_lines'])(
+            'captures %s reads with skill_read_kind so file-only consumption still counts',
+            async (readKind) => {
+                await trackSkillInvoked(makeState(), {
+                    source: 'posthog',
+                    skill: 'retention-analysis',
+                    path: readKind === 'skill' ? undefined : 'references/functions.md',
+                    readKind,
+                })
+
+                expect(mockCapture).toHaveBeenCalledTimes(1)
+                expect(mockCapture.mock.calls[0]![0]).toMatchObject({
+                    event: 'skill invoked',
+                    properties: {
+                        skill_identifier: 'posthog:retention-analysis',
+                        skill_read_kind: readKind,
+                    },
+                })
+            }
+        )
+    })
+
+    describe('exec learn catalog skill-invoked dedupe', () => {
+        function skillsCatalog(): SkillCatalog {
+            return new SkillCatalog([
+                {
+                    name: 'retention-analysis',
+                    description: 'Retention.',
+                    files: [
+                        makeSkillFile('SKILL.md', '# Retention'),
+                        makeSkillFile('a.md', 'alpha'),
+                        makeSkillFile('b.md', 'beta'),
+                    ],
+                },
+                { name: 'funnels', description: 'Funnels.', files: [makeSkillFile('SKILL.md', '# Funnels')] },
+            ])
+        }
+
+        function skillsState(): ResolvedState {
+            return makeState({
+                clientProfile: { isClaudeChatHost: () => false } as any,
+                toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
+            })
+        }
+
+        it('counts one skill once per command but each command separately', async () => {
+            const catalog = new InstructionsBuilder('').buildExecLearnCatalog(skillsState(), skillsCatalog())!
+
+            // A batch that reads two files of one skill must dedupe to a single event.
+            await catalog.execute('posthog:retention-analysis a.md b.md')
+            await vi.waitFor(() => expect(mockCapture).toHaveBeenCalledTimes(1))
+
+            // A separate command reading another skill still counts.
+            await catalog.execute('posthog:funnels')
+            await vi.waitFor(() => expect(mockCapture).toHaveBeenCalledTimes(2))
+
+            expect(mockCapture.mock.calls.map((call) => call[0].properties.skill_identifier)).toEqual([
+                'posthog:retention-analysis',
+                'posthog:funnels',
+            ])
         })
     })
 })

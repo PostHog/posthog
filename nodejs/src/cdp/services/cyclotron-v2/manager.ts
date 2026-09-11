@@ -7,6 +7,7 @@ import { logger } from '~/common/utils/logger'
 import { sleep } from '~/common/utils/utils'
 
 import {
+    CYCLOTRON_COUNTER_MAX,
     CyclotronV2CancelJobsOptions,
     CyclotronV2CancelJobsResult,
     CyclotronV2InFlightCounts,
@@ -178,7 +179,7 @@ export class CyclotronV2Manager {
                  lock_id = NULL,
                  last_heartbeat = NULL,
                  last_transition = EXCLUDED.last_transition,
-                 transition_count = cyclotron_jobs.transition_count + 1,
+                 transition_count = LEAST(cyclotron_jobs.transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                  parent_run_id = EXCLUDED.parent_run_id,
                  state = EXCLUDED.state,
                  distinct_id = EXCLUDED.distinct_id,
@@ -286,7 +287,7 @@ export class CyclotronV2Manager {
                  lock_id = NULL,
                  last_heartbeat = NULL,
                  last_transition = EXCLUDED.last_transition,
-                 transition_count = cyclotron_jobs.transition_count + 1,
+                 transition_count = LEAST(cyclotron_jobs.transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                  parent_run_id = EXCLUDED.parent_run_id,
                  state = EXCLUDED.state,
                  distinct_id = EXCLUDED.distinct_id,

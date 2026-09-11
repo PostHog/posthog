@@ -47,7 +47,6 @@ import {
     isTrendsQuery,
     queryUsesDataWarehouse,
 } from '~/queries/utils'
-import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import {
     ChartDisplayType,
     CohortType,
@@ -78,8 +77,6 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
-import type { DashboardAddTileType } from 'products/dashboards/frontend/types'
-
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'
 
@@ -89,7 +86,6 @@ export enum DashboardEventSource {
     DashboardHeaderSaveDashboard = 'dashboard_header_save_dashboard',
     DashboardHeaderDiscardChanges = 'dashboard_header_discard_changes',
     DashboardHeaderExitFullscreen = 'dashboard_header_exit_fullscreen',
-    DashboardHeaderOverridesBanner = 'dashboard_header_overrides_banner',
     Hotkey = 'hotkey',
     InputEnter = 'input_enter',
     Toast = 'toast',
@@ -247,6 +243,17 @@ export interface ExperimentWatchEmptyActionContext {
 }
 
 /**
+ * An action on the empty recordings list was taken. Joined to `empty_reason` on
+ * `experiment recordings list rendered`, this says which explanations people act on.
+ */
+export interface ExperimentRecordingsEmptyActionContext {
+    /** One of the tab's `ExperimentReplayListEmptyReason` values. */
+    empty_reason: string | null
+    /** One of the tab's `ExperimentRecordingsEmptyAction` values. */
+    action: string
+}
+
+/**
  * The card, without its event name: an event name is the customer's own taxonomy, which this
  * telemetry must not carry.
  */
@@ -293,12 +300,21 @@ export interface ExperimentRecordingsBucketFailedContext {
 // by `version` (1 = legacy, 2 = context-first redesign) and `flow_variant`. Stamping properties
 // instead of renaming keeps every existing dashboard and alert on the v1 events working. The
 // redesign's v2 events live in `scenes/onboarding/onboardingEventUsageLogic`.
+// `entry_point` names the surface the flow starts on. It rides along with every funnel event, not
+// only `started`, so a breakdown by entry point stays populated for the whole funnel.
+export type OnboardingEntryPoint = 'product_selection' | 'welcome'
+
 export type OnboardingEventProperties = {
+    entry_point: OnboardingEntryPoint
     flow_variant: 'context_first' | 'legacy'
     version: 1 | 2
 }
 
-const LEGACY_ONBOARDING_EVENT_PROPS: OnboardingEventProperties = { version: 1, flow_variant: 'legacy' }
+const LEGACY_ONBOARDING_EVENT_PROPS: OnboardingEventProperties = {
+    version: 1,
+    flow_variant: 'legacy',
+    entry_point: 'product_selection',
+}
 
 function retentionWindowDays(metric: ExperimentRetentionMetric): number | undefined {
     const unitToDays: Record<string, number> = { day: 1, week: 7, month: 30 }
@@ -765,11 +781,11 @@ export interface eventUsageLogicActions {
         stepCount: number
     }
     reportDashboardAddMenuOpened: (
-        source: 'header' | 'inline',
+        source: 'header',
         dashboardId: number
     ) => {
         dashboardId: number
-        source: 'header' | 'inline'
+        source: 'header'
     }
     reportDashboardBreakdownColorsSaved: (
         dashboard: DashboardType<QueryBasedInsightModel> | null,
@@ -1002,21 +1018,6 @@ export interface eventUsageLogicActions {
         dashboardId: number | undefined
         ignored: boolean
         insightId: number | null
-    }
-    reportDashboardTileInsertedInline: (
-        tileType: DashboardAddTileType,
-        dashboardId: number,
-        tileId: number,
-        column: number,
-        row: number,
-        fullWidth: boolean
-    ) => {
-        column: number
-        dashboardId: number
-        fullWidth: boolean
-        row: number
-        tileId: number
-        tileType: DashboardAddTileType
     }
     reportDashboardTileRefreshed: (
         dashboardId: number,
@@ -1401,6 +1402,13 @@ export interface eventUsageLogicActions {
         context: ExperimentRecordingsBucketLoadedContext
         experimentId: ExperimentIdType
     }
+    reportExperimentRecordingsEmptyActionClicked: (
+        experimentId: ExperimentIdType,
+        context: ExperimentRecordingsEmptyActionContext
+    ) => {
+        context: ExperimentRecordingsEmptyActionContext
+        experimentId: ExperimentIdType
+    }
     reportExperimentRecordingsListRendered: (
         experimentId: ExperimentIdType,
         context: ExperimentRecordingsListRenderedContext
@@ -1771,6 +1779,13 @@ export interface eventUsageLogicActions {
         selfDriving: boolean | undefined
         surface: IntegrationConnectSurface
     }
+    reportIntegrationConnectRejected: (
+        kind: string,
+        error: string
+    ) => {
+        error: string
+        kind: string
+    }
     reportInviteMembersButtonClicked: () => {
         value: true
     }
@@ -1882,11 +1897,7 @@ export interface eventUsageLogicActions {
         recommendationSource: string
         selected: boolean
     }
-    reportOnboardingStarted: (
-        entrypoint: string,
-        properties?: OnboardingEventProperties
-    ) => {
-        entrypoint: string
+    reportOnboardingStarted: (properties?: OnboardingEventProperties) => {
         properties: OnboardingEventProperties | undefined
     }
     reportOnboardingStepCompleted: (
@@ -2356,6 +2367,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             surface,
             selfDriving,
         }),
+        reportIntegrationConnectRejected: (kind: string, error: string) => ({ kind, error }),
         reportPersonalIntegrationConnectClicked: (kind: string) => ({ kind }),
         reportGroupPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
@@ -2639,15 +2651,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomChannelTypeRulesUpdated: (numRules: number) => ({ numRules }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
-        reportDashboardAddMenuOpened: (source: 'header' | 'inline', dashboardId: number) => ({ source, dashboardId }),
-        reportDashboardTileInsertedInline: (
-            tileType: DashboardAddTileType,
-            dashboardId: number,
-            tileId: number,
-            column: number,
-            row: number,
-            fullWidth: boolean
-        ) => ({ tileType, dashboardId, tileId, column, row, fullWidth }),
+        reportDashboardAddMenuOpened: (source: 'header', dashboardId: number) => ({ source, dashboardId }),
         /** Dashboard created via PostHog web app from a template (new dashboard modal / template chooser). */
         reportWebDashboardCreatedFromTemplate: (payload: {
             dashboard_id: number
@@ -2883,6 +2887,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experimentId: ExperimentIdType,
             context: ExperimentRecordingsListRenderedContext
         ) => ({ experimentId, context }),
+        reportExperimentRecordingsEmptyActionClicked: (
+            experimentId: ExperimentIdType,
+            context: ExperimentRecordingsEmptyActionContext
+        ) => ({ experimentId, context }),
         reportExperimentRecordingOpened: (
             experimentId: ExperimentIdType,
             context: ExperimentRecordingsFilterContext
@@ -3058,8 +3066,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportProductTourListViewed: true,
         reportProductUnsubscribed: (product: string) => ({ product }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
-        reportOnboardingStarted: (entrypoint: string, properties?: OnboardingEventProperties) => ({
-            entrypoint,
+        reportOnboardingStarted: (properties?: OnboardingEventProperties) => ({
             properties,
         }),
         reportOnboardingStepCompleted: (
@@ -3312,6 +3319,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 self_driving: selfDriving,
             })
         },
+        // Counts connect attempts the provider sent back without a code. `integration_connect_clicked`
+        // only says the user started, so without this the drop-off is invisible outside session
+        // recordings — and `access_denied` in particular hides a workspace waiting on an admin.
+        reportIntegrationConnectRejected: ({ kind, error }) => {
+            posthog.capture('integration_connect_rejected', {
+                integration_kind: kind,
+                error,
+            })
+        },
         // Personal integrations are a separate table with their own connect surface, so they get
         // their own event: saved insights already count `integration_connect_clicked` unfiltered and
         // would silently start including personal links.
@@ -3333,6 +3349,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             breakpoint
         ) => {
             await breakpoint(500)
+            // Not a module-scope import: the taxonomy JSON is a quarter-MiB table and this logic boots every page.
+            const { PROPERTY_KEYS } = await import('~/taxonomy/taxonomy')
+            breakpoint()
 
             let custom_properties_count = 0
             let posthog_properties_count = 0
@@ -3811,16 +3830,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDashboardAddMenuOpened: async ({ source, dashboardId }) => {
             posthog.capture('dashboard add menu opened', { source, dashboard_id: dashboardId })
         },
-        reportDashboardTileInsertedInline: async ({ tileType, dashboardId, tileId, column, row, fullWidth }) => {
-            posthog.capture('dashboard tile inserted inline', {
-                tile_type: tileType,
-                dashboard_id: dashboardId,
-                tile_id: tileId,
-                column,
-                row,
-                full_width: fullWidth,
-            })
-        },
         reportWebDashboardCreatedFromTemplate: async (payload) => {
             posthog.capture('dashboard created from template', {
                 ...payload,
@@ -4133,6 +4142,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentRecordingsListRendered: ({ experimentId, context }) => {
             posthog.capture('experiment recordings list rendered', {
+                experiment_id: experimentId,
+                ...context,
+            })
+        },
+        reportExperimentRecordingsEmptyActionClicked: ({ experimentId, context }) => {
+            posthog.capture('experiment recordings empty state action clicked', {
                 experiment_id: experimentId,
                 ...context,
             })
@@ -4582,9 +4597,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 product_key: productKey,
             })
         },
-        reportOnboardingStarted: ({ entrypoint, properties }) => {
+        reportOnboardingStarted: ({ properties }) => {
             posthog.capture('onboarding started', {
-                entry_point: entrypoint,
                 ...LEGACY_ONBOARDING_EVENT_PROPS,
                 ...properties,
             })
