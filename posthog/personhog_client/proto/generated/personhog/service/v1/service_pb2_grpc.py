@@ -261,6 +261,12 @@ class PersonHogServiceStub:
             response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFenceResponse.FromString,
             _registered_method=True,
         )
+        self.ReleaseFences = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/ReleaseFences",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFencesRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFencesResponse.FromString,
+            _registered_method=True,
+        )
         self.FoldPersonDocument = channel.unary_unary(
             "/personhog.service.v1.PersonHogService/FoldPersonDocument",
             request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.FoldPersonDocumentRequest.SerializeToString,
@@ -529,6 +535,12 @@ class PersonHogServiceServicer:
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def ReleaseFences(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
     def FoldPersonDocument(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -760,6 +772,11 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             servicer.ReleaseFence,
             request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFenceRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFenceResponse.SerializeToString,
+        ),
+        "ReleaseFences": grpc.unary_unary_rpc_method_handler(
+            servicer.ReleaseFences,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFencesRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFencesResponse.SerializeToString,
         ),
         "FoldPersonDocument": grpc.unary_unary_rpc_method_handler(
             servicer.FoldPersonDocument,
@@ -1901,6 +1918,36 @@ class PersonHogService:
             "/personhog.service.v1.PersonHogService/ReleaseFence",
             personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFenceRequest.SerializeToString,
             personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFenceResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def ReleaseFences(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/ReleaseFences",
+            personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFencesRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.ReleaseFencesResponse.FromString,
             options,
             channel_credentials,
             insecure,

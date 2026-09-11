@@ -4,8 +4,8 @@ use tonic::Status;
 use personhog_common::client::RouterClient;
 use personhog_proto::personhog::types::v1::{
     FencePersonRequest, FencePersonResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse,
-    ReleaseFenceRequest, ReleaseFenceResponse, UpdatePersonPropertiesRequest,
-    UpdatePersonPropertiesResponse,
+    ReleaseFenceRequest, ReleaseFenceResponse, ReleaseFencesRequest, ReleaseFencesResponse,
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 
 /// Writes initial person properties on the creation branch. Production goes
@@ -43,6 +43,11 @@ pub trait LifecycleLeader: Send + Sync {
         request: ReleaseFenceRequest,
     ) -> Result<ReleaseFenceResponse, Status>;
 
+    async fn release_fences(
+        &self,
+        request: ReleaseFencesRequest,
+    ) -> Result<ReleaseFencesResponse, Status>;
+
     async fn fold_person_document(
         &self,
         request: FoldPersonDocumentRequest,
@@ -63,6 +68,13 @@ impl LifecycleLeader for RouterClient {
         request: ReleaseFenceRequest,
     ) -> Result<ReleaseFenceResponse, Status> {
         RouterClient::release_fence(self, request).await
+    }
+
+    async fn release_fences(
+        &self,
+        request: ReleaseFencesRequest,
+    ) -> Result<ReleaseFencesResponse, Status> {
+        RouterClient::release_fences(self, request).await
     }
 
     async fn fold_person_document(

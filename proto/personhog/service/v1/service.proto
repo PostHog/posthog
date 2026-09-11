@@ -69,6 +69,7 @@ service PersonHogService {
   // semantics.
   rpc FencePerson(personhog.types.v1.FencePersonRequest) returns (personhog.types.v1.FencePersonResponse);
   rpc ReleaseFence(personhog.types.v1.ReleaseFenceRequest) returns (personhog.types.v1.ReleaseFenceResponse);
+  rpc ReleaseFences(personhog.types.v1.ReleaseFencesRequest) returns (personhog.types.v1.ReleaseFencesResponse);
   rpc FoldPersonDocument(personhog.types.v1.FoldPersonDocumentRequest) returns (personhog.types.v1.FoldPersonDocumentResponse);
 
   // Person deletes

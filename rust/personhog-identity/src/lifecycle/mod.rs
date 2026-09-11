@@ -38,10 +38,11 @@ impl PersonHogLifecycleService {
         engine: Arc<Engine>,
         leader: Arc<dyn LifecycleLeader>,
         tables: crate::config::IdentityTables,
+        leader_call_concurrency: usize,
     ) -> Self {
         Self {
             engine,
-            delete_driver: DeleteDriver::new(leader, tables),
+            delete_driver: DeleteDriver::new(leader, tables, leader_call_concurrency),
         }
     }
 }

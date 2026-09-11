@@ -117,7 +117,13 @@ export function resolveConsistencyHeader(message: unknown): 'strong' | 'eventual
 }
 
 /** Methods the router always forwards to the owning partition's leader. */
-const LEADER_ROUTED_METHODS = new Set(['UpdatePersonProperties', 'FencePerson', 'ReleaseFence', 'FoldPersonDocument'])
+const LEADER_ROUTED_METHODS = new Set([
+    'UpdatePersonProperties',
+    'FencePerson',
+    'ReleaseFence',
+    'ReleaseFences',
+    'FoldPersonDocument',
+])
 
 /**
  * The person routing key for a leader-bound call, or null when the call is

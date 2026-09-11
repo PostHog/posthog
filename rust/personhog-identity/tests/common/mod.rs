@@ -242,6 +242,13 @@ impl personhog_identity::leader::LifecycleLeader for UnusedLeader {
         Err(tonic::Status::unimplemented("not exercised by this test"))
     }
 
+    async fn release_fences(
+        &self,
+        _request: personhog_proto::personhog::types::v1::ReleaseFencesRequest,
+    ) -> Result<personhog_proto::personhog::types::v1::ReleaseFencesResponse, tonic::Status> {
+        Err(tonic::Status::unimplemented("not exercised by this test"))
+    }
+
     async fn fold_person_document(
         &self,
         _request: personhog_proto::personhog::types::v1::FoldPersonDocumentRequest,

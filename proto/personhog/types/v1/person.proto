@@ -347,6 +347,29 @@ enum ReleaseOutcome {
 
 message ReleaseFenceResponse {}
 
+// ReleaseFencesRequest closes many fences of one op in one call (see
+// PersonHogLeader.ReleaseFences). The saga sends one call per op; the
+// router splits it by owning leader and each leader releases the persons
+// on the partitions it serves. Per-person fields carry what
+// ReleaseFenceRequest carries.
+message ReleaseFencesRequest {
+  int64 team_id = 1;
+  string op_id = 2;
+  ReleaseOutcome outcome = 3;
+  repeated ReleaseFenceItem persons = 4;
+}
+
+message ReleaseFenceItem {
+  int64 person_id = 1;
+  string person_uuid = 2;
+  // See ReleaseFenceRequest.sealed_version.
+  optional int64 sealed_version = 3;
+  // See ReleaseFenceRequest.created_at.
+  int64 created_at = 4;
+}
+
+message ReleaseFencesResponse {}
+
 // A sealed source snapshot paired with its precedence ordinal — the
 // pair order the saga recorded in lifecycle_op_person. The fold sorts
 // by ordinal itself rather than trusting request order, so a re-drive

@@ -229,7 +229,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
     if let Some(sweeper_handle) = sweeper_handle {
         let sweeper_merge_driver = MergeDriver::new(property_writer.clone(), config.tables());
-        let sweeper_delete_driver = DeleteDriver::new(lifecycle_leader.clone(), config.tables());
+        let sweeper_delete_driver = DeleteDriver::new(
+            lifecycle_leader.clone(),
+            config.tables(),
+            config.lifecycle_leader_call_concurrency,
+        );
         let sweeper_engine = engine.clone();
         let sweep_interval = config.lifecycle_sweep_interval();
         let retention = config.lifecycle_op_retention();
@@ -277,8 +281,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             MergeDriver::new(property_writer.clone(), config.tables()),
         ),
     );
-    let lifecycle_service =
-        PersonHogLifecycleService::new(engine, lifecycle_leader, config.tables());
+    let lifecycle_service = PersonHogLifecycleService::new(
+        engine,
+        lifecycle_leader,
+        config.tables(),
+        config.lifecycle_leader_call_concurrency,
+    );
     let service = PersonHogIdentityService::new(
         storage,
         property_writer,

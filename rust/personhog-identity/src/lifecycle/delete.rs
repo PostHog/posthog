@@ -5,9 +5,10 @@
 //!
 //! Sealing fences each victim on its owning leader — `FencePerson` rejects
 //! writes while the op lives and returns the exact sealed version, so no
-//! margin is needed — and completion calls `ReleaseFence(committed)` per
-//! victim, which makes the leader produce the death document into the
-//! changelog and evict its cache entry. The unmapped transaction still
+//! margin is needed — and completion releases the victims with the
+//! committed outcome, one `ReleaseFences` per partition, which makes each
+//! leader produce the death documents into the changelog and evict its
+//! cache entries. The unmapped transaction still
 //! writes the person tombstone directly: it is the durable revival floor
 //! the sync plane reads (sanctioned by the RFC); the death document
 //! confirms it downstream (writer, ClickHouse) at the same version,
@@ -27,11 +28,12 @@ use futures::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::postgres::PgPool;
-use tonic::Code;
+use tonic::{Code, Status};
 use uuid::Uuid;
 
 use personhog_proto::personhog::types::v1::{
-    FencePersonRequest, LifecycleOpType, ReleaseFenceRequest, ReleaseOutcome,
+    FencePersonRequest, LifecycleOpType, ReleaseFenceItem, ReleaseFenceRequest,
+    ReleaseFencesRequest, ReleaseOutcome,
 };
 
 use crate::config::IdentityTables;
@@ -42,12 +44,14 @@ use crate::lifecycle::engine::{
 };
 use crate::storage::postgres::begin_timed;
 
-/// Bound on concurrent leader calls per step, matching the merge driver.
-const LEADER_CALL_CONCURRENCY: usize = 8;
-
 // Derived from the shared enum so the op-type string cannot drift from
 // the leader's fence records or the lifecycle_op CHECK constraint.
 pub const OP_TYPE_DELETE: &str = LifecycleOpType::Delete.as_op_type_str();
+
+/// Persons per `ReleaseFences` call. Kept under the leader's batch cap,
+/// which refuses larger batches outright, and small enough that one
+/// leader's share of produces finishes within the leader call timeout.
+pub const RELEASE_BATCH_SIZE: usize = 100;
 
 /// The delete saga's non-terminal steps, in order. Stored as text in
 /// `lifecycle_op.step` (the engine is generic over op types, so its API is
@@ -147,12 +151,21 @@ fn record_outcomes(outcome: &Value) {
 pub struct DeleteDriver {
     leader: Arc<dyn LifecycleLeader>,
     tables: IdentityTables,
+    leader_call_concurrency: usize,
 }
 
 impl DeleteDriver {
-    pub fn new(leader: Arc<dyn LifecycleLeader>, tables: IdentityTables) -> Self {
+    pub fn new(
+        leader: Arc<dyn LifecycleLeader>,
+        tables: IdentityTables,
+        leader_call_concurrency: usize,
+    ) -> Self {
         tables.validate().expect("invalid identity table set");
-        Self { leader, tables }
+        Self {
+            leader,
+            tables,
+            leader_call_concurrency: leader_call_concurrency.max(1),
+        }
     }
 }
 
@@ -175,9 +188,13 @@ impl OpDriver for DeleteDriver {
         })?;
         match step {
             DeleteStep::Started => mark(pool, &self.tables.person, op).await,
-            DeleteStep::Marked => seal(pool, self.leader.as_ref(), op).await,
+            DeleteStep::Marked => {
+                seal(pool, self.leader.as_ref(), op, self.leader_call_concurrency).await
+            }
             DeleteStep::Sealed => unmap(pool, &self.tables, op).await,
-            DeleteStep::Unmapped => complete(pool, self.leader.as_ref(), op).await,
+            DeleteStep::Unmapped => {
+                complete(pool, self.leader.as_ref(), op, self.leader_call_concurrency).await
+            }
         }
     }
 }
@@ -372,7 +389,12 @@ async fn mark(pool: &PgPool, person_table: &str, op: &OpRow) -> Result<(), SagaE
 /// op; unlike the merge driver's pre-flip abort, delete has no abort path
 /// past `started`, and a parked delete is an operator signal, not a stuck
 /// customer flow.
-async fn seal(pool: &PgPool, leader: &dyn LifecycleLeader, op: &OpRow) -> Result<(), SagaError> {
+async fn seal(
+    pool: &PgPool,
+    leader: &dyn LifecycleLeader,
+    op: &OpRow,
+    leader_call_concurrency: usize,
+) -> Result<(), SagaError> {
     let victims = sqlx::query!(
         r#"
         SELECT person_id FROM lifecycle_op_person
@@ -398,7 +420,7 @@ async fn seal(pool: &PgPool, leader: &dyn LifecycleLeader, op: &OpRow) -> Result
         })
         .collect();
     let fence_results: Vec<_> = stream::iter(fence_calls)
-        .buffer_unordered(LEADER_CALL_CONCURRENCY)
+        .buffer_unordered(leader_call_concurrency)
         .collect()
         .await;
 
@@ -634,10 +656,11 @@ async fn unmap(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(),
     Ok(())
 }
 
-/// `unmapped → completed`: release each fenced victim with the committed
-/// outcome — the leader produces the death document into the changelog and
-/// evicts its cache entry — then settle the per-person rows to `deleted`
-/// (which releases their marks), record the outcome, and stamp completion.
+/// `unmapped → completed`: release the fenced victims with the committed
+/// outcome — each leader produces the death documents into the changelog
+/// and evicts its cache entries — then settle the per-person rows to
+/// `deleted` (which releases their marks), record the outcome, and stamp
+/// completion.
 ///
 /// The releases run before the settle transaction because the leader
 /// verifies a committed release against a live mark (`marked`/`sealed`)
@@ -650,6 +673,7 @@ async fn complete(
     pool: &PgPool,
     leader: &dyn LifecycleLeader,
     op: &OpRow,
+    leader_call_concurrency: usize,
 ) -> Result<(), SagaError> {
     let request = parse_request(op)?;
 
@@ -666,28 +690,16 @@ async fn complete(
     )
     .fetch_all(pool)
     .await?;
-    let release_calls: Vec<_> = fenced
-        .iter()
-        .map(|victim| {
-            let request = ReleaseFenceRequest {
-                team_id: op.team_id,
-                person_id: victim.person_id,
-                person_uuid: victim.person_uuid.to_string(),
-                op_id: op.op_id.to_string(),
-                outcome: ReleaseOutcome::Committed.into(),
-                sealed_version: Some(victim.sealed_version),
-                created_at: victim.sealed_created_at,
-            };
-            async move { leader.release_fence(request).await }
+    let victims: Vec<FencedVictim> = fenced
+        .into_iter()
+        .map(|row| FencedVictim {
+            person_id: row.person_id,
+            person_uuid: row.person_uuid,
+            sealed_version: row.sealed_version,
+            sealed_created_at: row.sealed_created_at,
         })
         .collect();
-    let release_results: Vec<_> = stream::iter(release_calls)
-        .buffer_unordered(LEADER_CALL_CONCURRENCY)
-        .collect()
-        .await;
-    for result in release_results {
-        result.map_err(SagaError::leader)?;
-    }
+    release_fenced(leader, op, &victims, leader_call_concurrency).await?;
 
     let mut tx = begin_timed(pool).await?;
 
@@ -715,6 +727,91 @@ async fn complete(
     tx.commit().await?;
     record_transition(DeleteStep::Unmapped.as_str(), STEP_COMPLETED);
     record_outcomes(&outcome);
+    Ok(())
+}
+
+/// A victim whose fence must be released at completion.
+struct FencedVictim {
+    person_id: i64,
+    person_uuid: Uuid,
+    sealed_version: i64,
+    sealed_created_at: i64,
+}
+
+impl FencedVictim {
+    fn release_item(&self) -> ReleaseFenceItem {
+        ReleaseFenceItem {
+            person_id: self.person_id,
+            person_uuid: self.person_uuid.to_string(),
+            sealed_version: Some(self.sealed_version),
+            created_at: self.sealed_created_at,
+        }
+    }
+
+    fn release_request(&self, op: &OpRow) -> ReleaseFenceRequest {
+        ReleaseFenceRequest {
+            team_id: op.team_id,
+            person_id: self.person_id,
+            person_uuid: self.person_uuid.to_string(),
+            op_id: op.op_id.to_string(),
+            outcome: ReleaseOutcome::Committed.into(),
+            sealed_version: Some(self.sealed_version),
+            created_at: self.sealed_created_at,
+        }
+    }
+}
+
+/// Release the fenced victims with the committed outcome in `ReleaseFences`
+/// calls of at most [`RELEASE_BATCH_SIZE`] persons. The router splits each
+/// call by owning leader, and each leader verifies its share of the marks
+/// in a single query. A router or leader that predates the batch RPC
+/// answers UNIMPLEMENTED; those victims are then released one call each,
+/// so a mixed fleet mid-roll still completes its deletes.
+async fn release_fenced(
+    leader: &dyn LifecycleLeader,
+    op: &OpRow,
+    victims: &[FencedVictim],
+    leader_call_concurrency: usize,
+) -> Result<(), SagaError> {
+    let batch_calls: Vec<_> = victims
+        .chunks(RELEASE_BATCH_SIZE)
+        .map(|chunk| async move {
+            let batch = ReleaseFencesRequest {
+                team_id: op.team_id,
+                op_id: op.op_id.to_string(),
+                outcome: ReleaseOutcome::Committed.into(),
+                persons: chunk.iter().map(FencedVictim::release_item).collect(),
+            };
+            match leader.release_fences(batch).await {
+                Ok(_) => Ok(&[][..]),
+                Err(status) if status.code() == Code::Unimplemented => Ok(chunk),
+                Err(status) => Err(status),
+            }
+        })
+        .collect();
+    let batch_results: Vec<Result<&[FencedVictim], Status>> = stream::iter(batch_calls)
+        .buffer_unordered(leader_call_concurrency)
+        .collect()
+        .await;
+    let mut singles: Vec<&FencedVictim> = Vec::new();
+    for result in batch_results {
+        singles.extend(result.map_err(SagaError::leader)?);
+    }
+
+    let single_calls: Vec<_> = singles
+        .into_iter()
+        .map(|victim| {
+            let request = victim.release_request(op);
+            async move { leader.release_fence(request).await }
+        })
+        .collect();
+    let single_results: Vec<_> = stream::iter(single_calls)
+        .buffer_unordered(leader_call_concurrency)
+        .collect()
+        .await;
+    for result in single_results {
+        result.map_err(SagaError::leader)?;
+    }
     Ok(())
 }
 

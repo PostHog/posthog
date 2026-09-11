@@ -8,7 +8,8 @@ import "personhog/types/v1/person.proto";
 // partition and resolving the owning pod via the coordination routing table.
 // The partition travels in the `x-partition` request-metadata header, set by
 // the router, rather than in the request body — so the router can forward
-// client request bytes verbatim without a decode/re-encode.
+// client request bytes verbatim without a decode/re-encode. ReleaseFences is
+// the one exception: the router decodes it to split the batch by owning pod.
 service PersonHogLeader {
   // Apply property updates to a person. Merges $set, $set_once, and $unset
   // diffs into the cached person state.
@@ -52,6 +53,19 @@ service PersonHogLeader {
   // a mark already settled as deleted absorbs the retry without a second
   // record.
   rpc ReleaseFence(personhog.types.v1.ReleaseFenceRequest) returns (personhog.types.v1.ReleaseFenceResponse);
+
+  // ReleaseFence for many persons of one op, with the same per-person
+  // semantics. The router splits the saga's batch by owning pod, so the
+  // persons may span partitions; every one must hash to a partition this
+  // pod serves, and one that does not refuses the whole batch
+  // FAILED_PRECONDITION before anything is touched (the router bounces
+  // and re-resolves, as for any ownership refusal). The marks are read in
+  // one lifecycle database query for the batch; each person is then
+  // decided exactly as ReleaseFence decides it, under its own lock and on
+  // its own partition. A failure returns that person's status, and the
+  // persons already released stay released — the saga's retry absorbs
+  // them like any duplicate ReleaseFence.
+  rpc ReleaseFences(personhog.types.v1.ReleaseFencesRequest) returns (personhog.types.v1.ReleaseFencesResponse);
 
   // Internal, saga-runner only. The merge saga's document write: fold the
   // sealed source snapshots into the target person's document under the

@@ -11,8 +11,8 @@ use common::{
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembership, DeletePersonsRequest, GetGroupsRequest,
     GetPersonByDistinctIdRequest, GetPersonRequest, GetPersonResponse,
-    GetPersonsByDistinctIdsInTeamRequest, Group, GroupIdentifier, Person,
-    UpdatePersonPropertiesRequest,
+    GetPersonsByDistinctIdsInTeamRequest, Group, GroupIdentifier, Person, ReleaseFenceItem,
+    ReleaseFencesRequest, ReleaseOutcome, UpdatePersonPropertiesRequest,
 };
 use tonic::Request;
 
@@ -272,6 +272,54 @@ async fn raw_proxy_update_person_properties_routes_to_leader() {
     let result = response.into_inner();
     assert!(result.updated);
     assert_eq!(result.person.unwrap().version, test_person.version + 1);
+}
+
+/// The router decodes exactly one leader-bound method. A `ReleaseFences`
+/// batch spans partitions, and the router regroups it by owning pod: with
+/// one pod owning every partition, every person must arrive in one call,
+/// routed on a partition that pod owns.
+#[tokio::test]
+async fn raw_proxy_release_fences_is_regrouped_by_owning_pod() {
+    let leader_service = TestLeaderService::new();
+    let batches = leader_service.release_batches();
+    let replica_service = TestReplicaService::new();
+
+    let replica_addr = start_test_replica(replica_service).await;
+    let leader_addr = start_test_leader(leader_service).await;
+    let router_addr =
+        start_test_router_raw_with_leader(replica_addr, leader_addr, NUM_PARTITIONS).await;
+    let mut client = create_client(router_addr).await;
+
+    let person_ids: Vec<i64> = (1..=24).collect();
+    let persons = person_ids
+        .iter()
+        .map(|&person_id| ReleaseFenceItem {
+            person_id,
+            person_uuid: String::new(),
+            sealed_version: None,
+            created_at: 0,
+        })
+        .collect();
+    client
+        .release_fences(with_person_key(
+            Request::new(ReleaseFencesRequest {
+                team_id: 1,
+                op_id: "op-1".to_string(),
+                outcome: ReleaseOutcome::Aborted.into(),
+                persons,
+            }),
+            1,
+            1,
+        ))
+        .await
+        .expect("the regrouped batch succeeds");
+
+    let batches = batches.lock().unwrap().clone();
+    assert_eq!(batches.len(), 1, "one call per owning pod");
+    let (partition, mut received) = batches[0].clone();
+    received.sort_unstable();
+    assert_eq!(received, person_ids);
+    assert!(partition < NUM_PARTITIONS);
 }
 
 /// A lifecycle fence is the one refusal whose holder the caller can act

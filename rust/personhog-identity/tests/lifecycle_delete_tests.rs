@@ -11,7 +11,7 @@ use common::TestContext;
 use tonic::{Request, Status};
 use uuid::Uuid;
 
-use personhog_identity::lifecycle::delete::{DeleteDriver, DeleteOutcome};
+use personhog_identity::lifecycle::delete::{DeleteDriver, DeleteOutcome, RELEASE_BATCH_SIZE};
 use personhog_identity::lifecycle::engine::{Engine, OpRow, SagaError};
 use personhog_identity::lifecycle::PersonHogLifecycleService;
 use personhog_identity::storage::{IdentityStorage, PersonStub, StubOutcome};
@@ -26,7 +26,7 @@ impl TestContext {
             self.pool.clone(),
             self.tables.person.clone(),
         ));
-        PersonHogLifecycleService::new(engine, leader.clone(), self.tables.clone())
+        PersonHogLifecycleService::new(engine, leader.clone(), self.tables.clone(), 8)
     }
 
     /// (is_deleted, version, properties) of a person row.
@@ -553,7 +553,7 @@ impl FencedHarness {
         let ctx = TestContext::new().await;
         let engine = ctx.engine();
         let leader = Arc::new(SimLeader::new(ctx.pool.clone(), ctx.tables.person.clone()));
-        let driver = DeleteDriver::new(leader.clone(), ctx.tables.clone());
+        let driver = DeleteDriver::new(leader.clone(), ctx.tables.clone(), 8);
         Self {
             ctx,
             engine,
@@ -625,6 +625,129 @@ async fn fenced_delete_seals_the_exact_version_and_produces_the_death_document()
         .position(|c| matches!(c, LeaderCall::ReleaseCommitted { .. }))
         .expect("a committed release call");
     assert!(fence_at < release_at);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// Completion releases every fenced victim in one call; the router splits
+/// it by leader, so the saga must not fan out per victim itself.
+#[tokio::test]
+async fn a_fenced_delete_releases_its_victims_in_one_batch() {
+    let h = FencedHarness::new().await;
+    let mut person_ids = Vec::new();
+    for i in 0..6 {
+        let distinct_id = format!("batched-victim-{i}-{}", Uuid::now_v7());
+        person_ids.push(h.ctx.create_person_via_stub(&distinct_id).await);
+    }
+
+    let row = h
+        .execute(Uuid::now_v7(), &person_ids)
+        .await
+        .expect("fenced delete completes");
+    let outcome = FencedHarness::outcome(&row);
+    assert!(outcome.results.iter().all(|r| r.outcome == "deleted"));
+    assert_eq!(h.leader.death_documents().len(), person_ids.len());
+
+    let batches: Vec<Vec<i64>> = h
+        .leader
+        .calls()
+        .into_iter()
+        .filter_map(|call| match call {
+            LeaderCall::ReleaseBatch { person_ids } => Some(person_ids),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(batches.len(), 1, "one release call per op");
+    let mut released = batches.into_iter().next().unwrap();
+    released.sort_unstable();
+    let mut expected = person_ids.clone();
+    expected.sort_unstable();
+    assert_eq!(released, expected);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// Victims beyond the batch size go in further calls, so a delete larger
+/// than the leader's batch cap is never refused outright.
+#[tokio::test]
+async fn a_large_delete_releases_in_batches_of_the_configured_size() {
+    let h = FencedHarness::new().await;
+    let stubs: Vec<PersonStub> = (0..=RELEASE_BATCH_SIZE)
+        .map(|i| PersonStub {
+            team_id: h.ctx.team_id,
+            distinct_id: format!("chunked-victim-{i}-{}", Uuid::now_v7()),
+            extra_distinct_ids: vec![],
+            created_at: Utc::now(),
+            is_identified: false,
+        })
+        .collect();
+    let person_ids: Vec<i64> = h
+        .ctx
+        .storage
+        .create_person_stubs(&stubs)
+        .await
+        .expect("stub creation succeeds")
+        .iter()
+        .map(|outcome| match outcome {
+            StubOutcome::Committed { person, .. } => person.id,
+            StubOutcome::LostRace => panic!("no concurrent writers in this test"),
+        })
+        .collect();
+
+    let row = h
+        .execute(Uuid::now_v7(), &person_ids)
+        .await
+        .expect("fenced delete completes");
+    assert!(FencedHarness::outcome(&row)
+        .results
+        .iter()
+        .all(|r| r.outcome == "deleted"));
+
+    let batch_sizes: Vec<usize> = h
+        .leader
+        .calls()
+        .into_iter()
+        .filter_map(|call| match call {
+            LeaderCall::ReleaseBatch { person_ids } => Some(person_ids.len()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(batch_sizes.len(), 2);
+    assert_eq!(batch_sizes.iter().sum::<usize>(), person_ids.len());
+    assert!(batch_sizes.iter().all(|size| *size <= RELEASE_BATCH_SIZE));
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// A router or leader that predates `ReleaseFences` answers UNIMPLEMENTED;
+/// the saga must still complete, releasing one person at a time.
+#[tokio::test]
+async fn a_fleet_without_batch_release_falls_back_to_single_releases() {
+    let h = FencedHarness::new().await;
+    h.leader.disable_release_fences();
+    let mut person_ids = Vec::new();
+    for i in 0..2 {
+        let distinct_id = format!("single-release-{i}-{}", Uuid::now_v7());
+        person_ids.push(h.ctx.create_person_via_stub(&distinct_id).await);
+    }
+
+    let row = h
+        .execute(Uuid::now_v7(), &person_ids)
+        .await
+        .expect("delete completes without batch release");
+    let outcome = FencedHarness::outcome(&row);
+    assert!(outcome.results.iter().all(|r| r.outcome == "deleted"));
+    assert_eq!(h.leader.death_documents().len(), person_ids.len());
+
+    let calls = h.leader.calls();
+    assert!(!calls
+        .iter()
+        .any(|c| matches!(c, LeaderCall::ReleaseBatch { .. })));
+    let releases = calls
+        .iter()
+        .filter(|c| matches!(c, LeaderCall::ReleaseCommitted { .. }))
+        .count();
+    assert_eq!(releases, person_ids.len());
 
     h.ctx.cleanup().await.expect("cleanup");
 }
