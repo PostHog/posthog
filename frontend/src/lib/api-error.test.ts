@@ -1,10 +1,22 @@
+import type { CaptureResult, Properties } from 'posthog-js'
+
 import {
     ApiError,
+    dropUnactionableNetworkExceptions,
+    NETWORK_ERROR_MESSAGES,
     NetworkError,
     isScopeNotFoundError,
     isTransientServerError,
     shouldReportApiFailure,
 } from './api-error'
+
+function captureResult(event: string, properties: Properties): CaptureResult {
+    return { uuid: 'test-uuid', event, properties }
+}
+
+function exceptionEvent(exceptions: { type: string; value: string }[]): CaptureResult {
+    return captureResult('$exception', { $exception_list: exceptions })
+}
 
 describe('api-error', () => {
     describe('ApiError.fromResponse', () => {
@@ -85,6 +97,35 @@ describe('api-error', () => {
             ['a bare object shaped like an error', { status: 503 }],
         ])('does not classify %s as transient', (_, error) => {
             expect(isTransientServerError(error)).toBe(false)
+        })
+    })
+
+    describe('dropUnactionableNetworkExceptions', () => {
+        // The message set itself is covered end to end in `loadPostHogJS.test.ts`. These cases guard
+        // the over-dropping that would hide real crashes.
+        it.each([
+            [
+                'an unactionable network exception',
+                [{ type: 'NetworkError', value: NETWORK_ERROR_MESSAGES.offline }],
+                true,
+            ],
+            [
+                'a same-message exception of another type',
+                [{ type: 'TypeError', value: NETWORK_ERROR_MESSAGES.offline }],
+                false,
+            ],
+            ['an unrelated crash', [{ type: 'Error', value: 'boom' }], false],
+        ])('decides whether to drop %s', (_, exceptions, dropped) => {
+            const event = exceptionEvent(exceptions)
+
+            expect(dropUnactionableNetworkExceptions(event)).toBe(dropped ? null : event)
+        })
+
+        it.each([
+            ['a non-exception event', captureResult('$pageview', {})],
+            ['an exception event with no list', captureResult('$exception', {})],
+        ])('leaves %s untouched', (_, event) => {
+            expect(dropUnactionableNetworkExceptions(event)).toBe(event)
         })
     })
 
