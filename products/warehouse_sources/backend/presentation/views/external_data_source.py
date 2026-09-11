@@ -4330,10 +4330,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": cdc_error},
             )
 
-        # Ensure the global cleanup schedule exists. There are no CDC schemas yet (the user
-        # picks sync_type=cdc per schema afterward), so `sync_cdc_extraction_schedule` is a
-        # no-op here — the extraction schedule is authoritatively (re)created when a schema is
-        # switched to CDC. A failure here therefore can't leave a "CDC on, never runs" state:
+        # Ensure the global cleanup schedule exists. `sync_cdc_extraction_schedule` upserts:
+        # it is a no-op while no schema declares sync_type=cdc, and it refreshes the schedule
+        # when one already does — the extraction schedule is authoritatively (re)created when a
+        # schema is switched to CDC. A failure here therefore can't leave a "CDC on, never runs" state:
         # the slot + config are valid and the schedule self-heals on the first CDC schema
         # toggle. Surface failures (capture, not just log) and flag them in the response.
         schedules_ok = True
