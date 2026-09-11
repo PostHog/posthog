@@ -118,6 +118,10 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
 - `run_interval_minutes` — 30 to 43200.
   Default 1440 (every 24 hours).
   Slow a chatty or expensive scout by raising this.
+- `run_cron_schedule` — a five-field cron expression (`'30 9 * * *'`, `'0 9 * * 1-5'`) evaluated in the project's timezone; occurrences must be at least 30 minutes apart.
+  When set it takes precedence over `run_interval_minutes`, so a "slow it down" edit on a cron scout has to change or clear the cron (set `null` to return to the rolling interval).
+  A new or edited schedule anchors on the edit time and waits for its next slot rather than catching up on a past one.
+  Reach for it when the run should land at a wall-clock time — a digest before standup, a weekday-only watch.
 - `enabled` — `false` pauses the scout entirely (coordinator skips it).
 - `emit` — defaults to **`true`**: the scout writes its reports straight to the inbox.
   The standard flow is to make a scout and let it write — seeing what actually lands is the fastest way to calibrate it.
@@ -145,6 +149,11 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   `thread_reports: true` posts a report as a short lead message with the rest split into replies at the summary's section labels, so a long report isn't clipped; it doesn't change how findings post.
   Slack delivery is a firehose of that one scout's output — no priority filter, no reviewer routing — so it suits a scout whose bar is already tight rather than a chatty one you're still calibrating.
   A Slack-delivered scout is also exempt from the ignored-reports auto-pause, since consumption there isn't measurable.
+- `display_name` — the name the UI shows for the scout. Leave blank to use the default derived from the skill name; it never changes `skill_name`, which stays fixed.
+- `model` — pins the model the scout's runs use. Leave unset to follow the fleet default, which is what most scouts should do; set it when a scout's job needs a stronger model (long research) or a cheaper one (a frequent, mechanical probe) and say why in the body.
+- `mcp_gateway_server_ids` — MCP store servers (by id) this scout's runs may mount, chosen from the connections members have shared with the whole team.
+  Empty (the default) mounts none. Personal connections never back a scout run, so runs behave the same whoever edits the scout.
+  Treat it like `network_access`: it hands the scout third-party tools with whatever access the shared connection carries, changes are activity-logged, and the body should name what the scout uses each server for.
 - `tags` — free-form labels grouping the fleet, e.g. `["revenue", "on-call"]`. Up to 10 per scout, normalized to lowercase kebab-case (`On Call` → `on-call`) and deduped.
   Set them at create time: a scout that lands already grouped saves a follow-up edit, and the desktop app's scout list filters on them.
   Prefer a tag that already exists on the fleet (`-config-list` shows every scout's tags) over minting a near-duplicate — `revenue` and `revenue-analytics` fragment the same group.
@@ -173,8 +182,11 @@ The tools (reads on the public `signal_scout:read` scope; because scouts read no
 
 - `posthog:scout-notes-create {"content": "...", "skill_name": "signals-scout-web-analytics"}` — address one scout by its exact skill name (roster via `scout-config-list`; the skill must already exist, so a typo'd target is rejected instead of silently steering no one), or omit `skill_name` for a general note every scout sees.
   Optionally set `expires_at` so a time-boxed note ("watch closely this week") retires itself.
+  `skill_name: "pipeline:report-research"` addresses the report pipeline's research stage instead of any scout — for guidance about how reports get researched, judged, and routed ("route billing-adjacent reports to the billing folks"). It is the only `pipeline:*` audience; any other value is rejected.
 - `posthog:scout-notes-list` — browse the active notes; pass `skill_name` to see what a given scout will read.
+  Expect system-derived notes alongside the human ones: a dismissal or snooze note, a Discuss question, a thumbs-rating note, and a reviewer add/remove on a report are each forwarded to the relevant scout as a note, labelled by `origin` (`report_dismissal`, `report_discussion`, `report_feedback`, `report_reviewer_correction`; a note left directly is `human`). Derived notes expire on their own after ~30 days.
 - `posthog:scout-notes-delete {"id": "..."}` — retire a note that's been acted on or no longer applies.
+- `posthog:scout-run-now {"id": <config_id>, "note": "..."}` — steer one run only. The note (up to 1,000 characters) is read by that run next to the durable notes and never by a later one, so use it for "check this now" instead of a note every scheduled run would keep reading. It needs `llm_skill:write` like a durable note, and spends a run like any manual dispatch.
 
 How scouts treat notes: every run reads its notes in step 1 and is told to let a fresh note visibly shape what it investigates — but notes are **advisory**.
 They direct attention; they don't lower the scout's evidence bar or force a report, so a note saying "report X" still gets an honest investigation, not an automatic emit.
@@ -210,7 +222,8 @@ The standard loop is **dogfood → run once ready → inspect**:
 
 1. Dogfood the discriminator + explore patterns yourself against the live project (above).
    Refine the body until the logic holds on real data — this is the cheap, iterable part.
-2. Create the scout and its config together via `posthog:scout-create` (schedule and the default `emit=true` go in the nested `config`), then spend one `-run-now` to watch the whole scout execute end-to-end.
+2. Create the scout and its config together via `posthog:scout-create` (schedule and the default `emit=true` go in the nested `config`; bundled reference files go in `files`), then spend one `-run-now` to watch the whole scout execute end-to-end.
+   Pass a `note` on that call to point the run at the case you dogfooded ("focus on the checkout drop from Tuesday") so the first real run exercises the path you care about.
    Leave `run_interval_minutes` at a sustainable value — you no longer need a short interval to force an early run.
 3. After the run finishes, read what it did: `posthog:inbox-reports-list` (the reports it actually wrote), `posthog:scout-runs-list` (run summaries), `-runs-retrieve` (full reasoning for one run), and `-scratchpad-search` (the durable memory it wrote).
 4. If it needs work, go back to dogfooding the queries by hand for the iteration — only spend another `-run-now` once you've batched a meaningful change worth a fresh end-to-end run.

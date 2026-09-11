@@ -38,8 +38,10 @@ import statistics
 from datetime import datetime
 from typing import Any
 
-# a failed run whose wall-clock is this long or longer is timeout-shaped, not a fast crash
-TIMEOUT_MINUTES = 20.0
+# a failed run whose wall-clock is this long or longer is timeout-shaped, not a fast crash.
+# The per-run budget is 15 minutes (scout_harness/limits.py); a run that reached ~14 minutes ran
+# to the wall rather than crashing early.
+TIMEOUT_MINUTES = 14.0
 # a gap larger than this multiple of the expected interval counts as a stall
 STALL_FACTOR = 2.0
 
@@ -235,7 +237,7 @@ def render(scouts: list[dict], window_note: str, has_mem: bool, *, art: bool = T
           " adher     cadence adherence — runs observed / runs expected across the window",
           "           span at that interval. 100% = fired on (nearly) every scheduled tick.",
           " med       median run duration (start -> finish). healthy runs finish in a couple",
-          "           of minutes; a ~30m median is timeout-shaped over-investigation.",
+          "           of minutes; a ~15m median is timeout-shaped over-investigation.",
           " mem       durable scratchpad entries attributed to this scout (via the run that",
           "           wrote them) in --scratchpad. 'n/a' = no --scratchpad passed; '0' = passed",
           "           but none matched (often the writing run falls outside the runs window)."]

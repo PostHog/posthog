@@ -86,17 +86,30 @@ Before loosening anything:
 
 Reports reach people via `suggested_reviewers` — the inbox floats a report to the top of the suggested reviewer's own view.
 
-1. Routing depends on org members having **linked GitHub identities**; without them, no report can flag `is_suggested_reviewer` for anyone.
-2. If a surface's reports keep landing unrouted, teach the fleet the owner: a note ("checkout belongs to Dana — route checkout findings to dana-gh"), or for permanence, the owner map in the scout's body.
+1. A reviewer is a PostHog user, identified by `user_uuid` (any org member) or by `github_login` (matched against the member's linked GitHub identity). A member with no GitHub account linked still routes by uuid, so a missing link is never the reason a report went unrouted — a scout that only knows a name resolves it with `posthog:scout-members-list`.
+2. If a surface's reports keep landing unrouted, teach the fleet the owner: a note ("checkout belongs to Dana — route checkout findings to her"), or for permanence, the owner map in the scout's body.
+   For a rule that spans scouts, address the research stage instead: `posthog:scout-notes-create` with `skill_name: "pipeline:report-research"` reaches the stage that judges and routes every report and no scout.
    Scouts cache confirmed owners as `reviewer:` scratchpad entries, so one good steer compounds.
-3. A live report routed to no one isn't stuck — a scout (or you, via the report tools) can set reviewers on it after the fact.
+3. A live report routed to no one isn't stuck — a scout (or you, via the report tools) can set reviewers on it after the fact, and that correction is forwarded to the scouts involved as a note, so fixing the report is itself a steer.
+
+## "Send this scout's reports to Slack"
+
+Delivery is a config decision, not an authoring one — the same report goes to the inbox and to Slack.
+
+1. `posthog:scout-config-update` with `output_destinations.slack`: the workspace `integration_id` plus either a `channel` or up to five `users` to DM, never both (field shapes and the threading option are in `authoring-scouts`, Run posture).
+   Read the existing `output_destinations` first and send the whole object back — the update replaces it, so sending only `slack` drops an existing `webhook` pointer.
+2. Slack delivery is a firehose of that one scout's output — no priority filter, no reviewer routing — so it suits a scout whose bar is already tight.
+   Calibrate in the inbox first, then add the destination.
+3. A Slack-delivered scout is exempt from the ignored-reports auto-pause (consumption in Slack isn't measurable), so the fleet won't switch it off for you — review it yourself in the calibration pass.
 
 ## "Try a risky watch safely"
 
 For a scout you expect to be chatty, expensive, or high-stakes:
 
 1. Create it with **both** `enabled: false` and `emit: false` in the nested config at `posthog:scout-create` time.
-   `emit: false` (dry-run) makes it log what it _would_ report without touching the inbox; `enabled: false` matters too, because a fresh enabled config has no `last_run_at` and the coordinator treats it as immediately due — it could burn a scheduled run (or 409 your manual one) before your controlled test.
+   `emit: false` (dry-run) makes it log what it _would_ report without touching the inbox; `enabled: false` matters too, because a fresh enabled config on a rolling interval has no `last_run_at` and the coordinator treats it as immediately due — it could burn a scheduled run (or 409 your manual one) before your controlled test.
+   (A `run_cron_schedule` anchors on the config's creation time and waits for its first slot, so a cron scout isn't immediately due — but disabling it is still the safer default.)
 2. Spend one `posthog:scout-run-now` (it works on a disabled scout), then read the run via `exploring-scouts` to see what it would have written.
+   Pass a `note` on that call to point the test run at the case you want exercised ("focus on yesterday's checkout drop") without leaving a durable note behind.
    Runs are metered against the project's daily budget — dogfood the queries by hand for iteration and save real runs for end-to-end checks.
 3. Calibrate, then set `enabled: true` and `emit: true`, and let the normal act-and-feed-back loop take over.

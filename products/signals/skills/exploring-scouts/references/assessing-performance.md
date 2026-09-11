@@ -8,10 +8,10 @@ Pull the window first:
 
 ```json
 scout-runs-list
-{ "date_from": "2026-05-01T00:00:00Z", "limit": 100 }
+{ "skill_name": "signals-scout-error-tracking", "date_from": "2026-05-01T00:00:00Z", "limit": 100 }
 ```
 
-Filter the result to the scout's `skill_name`, then reason across the dimensions, reading each run's `summary`.
+Scope with `skill_name` (omit it for the whole fleet), then reason across the dimensions, reading each run's `summary` — and `failure_reason` on the failed ones.
 Learned memory comes from `scout-scratchpad-search`.
 Note up front: each run carries `emitted_report_ids` / `edited_report_ids` (and the list endpoint takes an `emitted` filter), so report volume is a clean metric off the runs themselves — and `inbox-reports-list { "source_product": "signals_scout" }` lists the reports the fleet surfaced.
 Read the two together: the runs tell you how often the scout wrote, the inbox filter what that output looks like to the user.
@@ -29,12 +29,14 @@ Persistent large gaps mean the coordinator isn't dispatching it as often as conf
 
 ### 2. Success rate — are runs completing cleanly?
 
-Count clean completions vs. `failed` runs over the window.
-Distinguish failure modes by duration: a `failed` run that ran ~30 minutes (the per-run budget) before failing **timed out**; a `failed` run that died quickly is more likely genuinely broken.
+Count clean completions vs. `failed` runs over the window, and group the failures by `failure_reason` — one cause repeating (an expired credential, a renamed table) is a different problem from scattered timeouts.
+Distinguish failure modes by duration: a `failed` run that ran ~15 minutes (the per-run budget) before failing **timed out**; a `failed` run that died quickly is more likely genuinely broken.
 Most timeouts are over-investigation — the scout ran to the wall, common and semi-expected on high-volume surfaces (logs, error tracking), and the fleet self-corrects by writing "tight-run recipe" scratchpad entries.
-But a timeout can also be a **false timeout**: the scout finished in a few minutes and the run then hung on a dropped close-out, so don't infer over-investigation from the ~30-minute duration alone.
+But a timeout can also be a **false timeout**: the scout finished in a few minutes and the run then hung on a dropped close-out, so don't infer over-investigation from the duration alone.
+Five consecutive failures spanning twelve hours or more pause the scout with `pause_reason=repeated_failures`; the coordinator probes it once per cooldown and resumes it when a probe succeeds, so a fixed cause clears itself.
 
-- **Diagnosis:** read a failed run's transcript (the error is not in the run payload) — open `task_url`, or pull it as data with `tasks-runs-session-logs-retrieve` (filter out the noisy `tool_call_update` / `usage_update` events to get a readable action timeline).
+- **Diagnosis:** start with the run's `failure_reason` and `error` fields — they carry the diagnosis and the full error text.
+  When you need the sequence of calls, read the transcript — open `task_url`, or pull it as data with `tasks-runs-session-logs-retrieve` (fetch the full log; the bundled `render_run_report.py` reassembles tool inputs from the `tool_call_update` chunks, which is why they can't be excluded).
   Tool calls right up to the wall mean genuine over-investigation; silence long before it means a false timeout.
   A quick failure from a query tool erroring, a body referencing an event/table that no longer exists, or a changed surface schema is an authoring fix — hand off to `authoring-scouts`.
   Recurring over-investigation timeouts on a firehose surface point at a too-broad body that needs a cheaper discriminator, also an authoring fix.

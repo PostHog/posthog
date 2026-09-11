@@ -114,15 +114,17 @@ How the flag is produced:
 3. At read time, those GitHub logins are mapped back to PostHog users via each org member's
    linked GitHub identity (social auth or GitHub integration). If the _current_ viewer's
    linked GitHub login is one of them, `is_suggested_reviewer` flips to `true` for that
-   report.
+   report. A reviewer can also be stored by PostHog `user_uuid` (a scout or a person naming
+   an org member directly), which matches the viewer without any GitHub link.
 
 Practical implications for triage:
 
 - A `true` value means "you wrote (or recently touched) the code this report is about" — not
   "you were assigned this." It's heuristic, not authoritative.
 - A `false` value doesn't mean the report is irrelevant — it can mean (a) someone else owns
-  the code, (b) no one in the org has a linked GitHub account matching the suggested logins,
-  or (c) the source material wasn't tied to a specific repo / commits.
+  the code, (b) the suggested logins came from commit history and no org member has that
+  GitHub account linked (a reviewer set by `user_uuid` doesn't have this problem), or (c) the
+  source material wasn't tied to a specific repo / commits.
 - If the user asks "what should _I_ look at?", lead with `is_suggested_reviewer: true`
   reports — these are the ones where the user's name is on the relevant code. Mention the
   rest as a secondary group rather than mixing them in.

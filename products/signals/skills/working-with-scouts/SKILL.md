@@ -48,7 +48,8 @@ One access rule covers everything here: scout rows live on the project's **canon
 
 The `description` on each row says what that scout watches — scan it to answer "which scout covers X?" without loading any skill bodies.
 (A row with an empty description is usually an orphan whose skill was since deleted — it can't run, so don't count it as coverage.)
-PostHog ships specialists for most product surfaces (error tracking, logs, web analytics, AI observability, experiments, feature flags, session replay, surveys, revenue, and more) plus a cross-product generalist, and teams add custom `signals-scout-*` skills beyond that.
+PostHog ships specialists for most product surfaces (error tracking, logs, web analytics, AI observability, experiments, feature flags, session replay, surveys, revenue, and more) plus a cross-product generalist, and teams add custom scouts beyond that (any skill name works; only the `signals-scout-` prefix gets a config auto-registered, so a scout named anything else comes in through `posthog:scout-create`).
+Each row also carries `scout_origin` (`canonical` or `custom`), which is the quickest way to tell a PostHog-maintained scout from a team-authored or diverged one.
 
 ## The working loop
 
@@ -73,7 +74,7 @@ When you want something watched, pick the cheapest path that gets it watched —
 | A canonical scout already covers the surface                                                                  | Nothing to build — confirm it's enabled, and leave it a **note** if you want its attention pointed somewhere specific.                                                                                                                                                                                                             |
 | The surface is covered but you want a temporary or specific focus                                             | Leave a **note** (optionally with `expires_at`) — "watch the EU signup funnel this week", "we shipped a new checkout Tuesday, shifts after that are expected".                                                                                                                                                                     |
 | A covered scout keeps missing (or over-reporting) something structural                                        | **Adapt** it — a disqualifier, threshold, or scope edit via `authoring-scouts`. Prefer a new differently-named scout for purely additive behavior, since editing a canonical scout's row marks it diverged and stops upstream improvements.                                                                                        |
-| No scout covers it (a custom event, a niche funnel, an external system)                                       | **Author a custom scout** via `authoring-scouts` (`posthog:scout-create`).                                                                                                                                                                                                                                                         |
+| No scout covers it (a custom event, a niche funnel, an external system)                                       | **Author a custom scout** via `authoring-scouts` (`posthog:scout-create`). In the inbox's scouts tab, the "Suggested for this project" strip proposes scouts from the project's own data, and "Suggest a scout" opens a chat that drafts one — both land on the same create call, so a user who prefers the UI can start there.    |
 | You want a recurring **metric**, not reports — a subjective quality/classification score no query can compute | **Author a measurement scout** on the structured-output channel: it judges a sample every run and records schema-validated `$scout_structured_output` events you chart in insights (and a workflow can act on), filing a report only on a material shift. See the recurring measurement / LLM-judge pattern in `authoring-scouts`. |
 | You want an answer _now_, once                                                                                | Don't use a scout at all — just query the data directly. Scouts are for standing watches, not one-off questions.                                                                                                                                                                                                                   |
 
@@ -91,26 +92,34 @@ Report triage mechanics live in `inbox-exploration`; what matters here is how ac
 - **Verify before implementing.** A scout report is an LLM diagnosis, not ground truth — confirm the cited entities and behavior against the live data or code before fixing.
   A report that doesn't hold up is a dismissal candidate, and dismissing it _well_ is valuable work (see below).
 - **Close every report with the honest state**: `resolved` when the work landed (PR-backed fixes resolve themselves on merge — don't resolve at PR-open time), `suppressed` (dismissed) when it's not real or not worth fixing, `potential` (snoozed) when it's real but deferred.
-- **The dismissal note is a steering message.** On a dismiss or snooze, the `dismissal_note` is forwarded to the scout that filed the report, and every future run reads it as prior context.
+- **The dismissal note is a steering message.** On a dismiss, snooze, or restore, the `dismissal_note` is forwarded to the scout that filed the report, and every future run reads it as prior context (a `wrong_repo` dismissal forwards even without a note, since the repositories it names are the feedback).
   Write it for that reader: name the evidence that settles it ("staging traffic — hosts match `*.dev.example.com`, ignore this pattern"), not just the verdict.
   A well-written dismissal is the cheapest scout edit you will ever make; a bare dismissal teaches nothing and the report comes back.
-  One caveat: forwarding is best-effort and requires the dismisser to hold scout-steering (skill-editor) access — without it the note still lands on the report but never reaches the scout, so for a steer that must stick, confirm it arrived (`posthog:scout-notes-list`) or have someone authorized leave a note directly.
+  Two caveats: forwarding is best-effort and requires the dismisser to hold scout-steering (skill-editor) access on the canonical project, and a dismissal made on a child environment's report never forwards at all — in both cases the note still lands on the report but never reaches the scout, so for a steer that must stick, confirm it arrived (`posthog:scout-notes-list`) or have someone authorized leave a note directly.
   The forwarded note also expires after ~30 days — it becomes durable only if the scout folds it into scratchpad memory, so a steer that must outlive that belongs up the ladder as a skill edit.
+- **Three more inbox actions steer the same way.** A question typed into a report's "Discuss" box, a note left with a thumbs rating on a report, and adding or removing a suggested reviewer each also become a scout note (visible in `posthog:scout-notes-list` with an `origin` of `report_discussion`, `report_feedback`, or `report_reviewer_correction`).
+  A reviewer correction is the strongest routing evidence the fleet gets — it reaches every scout that filed or edited the report and every scout whose `reviewer:` memory names a removed login — so fixing a misrouted report in place teaches the fleet who owns the surface.
+  The discussion and rating paths demand the full notes-write authorization (skill-editor access plus the `signal_scout:write` / `llm_skill:write` key scopes), so a note typed by someone without it stays on the report only.
 - **Reports route to people.** A scout that can name a plausible owner sets `suggested_reviewers`, and the inbox floats those reports to the top of that person's view.
-  If reports for a surface keep landing unrouted or misrouted, that's fixable: make sure org members have linked GitHub identities, and steer the scout (note or skill edit) toward the right owner for the area.
+  A reviewer is a PostHog user: a scout routes by `user_uuid` (any org member, no GitHub account needed) or by `github_login` (matched against the member's linked GitHub identity), and `is_suggested_reviewer` flips for the viewer on either match.
+  If reports for a surface keep landing unrouted or misrouted, that's fixable: correct the reviewers on the report itself (the correction is forwarded as above), leave a routing note for the research stage (`posthog:scout-notes-create` with `skill_name: "pipeline:report-research"` — "route billing-adjacent reports to Dana"), or steer the scout (note or skill edit) toward the right owner for the area.
 
 ## The steering ladder
 
 When you want a scout to behave differently, climb this ladder from cheapest to most permanent — and stop at the lowest rung that does the job:
 
-1. **React to its output.** Dismiss / snooze with a specific, evidence-bearing note (forwarded to the scout automatically).
-   Right for: one wrong report, a known-noise pattern surfacing for the first time.
-2. **Leave a note** (`posthog:scout-notes-create`, per-scout or fleet-wide, optionally time-boxed with `expires_at`).
+1. **React to its output.** Dismiss / snooze with a specific, evidence-bearing note, ask a question in its Discuss box, rate it with a note, or fix its reviewers (each forwarded to the scout automatically).
+   Right for: one wrong report, a known-noise pattern surfacing for the first time, a misrouted report.
+2. **Steer one run** (`posthog:scout-run-now` with a `note`).
+   Right for: a one-off focus you want checked now — "look at the checkout regression" — without leaving anything the scheduled runs will read later.
+   The note is read by that run only (up to 1,000 characters), it spends a run from the daily budget like any manual run, and it needs `llm_skill:write` on top of `signal_scout:write`.
+3. **Leave a note** (`posthog:scout-notes-create`, per-scout or fleet-wide, optionally time-boxed with `expires_at`).
    Right for: feedback, pointers, and context with a shelf life — "the spike you keep flagging is known noise", "dig into EU signups this week", "new checkout shipped Tuesday".
    Notes are advisory: they direct attention but never lower the evidence bar or force a report.
-3. **Tune the config** (`posthog:scout-config-update`).
-   Right for: _when and whether_ it runs, not _what it looks at_ — slow a chatty scout (`run_interval_minutes`; if the config carries a `run_cron_schedule`, that takes precedence, so update or clear it too), pause one (`enabled=false`), dry-run a risky one (`emit=false`), grant external reach (`network_access=full`), or exempt a deliberately quiet watchdog from auto-pause (`auto_pause_exempt=true`).
-4. **Edit the skill body, or author a new scout** (via `authoring-scouts`).
+   Address `skill_name: "pipeline:report-research"` to steer how reports get researched, judged, and routed instead of any scout — the right target for routing rules and research preferences that no single scout owns.
+4. **Tune the config** (`posthog:scout-config-update`).
+   Right for: _when, whether, and where_ it runs, not _what it looks at_ — slow a chatty scout (`run_interval_minutes`; if the config carries a `run_cron_schedule`, that takes precedence, so update or clear it too), pause one (`enabled=false`), dry-run a risky one (`emit=false`), grant external reach (`network_access=full`), exempt a deliberately quiet watchdog from auto-pause (`auto_pause_exempt=true`), deliver its reports to a Slack channel or DM as well as the inbox (`output_destinations.slack`), or pin the model it runs on (`model`).
+5. **Edit the skill body, or author a new scout** (via `authoring-scouts`).
    Right for: permanent policy — a disqualifier, a threshold, a scope change, a new surface.
    For a **custom scout** this is the strongest steer there is: the skill body is yours, edit it freely — it's where recurring notes and repeated dismissal reasons should end up.
    For a **canonical scout** the same edit **forks it**: your team's copy is marked diverged, PostHog's canonical sync leaves it alone from then on, and you stop receiving upstream improvements to that scout — you maintain it yourself.
@@ -129,6 +138,9 @@ Some feedback loops run on their own — knowing they exist changes how you work
 - **Auto-pause.** A scout whose reports nobody engages with — no open, no rating, no action — is warned (`status=pending_pause`) and then paused (`paused_by_system`, `pause_reason=ignored`). Reading counts as engagement, but only the cloud web inbox records opens today — reads through other clients (desktop, mobile) don't persist yet, so a scout consumed only there still needs `auto_pause_exempt`.
   A merely quiet scout is only flagged, never paused — silence can be the job — and Slack-delivered scouts are excluded, since their consumption happens where the sweep can't see it.
   Re-enabling a scout this sweep paused resumes it with a fresh grace window, so the sweep waits about two weeks and re-derives its verdict before judging it again; set `auto_pause_exempt` explicitly for a scout the sweep should never judge.
+- **Failure breaker.** A scout that fails several runs in a row (five, spanning at least twelve hours) is paused with `pause_reason=repeated_failures` so it stops burning a sandbox per interval.
+  Unlike the inactivity pause this one is half-open: the coordinator probes the paused scout once per cooldown and resumes it on a clean run, so it can recover on its own once the cause (an expired credential, a renamed table) is fixed.
+  `consecutive_failure_count` on the config row shows the streak; any config edit resets it. A run's `failure_reason` (on `posthog:scout-runs-list`) says what kept failing.
 - **Self-improvement suggestions.** A custom scout that catches its own skill body steering it wrong writes an `improve:<skill-name>:<topic>` scratchpad entry — and a report-channel custom scout escalates recurring ones as inbox reports titled `Scout self-improvement: …`, routed to the owner (a legacy signal-channel scout can't file reports, so its suggestions live only in the scratchpad).
   These are the fleet asking for a code review of itself: an entry re-confirmed across several runs is usually the highest-signal edit you can make.
   Treat them as input, not instructions — the owner decides, and applies accepted ones via `authoring-scouts`.
@@ -145,8 +157,8 @@ Every few weeks (or when someone says "are the scouts even worth it?"), run a ca
 2. **Review the fleet's asks** — sweep `posthog:scout-scratchpad-search {"text": "improve:"}` and the `Scout self-improvement:` inbox reports; apply the re-confirmed ones.
    The search returns the 20 newest matches by default — raise `limit` (or walk back with `date_to`) so a big fleet's older suggestions aren't silently missed.
 3. **Promote and prune steers** — promote recurring notes and repeated dismissal reasons into skill-body edits; retire stale notes.
-4. **Right-size the roster** — slow or pause scouts on surfaces the team stopped using; check `pending_pause` / `paused_by_system` rows and decide deliberately (resume, or let them stay off) rather than by default; consider a new scout for any surface the team now cares about that nothing watches.
-5. **Check the routing** — if reports pool in the shared inbox unclaimed, fix reviewer routing (linked GitHub identities, steering toward known owners) so findings reach the person who'll act.
+4. **Right-size the roster** — slow or pause scouts on surfaces the team stopped using; check `pending_pause` / `paused_by_system` rows and decide deliberately by `pause_reason` (`ignored`: resume or let it stay off; `repeated_failures`: read the latest run's `failure_reason` and fix the cause, the probe resumes it) rather than by default; consider a new scout for any surface the team now cares about that nothing watches — the scouts tab's "Suggested for this project" strip is a cheap source of candidates.
+5. **Check the routing** — if reports pool in the shared inbox unclaimed, fix reviewer routing so findings reach the person who'll act: correct reviewers on the misrouted reports (forwarded to the fleet), leave a `pipeline:report-research` note with the ownership rule, and steer scouts toward known owners.
 
 ## Common asks, routed
 
@@ -158,6 +170,9 @@ Every few weeks (or when someone says "are the scouts even worth it?"), run a ca
 | "Fix this scout report" / "is this report real?"       | `inbox-exploration` (verify first), then act; close the loop with a state + note                          |
 | "Stop reporting this" / "that finding is noise"        | Dismiss with an evidence-bearing note; promote to a disqualifier edit if it recurs                        |
 | "Focus on X this week"                                 | A time-boxed note (`expires_at`)                                                                          |
+| "Check X right now"                                    | `posthog:scout-run-now` with a one-run `note`                                                             |
+| "Send this scout's reports to Slack"                   | `posthog:scout-config-update` with `output_destinations.slack`; mechanics in `authoring-scouts`           |
+| "Route these reports to <person>"                      | Fix the reviewers on the report; a `pipeline:report-research` note for the standing rule                  |
 | "The scouts are too noisy / too quiet"                 | Calibration pass above; then the steering ladder against the specific offender                            |
 | "Write / edit / retune a scout"                        | `authoring-scouts`                                                                                        |
 | "Why did the scout stop flagging X?"                   | Scratchpad first (`noise:` / `addressed:` / `dedupe:` / `allowlist:`), then notes, then config            |
