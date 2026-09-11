@@ -35,3 +35,7 @@ feature_flags.0015_clamp_rollout_percentages_over_100
 # Backfills one search row per canvas in batches, so a long run does not hold one transaction open.
 # Re-running is a no-op: bulk_create passes ignore_conflicts, and the unique key is (team, kind, source_key).
 tasks.0120_backfill_canvas_search_documents
+# Same shape as 0014 and 0015: scans every flag but writes only the few that hold a numeric
+# comparison value, each as its own compare-and-swap. Re-running is a no-op, since a value
+# already stored as a string is skipped.
+feature_flags.0021_stringify_numeric_comparison_values
