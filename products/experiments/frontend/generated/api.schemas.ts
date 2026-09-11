@@ -2446,9 +2446,10 @@ export const ExperimentWatchMultipleVariantHandlingEnumApi = {
  * * `no_recordings` - no_recordings
  * * `no_session_linked_exposures` - no_session_linked_exposures
  */
-export type EmptyReasonEnumApi = (typeof EmptyReasonEnumApi)[keyof typeof EmptyReasonEnumApi]
+export type ExperimentWatchEmptyReasonEnumApi =
+    (typeof ExperimentWatchEmptyReasonEnumApi)[keyof typeof ExperimentWatchEmptyReasonEnumApi]
 
-export const EmptyReasonEnumApi = {
+export const ExperimentWatchEmptyReasonEnumApi = {
     TooEarly: 'too_early',
     OneSidedEnrollment: 'one_sided_enrollment',
     NoSeparation: 'no_separation',
@@ -2504,7 +2505,7 @@ export interface ExperimentSessionEventDeltaResponseApi {
      * * `no_separation` - no_separation
      * * `no_recordings` - no_recordings
      * * `no_session_linked_exposures` - no_session_linked_exposures */
-    empty_reason: EmptyReasonEnumApi | null
+    empty_reason: ExperimentWatchEmptyReasonEnumApi | null
 }
 
 export interface ShipVariantApi {

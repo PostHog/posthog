@@ -31566,24 +31566,6 @@ export namespace Schemas {
       idempotent_replay: boolean;
     }
 
-    /**
-     * * `too_early` - too_early
-     * * `one_sided_enrollment` - one_sided_enrollment
-     * * `no_separation` - no_separation
-     * * `no_recordings` - no_recordings
-     * * `no_session_linked_exposures` - no_session_linked_exposures
-     */
-    export type EmptyReasonEnum = typeof EmptyReasonEnum[keyof typeof EmptyReasonEnum];
-
-
-    export const EmptyReasonEnum = {
-      TooEarly: 'too_early',
-      OneSidedEnrollment: 'one_sided_enrollment',
-      NoSeparation: 'no_separation',
-      NoRecordings: 'no_recordings',
-      NoSessionLinkedExposures: 'no_session_linked_exposures',
-    } as const;
-
     export interface EndExperiment {
       /** The conclusion of the experiment.
        *
@@ -36819,6 +36801,24 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `too_early` - too_early
+     * * `one_sided_enrollment` - one_sided_enrollment
+     * * `no_separation` - no_separation
+     * * `no_recordings` - no_recordings
+     * * `no_session_linked_exposures` - no_session_linked_exposures
+     */
+    export type ExperimentWatchEmptyReasonEnum = typeof ExperimentWatchEmptyReasonEnum[keyof typeof ExperimentWatchEmptyReasonEnum];
+
+
+    export const ExperimentWatchEmptyReasonEnum = {
+      TooEarly: 'too_early',
+      OneSidedEnrollment: 'one_sided_enrollment',
+      NoSeparation: 'no_separation',
+      NoRecordings: 'no_recordings',
+      NoSessionLinkedExposures: 'no_session_linked_exposures',
+    } as const;
+
+    /**
      * The recordings worth watching for this experiment, grouped into cards.
      *
      * Descriptive, never a result: cards say where behavior visibly differed and hand over the
@@ -36866,7 +36866,7 @@ export namespace Schemas {
        * * `no_separation` - no_separation
        * * `no_recordings` - no_recordings
        * * `no_session_linked_exposures` - no_session_linked_exposures */
-      empty_reason: EmptyReasonEnum | null;
+      empty_reason: ExperimentWatchEmptyReasonEnum | null;
     }
 
     /**

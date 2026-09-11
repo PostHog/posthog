@@ -493,9 +493,9 @@ function EmptyShelf({
                     onClick: () => onAction('exposure_docs'),
                 }}
             >
-                Nothing to watch here. None of the people exposed between {covered.from} and {covered.to} had a
-                session we can see within a day of being exposed, so there was nothing to compare. Sessions only
-                exist where a browser or mobile SDK captured events.
+                Nothing to watch here. None of the people exposed between {covered.from} and {covered.to} had a session
+                we can see within a day of being exposed, so there was nothing to compare. Sessions only exist where a
+                browser or mobile SDK captured events.
             </LemonBanner>
         )
     }
@@ -552,11 +552,11 @@ function WatchShelves({
         const covered = coveredWindow(deltas)
         return (
             <LemonBanner type="info">
-                Almost everyone exposed between {covered.from} and {covered.to} was in one variant, with{' '}
-                {variantCounts}. Comparing behavior needs at least{' '}
+                {`Almost everyone exposed between ${covered.from} and ${covered.to} was in one variant, with ${variantCounts}. `}
+                Comparing behavior needs at least{' '}
                 {pluralize(deltas.min_variant_persons, 'exposed person', 'exposed people')} in two variants exposed
-                around the same time, and more time won't change this. A rollout split that changed during the run
-                is the usual cause.
+                around the same time, and more time won't change this. A rollout split that changed during the run is
+                the usual cause.
             </LemonBanner>
         )
     }
@@ -731,8 +731,8 @@ function ShelfCaption({
             <span>
                 {hasCards &&
                     "These highlight which recordings might be worth watching. They don't say which variant is doing better, the way metrics do. "}
-                From the people exposed between {covered.from} and {covered.to}, each in their first session after
-                being exposed.
+                From the people exposed between {covered.from} and {covered.to}, each in their first session after being
+                exposed.
             </span>
             <Tooltip
                 title={

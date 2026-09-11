@@ -875,7 +875,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         data = self._post_deltas(experiment).json()
 
         # Only the most recently exposed person fits, so the experiment's own start date would
-        # claim eight days of enrollment that was never read — and the scan would read them for
+        # claim eight days of enrollment that was never read, and the scan would read them for
         # nothing. What's left starts at that person's own exposure.
         assert data["sessions_truncated"] is True
         assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == [("control", 0), ("test", 1)]
