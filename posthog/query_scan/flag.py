@@ -34,8 +34,14 @@ class QueryScanFlag:
     """What the flag says for one team: how much clients may show, and the thresholds to analyze at."""
 
     mode: QueryScanMode
+    # A run is analyzed only when its ClickHouse time reaches this. Below it the response carries
+    # the run's rows and time and nothing else.
     floor_ms: int
+    # A query is told it has no event filter only when it read at least this share of the events
+    # in its date range.
     event_ratio: float
+    # A query is told its persons join is the cost only when the persons tables' read is at least
+    # this fraction of the events read, in rows.
     persons_ratio: float
 
 
