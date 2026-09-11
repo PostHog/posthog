@@ -28,10 +28,6 @@ export function useTaskChannels(options?: { enabled?: boolean }): {
   personalChannel: TaskChannel | undefined;
   generalChannel: TaskChannel | undefined;
   isLoading: boolean;
-  isError: boolean;
-  isFetching: boolean;
-  error: Error | null;
-  refetch: () => void;
 } {
   const query = useAuthenticatedQuery<TaskChannel[]>(
     TASK_CHANNELS_QUERY_KEY,
@@ -63,10 +59,6 @@ export function useTaskChannels(options?: { enabled?: boolean }): {
     personalChannel,
     generalChannel,
     isLoading: query.isLoading,
-    isError: query.isError,
-    isFetching: query.isFetching,
-    error: query.error,
-    refetch: query.refetch,
   };
 }
 

@@ -8,7 +8,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@posthog/quill";
-import { CanvasLoadFailed } from "@posthog/ui/features/canvas/components/CanvasLoadFailed";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useProjects } from "@posthog/ui/features/projects/useProjects";
 import { CanvasSkeleton } from "@posthog/ui/router/routeSkeletons";
@@ -20,18 +19,9 @@ import { Link } from "@tanstack/react-router";
 // cannot means the space is private to them or lives in another project.
 export function CanvasNotFound({ channelId }: { channelId?: string }) {
   const { currentProject } = useProjects();
-  const { channels, isLoading, isError, isFetching, error, refetch } =
-    useChannels();
+  const { channels, isLoading } = useChannels();
   if (isLoading) {
     return <CanvasSkeleton />;
-  }
-  // A channel list that failed to load is empty for the same reason a private
-  // one is, so the reason below would tell the viewer they have no access when
-  // the real fault is the request. Offer the retry instead.
-  if (isError) {
-    return (
-      <CanvasLoadFailed error={error} retrying={isFetching} onRetry={refetch} />
-    );
   }
   const channel = channelId
     ? channels.find((candidate) => candidate.id === channelId)
