@@ -42,7 +42,9 @@ Let that migration finish before retrying. Interrupting it leaves a partial data
 
 For a shared-page correction, read the page with `task-context-wiki-page-retrieve`, then send the updated content to `task-context-wiki-page-propose` with the returned `head_sha` as `base_head`.
 The server stores an immutable suggestion without changing the published wiki.
-The user opens **Context > Suggested edits**, selects the edit, reviews the full diff, and selects **Apply to shared wiki**.
+The user must review the full diff before applying a suggestion.
+The Desktop review interface ships separately, after the backend is deployed.
+Until that interface is available, suggestions stay unpublished. Use direct human page editing for immediate corrections.
 Only that user with wiki write permission can apply the stored content. Task and loop tokens cannot approve suggestions.
 If the wiki changes before approval, publication returns a conflict. Read the page again and submit a new suggestion; never replace the base head to bypass review.
 
