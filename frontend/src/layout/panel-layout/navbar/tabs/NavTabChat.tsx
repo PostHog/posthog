@@ -100,7 +100,9 @@ export function groupAiHistory(conversationHistory: Conversation[], tasks: Task[
             key: `task:${task.id}`,
             title,
             searchableText: `${title} ${task.description}`,
-            updatedAt: task.updated_at,
+            // A task's row is often never edited after creation, so `updated_at` would bucket a
+            // task that ran an hour ago by how long ago it was created.
+            updatedAt: task.last_activity_at ?? task.updated_at,
             task,
         })
     }

@@ -103,7 +103,12 @@ describe('tasksLogic', () => {
         ])('maps the %s filter to its query params', (assigneeFilter, expected) => {
             logic.actions.setAssigneeFilter(assigneeFilter)
 
-            expect(logic.values.taskListParams).toEqual({ search: undefined, ...expected })
+            // The nav presents recent activity, so every filter must ask the server for it.
+            expect(logic.values.taskListParams).toEqual({
+                search: undefined,
+                ordering: '-last_activity_at',
+                ...expected,
+            })
         })
 
         it('composes the search term with the active assignee filter', () => {
@@ -111,6 +116,7 @@ describe('tasksLogic', () => {
 
             expect(logic.values.taskListParams).toEqual({
                 search: 'checkout bug',
+                ordering: '-last_activity_at',
                 created_by: userLogic.values.user?.id,
                 exclude_origin_product: OriginProduct.SIGNALS_SCOUT,
             })

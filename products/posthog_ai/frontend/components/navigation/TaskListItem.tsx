@@ -61,7 +61,7 @@ function Content({ task }: { task: Task }): JSX.Element {
                     'group-hover:opacity-0 group-has-[[data-state=open]]:opacity-0 group-has-focus-within:opacity-0'
                 )}
             >
-                {compactTimeAgo(task.updated_at)}
+                {compactTimeAgo(task.last_activity_at ?? task.updated_at)}
             </span>
         </>
     )

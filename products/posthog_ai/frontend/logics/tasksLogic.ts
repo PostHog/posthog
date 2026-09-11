@@ -13,6 +13,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
+import { TasksListOrdering } from 'products/tasks/frontend/generated/api.schemas'
+
 import type { UserType } from '../../../../frontend/src/types'
 import { loadErrorMessage } from '../lib/load-error'
 import { OriginProduct, Task, TaskAssigneeFilter, TaskListParams, TaskUpsertProps } from '../types/taskTypes'
@@ -300,7 +302,12 @@ export const tasksLogic = kea<tasksLogicType>([
                 assigneeFilter: TaskAssigneeFilter,
                 user: null | import('~/types').UserType
             ): TaskListParams => {
-                const base: TaskListParams = { search: searchQuery || undefined }
+                // Activity order, not the server's `-created_at` default: this list is presented as
+                // recent activity, and a task can stream for hours without its row being edited.
+                const base: TaskListParams = {
+                    search: searchQuery || undefined,
+                    ordering: TasksListOrdering.LastActivityAt,
+                }
                 // Guard here too: a non-staff user must never send `all_team_tasks` (the server ignores
                 // it, but this keeps the request honest and falls back to their own tasks).
                 if (assigneeFilter === 'all_team' && user?.is_staff) {
