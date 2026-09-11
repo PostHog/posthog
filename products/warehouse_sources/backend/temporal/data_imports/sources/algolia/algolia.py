@@ -80,8 +80,7 @@ class AlgoliaResumeConfig:
     page: int | None = None
     # Row offset for the offset-paginated analytics / A-B testing endpoints.
     offset: int | None = None
-    # Fan-out progress for `top_filter_values`, in the shape the shared fan-out builder
-    # checkpoints: which parent attributes are done, and how far into the current one we got.
+    # Fan-out progress, in the shape the shared fan-out builder checkpoints.
     fanout: dict[str, Any] | None = None
 
 
@@ -160,8 +159,6 @@ class AlgoliaPageNumberPaginator(PageNumberPaginator):
 
 def _build_paginator(config: AlgoliaEndpointConfig) -> BasePaginator:
     if config.pagination == PaginationStyle.SINGLE:
-        # The analytics time-series and click-position endpoints return the whole requested
-        # period in one response; there is no page or offset token to follow.
         return SinglePagePaginator()
     if config.pagination == PaginationStyle.CURSOR:
         # Browse pages via an opaque cursor carried in the POST body; a missing cursor in the
@@ -446,9 +443,8 @@ def validate_credentials(
     session = make_tracked_session(redact_values=(api_key,))
     try:
         if config.api == AlgoliaApi.ANALYTICS:
-            # Confirm the `analytics` ACL with the smallest read the endpoint allows against the
-            # analytics host. Only the paginated breakdowns take `limit`; the time-series
-            # endpoints return their whole window either way.
+            # Only the paginated breakdowns take `limit`, so sending one to a time-series
+            # endpoint would be an undocumented param on an ACL probe.
             params: dict[str, Any] = {"limit": 1} if config.pagination == PaginationStyle.OFFSET else {}
             if config.requires_index and index_name:
                 params["index"] = index_name

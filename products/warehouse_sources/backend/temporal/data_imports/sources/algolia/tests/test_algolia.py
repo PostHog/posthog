@@ -422,9 +422,6 @@ class TestValidateCredentials:
         assert kwargs["params"]["index"] == "idx"
 
     def test_fanout_schema_probe_targets_the_parent_listing(self) -> None:
-        # `top_filter_values` has an attribute in its path that only its parent's rows supply, so
-        # probing it directly would request a literal `{attribute}`. The parent needs the same
-        # `analytics` ACL, so it stands in.
         with mock.patch(ALGOLIA_SESSION_PATCH) as factory:
             session = factory.return_value
             session.get.return_value = _response({}, status_code=200)
@@ -440,8 +437,6 @@ class TestValidateCredentials:
         assert kwargs["params"]["limit"] == 1
 
     def test_time_series_schema_probe_sends_no_limit(self) -> None:
-        # The time-series endpoints take no `limit`; sending one would be an undocumented param
-        # on a request whose only job is to check the ACL.
         with mock.patch(ALGOLIA_SESSION_PATCH) as factory:
             session = factory.return_value
             session.get.return_value = _response({}, status_code=200)
@@ -574,9 +569,7 @@ class TestTimeSeriesEndpoints:
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_first_incremental_sync_omits_start_date(self, MockSession: mock.MagicMock) -> None:
-        # With no watermark stored yet the cursor converts to None, which the client drops, so
-        # the request falls back to Algolia's own default period, the one window every plan's
-        # analytics retention covers.
+        # A None cursor is dropped by the client, leaving Algolia's own default period.
         session = MockSession.return_value
         calls = _wire(session, [_response({"dates": []})])
 
@@ -640,7 +633,6 @@ class TestTopFilterValuesFanout:
         # slash can't escape the endpoint it belongs to.
         assert calls[1]["url"] == "https://analytics.algolia.com/2/filters/brand"
         assert calls[2]["url"] == "https://analytics.algolia.com/2/filters/a%2Fb"
-        # The index is required on the parent listing and on every child request.
         assert all(call["params"]["index"] == "idx" for call in calls)
 
     @mock.patch(CLIENT_SESSION_PATCH)

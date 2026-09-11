@@ -17,8 +17,7 @@ class PaginationStyle(Enum):
     PAGE = "page"
     # Analytics and A/B testing endpoints page via `offset`/`limit`.
     OFFSET = "offset"
-    # The analytics time-series and click-position endpoints return the whole requested period
-    # in a single response, with no page or offset token.
+    # Analytics time-series and click-position endpoints answer the whole period at once.
     SINGLE = "single"
 
 
@@ -50,8 +49,7 @@ class AlgoliaEndpointConfig:
     api: AlgoliaApi = AlgoliaApi.SEARCH
     # Request click/conversion metrics alongside the base analytics table (analytics endpoints only).
     click_analytics: bool = False
-    # Query param carrying the incremental cursor. Only the analytics time-series endpoints have
-    # one (`startDate`); None means the endpoint is full refresh.
+    # Query param carrying the incremental cursor. None means the endpoint is full refresh.
     start_param: str | None = None
     # Set when the path takes a parameter resolved from another endpoint's rows.
     fanout: DependentEndpointConfig | None = None
@@ -65,17 +63,11 @@ class AlgoliaEndpointConfig:
 # re-reads a trailing window from the stored watermark and merges it back on `date`.
 ANALYTICS_LOOKBACK_DAYS = 3
 
-# The analytics time-series endpoints break their period down by day and accept a `startDate`
-# floor, so `date` is both the row key and a genuine server-side cursor.
 _DATE_INCREMENTAL_FIELDS: list[IncrementalField] = [incremental_field("date", IncrementalFieldType.Date)]
 
 
-# Only the analytics time-series endpoints support incremental sync, via their `startDate`
-# floor. Everything else is full refresh: the index browse endpoint, the synonyms/rules search
-# endpoints and the analytics "top N" breakdowns expose no server-side "updated since" filter,
-# so an incremental sync would still page the whole resource. The cursor (browse), page
-# (search/list) and offset (analytics) tokens make those endpoints resumable, so a heartbeat
-# timeout picks back up where it left off rather than restarting.
+# Everything without a `start_param` is full refresh, because no server-side "updated since"
+# filter exists for it. Its page token still makes it resumable after a heartbeat timeout.
 ALGOLIA_ENDPOINTS: dict[str, AlgoliaEndpointConfig] = {
     "records": AlgoliaEndpointConfig(
         name="records",
@@ -170,8 +162,7 @@ ALGOLIA_ENDPOINTS: dict[str, AlgoliaEndpointConfig] = {
         should_sync_default=False,
         api=AlgoliaApi.ANALYTICS,
     ),
-    # Analytics API time series: one row per day, filtered forward from `startDate` and merged
-    # on `date`. A single response covers the whole window, so these endpoints take no page token.
+    # Analytics API time series: one row per day, filtered forward from `startDate`.
     "conversion_rate": AlgoliaEndpointConfig(
         name="conversion_rate",
         path="/2/conversions/conversionRate",
@@ -256,8 +247,7 @@ ALGOLIA_ENDPOINTS: dict[str, AlgoliaEndpointConfig] = {
         start_param="startDate",
         incremental_fields=_DATE_INCREMENTAL_FIELDS,
     ),
-    # Analytics API breakdowns: a "top N over the period" snapshot with no date column, so each
-    # sync replaces the table.
+    # Analytics API breakdowns: a "top N over the period" snapshot with no date column.
     "top_filters": AlgoliaEndpointConfig(
         name="top_filters",
         path="/2/filters",
@@ -274,8 +264,7 @@ ALGOLIA_ENDPOINTS: dict[str, AlgoliaEndpointConfig] = {
         method="GET",
         pagination=PaginationStyle.OFFSET,
         data_selector="values",
-        # The attribute rides in the path, and every child row repeats it, so the key stays
-        # unique across the whole table rather than only within one parent.
+        # Every child row repeats the attribute, so the key is unique table-wide, not per parent.
         primary_keys=["attribute", "operator", "value"],
         should_sync_default=False,
         api=AlgoliaApi.ANALYTICS,
@@ -302,8 +291,7 @@ ALGOLIA_ENDPOINTS: dict[str, AlgoliaEndpointConfig] = {
         method="GET",
         pagination=PaginationStyle.SINGLE,
         data_selector="positions",
-        # A row's only identity is its `position` range, which Algolia returns as a two-element
-        # array. The table is 12 rows replaced on every sync, so it needs no merge key at all.
+        # A row's only identity is its `position` range, which arrives as a two-element array.
         primary_keys=None,
         should_sync_default=False,
         api=AlgoliaApi.ANALYTICS,

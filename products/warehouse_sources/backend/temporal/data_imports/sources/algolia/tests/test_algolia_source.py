@@ -29,8 +29,7 @@ class TestAlgoliaSource:
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
 
         assert set(schemas) == set(ENDPOINTS)
-        # Algolia keeps attributing events to recent days, so each sync re-reads a trailing
-        # window. Appending it would store a second copy of every one of those days.
+        # Each sync re-reads a trailing window, so appending would store each day twice.
         assert all(not schema.supports_append for schema in schemas.values())
         assert schemas["conversion_rate"].supports_incremental
         assert [f["field"] for f in schemas["conversion_rate"].incremental_fields] == ["date"]

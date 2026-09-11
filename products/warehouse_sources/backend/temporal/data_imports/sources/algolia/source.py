@@ -154,10 +154,8 @@ Set the region to match where your Algolia application is hosted. It selects the
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Only the analytics time-series tables carry a cursor field (`date`, bound to Algolia's
-        # `startDate` filter); every other endpoint has an empty list and stays full refresh.
-        # `merge_only` covers all of them because Algolia restates recent days as late events
-        # arrive, so a re-read has to update those rows rather than append a second copy.
+        # `merge_only` covers every endpoint because Algolia restates recent days as late
+        # events arrive, so a re-read has to update those rows rather than append a copy.
         return build_endpoint_schemas(
             ENDPOINTS,
             INCREMENTAL_FIELDS,
