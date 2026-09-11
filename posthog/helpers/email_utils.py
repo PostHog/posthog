@@ -26,6 +26,8 @@ import structlog
 import posthoganalytics
 from rest_framework import serializers
 
+from posthog.dataclasses import frozen
+
 if TYPE_CHECKING:
     from posthog.models.user import User
 
@@ -40,10 +42,8 @@ _URL_SCHEME_RE = re.compile(
 )
 _URL_SCHEME_RUN_RE = re.compile(r"[a-z][a-z0-9+.\-]*", re.IGNORECASE)
 _SPECIAL_URL_SCHEME_RE = re.compile(r"\b(?:javascript|data|vbscript|file|ftp|mailto|tel|sms):|www\.", re.IGNORECASE)
-_BARE_DOMAIN_RE = re.compile(
-    r"\b(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}\b",
-    re.IGNORECASE,
-)
+_BARE_DOMAIN_LABEL_RE = re.compile(r"\b[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.", re.IGNORECASE)
+_BARE_DOMAIN_TLD_RE = re.compile(r"[a-z]{2,24}\b", re.IGNORECASE)
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f\u0085\u2028\u2029]")
 _NON_NEWLINE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\u0085\u2028\u2029]")
 _BRACKET_RE = re.compile(r"[<>]")
@@ -70,6 +70,34 @@ def _url_scheme_matches(value: str) -> Iterator[re.Match[str]]:
         if match.start() >= end:
             yield match
             end = match.end()
+
+
+@frozen
+class _BareDomainSpan:
+    start: int
+    end: int
+
+
+def _bare_domain_spans(value: str) -> Iterator[_BareDomainSpan]:
+    # Each bounded label has only one possible dot. Contiguous labels share
+    # suffix candidates, so scan the chain once instead of retrying its tails.
+    start = 0
+    chain_end = 0
+    match_end = 0
+    for label in _BARE_DOMAIN_LABEL_RE.finditer(value):
+        if label.start() != chain_end:
+            if match_end:
+                yield _BareDomainSpan(start=start, end=match_end)
+            start = label.start()
+            match_end = 0
+        suffix = _BARE_DOMAIN_TLD_RE.match(value, label.end())
+        if suffix is not None:
+            # The last valid suffix preserves the greedy dotted-label match,
+            # including a TLD prefix before a malformed label's hyphen.
+            match_end = suffix.end()
+        chain_end = label.end()
+    if match_end:
+        yield _BareDomainSpan(start=start, end=match_end)
 
 
 def _check_shared(value: str) -> None:
@@ -140,7 +168,7 @@ def contains_bare_domain(value: str | None) -> bool:
     """
     if not value:
         return False
-    return bool(_BARE_DOMAIN_RE.search(unicodedata.normalize("NFKC", value)))
+    return next(_bare_domain_spans(unicodedata.normalize("NFKC", value)), None) is not None
 
 
 def _extract_error_code(err: serializers.ValidationError) -> str:
@@ -263,7 +291,14 @@ def sanitize_email_string(value: str) -> str:
         end = match.end()
     parts.append(escaped[end:])
     defanged = "".join(parts)
-    return _BARE_DOMAIN_RE.sub(_defang_match, defanged)
+    parts = []
+    end = 0
+    for span in _bare_domain_spans(defanged):
+        parts.append(defanged[end : span.start])
+        parts.append(defanged[span.start : span.end].replace(".", f".{_ZWSP}"))
+        end = span.end
+    parts.append(defanged[end:])
+    return "".join(parts)
 
 
 class EmailNormalizer:

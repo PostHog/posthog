@@ -20,6 +20,7 @@ from posthog.helpers.email_utils import (
     ESPSuppressionReason,
     _get_esp_suppression_cache_key,
     check_esp_suppression,
+    contains_bare_domain,
     reject_plus_addressed_email,
     sanitize_display_name,
     sanitize_email_string,
@@ -658,6 +659,36 @@ class TestSanitizeMessageBody(SimpleTestCase):
         self.assertEqual(sanitize_message_body(""), "")
 
 
+class TestContainsBareDomain(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (None, False),
+            ("", False),
+            ("a.a.a.1", False),
+            ("a.ab.cd", True),
+            ("a.ab-cd.1", True),
+            ("a-.com", False),
+            ("-a.com", True),
+            ("éa.com", False),
+            ("a.comé", False),
+            ("_a.com", False),
+            ("a.com_", False),
+            ("İ.ıſ", True),
+            ("K.İİ", True),
+            ("ａ．ｃｏｍ", True),
+            ("a\u200b.com", False),
+            ("\ud800a.com\udfff", True),
+            ("a." + "b" * 24, True),
+            ("a." + "b" * 25, False),
+            ("a" * 63 + ".com", True),
+            ("a" * 64 + ".com", False),
+            ("a" * 64 + "-b.com", True),
+        ]
+    )
+    def test_domain_boundaries(self, value: str | None, expected: bool) -> None:
+        self.assertEqual(contains_bare_domain(value), expected)
+
+
 class TestSanitizeEmailString(SimpleTestCase):
     @parameterized.expand(
         [
@@ -684,6 +715,23 @@ class TestSanitizeEmailString(SimpleTestCase):
             ("bare_domain", "join evil.com now", "join evil.​com now"),
             ("subdomain_domain", "join sub.evil.com today", "join sub.​evil.​com today"),
             ("deep_subdomain", "see a.b.c.example.io", "see a.​b.​c.​example.​io"),
+            ("greedy_domain", "a.ab.cd", "a.\u200bab.\u200bcd"),
+            ("malformed_suffix", "a.ab-cd.1", "a.\u200bab-cd.1"),
+            ("separate_domains", "a.ab-cd.ef", "a.\u200bab-cd.\u200bef"),
+            ("broken_label_chain", "a.ab-.cd.ef", "a.\u200bab-.cd.\u200bef"),
+            ("leading_hyphen", "-a.com", "-a.\u200bcom"),
+            ("trailing_hyphen", "a-.com", "a-.com"),
+            ("unicode_word_prefix", "éa.com", "éa.com"),
+            ("unicode_word_suffix", "a.comé", "a.comé"),
+            ("underscore_boundaries", "_a.com a.com_", "_a.com a.com_"),
+            ("unicode_ignorecase", "İ.ıſ K.İİ", "İ.\u200bıs K.\u200bİİ"),
+            ("fullwidth_domain", "ａ．ｃｏｍ", "a.\u200bcom"),
+            ("isolated_surrogates", "\ud800a.com\udfff", "\ud800a.\u200bcom\udfff"),
+            ("tld_maximum", "a." + "b" * 24, "a.\u200b" + "b" * 24),
+            ("tld_too_long", "a." + "b" * 25, "a." + "b" * 25),
+            ("label_maximum", "a" * 63 + ".com", "a" * 63 + ".\u200bcom"),
+            ("label_too_long", "a" * 64 + ".com", "a" * 64 + ".com"),
+            ("overlong_label_suffix", "a" * 64 + "-b.com", "a" * 64 + "-b.\u200bcom"),
             ("tld_only_legit_org", "Acme.com", "Acme.​com"),
             ("javascript_scheme", "click javascript:alert(1)", "click javascript:​alert(1)"),
             ("data_scheme", "see data:text/html,x", "see data:​text/html,x"),

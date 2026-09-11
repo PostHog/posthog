@@ -1,9 +1,21 @@
+import re
+import html
 import random
+import unicodedata
 from datetime import UTC, datetime
 
 from django.test import SimpleTestCase
 
-from posthog.helpers.email_utils import _URL_SCHEME_RE, _url_scheme_matches, validate_message_body
+from parameterized import parameterized
+
+from posthog.helpers.email_utils import (
+    _URL_SCHEME_RE,
+    _bare_domain_spans,
+    _url_scheme_matches,
+    contains_bare_domain,
+    sanitize_email_string,
+    validate_message_body,
+)
 from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.test.regex_timeout import assert_regex_completes
 
@@ -72,3 +84,34 @@ class TestRemainingRegexBoundaries(SimpleTestCase):
             assert validate_message_body(source) == source
 
         assert_regex_completes(check)
+
+    @parameterized.expand([("1", False), ("com", True)])
+    def test_bare_domain_long_label_chain(self, suffix: str, contains_domain: bool) -> None:
+        def check() -> None:
+            source = "a." * 20_000 + suffix
+            assert contains_bare_domain(source) is contains_domain
+            expected = "a.\u200b" * 20_000 + "com" if contains_domain else source
+            assert sanitize_email_string(source) == expected
+
+        assert_regex_completes(check)
+
+    def test_bare_domain_matching_compatibility(self) -> None:
+        baseline = re.compile(r"\b(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}\b", re.IGNORECASE)
+        invisibles = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
+        rng = random.Random(6)
+        labels = ["a", "ab", "1", "a-b", "ab-", "-ab", "a" * 63, "a" * 64, "b" * 24, "b" * 25, "İıſK", "é", "_"]
+        corpus = ["".join(rng.choices("aAbB01.-_éİıſK\ud800\udfff\u200b \n", k=60)) for _ in range(1_000)]
+        corpus += [".".join(rng.choices(labels, k=rng.randrange(1, 9))) for _ in range(1_000)]
+        corpus += ["ａ．ｃｏｍ", "a\u200b.com", "https://a.ab-cd.ef", "a.ab-.cd.ef", "<a.com>&b.com", "www.a.ab.cd"]
+
+        def defang(match: re.Match[str]) -> str:
+            return match.group().replace(".", ".\u200b").replace(":", ":\u200b")
+
+        for source in corpus:
+            expected_spans = [match.span() for match in baseline.finditer(source)]
+            assert [(span.start, span.end) for span in _bare_domain_spans(source)] == expected_spans, repr(source)
+            normalized = unicodedata.normalize("NFKC", source)
+            assert contains_bare_domain(source) == bool(baseline.search(normalized)), repr(source)
+            escaped = html.escape(invisibles.sub("", normalized))
+            expected = baseline.sub(defang, _URL_SCHEME_RE.sub(defang, escaped))
+            assert sanitize_email_string(source) == expected, repr(source)
