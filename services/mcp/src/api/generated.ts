@@ -15208,6 +15208,13 @@ export namespace Schemas {
       Zip: 'zip',
     } as const;
 
+    export interface BusinessKnowledgeSettings {
+      /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Requires Support to be enabled for this environment. */
+      learn_from_support_enabled: boolean;
+      /** Whether Support is enabled for this environment. Learning cannot be turned on while this is false. */
+      readonly support_enabled: boolean;
+    }
+
     /**
      * * `b2b` - B2B
      * * `b2c` - B2C
@@ -62947,6 +62954,11 @@ export namespace Schemas {
       readonly created_by?: UserBasic | null;
       /** @nullable */
       readonly updated_at?: string | null;
+    }
+
+    export interface PatchedBusinessKnowledgeSettingsUpdate {
+      /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Rejected when Support is off for this environment. */
+      learn_from_support_enabled?: boolean;
     }
 
     /**
