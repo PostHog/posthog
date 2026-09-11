@@ -308,6 +308,7 @@ the row lists both.
 | fullstory                        | HTTP                        | requests                                                        | ✅                          |
 | fusionauth                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | g2                               | HTTP                        | requests                                                        | ✅                          |
+| gainsight_cs                     | HTTP                        | requests                                                        | ✅                          |
 | gainsight_px                     | HTTP                        | requests                                                        | ✅                          |
 | gerrit                           | HTTP                        | requests                                                        | ✅                          |
 | gitbook                          | HTTP                        | requests                                                        | ✅                          |
@@ -346,6 +347,7 @@ the row lists both.
 | height                           | HTTP                        | requests                                                        | ✅                          |
 | helicone                         | HTTP                        | requests                                                        | ✅                          |
 | hellobaton                       | HTTP                        | requests                                                        | ✅                          |
+| helpscout                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | heroku                           | HTTP                        | requests                                                        | ✅                          |
 | hetzner                          | HTTP                        | requests                                                        | ✅                          |
 | hex                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1082,6 +1084,7 @@ doesn't conflict with concurrent PRs.
 - goldcast
 - gologin
 - google_ad_manager
+- google_adsense
 - google_analytics
 - google_calendar
 - google_chat
@@ -1103,7 +1106,6 @@ doesn't conflict with concurrent PRs.
 - harvey
 - healthie
 - heap
-- helpscout
 - hetzner
 - heygen
 - hibob
@@ -1344,6 +1346,7 @@ doesn't conflict with concurrent PRs.
 - semrush
 - sendpulse
 - senseforce
+- sequenzy
 - serpstat
 - service_fusion
 - servicetitan
@@ -1367,6 +1370,7 @@ doesn't conflict with concurrent PRs.
 - sinch
 - singular
 - site24x7
+- skio
 - skyvern
 - slash
 - sleuth

@@ -2,7 +2,7 @@ import json
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -62,7 +62,7 @@ def _run_rows(
 
 
 class TestEventWindow:
-    @freeze_time("2026-07-14T12:00:00Z")
+    @time_machine.travel("2026-07-14T12:00:00Z", tick=False)
     def test_first_sync_backfills_the_max_retention_window(self) -> None:
         # received_after defaults to only 1 hour ago server-side, so leaving it off a first sync
         # would silently drop everything older than an hour.
@@ -76,12 +76,12 @@ class TestEventWindow:
             ("iso_string_z", "2026-07-10T08:30:00.500Z", "2026-07-10T08:30:00.500Z"),
         ]
     )
-    @freeze_time("2026-07-14T12:00:00Z")
+    @time_machine.travel("2026-07-14T12:00:00Z", tick=False)
     def test_incremental_run_advances_from_the_watermark(self, _name: str, value: Any, expected_after: str) -> None:
         window = _event_window(should_use_incremental_field=True, db_incremental_field_last_value=value)
         assert window.start == expected_after
 
-    @freeze_time("2026-07-14T12:00:00Z")
+    @time_machine.travel("2026-07-14T12:00:00Z", tick=False)
     def test_future_watermark_is_clamped_to_now(self) -> None:
         # A future-dated watermark would produce an inverted window that returns nothing forever.
         window = _event_window(

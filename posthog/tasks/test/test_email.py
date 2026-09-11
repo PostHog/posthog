@@ -1,12 +1,14 @@
+import uuid
 import datetime as dt
 from typing import cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, run_clickhouse_statement_in_parallel
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.conf import settings
+from django.db import OperationalError
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -20,6 +22,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.scoping import team_scope
 from posthog.tasks.email import (
+    MAX_VIEWS_PER_DIGEST_EMAIL,
     get_members_to_notify_for_pipeline_error,
     login_from_new_device_notification,
     send_async_migration_complete_email,
@@ -43,6 +46,7 @@ from posthog.tasks.email import (
     send_posthog_ai_access_request,
     send_project_secret_api_key_exposed,
     send_provisioning_welcome,
+    send_team_matview_failure_digest,
     send_wizard_pr_ready_email,
     should_send_pipeline_error_notification,
 )
@@ -57,11 +61,12 @@ from products.batch_exports.backend.models.batch_export import (
 )
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
+from products.data_modeling.backend.facade.api import mark_node_suspended, sync_saved_query_to_dag
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 
 
 def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> tuple[Organization, User]:
-    with freeze_time(creation_date):
+    with time_machine.travel(creation_date, tick=False):
         org = Organization.objects.create(name="too_late_org")
         Team.objects.create(organization=org, name="Default Project", ingested_event=ingested_event)
         user = User.objects.create_and_join(
@@ -721,7 +726,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_external_data_failure_digest(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
-        with freeze_time("2024-05-15 10:00:00"):
+        with time_machine.travel("2024-05-15 10:00:00", tick=False):
             sent = send_external_data_failure_digest(
                 self.team.pk,
                 [
@@ -763,7 +768,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     ) -> None:
         mock_email_messages(MockEmailMessage)
 
-        with freeze_time("2024-05-15 09:59:00"):
+        with time_machine.travel("2024-05-15 09:59:00", tick=False):
             send_external_data_failure_digest(
                 self.team.pk,
                 [
@@ -823,7 +828,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_external_data_failure_digest_skips_when_already_sent_today(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
-        with freeze_time("2024-05-15 10:00:00"):
+        with time_machine.travel("2024-05-15 10:00:00", tick=False):
             record, _ = MessagingRecord.objects.get_or_create(
                 raw_email="someone@posthog.com",
                 campaign_key=f"external_data_failure_digest_{self.team.pk}_2024-05-15",
@@ -890,7 +895,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
             }
         ]
-        with freeze_time("2024-05-15 10:00:00"):
+        with time_machine.travel("2024-05-15 10:00:00", tick=False):
             send_external_data_failure_digest(self.team.pk, items)
 
         assert mocked_email_messages[0].to == [
@@ -900,11 +905,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         self.user.partial_notification_settings = {"plugin_disabled": True}
         self.user.save()
 
-        with freeze_time("2024-05-15 18:00:00"):
+        with time_machine.travel("2024-05-15 18:00:00", tick=False):
             send_external_data_failure_digest(self.team.pk, items)
         assert len(mocked_email_messages) == 1
 
-        with freeze_time("2024-05-16 10:00:00"):
+        with time_machine.travel("2024-05-16 10:00:00", tick=False):
             send_external_data_failure_digest(self.team.pk, items)
         assert len(mocked_email_messages[1].to) == 2
 
@@ -2159,6 +2164,12 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 True,
             ),
             (
+                "never_deleted_view_has_null_flag",
+                {"deleted": None, "sync_frequency_interval": dt.timedelta(hours=1)},
+                [("FAILED", dt.timedelta(hours=1), "Some error")],
+                True,
+            ),
+            (
                 # the broken parent is the one reported; mailing every descendant would bury it
                 "view_blocked_by_a_broken_parent",
                 {"sync_frequency_interval": None},
@@ -2327,6 +2338,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 name=name,
                 query={"query": "SELECT 1"},
                 sync_frequency_interval=dt.timedelta(hours=1),
+                is_materialized=True,
             )
             DataModelingJob.objects.create(
                 team=self.team,
@@ -2347,6 +2359,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 query={"query": "SELECT 1"},
                 sync_frequency_interval=None,
                 latest_error=error,
+                is_materialized=False,
             )
             DataModelingJob.objects.create(
                 team=self.team,
@@ -2362,9 +2375,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         html = mocked_email_messages[0].html_body
         for name, _ in failed_cases + unscheduled_cases:
             assert name in html
-        # The digest never flags views as paused, so every row renders the em-dash glyph.
-        assert "&#10003;" not in html
-        assert "&#8212;" in html
+        assert html.count("Will retry") == len(failed_cases)
+        assert html.count("Not scheduled") == len(unscheduled_cases)
+        assert "action required" not in html
 
     @parameterized.expand(
         [
@@ -2402,6 +2415,261 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         rendered_error = mocked_email_messages[0].properties["views"][0]["error"]
         assert rendered_error == expected_error
         assert len(rendered_error) <= 255
+
+    @parameterized.expand(
+        [
+            (
+                "job_error_is_shown",
+                "Code: 241. DB::Exception: Memory limit (for query) exceeded",
+                None,
+                "Code: 241. DB::Exception: Memory limit (for query) exceeded",
+            ),
+            ("long_job_error_is_truncated", "B" * 500, None, "B" * 252 + "..."),
+            ("falls_back_to_the_saved_query_error", "", "Query exceeded timeout limit", "Query exceeded timeout limit"),
+        ]
+    )
+    def test_send_matview_failure_immediate_email_includes_the_error(
+        self, MockEmailMessage: MagicMock, _name: str, job_error: str, latest_error: str | None, expected_error: str
+    ) -> None:
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {
+            "materialized_view_sync_failed": True,
+            "materialized_view_sync_failed_immediate": True,
+        }
+        self.user.save()
+
+        sq = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="failing_view",
+            query={"query": "SELECT 1"},
+            latest_error=latest_error,
+        )
+        job = DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=sq,
+            status=DataModelingJob.Status.FAILED,
+            error=job_error,
+            last_run_at=timezone.now(),
+        )
+
+        send_matview_failure_immediate_email(self.team.id, str(sq.id), str(job.id))
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].properties["error"] == expected_error
+        assert expected_error[:80] in mocked_email_messages[0].html_body
+
+    def test_send_matview_failure_digest_splits_by_view_access(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        for user in (self.user, self._create_user("restricted@posthog.com")):
+            user.partial_notification_settings = {"materialized_view_sync_failed": True}
+            user.save()
+
+        for name in ("shared_view", "restricted_view"):
+            sq = DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=name,
+                query={"query": "SELECT 1", "kind": "HogQLQuery"},
+                sync_frequency_interval=dt.timedelta(hours=1),
+            )
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=sq,
+                status=DataModelingJob.Status.FAILED,
+                error=f"{name} broke",
+                last_run_at=timezone.now(),
+            )
+
+        class FakeUserAccessControl:
+            def __init__(self, user: User, team: object) -> None:
+                self.user = user
+
+            access_controls_supported = True
+            is_organization_admin = False
+
+            def check_access_level_for_resource(self, resource: str, level: str) -> bool:
+                return True
+
+            def check_access_level_for_object(self, obj: DataWarehouseSavedQuery, required_level: str) -> bool:
+                return not (self.user.email == "restricted@posthog.com" and obj.name == "restricted_view")
+
+        with patch("posthog.tasks.email.UserAccessControl", FakeUserAccessControl):
+            send_matview_failure_digest()
+
+        assert len(mocked_email_messages) == 2
+        named = sorted(tuple(sorted(v["name"] for v in m.properties["views"])) for m in mocked_email_messages)
+        assert named == [("restricted_view", "shared_view"), ("shared_view",)]
+
+        restricted_email = next(m for m in mocked_email_messages if len(m.properties["views"]) == 1)
+        assert "restricted_view" not in restricted_email.html_body
+        assert "restricted_view broke" not in restricted_email.html_body
+
+    def test_send_matview_failure_digest_retries_when_no_audience_can_be_resolved(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
+        self.user.save()
+
+        sq = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="broken_view",
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            sync_frequency_interval=dt.timedelta(hours=1),
+            is_materialized=True,
+        )
+
+        class UnreachableUserAccessControl:
+            def __init__(self, user: User, team: object) -> None:
+                pass
+
+            access_controls_supported = True
+            is_organization_admin = False
+
+            def check_access_level_for_resource(self, resource: str, level: str) -> bool:
+                return True
+
+            def check_access_level_for_object(self, obj: DataWarehouseSavedQuery, required_level: str) -> bool:
+                raise OperationalError("access control store is down")
+
+        with patch("posthog.tasks.email.UserAccessControl", UnreachableUserAccessControl):
+            with self.assertRaises(OperationalError):
+                send_team_matview_failure_digest(self.team.id, [str(sq.id)], [])
+
+        assert len(mocked_email_messages) == 0
+
+    @parameterized.expand(
+        [
+            (
+                "enforced",
+                True,
+                DataModelingJobEngine.CLICKHOUSE,
+                False,
+                [("suspended_view", True), ("retrying_view", False)],
+                True,
+            ),
+            ("not_enforced", False, DataModelingJobEngine.CLICKHOUSE, False, [("retrying_view", False)], False),
+            ("shadow_marker_only", True, DataModelingJobEngine.DUCKGRES, False, [("retrying_view", False)], False),
+            (
+                "reverted_after_suspension",
+                True,
+                DataModelingJobEngine.CLICKHOUSE,
+                True,
+                [("retrying_view", False)],
+                False,
+            ),
+        ]
+    )
+    def test_send_matview_failure_digest_suspended_rows_follow_enforcement(
+        self,
+        MockEmailMessage: MagicMock,
+        _name: str,
+        enforced: bool,
+        marker_engine: str,
+        revert: bool,
+        expected_rows: list[tuple[str, bool]],
+        expected_has_suspended: bool,
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
+        self.user.save()
+
+        suspended = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="suspended_view",
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            sync_frequency_interval=dt.timedelta(hours=1),
+            is_materialized=True,
+        )
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=suspended,
+            status=DataModelingJob.Status.FAILED,
+            # Suspending rewrites the job error to lead with this sentence, so the row must not use it.
+            error=(
+                "This model has been suspended after 5 consecutive failed materializations. "
+                "Error: Code: 241. DB::Exception: Memory limit (for query) exceeded"
+            ),
+            last_run_at=timezone.now() - dt.timedelta(days=4),
+        )
+        node = sync_saved_query_to_dag(suspended)
+        assert node is not None
+        mark_node_suspended(
+            node,
+            engine=marker_engine,
+            reason="Code: 241. DB::Exception: Memory limit (for query) exceeded",
+            job_id=str(uuid.uuid4()),
+        )
+        node.save()
+
+        if revert:
+            suspended.revert_materialization()
+
+        retrying = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="retrying_view",
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            sync_frequency_interval=dt.timedelta(hours=1),
+            is_materialized=True,
+        )
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=retrying,
+            status=DataModelingJob.Status.FAILED,
+            error="Query exceeded timeout limit",
+            last_run_at=timezone.now() - dt.timedelta(hours=1),
+        )
+
+        with patch("posthog.tasks.email.is_suspension_enforced", return_value=enforced):
+            send_matview_failure_digest()
+
+        assert len(mocked_email_messages) == 1
+        views = mocked_email_messages[0].properties["views"]
+        assert [(v["name"], v["suspended"]) for v in views] == expected_rows
+        assert mocked_email_messages[0].properties["has_suspended"] is expected_has_suspended
+
+        html = mocked_email_messages[0].html_body
+        assert "Will retry" in html
+        if expected_has_suspended:
+            assert "action required" in html
+            assert "Memory limit (for query) exceeded" in html
+            assert "has been suspended after" not in html
+        else:
+            assert "action required" not in html
+            assert "suspended_view" not in html
+
+    def test_send_matview_failure_digest_caps_the_rows_and_counts_the_rest(self, MockEmailMessage: MagicMock) -> None:
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
+        self.user.save()
+
+        for index in range(MAX_VIEWS_PER_DIGEST_EMAIL + 4):
+            sq = DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=f"failing_view_{index}",
+                query={"query": "SELECT 1"},
+                sync_frequency_interval=dt.timedelta(hours=1),
+            )
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=sq,
+                status=DataModelingJob.Status.FAILED,
+                error="Query exceeded timeout limit",
+                last_run_at=timezone.now() - dt.timedelta(minutes=index + 1),
+            )
+
+        send_matview_failure_digest()
+
+        assert len(mocked_email_messages) == 1
+        assert len(mocked_email_messages[0].properties["views"]) == MAX_VIEWS_PER_DIGEST_EMAIL
+        assert mocked_email_messages[0].properties["omitted_count"] == 4
+        assert "4</strong> more failing views" in mocked_email_messages[0].html_body
 
     @parameterized.expand(
         [

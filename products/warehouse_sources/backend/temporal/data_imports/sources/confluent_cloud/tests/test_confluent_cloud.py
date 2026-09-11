@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock
 
 from parameterized import parameterized
@@ -207,7 +207,7 @@ class TestMetricsRows:
         with pytest.raises(MissingResourceIdsError):
             _collect(monkeypatch, api, _FakeResumableManager(), endpoint="kafka_metrics", resource_ids=[])
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_windows_metrics_and_rows(self, monkeypatch: Any) -> None:
         api = _FakeApi(
             metric_descriptors=[_GA_METRIC, _DEPRECATED_METRIC],
@@ -241,7 +241,7 @@ class TestMetricsRows:
             "value": 1.0,
         }
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_saves_state_after_each_completed_window_except_last(self, monkeypatch: Any) -> None:
         api = _FakeApi(metric_descriptors=[_GA_METRIC])
         manager = _FakeResumableManager()
@@ -257,7 +257,7 @@ class TestMetricsRows:
 
         assert manager.saved == [ConfluentCloudResumeConfig(window_start="2026-07-15T10:00:00Z")]
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_resumes_from_saved_window(self, monkeypatch: Any) -> None:
         api = _FakeApi(metric_descriptors=[_GA_METRIC])
         manager = _FakeResumableManager(ConfluentCloudResumeConfig(window_start="2026-07-15T10:00:00Z"))
@@ -274,7 +274,7 @@ class TestMetricsRows:
         intervals = [q["body"]["intervals"] for q in api.queries]
         assert intervals == [["2026-07-15T10:00:00Z/2026-07-15T12:00:00Z"]]
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_query_pagination_reposts_identical_body_with_page_token(self, monkeypatch: Any) -> None:
         api = _FakeApi(
             metric_descriptors=[_GA_METRIC],
@@ -316,7 +316,7 @@ class TestValidateCredentials:
         session = MagicMock()
         session.post.return_value.status_code = status_code
         with (
-            freeze_time(_NOW),
+            time_machine.travel(_NOW, tick=False),
             pytest.MonkeyPatch.context() as mp,
         ):
             mp.setattr(confluent_cloud, "_make_session", lambda *a, **k: session)

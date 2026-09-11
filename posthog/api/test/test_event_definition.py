@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 from uuid import uuid4
 
-from freezegun.api import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
@@ -26,7 +26,7 @@ from posthog.models import ActivityLog, EventDefinition, Organization, Tag, Team
 from products.actions.backend.models.action import Action
 
 
-@freeze_time("2020-01-02")
+@time_machine.travel("2020-01-02", tick=False)
 class TestEventDefinitionAPI(APIBaseTest):
     demo_team: Team = None  # type: ignore
 
@@ -759,7 +759,7 @@ class TestCreateEventDefinitionsSql(SimpleTestCase):
 class TestEventDefinitionExcludeStale(APIBaseTest):
     """Stale filter tests need real wall-clock times so the Postgres NOW() comparison
     in `exclude_stale` matches the fixture last_seen_at values. The other test class is
-    wrapped in freeze_time which Postgres NOW() does not respect."""
+    wrapped in a frozen clock which Postgres NOW() does not respect."""
 
     @parameterized.expand(
         [

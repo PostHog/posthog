@@ -394,6 +394,7 @@ async def _handle_partial_data_loading(
         queryable_folder=queryable_folder,
         table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
         primary_keys=export_signal.primary_keys,
+        published_file_count=len(new_file_uris),
     )
 
     logger.debug(
