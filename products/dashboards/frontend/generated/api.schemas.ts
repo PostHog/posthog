@@ -2091,9 +2091,6 @@ export const QueryScanFindingReasonApi = {
 } as const
 
 export interface QueryScanWarningApi {
-    /** The condition at fault, as HogQL. */
-    clause?: string | null
-    duration_ms: number
     /** The one fact the finding rests on. */
     evidence?: string | null
     /** What "Fix with AI" and the assistant are told to do. */
@@ -2103,7 +2100,6 @@ export interface QueryScanWarningApi {
     message: string
     /** Only with `no_event_filter` and `no_start_date`. */
     reason?: QueryScanFindingReasonApi | null
-    rows_read: number
     type?: 'query_scan'
 }
 

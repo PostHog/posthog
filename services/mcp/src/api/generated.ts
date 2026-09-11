@@ -1466,9 +1466,6 @@ export namespace Schemas {
     } as const;
 
     export interface QueryScanWarning {
-      /** The condition at fault, as HogQL. */
-      clause?: string | null;
-      duration_ms: number;
       /** The one fact the finding rests on. */
       evidence?: string | null;
       /** What "Fix with AI" and the assistant are told to do. */
@@ -1478,7 +1475,6 @@ export namespace Schemas {
       message: string;
       /** Only with `no_event_filter` and `no_start_date`. */
       reason?: QueryScanFindingReason | null;
-      rows_read: number;
       type?: 'query_scan';
     }
 
@@ -77056,59 +77052,13 @@ export namespace Schemas {
 
     export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative12 | QueryResponseAlternative13 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative26 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | unknown | QueryResponseAlternative38 | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative56 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative61 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96 | QueryResponseAlternative97 | QueryResponseAlternative98 | QueryResponseAlternative99 | QueryResponseAlternative100 | QueryResponseAlternative101 | QueryResponseAlternative102 | QueryResponseAlternative103 | QueryResponseAlternative104 | QueryResponseAlternative105 | QueryResponseAlternative106 | QueryResponseAlternative107 | QueryResponseAlternative108 | QueryResponseAlternative109 | QueryResponseAlternative110 | QueryResponseAlternative111 | QueryResponseAlternative112;
 
-    /**
-     * One finding, the same shape as `QueryScanWarning`.
-     */
-    export interface QueryScanFinding {
-      /** Always `query_scan`, which tells this apart from the other warning kinds. */
-      type: string;
-      /** The structural problem found: `no_event_filter`, `no_start_date` or `persons_join`. */
-      kind: string;
-      /**
-         * Why the filter could not be used, for the kinds that have one, for example `filters`.
-         * @nullable
-         */
-      reason: string | null;
-      /** What happened and what to do about it, written for the person. */
-      message: string;
-      /** The instruction handed to "Fix with AI" and to agents. */
-      fix: string;
-      /**
-         * The offending condition printed back as HogQL, when there is one.
-         * @nullable
-         */
-      clause: string | null;
-      /**
-         * What ClickHouse reported about the read, when EXPLAIN was available.
-         * @nullable
-         */
-      evidence: string | null;
-      /** Rows ClickHouse read for the analyzed run, all tables included. */
-      rows_read: number;
-      /** ClickHouse time for the analyzed run, in milliseconds. */
-      duration_ms: number;
-    }
-
-    /**
-     * The stored analysis of one query, addressed by the cache key of the run that triggered it.
-     */
     export interface QueryScanResponse {
-      /** `pending` while the analysis runs, `done` once the findings are final. */
-      status: string;
-      /** Findings for this query. Empty when the analysis found nothing to fix. */
-      warnings: QueryScanFinding[];
-      /**
-         * Share of the granules in the query's date range that it read, 0 to 1.
-         * @nullable
-         */
-      range_share: number | null;
-      /**
-         * Share of the granules across all the project's events that the query read, 0 to 1.
-         * @nullable
-         */
-      project_share: number | null;
-      /** True when ClickHouse stopped the analyzed run instead of finishing. */
       killed: boolean;
+      project_share?: number | null;
+      range_share?: number | null;
+      status: QueryScanStatus;
+      /** Empty until the status is `done`, and when the analysis found nothing to fix. */
+      warnings: QueryScanWarning[];
     }
 
     export interface QueryStatusResponse {
