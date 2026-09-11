@@ -17,6 +17,7 @@ import {
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { Experiment, FilterLogicalOperator, TeamType } from '~/types'
 
@@ -55,7 +56,17 @@ const EXPERIMENT = {
     feature_flag_key: 'my-flag',
     start_date: daysAgo(10),
     end_date: null,
-    metrics: [],
+    // The metric-filter reasons need a metric to tick: no mode narrows the list on an empty
+    // selection, so without one the filter never asks the endpoint anything.
+    metrics: [
+        {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            uuid: 'metric-purchase',
+            name: 'Purchase',
+            source: { kind: NodeKind.EventsNode, event: 'purchase' },
+        },
+    ],
     metrics_secondary: [],
     feature_flag: {
         filters: {
@@ -137,6 +148,7 @@ const REASON_CASES: ReasonCase[] = [
                 excluded_metrics: [],
                 filter_test_accounts: true,
             })
+            logic.actions.setMetricSelected('metric-purchase', true)
             logic.actions.setMetricFilterMode('no_metric_activity')
         },
         copy: 'No recordings matched the metric filter.',
@@ -148,6 +160,7 @@ const REASON_CASES: ReasonCase[] = [
         experiment: { start_date: daysAgo(10), end_date: null },
         setup: (logic) => {
             ;(experimentsSessionBucketsCreate as jest.Mock).mockRejectedValue({ detail: 'refused' })
+            logic.actions.setMetricSelected('metric-purchase', true)
             logic.actions.setMetricFilterMode('no_metric_activity')
         },
         copy: 'The metric filter could not be loaded',
@@ -281,6 +294,7 @@ describe('ExperimentRecordingsListEmptyState', () => {
             experiment: { ...EXPERIMENT, id: 213 } as Experiment,
         })
         logic.mount()
+        logic.actions.setMetricSelected('metric-purchase', true)
         logic.actions.setMetricFilterMode('no_metric_activity')
         await waitFor(() => expect(logic.values.sessionBucketLoading).toBe(true))
 

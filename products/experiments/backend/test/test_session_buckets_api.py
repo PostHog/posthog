@@ -15,6 +15,7 @@ import posthog.hogql.query as hogql_query_module
 from posthog.clickhouse.query_tagging import Product, get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.models import EventProperty, Team, User
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
@@ -27,7 +28,9 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT_FLAG,
 )
 from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.session_buckets import MAX_BUCKET_METRICS, MAX_BUCKET_SCAN_DAYS, MAX_BUCKET_SOURCES
+from products.experiments.backend.session_exposure import MAX_SESSION_DURATION_HOURS
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
@@ -740,7 +743,8 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
             at=NOW - timedelta(days=MAX_BUCKET_SCAN_DAYS + 5),
             events=[("purchase", NOW - timedelta(days=MAX_BUCKET_SCAN_DAYS + 5) + timedelta(minutes=5))],
         )
-        recent = self._session(events=[("purchase", datetime(2026, 1, 9, 10, 5, tzinfo=UTC))])
+        recent_at = datetime(2026, 1, 9, 10, 0, tzinfo=UTC)
+        recent = self._session(at=recent_at, events=[("purchase", recent_at + timedelta(minutes=5))])
         flush_persons_and_events()
 
         response = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
@@ -750,7 +754,55 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         assert too_old not in data["session_ids"]
         # The response says what it scanned, so the surface can state the omission rather than
         # implying the bucket is empty beyond the clamp.
-        assert data["date_from"] == (NOW - timedelta(days=MAX_BUCKET_SCAN_DAYS)).isoformat().replace("+00:00", "Z")
+        window_end = recent_at + timedelta(hours=MAX_SESSION_DURATION_HOURS)
+        assert data["date_to"] == window_end.isoformat().replace("+00:00", "Z")
+        assert data["date_from"] == (window_end - timedelta(days=MAX_BUCKET_SCAN_DAYS)).isoformat().replace(
+            "+00:00", "Z"
+        )
+
+    def test_scan_window_follows_the_latest_exposure_once_traffic_has_stopped(self) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC], start_date=NOW - timedelta(days=90))
+        last_exposure_at = NOW - timedelta(days=45)
+        quiet = self._session(at=last_exposure_at - timedelta(days=1))
+        late_buyer = self._session(at=last_exposure_at, events=[("purchase", last_exposure_at + timedelta(hours=2))])
+        flush_persons_and_events()
+
+        response = self._post_bucket(experiment, bucket="no_metric_activity", metric_uuids=[PURCHASE_METRIC["uuid"]])
+
+        data = response.json()
+        # A window ending at now covers a stretch this experiment stopped being exposed in, so
+        # every bucket answers "nothing matched" while exposed sessions sit just outside it.
+        assert data["session_ids"] == [quiet]
+        # The window reaches a session's length past the anchor, so the purchase this session
+        # fired after its exposure counts as activity instead of as absence.
+        assert late_buyer not in data["session_ids"]
+        window_end = last_exposure_at + timedelta(hours=MAX_SESSION_DURATION_HOURS)
+        assert data["date_to"] == window_end.isoformat().replace("+00:00", "Z")
+        assert data["date_from"] == (window_end - timedelta(days=MAX_BUCKET_SCAN_DAYS)).isoformat().replace(
+            "+00:00", "Z"
+        )
+
+    def test_the_stamped_fallback_keeps_the_recent_window_where_anchoring_is_unaffordable(self) -> None:
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.experiment_precomputation_enabled = True
+        config.save()
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        quiet = self._session(
+            variant=None,
+            events=[("$pageview", datetime(2026, 1, 9, 10, 5, tzinfo=UTC))],
+            properties={"$feature/checkout-cta": "test"},
+        )
+        flush_persons_and_events()
+
+        response = self._post_bucket(experiment, bucket="no_metric_activity", metric_uuids=[PURCHASE_METRIC["uuid"]])
+
+        data = response.json()
+        assert data["used_exposure_fallback"] is True
+        assert data["session_ids"] == [quiet]
+        # The stamped condition names no event to prune on, so anchoring it would read every event
+        # the team captured in the run. These are the teams where the in-session recordings list
+        # refuses that scan outright, so the bucket keeps the window it can afford.
+        assert data["date_to"] == NOW.isoformat().replace("+00:00", "Z")
 
     def test_test_account_filtering_follows_the_exposure_criteria(self) -> None:
         self.team.test_account_filters = [{"key": "$host", "value": "localhost", "operator": "is_not", "type": "event"}]

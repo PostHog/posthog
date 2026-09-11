@@ -81,7 +81,12 @@ from products.experiments.backend.metric_events import (
     resolve_metric_events,
 )
 from products.experiments.backend.models.experiment import Experiment
-from products.experiments.backend.session_exposure import SessionExposure, resolve_session_exposure
+from products.experiments.backend.replay_linkage import fallback_evidence_scan_is_unaffordable
+from products.experiments.backend.session_exposure import (
+    MAX_SESSION_DURATION_HOURS,
+    SessionExposure,
+    resolve_session_exposure,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +95,11 @@ logger = logging.getLogger(__name__)
 # request-line limits proxies commonly enforce. Doubling it would not.
 MAX_SESSION_BUCKET_LIMIT = 100
 # The scan reads every session in the window, not a known id list, so the window is what bounds
-# it. Recency-ordered output capped at 100 means older sessions could not surface anyway, which
-# makes this clamp close to free in practice — but it must be stated wherever the bucket is.
+# it. It ends at the latest in-session exposure rather than at now, because an experiment whose
+# exposures slowed down or stopped more than this many days ago has nothing left in its recent
+# days: a window anchored on now would read an empty stretch of time and answer "no sessions
+# matched" for every bucket. Recency-ordered output capped at 100 means older sessions could not
+# surface anyway, so the length itself costs little, but it must be stated wherever the bucket is.
 MAX_BUCKET_SCAN_DAYS = 30
 # Rows fetched before filtering to sessions that actually have a recording, so the cap isn't
 # spent on sessions sampled out of replay.
@@ -254,8 +262,7 @@ def get_experiment_session_bucket(
     if variant is not None and variant not in variant_keys:
         raise SessionBucketUnavailable(f"'{variant}' is not a variant of this experiment.")
 
-    window_end = experiment.end_date or timezone.now()
-    window_start = max(experiment.start_date, window_end - timedelta(days=MAX_BUCKET_SCAN_DAYS))
+    run_end = experiment.end_date or timezone.now()
     criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
     filter_test_accounts = bool(criteria.filterTestAccounts) if criteria else False
     limit = min(limit, MAX_SESSION_BUCKET_LIMIT)
@@ -286,8 +293,8 @@ def get_experiment_session_bucket(
         bucket,
         considered,
         variant,
-        window_start,
-        window_end,
+        experiment.start_date,
+        run_end,
         limit,
         exposure.default_exposure_event,
     )
@@ -295,18 +302,49 @@ def get_experiment_session_bucket(
     if cached is not None:
         return cached
 
-    candidate_session_ids, scan_hit_cap = _query_bucket_sessions(
+    # One virtual database for both scans below. Building it is the expensive part, the contexts
+    # stay per-query, and both scans read only `events` — the conditions the class docstring sets.
+    modifiers = create_default_modifiers_for_team(team)
+    shared_hogql = SharedHogQLDatabase(
+        # Postgres foreign-key lazy joins are the most expensive part of building the virtual
+        # database and these queries only read events.
+        database=Database.create_for(team=team, user=user, modifiers=modifiers, build_postgres_foreign_keys=False),
+        modifiers=modifiers,
+    )
+    scan_variant_keys = [variant] if variant is not None else sorted(variant_keys)
+    anchored_end = _resolve_window_end(
         team,
         user,
         experiment,
-        bucket=bucket,
-        considered=considered,
-        variant_keys=[variant] if variant is not None else sorted(variant_keys),
-        window_start=window_start,
-        window_end=window_end,
-        limit=limit,
         exposure=exposure,
+        variant_keys=scan_variant_keys,
+        run_end=run_end,
+        shared_hogql=shared_hogql,
     )
+    if anchored_end is None:
+        # Nothing in the whole run carries in-session exposure evidence, so there is no session to
+        # classify and nothing to anchor a window on. Report the window the clamp alone describes,
+        # and skip the bucket query, which could only return the same empty list.
+        window_end = run_end
+        window_start = max(experiment.start_date, run_end - timedelta(days=MAX_BUCKET_SCAN_DAYS))
+        candidate_session_ids: list[str] = []
+        scan_hit_cap = False
+    else:
+        window_end = anchored_end
+        window_start = max(experiment.start_date, window_end - timedelta(days=MAX_BUCKET_SCAN_DAYS))
+        candidate_session_ids, scan_hit_cap = _query_bucket_sessions(
+            team,
+            user,
+            experiment,
+            bucket=bucket,
+            considered=considered,
+            variant_keys=scan_variant_keys,
+            window_start=window_start,
+            window_end=window_end,
+            limit=limit,
+            exposure=exposure,
+            shared_hogql=shared_hogql,
+        )
     result = SessionBucketScan(
         candidate_session_ids=candidate_session_ids,
         scan_hit_cap=scan_hit_cap,
@@ -331,8 +369,8 @@ def _cache_key(
     bucket: SessionBucket,
     considered: list[MetricEventSource],
     variant: Optional[str],
-    window_start: datetime,
-    window_end: datetime,
+    run_start: datetime,
+    run_end: datetime,
     limit: int,
     default_exposure_event: str,
 ) -> str:
@@ -344,10 +382,13 @@ def _cache_key(
             bucket.value,
             sorted(metric.metric_uuid for metric in considered),
             variant,
-            # The scan window moves with wall-clock time on a running experiment; rounding to the
-            # minute keeps a burst of requests on one entry without pinning a stale window.
-            window_start.replace(second=0, microsecond=0).isoformat(),
-            window_end.replace(second=0, microsecond=0).isoformat(),
+            # The run window, not the scanned one. The scanned window is a function of the data
+            # inside the run window, so keying on it would mean resolving the anchor before every
+            # lookup, cache hits included. The run end moves with wall-clock time on a running
+            # experiment; rounding to the minute keeps a burst of requests on one entry without
+            # pinning a stale window.
+            run_start.replace(second=0, microsecond=0).isoformat(),
+            run_end.replace(second=0, microsecond=0).isoformat(),
             # Part of the key even though the cut happens on read: the scan over-fetches a
             # multiple of the limit, so a larger one looks further than a cached smaller one did.
             limit,
@@ -374,7 +415,94 @@ def _cache_key(
         ]
     )
     digest = hashlib.sha256(spec.encode()).hexdigest()[:16]
-    return f"experiment_session_bucket_v4_{team.pk}_{user.pk}_{experiment.pk}_{digest}"
+    return f"experiment_session_bucket_v5_{team.pk}_{user.pk}_{experiment.pk}_{digest}"
+
+
+def _resolve_window_end(
+    team: Team,
+    user: User,
+    experiment: Experiment,
+    *,
+    exposure: SessionExposure,
+    variant_keys: list[str],
+    run_end: datetime,
+    shared_hogql: SharedHogQLDatabase,
+) -> Optional[datetime]:
+    """Where the scan window ends: `MAX_SESSION_DURATION_HOURS` past the latest in-session
+    exposure, capped at the end of the run. None when the run holds no such exposure at all.
+
+    The pad is what keeps the classification honest. A session's metric events can follow its
+    exposure, so a window that stopped at the last exposure would read a purchase fired after it as
+    absence, and a funnel finished after it as a drop-off.
+    """
+    if exposure.used_fallback and fallback_evidence_scan_is_unaffordable(team, experiment):
+        # The stamped-property condition carries no event name for ClickHouse to prune on, so
+        # anchoring would read every event the team captured in the run. The in-session recordings
+        # list refuses exactly this scan on these teams, so keep the recent-to-now window instead
+        # of buying the anchor at that price.
+        return run_end
+    latest = _latest_session_exposure_at(
+        team,
+        user,
+        experiment,
+        exposure=exposure,
+        variant_keys=variant_keys,
+        run_end=run_end,
+        shared_hogql=shared_hogql,
+    )
+    return None if latest is None else min(run_end, latest + timedelta(hours=MAX_SESSION_DURATION_HOURS))
+
+
+def _latest_session_exposure_at(
+    team: Team,
+    user: User,
+    experiment: Experiment,
+    *,
+    exposure: SessionExposure,
+    variant_keys: list[str],
+    run_end: datetime,
+    shared_hogql: SharedHogQLDatabase,
+) -> Optional[datetime]:
+    """When a session last carried exposure evidence in this run, or None when none ever did.
+
+    The same exposure condition, variant keys and test-account filter the bucket query gets, so the
+    anchor is the latest exposure that query could count rather than a wider one. `count()` rides
+    the same scan because `max()` over no rows returns the epoch instead of NULL, which a window
+    would silently accept.
+    """
+    query = ast.SelectQuery(
+        select=[
+            ast.Call(name="max", args=[ast.Field(chain=["timestamp"])]),
+            ast.Call(name="count", args=[]),
+        ],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        where=ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=experiment.start_date),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=run_end),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq, left=ast.Field(chain=["$session_id"]), right=ast.Constant(value="")
+                ),
+                exposure.condition(variant_keys),
+                *get_test_accounts_filter(team, experiment.exposure_criteria),
+            ]
+        ),
+    )
+    response = execute_hogql_query(
+        query, team=team, user=user, context=shared_hogql.fresh_context(team, user), modifiers=shared_hogql.modifiers
+    )
+    rows = response.results or []
+    if not rows or not rows[0][1]:
+        return None
+    return rows[0][0]
 
 
 def _resolve_requested_metrics(experiment: Experiment, metric_uuids: list[str]) -> list[MetricEventSource]:
@@ -538,6 +666,7 @@ def _query_bucket_sessions(
     window_end: datetime,
     limit: int,
     exposure: SessionExposure,
+    shared_hogql: SharedHogQLDatabase,
 ) -> tuple[list[str], bool]:
     def exposure_condition() -> ast.Expr:
         return exposure.condition(variant_keys)
@@ -618,13 +747,6 @@ def _query_bucket_sessions(
 
     # One query, so there is no union to hide an implicit per-branch limit — but the limit is
     # still set explicitly, since an unset one would silently become HogQL's LIMIT 100.
-    modifiers = create_default_modifiers_for_team(team)
-    shared_hogql = SharedHogQLDatabase(
-        # Postgres foreign-key lazy joins are the most expensive part of building the virtual
-        # database and this query only reads events.
-        database=Database.create_for(team=team, user=user, modifiers=modifiers, build_postgres_foreign_keys=False),
-        modifiers=modifiers,
-    )
     response = execute_hogql_query(
         query, team=team, user=user, context=shared_hogql.fresh_context(team, user), modifiers=shared_hogql.modifiers
     )

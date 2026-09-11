@@ -1374,9 +1374,9 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             },
         ],
         /**
-         * Null whenever the client-side event filters express the question exactly, so the list
-         * keeps its uncapped path: no metric selected, and any "fired all" of several metrics
-         * (ANDing filters is the one thing a recordings query can do).
+         * Null whenever the tab has no server-side set to ask for, so the list keeps its uncapped
+         * path: no metric selected in any mode, and any "fired all" of several metrics (ANDing
+         * filters is the one thing a recordings query can do).
          *
          * One selected metric is the interesting case. "Fired all of it" and "fired any of it"
          * are the same question, so both take the same path — the client filter when the metric
@@ -1400,13 +1400,17 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 if (metricFilterMode === 'funnel_dropoff') {
                     return effectiveMetricUuids.length === 1 ? request('funnel_dropoff') : null
                 }
-                if (metricFilterMode === 'no_metric_activity') {
-                    // Absence without a selection legitimately means every matchable metric.
-                    return request('no_metric_activity')
-                }
                 if (effectiveMetricUuids.length === 0) {
-                    // "Fired any of nothing" has no answer.
+                    // No mode narrows the list on an empty selection. The endpoint does read an
+                    // empty metric list as "every matchable metric", but the checkboxes stay
+                    // unticked while it does, so the list would answer a question the menu never
+                    // shows.
                     return null
+                }
+                if (metricFilterMode === 'no_metric_activity') {
+                    // Absence is the one question a recordings query can't express at all, however
+                    // few events the selected metrics count.
+                    return request('no_metric_activity')
                 }
                 if (effectiveMetricUuids.length > 1) {
                     return metricFilterMode === 'fired_any' ? request('fired_any') : null

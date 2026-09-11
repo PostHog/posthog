@@ -207,6 +207,7 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
         experiment: { start_date: daysAgo(10), end_date: null },
         setup: (logic) => {
             ;(experimentsSessionBucketsCreate as jest.Mock).mockResolvedValue({ ...BUCKET_RESPONSE, session_ids: [] })
+            logic.actions.setMetricSelected('metric-purchase', true)
             logic.actions.setMetricFilterMode('no_metric_activity')
         },
     },
@@ -220,6 +221,7 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
                 ...BUCKET_RESPONSE,
                 session_ids: ['bucket-session'],
             })
+            logic.actions.setMetricSelected('metric-purchase', true)
             logic.actions.setMetricFilterMode('no_metric_activity')
         },
     },
@@ -991,6 +993,7 @@ describe('experimentReplayTabLogic', () => {
             experiment: { ...EXPERIMENT, id: 113, start_date: daysAgo(10), end_date: null } as Experiment,
         })
         failing.mount()
+        failing.actions.setMetricSelected('metric-purchase', true)
         failing.actions.setMetricFilterMode('no_metric_activity')
 
         // While the request is out the list is empty because the filter hasn't answered yet, and
@@ -1096,8 +1099,25 @@ describe('experimentReplayTabLogic', () => {
         expect(recordingsFilters.filter_group).toEqual(EMPTY_FILTER_GROUP)
     })
 
+    it.each(['fired_any', 'no_metric_activity', 'funnel_dropoff'] as const)(
+        'leaves the list untouched when %s has no metric to apply',
+        async (mode) => {
+            await expectLogic(logic).toFinishAllListeners()
+            const before = logic.values.recordingsFilters
+
+            await expectLogic(logic, () => logic.actions.setMetricFilterMode(mode)).toFinishAllListeners()
+
+            // The shared playlist refetches on any deep change to its filters, so a mode with
+            // nothing ticked has to leave them alone. Otherwise picking the mode reloads the list
+            // and answers a question the unticked checkboxes never asked.
+            expect(logic.values.recordingsFilters).toEqual(before)
+            expect(experimentsSessionBucketsCreate).not.toHaveBeenCalled()
+        }
+    )
+
     it('follows the playlist\'s own "Show all" back to the unbucketed list', async () => {
         await expectLogic(logic, () => {
+            logic.actions.setMetricSelected('metric-purchase', true)
             logic.actions.setMetricFilterMode('no_metric_activity')
         }).toFinishAllListeners()
         expect(logic.values.recordingsFilters.session_ids).toEqual(['bucket-1', 'bucket-2'])

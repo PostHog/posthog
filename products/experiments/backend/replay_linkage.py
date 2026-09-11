@@ -227,7 +227,7 @@ def _precomputation_covers_full_window(config: TeamExperimentsConfig, experiment
     )
 
 
-def _fallback_evidence_scan_is_unaffordable(team: Team, experiment: Experiment) -> bool:
+def fallback_evidence_scan_is_unaffordable(team: Team, experiment: Experiment) -> bool:
     """Whether the stamped-property evidence scan must be refused for this team and experiment.
 
     Unlike the exposure-event scan, the fallback has no event name to prune on, so it reads every
@@ -264,7 +264,7 @@ def resolve_in_session_exposure_semantics(team: Team, experiment: Experiment) ->
         return InSessionExposureSemantics(
             session_exposure=None, unavailable_reason=IN_SESSION_EXPOSURE_UNMATCHABLE_REASON
         )
-    if session_exposure.used_fallback and _fallback_evidence_scan_is_unaffordable(team, experiment):
+    if session_exposure.used_fallback and fallback_evidence_scan_is_unaffordable(team, experiment):
         return InSessionExposureSemantics(
             session_exposure=None, unavailable_reason=IN_SESSION_EXPOSURE_FALLBACK_TOO_LARGE_REASON
         )
