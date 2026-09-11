@@ -10,14 +10,9 @@ No FINAL, same argument as `MetricNamesQueryRunner`: ReplacingMergeTree
 duplicates share the fingerprint, `max(last_seen)` picks the row FINAL would
 keep, and `uniqExact(series_fingerprint)` counts duplicates once.
 
-Freshness and the window counts are two queries, not one. The counts filter
-`last_seen` in WHERE so the `idx_last_seen_minmax` skip index on
-`metric_series2` reads only the recent parts; folding them into a single
-unwindowed pass (filtering inside the aggregates) would defeat the index and
-scan every series row. Freshness stays unwindowed on its own — when ingestion
-stops the window counts go to zero but the status strip still needs the last
-datapoint's age — but it reads only the `last_seen` column, not the fingerprint.
-The two run concurrently with the per-service pass.
+Counts use a windowed query so `idx_last_seen_minmax` skips old parts.
+Freshness has no window. It reports the last data point and reads only
+`last_seen`. All three queries run concurrently.
 """
 
 import datetime as dt
