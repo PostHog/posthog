@@ -334,6 +334,40 @@ function productOfFile(file) {
     return rest === undefined ? null : product
 }
 
+// A test-only change cannot change the product behavior that other products
+// consume. Keep this narrow: production code, test commands, and fixtures
+// outside a test directory still use the full non-isolated fallback.
+function getTestOnlyProducts(changedFiles) {
+    if (changedFiles.length === 0) {
+        return null
+    }
+
+    const products = new Set()
+    for (const file of changedFiles) {
+        const match = file.match(/^products\/([^/]+)\/(?:backend|stats)\/(?:[^/]+\/)*tests?(?:\/|$)/)
+        if (!match) {
+            return null
+        }
+        products.add(moduleToProduct(match[1]))
+    }
+    return [...products].sort()
+}
+
+function changedFilesSinceBase() {
+    const { TURBO_SCM_BASE: base, TURBO_SCM_HEAD: head } = process.env
+    if (!base || !head) {
+        return null
+    }
+    try {
+        return execFileSync('git', ['diff', '--name-only', `${base}...${head}`], TURBO_EXEC_OPTS)
+            .split('\n')
+            .filter(Boolean)
+    } catch (error) {
+        console.error(`Could not read changed files for test-only selection: ${error.message}`)
+        return null
+    }
+}
+
 // Collapse tach's file map ({ file: [files that import it] }) into
 // product -> [products it imports]. Keys and values are product directory
 // names (underscores); callers normalize to/from Turbo's dashed names. Every
@@ -1241,6 +1275,7 @@ module.exports = {
     productGraphFromTachMap,
     loadTachModuleGraph,
     tachDependents,
+    getTestOnlyProducts,
 }
 
 // --- Main ---
@@ -1303,12 +1338,22 @@ if (legacyChanged) {
     const isolatedProducts = getIsolatedProducts(contractTasks)
     const affectedProducts = getAffectedTaskProducts(affectedTestTasks)
     const nonIsolatedAffectedProducts = affectedProducts.filter((p) => !isolatedProducts.has(p))
+    const testOnlyProducts =
+        process.env.SELECTION_APPLIES === 'true' ? getTestOnlyProducts(changedFilesSinceBase() || []) : null
+    const onlyAffectedProductTestsChanged =
+        testOnlyProducts !== null &&
+        testOnlyProducts.length === affectedProducts.length &&
+        testOnlyProducts.every((product) => affectedProducts.includes(product))
 
     console.error(`Isolated products (have contract-check): ${JSON.stringify([...isolatedProducts].sort())}`)
     console.error(`Affected products: ${JSON.stringify(affectedProducts)}`)
     logAffectedReasons('backend:test', affectedTestTasks)
 
-    if (nonIsolatedAffectedProducts.length > 0) {
+    if (nonIsolatedAffectedProducts.length > 0 && onlyAffectedProductTestsChanged) {
+        console.error(`Only product test files changed: ${JSON.stringify(testOnlyProducts)} — Django can be skipped`)
+        products = affectedProducts
+        runLegacy = false
+    } else if (nonIsolatedAffectedProducts.length > 0) {
         // Non-isolated product changed — must test everything
         console.error(
             `Non-isolated products changed: ${JSON.stringify(nonIsolatedAffectedProducts)} — testing all products + Django`
