@@ -283,6 +283,9 @@ def _action_ids(view: dict) -> list[str]:
         for el in block.get("elements", []) or []:
             if "action_id" in el:
                 out.append(el["action_id"])
+        accessory = block.get("accessory")
+        if accessory and "action_id" in accessory:
+            out.append(accessory["action_id"])
     return out
 
 
@@ -448,6 +451,7 @@ class TestRenderHomeView:
             user_row=_make_row(runtime_adapter="claude", model="claude-opus-4-7"),
             is_admin=True,
             account_state=AccountState(enabled=True, link_url="https://app/link"),
+            github_state=GitHubState(user_resolved=True, settings_url="https://app/settings"),
             project_state=ProjectState(
                 candidates=(ProjectChoice(team_id=1, label="Org · Team"),),
                 personal_team_id=1,

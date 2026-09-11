@@ -9,6 +9,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.apps import apps
+from django.core.cache import cache
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -70,7 +71,11 @@ if TYPE_CHECKING:
 
 
 def _authenticate_as_scout(
-    test: APIBaseTest, *, scopes: PosthogMcpScopes = "signals_scout", sandbox_task_id: UUID | None = None
+    test: APIBaseTest,
+    *,
+    scopes: PosthogMcpScopes = "signals_scout",
+    sandbox_task_id: UUID | None = None,
+    team_id: int | None = None,
 ) -> None:
     """Auth the test client with a scout-internal token, mirroring how the harness sandbox
     reaches these endpoints in production. The emit action requires `signal_scout_internal:write`
@@ -85,6 +90,9 @@ def _authenticate_as_scout(
 
     `sandbox_task_id` binds the token to a task, which is how a report-pipeline run is minted and
     the only way the scratchpad write path can resolve its writer identity.
+
+    `team_id` confines the token to a team other than the test's own, which is how a child
+    environment's token is minted.
     """
     # `create_oauth_access_token_for_user` resolves the Array app by `get_instance_region()`,
     # which isn't deterministic across test contexts — create the app for every region client
@@ -102,7 +110,11 @@ def _authenticate_as_scout(
             },
         )
     token = create_oauth_access_token_for_user(
-        test.user, test.team.id, scopes=scopes, include_internal_scopes=True, sandbox_task_id=sandbox_task_id
+        test.user,
+        team_id if team_id is not None else test.team.id,
+        scopes=scopes,
+        include_internal_scopes=True,
+        sandbox_task_id=sandbox_task_id,
     )
     test.client.logout()
     test.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
@@ -331,6 +343,7 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
 # Patch target: the helper is hot-imported into the view module, so patch it there, not at source.
 _FETCH_REPORT_IDS = "products.signals.backend.temporal.signal_queries.fetch_report_ids_for_source_ids"
 _RUN_TOKEN_COSTS_QUERY = "products.signals.backend.scout_harness.run_costs.get_local_task_run_token_costs"
+_SCOUT_COSTS_QUERY = "products.signals.backend.scout_harness.scout_costs.get_local_task_run_token_costs"
 
 
 class TestScoutHarnessEmissionReportsAPI(APIBaseTest):
@@ -527,6 +540,84 @@ class TestScoutHarnessRunTokenCostsAPI(APIBaseTest):
         with patch(_RUN_TOKEN_COSTS_QUERY) as query:
             response = self.client.post(self._url(), data={"run_ids": [str(run.id)]}, format="json")
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        query.assert_not_called()
+
+
+class TestScoutHarnessScoutCostsAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def _url(self, query: str = "") -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/costs/{query}"
+
+    def _make_staff(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+
+    def test_staff_reads_spend_counts_and_reports_per_scout(self) -> None:
+        self._make_staff()
+        priced = _make_run(self.team, emitted_report_ids=["r-1"], edited_report_ids=["r-1", "r-2"])
+        _make_run(self.team)
+        with patch(_SCOUT_COSTS_QUERY, return_value={str(priced.task_run_id): Decimal("1.68")}):
+            response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["available"] is True
+        assert body["window_days"] == 7
+        assert body["scouts"] == [
+            {
+                "skill_name": "signals-scout-general",
+                "spend_usd": 1.68,
+                "run_count": 2,
+                # The run that spent nothing is out of the per-run divisor, not priced at zero.
+                "priced_run_count": 1,
+                # `r-1` was filed and then edited by the same run, so it counts once.
+                "reports_touched": 2,
+            }
+        ]
+
+    def test_non_staff_is_refused(self) -> None:
+        # Fleet spend is an internal operating number, and the generations sit in a project other
+        # than the one in the path. Same gate as the per-run cost read.
+        _make_run(self.team)
+        with patch(_SCOUT_COSTS_QUERY) as query:
+            response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        query.assert_not_called()
+
+    def test_child_scoped_api_key_cannot_read_parent_costs(self) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        self._make_staff()
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="child-scoped",
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=["signal_scout:read"],
+            scoped_teams=[child.id],
+        )
+        self.client.logout()
+
+        with patch(_SCOUT_COSTS_QUERY) as query:
+            response = self.client.get(
+                f"/api/projects/{child.id}/signals/scout/runs/costs/",
+                HTTP_AUTHORIZATION=f"Bearer {raw}",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        query.assert_not_called()
+
+    def test_unsupported_window_is_refused_rather_than_silently_widened(self) -> None:
+        # The parameter exists so a detail page can ask for 30 days later. Until it can, a request
+        # for 30 must not come back as a 7-day number labelled 30.
+        self._make_staff()
+        with patch(_SCOUT_COSTS_QUERY) as query:
+            response = self.client.get(self._url("?window_days=30"))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         query.assert_not_called()
 
 
@@ -2232,6 +2323,57 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             body="# test scout",
         )
 
+    def test_display_name_update_preserves_identity_and_running_history(self) -> None:
+        skill = self._make_skill("signals-scout-daily-digest")
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name=skill.name,
+            source_product="replay_vision",
+            source_id=str(uuid4()),
+            output_destinations={"webhook": {"hog_function_id": "test-webhook"}},
+        )
+        run = _make_run(self.team, scout_config=config, skill_name=skill.name)
+        note = SignalScoutNote.objects.create(team=self.team, skill_name=skill.name, content="Check checkout errors.")
+        memory = SignalScratchpad.objects.create(
+            team=self.team, key=f"{FOLLOWUP_KEY_PREFIX}{skill.name}:test", content="Keep this memory."
+        )
+        original_config = next(
+            item for item in self.client.get(self._list_url()).json() if item["id"] == str(config.id)
+        )
+        assert original_config["display_name"] == ""
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"display_name": "  Checkout / daily digest  "}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {**original_config, "display_name": "Checkout / daily digest"}
+        saved_config = next(item for item in self.client.get(self._list_url()).json() if item["id"] == str(config.id))
+        assert saved_config["display_name"] == "Checkout / daily digest"
+        config.refresh_from_db()
+        skill.refresh_from_db()
+        run.refresh_from_db()
+        note.refresh_from_db()
+        memory.refresh_from_db()
+        assert config.skill_name == skill.name == run.skill_name == note.skill_name == "signals-scout-daily-digest"
+        assert memory.key == f"{FOLLOWUP_KEY_PREFIX}{skill.name}:test"
+        assert memory.content == "Keep this memory."
+
+    @parameterized.expand([("", 200), ("Shared name", 200), ("a" * 201, 400), (None, 400)])
+    def test_display_name_validation(self, display_name: str | None, expected_status: int) -> None:
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-foo", display_name="Original"
+        )
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-bar", display_name="Shared name")
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"display_name": display_name}, format="json"
+        )
+
+        assert response.status_code == expected_status
+        config.refresh_from_db()
+        assert config.display_name == (display_name if expected_status == 200 else "Original")
+
     def test_list_returns_team_configs_ordered_by_skill(self) -> None:
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-beta")
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha")
@@ -3835,6 +3977,55 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
             _authenticate_as_scout(self, scopes=scopes)
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestScoutCanonicalTeamGuardAPI(APIBaseTest):
+    """Every scout surface that canonicalizes to the parent team must authorize against it.
+
+    The scout models persist under the canonical (parent) team, so a request made through a child
+    environment URL reads the parent's rows. A credential confined to the child alone passes the
+    default team check (URL team == child) and would otherwise reach data it was never scoped to.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+
+    @parameterized.expand(
+        [
+            ("scratchpad", "scratchpad/"),
+            ("project_profile", "project_profile/current/"),
+            ("metadata", "metadata/current/"),
+        ]
+    )
+    def test_child_scoped_api_key_cannot_read_parent_surface(self, _name: str, path: str) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="child-scoped",
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=["signal_scout:read"],
+            scoped_teams=[self.env.id],
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.env.id}/signals/scout/{path}", HTTP_AUTHORIZATION=f"Bearer {raw}"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+    def test_child_scoped_scout_token_cannot_read_parent_members(self) -> None:
+        # The roster is member PII and only a sandbox token reaches it, so the child-scoped case
+        # needs that token rather than a PAK — an internal scope is never on a user-grantable key.
+        _authenticate_as_scout(self, team_id=self.env.id)
+
+        response = self.client.get(f"/api/projects/{self.env.id}/signals/scout/members/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
 
 
 class TestScoutRunDerivedMetadata(APIBaseTest):

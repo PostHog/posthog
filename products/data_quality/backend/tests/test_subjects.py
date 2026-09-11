@@ -8,17 +8,65 @@ from posthog.hogql.database.database import Database
 
 from posthog.models.team import Team
 
+from products.data_catalog.backend.facade.api import upsert_metric
 from products.data_modeling.backend.facade import api as data_modeling_facade
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.enums import SubjectType
-from products.data_quality.backend.logic.subject_access import readable_subjects
-from products.data_quality.backend.logic.subjects import resolve_subject
+from products.data_quality.backend.logic.subject_access import readable_subjects, subject_metadata
+from products.data_quality.backend.logic.subjects import resolve_subject, subject_column_type
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 class TestSubjectResolver(BaseTest):
+    def test_metric_resolution_tracks_definition_and_soft_deletion(self) -> None:
+        metric = upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="revenue",
+            description="Revenue",
+            definition={"kind": "HogQLQuery", "query": "SELECT 1"},
+        )
+        with self.assertNumQueries(2):
+            resolved = resolve_subject(self.team.id, "metric", metric.id)
+        assert resolved.exists
+        assert resolved.name == "revenue"
+        assert resolved.definition_kind == "HogQLQuery"
+        assert resolved.metric_definition is not None
+        assert resolved.metric_definition.query == "SELECT 1"
+        upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="revenue",
+            description="Revenue",
+            definition={"kind": "HogQLQuery", "query": "SELECT 2"},
+        )
+        updated = resolve_subject(self.team.id, "metric", metric.id)
+        assert updated.metric_definition is not None
+        assert updated.metric_definition.query == "SELECT 2"
+        assert subject_column_type(self.team.id, "metric", metric.id, "amount") is None
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        assert not resolve_subject(other_team.id, "metric", metric.id).exists
+        metric.deleted = True
+        metric.save(update_fields=["deleted"])
+        assert not resolve_subject(self.team.id, "metric", metric.id).exists
+
+    @parameterized.expand(
+        [
+            ("markdown", {"kind": "MarkdownDefinition", "markdown": "Count customers."}),
+            ("trends", {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}),
+            ("definitionless", None),
+        ]
+    )
+    def test_unsupported_live_metrics_remain_resolvable(self, _name: str, definition: dict | None) -> None:
+        metric = upsert_metric(
+            team=self.team, user=self.user, name="revenue", description="Revenue", definition=definition
+        )
+        resolved = resolve_subject(self.team.id, "metric", metric.id)
+        assert resolved.exists
+        assert resolved.metric_definition is None
+
     def _table(self, name: str = "stripe_customers") -> DataWarehouseTable:
         return DataWarehouseTable.objects.create(
             team=self.team, name=name, format="Parquet", url_pattern="s3://bucket/x"
@@ -134,3 +182,24 @@ class TestReadableSubjectSnapshot(BaseTest):
             backing_tables = data_modeling_facade.backing_table_ids_by_saved_query(self.team.id)
 
         assert backing_tables == {backing_table.id: view.id}
+
+    def test_shared_metadata_keeps_recipient_permissions_separate(self) -> None:
+        allowed = self._table("allowed")
+        denied = self._table("denied")
+        metric = upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="shared_metric",
+            description="A shared source",
+            definition={"kind": "HogQLQuery", "query": "SELECT * FROM denied"},
+        )
+        metadata = subject_metadata(self.team.id)
+        with self.assertNumQueries(0):
+            restricted = readable_subjects(self.team.id, {"denied"}, metadata=metadata)
+            unrestricted = readable_subjects(self.team.id, set(), metadata=metadata)
+            catalog_denied = readable_subjects(self.team.id, set(), metadata=metadata, can_read_catalog=False)
+        assert restricted.table_ids == {allowed.id}
+        assert metric.id not in restricted.metric_ids
+        assert unrestricted.table_ids == {allowed.id, denied.id}
+        assert metric.id in unrestricted.metric_ids
+        assert not catalog_denied.metric_ids

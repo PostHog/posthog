@@ -17,6 +17,7 @@ import { useCurrentChannel } from "@posthog/ui/features/canvas/hooks/useCurrentC
 import { useMarkChannelSeen } from "@posthog/ui/features/canvas/hooks/useMarkChannelSeen";
 import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
+import type { NavRailPane } from "@posthog/ui/features/canvas/railPane";
 import {
   selectActivityItem,
   selectActivityReport,
@@ -28,6 +29,7 @@ import {
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { InboxPane } from "@posthog/ui/features/inbox/components/InboxPane";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { NavResizeTooltip } from "@posthog/ui/features/sidebar/components/NavResizeTooltip";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
@@ -51,8 +53,19 @@ import { ErrorBoundary } from "@posthog/ui/primitives/ErrorBoundary";
 import { useSidebarEdgeHoverPeek } from "@posthog/ui/primitives/hooks/useSidebarEdgeHoverPeek";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { navigateToArchived } from "@posthog/ui/router/navigationBridge";
-import { useParams } from "@tanstack/react-router";
-import { memo, useDeferredValue, useEffect, useRef } from "react";
+import {
+  reportSourceHrefFromLocation,
+  resolveNavigationSource,
+} from "@posthog/ui/router/reportNavigation";
+import { useParams, useRouterState } from "@tanstack/react-router";
+import {
+  type ComponentProps,
+  memo,
+  type ReactElement,
+  useDeferredValue,
+  useEffect,
+  useRef,
+} from "react";
 
 /**
  * The sidebar slider: the channel list and the channel you're in, laid out side
@@ -133,6 +146,64 @@ function ChannelPanes({
     </div>
   );
 }
+type ActivityFeedListProps = ComponentProps<typeof ActivityFeedList>;
+
+/**
+ * What the rail's column shows: the destination decides, so a new one adds a
+ * case here rather than another rung on a conditional.
+ */
+function RailPaneBody({
+  railPane,
+  showsActivityDetail,
+  selectedActivityId,
+  onActivityActivate,
+  onActivityReportActivate,
+  feedId,
+  channelId,
+  showList,
+  sidebarVisible,
+  pendingTabSwitch,
+}: {
+  railPane: NavRailPane;
+  showsActivityDetail: boolean;
+  selectedActivityId: string | undefined;
+  // Taken from the list rather than restated, so the row's payload can change
+  // shape without this seam disagreeing about it.
+  onActivityActivate: ActivityFeedListProps["onActivate"];
+  onActivityReportActivate: ActivityFeedListProps["onReportActivate"];
+  feedId: string | undefined;
+  channelId: string | null;
+  showList: boolean;
+  sidebarVisible: boolean;
+  pendingTabSwitch: boolean;
+}): ReactElement {
+  if (showsActivityDetail) {
+    return (
+      <ActivityFeedList
+        className="min-h-0 flex-1"
+        selectedId={selectedActivityId}
+        onActivate={onActivityActivate}
+        onReportActivate={onActivityReportActivate}
+      />
+    );
+  }
+  if (railPane === "inbox") return <InboxPane className="min-h-0 flex-1" />;
+  if (railPane === "canvases") {
+    return <CanvasesPane className="min-h-0 flex-1" />;
+  }
+  if (feedId) {
+    return <TaskFeedPane feedId={feedId} className="min-h-0 flex-1" />;
+  }
+  return (
+    <ChannelPanes
+      channelId={channelId}
+      showList={showList}
+      sidebarVisible={sidebarVisible}
+      pendingTabSwitch={pendingTabSwitch}
+    />
+  );
+}
+
 function ChannelsSidebarImpl() {
   const width = useChannelsSidebarStore((state) => state.width);
   const setWidth = useChannelsSidebarStore((state) => state.setWidth);
@@ -210,10 +281,17 @@ function ChannelsSidebarImpl() {
   // slide to there's only the list.
   const { pane: railPane, showsActivityDetail } = useRailSurface();
   const selectedActivityId = useActivitySelection()?.id;
-  const feedId = useParams({
-    strict: false,
-    select: (params) => params.feedId,
+  const sourceFeedId = useRouterState({
+    select: (state) =>
+      resolveNavigationSource(
+        reportSourceHrefFromLocation(state.resolvedLocation ?? state.location),
+      )?.feedId ?? undefined,
   });
+  const feedId =
+    useParams({
+      strict: false,
+      select: (params) => params.feedId,
+    }) ?? sourceFeedId;
   const pane = useChannelPaneStore((s) => s.pane);
   const { isPending: pendingTabSwitch, viewState: pendingTabViewState } =
     usePendingTabViewState();
@@ -262,25 +340,18 @@ function ChannelsSidebarImpl() {
           )}
 
           {channelsLayout ? (
-            showsActivityDetail ? (
-              <ActivityFeedList
-                className="min-h-0 flex-1"
-                selectedId={selectedActivityId}
-                onActivate={selectActivityItem}
-                onReportActivate={selectActivityReport}
-              />
-            ) : railPane === "canvases" ? (
-              <CanvasesPane className="min-h-0 flex-1" />
-            ) : feedId ? (
-              <TaskFeedPane feedId={feedId} className="min-h-0 flex-1" />
-            ) : (
-              <ChannelPanes
-                channelId={presentedChannelId}
-                showList={showList}
-                sidebarVisible={open || peek}
-                pendingTabSwitch={pendingTabSwitch}
-              />
-            )
+            <RailPaneBody
+              railPane={railPane}
+              showsActivityDetail={showsActivityDetail}
+              selectedActivityId={selectedActivityId}
+              onActivityActivate={selectActivityItem}
+              onActivityReportActivate={selectActivityReport}
+              feedId={feedId}
+              channelId={presentedChannelId}
+              showList={showList}
+              sidebarVisible={open || peek}
+              pendingTabSwitch={pendingTabSwitch}
+            />
           ) : bodyChannelsWorld ? (
             <>
               <Separator />

@@ -118,17 +118,17 @@ class TestQueriedAccessControlledResources(BaseTest):
             (
                 "information_schema_data_quality_checks",
                 "select config from system.information_schema.data_quality_checks",
-                {"external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
             ),
             (
                 "information_schema_data_quality_check_runs",
                 "select failed_row_count from system.information_schema.data_quality_check_runs",
-                {"external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
             ),
             (
                 "information_schema_data_quality_health",
                 "select health from system.information_schema.data_quality_health",
-                {"external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
             ),
             # The plain schema tables expose no catalog-gated data, so they don't partition on it.
             ("information_schema_columns", "select * from system.information_schema.columns", set()),
