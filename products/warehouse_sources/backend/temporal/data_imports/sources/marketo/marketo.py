@@ -1,17 +1,19 @@
-import io
 import re
 import csv
 import time
 import dataclasses
 from collections.abc import Iterator, Mapping
 from datetime import UTC, date, datetime, timedelta
-from typing import IO, Any, Optional, cast
+from typing import Any, Optional, cast
 
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    response_text_stream,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketo.settings import (
@@ -379,10 +381,7 @@ def _download_bulk_export(
         raise_for_marketo_errors(response.json())
         return
 
-    response.raw.decode_content = True
-    # Wrap the raw stream rather than iterating lines: exported text columns can contain
-    # newlines inside quoted fields, which line-splitting would tear apart.
-    stream = io.TextIOWrapper(cast(IO[bytes], response.raw), encoding="utf-8", newline="")
+    stream = response_text_stream(response)
     batch: list[dict[str, Any]] = []
     for row in csv.DictReader(stream):
         batch.append(_normalize_row(row, int_columns))
