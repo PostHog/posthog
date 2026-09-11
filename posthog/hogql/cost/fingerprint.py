@@ -15,6 +15,8 @@ from collections.abc import Iterator
 from dataclasses import fields
 from enum import Enum
 
+from pydantic import BaseModel
+
 from posthog.hogql import ast
 from posthog.hogql.base import AST, Type
 
@@ -58,6 +60,14 @@ def _tokens(value: object) -> Iterator[str]:
             yield str(key)
             yield from _tokens(item)
         yield "}"
+    elif isinstance(value, BaseModel):
+        # Query settings such as join_algorithm change the physical plan, so every set value is part of
+        # the shape. Unset fields are skipped so adding a new setting does not move existing fingerprints.
+        yield type(value).__name__
+        for name, item in sorted(value.model_dump(exclude_none=True).items()):
+            yield name
+            yield from _tokens(item)
+        yield "/"
     elif isinstance(value, Enum):
         yield str(value.value)
     elif value is None or isinstance(value, str | int | float | bool):
