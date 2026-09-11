@@ -9,14 +9,7 @@ from posthog.schema import QueryScanWarning
 from posthog.dataclasses import frozen
 from posthog.query_scan.checks.event_filter import EventFilterOutcome
 from posthog.query_scan.explain import PlanTableRead, QueryPlan
-from posthog.query_scan.findings import (
-    FindingKind,
-    FindingReason,
-    ScanMeasurements,
-    ScanThresholds,
-    build_warning,
-    explain_evidence,
-)
+from posthog.query_scan.findings import FindingKind, FindingReason, ScanThresholds, build_warning, explain_evidence
 
 __all__ = ["PlanSet", "QueryScanResult", "analyze"]
 
@@ -40,12 +33,8 @@ class PlanSet:
 class QueryScanResult:
     findings: list[QueryScanWarning]
     explain_ok: bool
-    reads_events: bool = False
     range_share: float | None = None
     project_share: float | None = None
-
-    def finding_kinds(self) -> list[str]:
-        return [str(finding.kind) for finding in self.findings]
 
 
 def analyze(
@@ -54,7 +43,6 @@ def analyze(
     *,
     query_kind: str,
     open_filters_placeholder: bool,
-    measurements: ScanMeasurements,
     event_filter: EventFilterOutcome | None = None,
     table_row_averages: dict[str, float] | None = None,
     all_time: bool = False,
@@ -83,7 +71,6 @@ def analyze(
     findings += _findings_for_plan(
         plans.outer,
         thresholds,
-        measurements,
         query_kind=query_kind,
         open_filters_placeholder=open_filters_placeholder,
         all_time=all_time,
@@ -96,7 +83,6 @@ def analyze(
         findings += _findings_for_plan(
             subquery,
             thresholds,
-            measurements,
             query_kind=query_kind,
             open_filters_placeholder=open_filters_placeholder,
             all_time=all_time,
@@ -109,7 +95,6 @@ def analyze(
     return QueryScanResult(
         findings=findings,
         explain_ok=True,
-        reads_events=outer_events is not None,
         range_share=range_share,
         project_share=project_share,
     )
@@ -118,7 +103,6 @@ def analyze(
 def _findings_for_plan(
     plan: QueryPlan,
     thresholds: ScanThresholds,
-    measurements: ScanMeasurements,
     *,
     query_kind: str,
     open_filters_placeholder: bool,
@@ -145,7 +129,6 @@ def _findings_for_plan(
                 kind=FindingKind.NO_START_DATE,
                 query_kind=query_kind,
                 reason=reason,
-                measurements=measurements,
                 evidence=(
                     "The date range is set to All time, so the query starts at the project's first event."
                     if chose_all_time
@@ -161,7 +144,6 @@ def _findings_for_plan(
                 kind=FindingKind.NO_EVENT_FILTER,
                 query_kind=query_kind,
                 reason=event_reason,
-                measurements=measurements,
                 evidence=_primary_key_evidence(events_read, subquery_index),
             )
         )
@@ -172,7 +154,6 @@ def _findings_for_plan(
             build_warning(
                 kind=FindingKind.PERSONS_JOIN,
                 query_kind=query_kind,
-                measurements=measurements,
                 evidence=_primary_key_evidence(person_read, subquery_index),
             )
         )

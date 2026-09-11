@@ -28,8 +28,6 @@ import type {
     DeleteWarehouseOrgResponseApi,
     DeprovisionWarehouseResponseApi,
     FileUploadResponseApi,
-    FixHogQLRequestApi,
-    FixHogQLResponseApi,
     FixHogqlListParams,
     IncrementalEligibilityApi,
     InsightVariableApi,
@@ -666,19 +664,10 @@ export const getFixHogqlCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/fix_hogql/`
 }
 
-/**
- * @summary Fix a HogQL query
- */
-export const fixHogqlCreate = async (
-    projectId: string,
-    fixHogQLRequestApi: FixHogQLRequestApi,
-    options?: RequestInit
-): Promise<FixHogQLResponseApi> => {
-    return apiMutator<FixHogQLResponseApi>(getFixHogqlCreateUrl(projectId), {
+export const fixHogqlCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getFixHogqlCreateUrl(projectId), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fixHogQLRequestApi),
     })
 }
 

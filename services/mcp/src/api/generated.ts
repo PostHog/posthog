@@ -41937,29 +41937,6 @@ export namespace Schemas {
       add_images_to_comment_on_pr?: boolean;
     }
 
-    export interface FixHogQLError {
-      /** Why the query could not be updated. */
-      error: string;
-      /** Id of the LLM trace, for support and debugging. */
-      trace_id: string;
-    }
-
-    export interface FixHogQLRequest {
-      /** The HogQL query to work on. */
-      query: string;
-      /** The error the query returned. When set, the tool fixes that error and changes nothing else. */
-      error?: string;
-      /** Id of the data warehouse connection the query runs against, so the tool sees that connection's tables instead of only the ClickHouse catalog. */
-      connection_id?: string;
-    }
-
-    export interface FixHogQLResponse {
-      /** The updated HogQL query. */
-      query: string;
-      /** Id of the LLM trace, for support and debugging. */
-      trace_id: string;
-    }
-
     export interface FlagValueItem {
       name: unknown;
     }

@@ -641,12 +641,18 @@ export interface QueryScanWarning {
     message: string
     /** What "Fix with AI" and the assistant are told to do. */
     fix: string
-    /** The condition at fault, as HogQL. */
-    clause?: string
     /** The one fact the finding rests on. */
     evidence?: string
-    rows_read: integer
-    duration_ms: integer
+}
+
+/** The stored analysis of one query, from `GET /query/scan/{cache_key}`. */
+export interface QueryScanResponse {
+    status: QueryScanStatus
+    /** Empty until the status is `done`, and when the analysis found nothing to fix. */
+    warnings: QueryScanWarning[]
+    range_share?: number
+    project_share?: number
+    killed: boolean
 }
 
 export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase {
@@ -10154,8 +10160,6 @@ export interface UserUIConfiguration {
      */
     version: number
     sidebar?: SidebarConfiguration
-    /** Hide the advice a query scan produces, including the Slow query tag on dashboard tiles. The stat line stays. */
-    hide_query_scan_advice?: boolean
     [key: string]: unknown
 }
 

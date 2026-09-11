@@ -1,12 +1,9 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-
-import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 
 import { QueryScanState, fixableQueryScanFindings, queryScanStatLine } from './queryScan'
 import { QueryScanFindingList } from './QueryScanFindingList'
@@ -19,14 +16,12 @@ export interface QueryScanBannerProps {
 }
 
 export function QueryScanBanner({ queryScan, onFixWithAI, className }: QueryScanBannerProps): JSX.Element | null {
-    const { showQueryScanAdvice } = useValues(uiCustomizationLogic)
-
     if (!queryScan) {
         return null
     }
 
     const { summary, findings } = queryScan
-    const showFindings = summary.status === 'done' && findings.length > 0 && showQueryScanAdvice
+    const showFindings = summary.status === 'done' && findings.length > 0
     const fixableFindings = fixableQueryScanFindings(findings)
 
     return (

@@ -31,8 +31,6 @@ class TestQueryScanSlotRoundTrip(SimpleTestCase):
             kind=QueryScanFindingKind.NO_EVENT_FILTER,
             message="This query read every event.",
             fix="Add an event filter.",
-            rows_read=41_200,
-            duration_ms=19_000,
         )
         set_done(
             1,
@@ -41,7 +39,6 @@ class TestQueryScanSlotRoundTrip(SimpleTestCase):
                 status=QueryScanStatus.DONE,
                 range_share=0.42,
                 project_share=0.13,
-                explain_ok=True,
                 findings=(finding,),
                 killed=True,
             ),

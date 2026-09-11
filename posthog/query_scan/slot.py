@@ -7,7 +7,6 @@ read returns None on any Redis or JSON failure, and a write logs and swallows.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -34,20 +33,13 @@ ENQUEUE_WINDOW_SECONDS = 60
 
 @frozen
 class QueryScanSlot:
-    """One analysis of one query. ``pending`` carries only the enqueue time."""
+    """One analysis of one query. A ``pending`` slot carries only the status and ``killed``."""
 
     status: QueryScanStatus
-    enqueued_at: str | None = None
-    analyzed_at: str | None = None
-    query_kind: str | None = None
-    rows_read: int | None = None
-    duration_ms: int | None = None
     range_share: float | None = None
     project_share: float | None = None
-    explain_ok: bool | None = None
     findings: tuple[QueryScanWarning, ...] = ()
     killed: bool = False
-    error_type: str | None = None
     thresholds: str | None = None
 
 
@@ -83,7 +75,7 @@ def get(team_id: int, cache_key: str, *, thresholds: str | None = None) -> Query
 
 def set_pending(team_id: int, cache_key: str, *, killed: bool = False) -> bool:
     """Claim the slot for one job. The write is conditional, so two slow runs of one query enqueue one job."""
-    value: dict[str, Any] = {"status": "pending", "enqueued_at": _now()}
+    value: dict[str, Any] = {"status": "pending"}
     if killed:
         # The scan endpoint answers from this slot until the job finishes, so a run ClickHouse
         # stopped must not read as one that completed.
@@ -132,27 +124,16 @@ def _write(team_id: int, cache_key: str, value: dict[str, Any], ttl_seconds: int
         return False
 
 
-def _now() -> str:
-    return datetime.now(UTC).isoformat()
-
-
 def _serialize(slot: QueryScanSlot) -> dict[str, Any]:
     value: dict[str, Any] = {
         "status": str(slot.status),
-        "analyzed_at": slot.analyzed_at or _now(),
-        "query_kind": slot.query_kind,
-        "rows_read": slot.rows_read,
-        "duration_ms": slot.duration_ms,
         "range_share": slot.range_share,
         "project_share": slot.project_share,
-        "explain_ok": slot.explain_ok,
         "findings": [finding.model_dump(by_alias=True, exclude_none=True) for finding in slot.findings],
         "thresholds": slot.thresholds,
     }
     if slot.killed:
         value["killed"] = True
-    if slot.error_type is not None:
-        value["error_type"] = slot.error_type
     return value
 
 
@@ -165,18 +146,11 @@ def _deserialize(value: Any) -> QueryScanSlot | None:
     findings = value.get("findings")
     return QueryScanSlot(
         status=QueryScanStatus(status),
-        enqueued_at=value.get("enqueued_at"),
-        analyzed_at=value.get("analyzed_at"),
-        query_kind=value.get("query_kind"),
-        rows_read=value.get("rows_read"),
-        duration_ms=value.get("duration_ms"),
         range_share=value.get("range_share"),
         project_share=value.get("project_share"),
-        explain_ok=value.get("explain_ok"),
         findings=tuple(QueryScanWarning.model_validate(finding) for finding in findings)
         if isinstance(findings, list)
         else (),
         killed=bool(value.get("killed", False)),
-        error_type=value.get("error_type"),
         thresholds=value.get("thresholds"),
     )

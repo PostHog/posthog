@@ -19,8 +19,6 @@ _MIN_MAX_TYPE = "Min-Max"
 _PRIMARY_KEY_TYPE = "PrimaryKey"
 _SKIP_TYPE = "Skip"
 _MERGE_TREE_READ = "ReadFromMergeTree"
-# The other shards' read. It carries no index report and is not a warehouse read.
-_REMOTE_READ = "ReadFromRemote"
 
 # ClickHouse prints a Min-Max timestamp condition in one canonical form: `timestamp in [A, +Inf)`,
 # `timestamp in (-Inf, B]`, or `timestamp in [A, B]`, all in unix seconds.
@@ -40,12 +38,8 @@ class PlanIndex:
     """One entry of a read node's ``Indexes`` list."""
 
     type: str
-    # Only Skip steps carry a `Name`, the index that pruned; the other index types do not.
-    name: str | None
     keys: tuple[str, ...]
     condition: str | None
-    initial_parts: int | None
-    selected_parts: int | None
     initial_granules: int | None
     selected_granules: int | None
 
@@ -118,7 +112,6 @@ class PlanTableRead:
 @frozen
 class QueryPlan:
     reads: tuple[PlanTableRead, ...]
-    has_non_mergetree_read: bool = False
 
     def events_reads(self) -> tuple[PlanTableRead, ...]:
         return tuple(read for read in self.reads if read.reads_events())
@@ -147,32 +140,24 @@ def parse_query_plan(payload: object) -> QueryPlan:
             return QueryPlan(reads=())
 
     reads: list[PlanTableRead] = []
-    saw_other_read = _collect_reads(payload, reads)
-    return QueryPlan(reads=tuple(reads), has_non_mergetree_read=saw_other_read)
+    _collect_reads(payload, reads)
+    return QueryPlan(reads=tuple(reads))
 
 
-def _collect_reads(node: object, reads: list[PlanTableRead]) -> bool:
-    """Append every MergeTree read to ``reads``; return whether a non-MergeTree read node was seen."""
+def _collect_reads(node: object, reads: list[PlanTableRead]) -> None:
+    """Append every MergeTree read under ``node`` to ``reads``, in plan order."""
     if isinstance(node, list):
-        # Visit every item, not `any(...)`, which would stop appending reads at the first non-MergeTree.
-        saw_other = False
         for item in node:
-            saw_other = _collect_reads(item, reads) or saw_other
-        return saw_other
+            _collect_reads(item, reads)
+        return
     if not isinstance(node, dict):
-        return False
-
-    saw_other = _collect_reads(node.get("Plan"), reads)
-
-    node_type = node.get("Node Type")
-    if node_type == _MERGE_TREE_READ:
+        return
+    _collect_reads(node.get("Plan"), reads)
+    if node.get("Node Type") == _MERGE_TREE_READ:
         read = _parse_read(node)
         if read is not None:
             reads.append(read)
-    elif isinstance(node_type, str) and node_type.startswith("ReadFrom") and node_type != _REMOTE_READ:
-        saw_other = True
-
-    return _collect_reads(node.get("Plans"), reads) or saw_other
+    _collect_reads(node.get("Plans"), reads)
 
 
 def _parse_read(node: dict[str, Any]) -> PlanTableRead | None:
@@ -196,15 +181,11 @@ def _parse_index(entry: object) -> PlanIndex | None:
     if not isinstance(index_type, str):
         return None
     keys = entry.get("Keys")
-    name = entry.get("Name")
     condition = entry.get("Condition")
     return PlanIndex(
         type=index_type,
-        name=name if isinstance(name, str) else None,
         keys=tuple(key for key in keys if isinstance(key, str)) if isinstance(keys, list) else (),
         condition=condition if isinstance(condition, str) else None,
-        initial_parts=_as_int(entry.get("Initial Parts")),
-        selected_parts=_as_int(entry.get("Selected Parts")),
         initial_granules=_as_int(entry.get("Initial Granules")),
         selected_granules=_as_int(entry.get("Selected Granules")),
     )

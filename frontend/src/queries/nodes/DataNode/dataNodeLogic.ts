@@ -32,23 +32,18 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { DataNodeCollectionProps, dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import {
-    QueryScanApiResponse,
-    QueryScanPollResult,
-    QueryScanState,
-    resolveQueryScan,
-} from '~/queries/nodes/DataNode/queryScan'
+import { QueryScanPollResult, QueryScanState, resolveQueryScan } from '~/queries/nodes/DataNode/queryScan'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
 import {
-    ActorsQuery,
-    ActorsQueryResponse,
-    AnyResponseType,
-    DashboardFilter,
     AccountsQuery,
     AccountsQueryResponse,
     AccountsTableQuery,
     AccountsTableQueryResponse,
+    ActorsQuery,
+    ActorsQueryResponse,
+    AnyResponseType,
+    DashboardFilter,
     DataNode,
     DataVisualizationNode,
     ErrorTrackingQuery,
@@ -66,6 +61,7 @@ import {
     MarketingAnalyticsTableQueryResponse,
     NodeKind,
     PersonsNode,
+    QueryScanResponse,
     QueryStatus,
     QueryTiming,
     RefreshType,
@@ -611,11 +607,11 @@ export interface dataNodeLogicActions {
         queryId: string
     }
     setQueryScanResult: (
-        result: QueryScanApiResponse,
+        result: QueryScanResponse,
         cacheKey: string
     ) => {
         cacheKey: string
-        result: QueryScanApiResponse
+        result: QueryScanResponse
     }
     setResponse: (
         response: Exclude<AnyResponseType, undefined>
@@ -1004,7 +1000,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         setQueryLogQueryId: (queryId: string) => ({ queryId }),
         loadFilteredCount: true,
         pollQueryScan: true,
-        setQueryScanResult: (result: QueryScanApiResponse, cacheKey: string) => ({ result, cacheKey }),
+        setQueryScanResult: (result: QueryScanResponse, cacheKey: string) => ({ result, cacheKey }),
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -2111,7 +2107,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 }
                 elapsedMs += delayMs
                 await breakpoint(delayMs)
-                let scan: QueryScanApiResponse
+                let scan: QueryScanResponse
                 try {
                     scan = await api.queryScan.get(cacheKey)
                 } catch {

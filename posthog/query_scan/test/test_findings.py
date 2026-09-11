@@ -2,16 +2,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.query_scan.findings import (
-    FindingKind,
-    FindingReason,
-    ScanMeasurements,
-    build_warning,
-    explain_evidence,
-    format_rows,
-)
-
-MEASUREMENTS = ScanMeasurements(rows_read=8_400_000_000, duration_ms=19_000)
+from posthog.query_scan.findings import FindingKind, FindingReason, build_warning, explain_evidence, format_rows
 
 
 class TestFindings(SimpleTestCase):
@@ -86,14 +77,12 @@ class TestFindings(SimpleTestCase):
         message_contains: str,
         fix_contains: str,
     ) -> None:
-        warning = build_warning(kind=kind, reason=reason, query_kind=query_kind, measurements=MEASUREMENTS)
+        warning = build_warning(kind=kind, reason=reason, query_kind=query_kind)
 
         self.assertEqual(warning.type, "query_scan")
         self.assertEqual(warning.kind, kind)
         self.assertIn(message_contains, warning.message)
         self.assertIn(fix_contains, warning.fix)
-        self.assertEqual(warning.rows_read, 8_400_000_000)
-        self.assertEqual(warning.duration_ms, 19_000)
 
     @parameterized.expand(
         [

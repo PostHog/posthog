@@ -53,7 +53,6 @@ _CLASS_ORDER: tuple[EventFilterClass, ...] = ("none", "not_used", "usable")
 class EventFilterOutcome:
     classification: EventFilterClass
     reason: EventFilterReason | None = None
-    clause: ast.Expr | None = None
 
 
 def classify_event_filter(tree: ast.AST) -> EventFilterOutcome:
@@ -75,7 +74,7 @@ def combine_event_filter(outcome: EventFilterOutcome, plan: QueryPlan | None) ->
     if key_used is True and outcome.reason != "negated":
         return EventFilterOutcome(classification="usable")
     if key_used is False and outcome.classification == "usable":
-        return EventFilterOutcome(classification="not_used", reason="not_pruned", clause=outcome.clause)
+        return EventFilterOutcome(classification="not_used", reason="not_pruned")
     return outcome
 
 
@@ -114,14 +113,14 @@ def _classify_term(term: ast.Expr, read: EventsRead) -> EventFilterOutcome | Non
         inner = _classify_term(term.expr, read)
         if inner is None:
             return None
-        return EventFilterOutcome(classification="not_used", reason="negated", clause=term)
+        return EventFilterOutcome(classification="not_used", reason="negated")
 
     if isinstance(term, ast.CompareOperation):
         return _classify_compare(term, read)
 
     if contains_column_of(term, read, _EVENT_COLUMN):
         # A bare call over `event`, for example `match(event, '…')`.
-        return EventFilterOutcome(classification="not_used", reason="wrapped", clause=term)
+        return EventFilterOutcome(classification="not_used", reason="wrapped")
     return None
 
 
@@ -131,8 +130,8 @@ def _classify_or(term: ast.Or, read: EventsRead) -> EventFilterOutcome | None:
         return None
     if all(branch is not None and branch.classification == "usable" for branch in branches):
         # Every branch names events, so the OR is still a list of event names.
-        return EventFilterOutcome(classification="usable", clause=term)
-    return EventFilterOutcome(classification="not_used", reason="in_or", clause=term)
+        return EventFilterOutcome(classification="usable")
+    return EventFilterOutcome(classification="not_used", reason="in_or")
 
 
 def _classify_compare(node: ast.CompareOperation, read: EventsRead) -> EventFilterOutcome | None:
@@ -140,27 +139,27 @@ def _classify_compare(node: ast.CompareOperation, read: EventsRead) -> EventFilt
         if is_column_of(field_side, read, _EVENT_COLUMN):
             return _classify_event_compare(node, value_side)
         if contains_column_of(field_side, read, _EVENT_COLUMN):
-            return EventFilterOutcome(classification="not_used", reason="wrapped", clause=node)
+            return EventFilterOutcome(classification="not_used", reason="wrapped")
     return None
 
 
 def _classify_event_compare(node: ast.CompareOperation, value_side: ast.Expr) -> EventFilterOutcome:
     if node.op in _NEGATED_OPS:
-        return EventFilterOutcome(classification="not_used", reason="negated", clause=node)
+        return EventFilterOutcome(classification="not_used", reason="negated")
     if node.op in _EQUALITY_OPS and _is_constant(value_side):
-        return EventFilterOutcome(classification="usable", clause=node)
+        return EventFilterOutcome(classification="usable")
     if node.op in _PATTERN_OPS and _is_constant(value_side):
         pattern = next(_iter_string_constants(value_side), None)
         if node.op in _PRUNABLE_PATTERN_OPS and pattern is not None and not pattern.startswith("%"):
-            return EventFilterOutcome(classification="usable", clause=node)
+            return EventFilterOutcome(classification="usable")
         # A leading wildcard leaves no prefix for the sort order to seek on, and an ILIKE pattern
         # has no case-sensitive prefix at all.
-        return EventFilterOutcome(classification="not_used", reason="not_pruned", clause=node)
+        return EventFilterOutcome(classification="not_used", reason="not_pruned")
     if node.op not in _NOT_PRUNED_OPS and _is_data(value_side):
         # `dynamic` tells the person their filter compares `event` to a column or a subquery, so
         # only that shape may take it.
-        return EventFilterOutcome(classification="not_used", reason="dynamic", clause=node)
-    return EventFilterOutcome(classification="not_used", reason="not_pruned", clause=node)
+        return EventFilterOutcome(classification="not_used", reason="dynamic")
+    return EventFilterOutcome(classification="not_used", reason="not_pruned")
 
 
 def _is_data(expr: ast.Expr) -> bool:

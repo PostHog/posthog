@@ -1,18 +1,8 @@
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { QueryScanStatus, QueryScanSummary, QueryScanWarning } from '~/queries/schema/schema-general'
+import { QueryScanResponse, QueryScanSummary, QueryScanWarning } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
 import { DashboardTile, InsightShortId, QueryBasedInsightModel } from '~/types'
-
-// The query viewset has no generated client, so this mirrors `QueryScanResponseSerializer` in
-// `posthog/api/query.py`.
-export interface QueryScanApiResponse {
-    status: QueryScanStatus
-    warnings: QueryScanWarning[]
-    range_share: number | null
-    project_share: number | null
-    killed: boolean
-}
 
 export interface QueryScanState {
     summary: QueryScanSummary
@@ -22,7 +12,7 @@ export interface QueryScanState {
 
 export interface QueryScanPollResult {
     cacheKey: string
-    scan: QueryScanApiResponse
+    scan: QueryScanResponse
 }
 
 interface ScanCarrier {
@@ -79,8 +69,8 @@ export function resolveQueryScan(
         summary: {
             ...summary,
             status: scan.status,
-            range_share: scan.range_share ?? undefined,
-            project_share: scan.project_share ?? undefined,
+            range_share: scan.range_share,
+            project_share: scan.project_share,
             killed: scan.killed,
         },
         findings: [...queryScanFindings(carrier?.warnings), ...scan.warnings],
@@ -116,10 +106,6 @@ export function queryScanTileStatLine(summary: QueryScanSummary): string {
         return `ClickHouse stopped this tile's last run after ${seconds} s, having read ${rows} rows.`
     }
     return `This tile read ${rows} rows in ${seconds} s on its last run.`
-}
-
-export function showQueryScanTag(findings: QueryScanWarning[], showAdvice: boolean): boolean {
-    return showAdvice && findings.length > 0
 }
 
 // A `filters` finding is fixed on the insight's date range, not in the SQL, so there is nothing in
@@ -194,14 +180,8 @@ export interface QueryScanDashboardEntry {
     findingCount: number
 }
 
-export interface QueryScanDashboardSummary {
-    entries: QueryScanDashboardEntry[]
-    /** Tracks which tiles are slow and how much they have to change, so a dismissed banner returns when that set moves. */
-    signature: string
-}
-
 /** The insights on a dashboard whose last fresh run has advice for the viewer. */
-export function queryScanDashboardSummary(tiles: DashboardTile<QueryBasedInsightModel>[]): QueryScanDashboardSummary {
+export function queryScanDashboardEntries(tiles: DashboardTile<QueryBasedInsightModel>[]): QueryScanDashboardEntry[] {
     const entries: QueryScanDashboardEntry[] = []
     for (const tile of tiles) {
         const insight = tile.insight
@@ -224,11 +204,5 @@ export function queryScanDashboardSummary(tiles: DashboardTile<QueryBasedInsight
             findingCount,
         })
     }
-    return {
-        entries,
-        signature: entries
-            .map((entry) => `${entry.tileId}:${entry.findingCount}`)
-            .sort()
-            .join(','),
-    }
+    return entries
 }

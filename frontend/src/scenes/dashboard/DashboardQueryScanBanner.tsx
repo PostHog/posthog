@@ -5,31 +5,24 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
-import { queryScanDashboardSummary } from '~/queries/nodes/DataNode/queryScan'
+import { queryScanDashboardEntries } from '~/queries/nodes/DataNode/queryScan'
 
 import { dashboardLogic } from './dashboardLogic'
 
 export function DashboardQueryScanBanner(): JSX.Element | null {
     const { dashboard, insightTiles, canEditDashboard } = useValues(dashboardLogic)
-    const { showQueryScanAdvice } = useValues(uiCustomizationLogic)
-
-    if (!dashboard || !canEditDashboard || !showQueryScanAdvice) {
+    if (!dashboard || !canEditDashboard) {
         return null
     }
 
-    const { entries, signature } = queryScanDashboardSummary(insightTiles)
+    const entries = queryScanDashboardEntries(insightTiles)
     if (entries.length === 0) {
         return null
     }
 
     const single = entries.length === 1
     return (
-        <LemonBanner
-            type="warning"
-            className="mt-4 mb-2"
-            dismissKey={`query-scan-dashboard-${dashboard.id}-${signature}`}
-        >
+        <LemonBanner type="warning" className="mt-4 mb-2">
             {single
                 ? '1 insight on this dashboard reads a large number of events, which can slow down dashboard loads: '
                 : `${entries.length} insights on this dashboard read a large number of events, which can slow down dashboard loads: `}

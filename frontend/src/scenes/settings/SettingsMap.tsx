@@ -184,7 +184,6 @@ import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/PersonalIntegrations'
 import { ProfilePictureSettings } from './user/ProfilePictureSettings'
-import { QueryScanAdviceSetting } from './user/QueryScanAdviceSetting'
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { Reminders } from './user/Reminders'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
@@ -2266,14 +2265,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <WebAnalyticsAchievementsSetting />,
                 flag: 'WEB_ANALYTICS_ACHIEVEMENTS',
                 keywords: ['web analytics', 'achievements', 'gamification', 'badges', 'streak'],
-            },
-            {
-                id: 'query-scan-advice',
-                title: 'Advice on slow queries',
-                description: 'The rows and time under a result stay.',
-                component: <QueryScanAdviceSetting />,
-                flag: 'QUERY_SCAN_WARNINGS',
-                keywords: ['slow', 'query', 'advice', 'sql', 'performance', 'scan'],
             },
             {
                 id: 'hedgehog-mode',

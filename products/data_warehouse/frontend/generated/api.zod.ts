@@ -49,26 +49,6 @@ export const DataWarehouseProvisionCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * @summary Fix a HogQL query
- */
-export const fixHogqlCreateBodyErrorDefault = ``
-export const fixHogqlCreateBodyConnectionIdDefault = ``
-
-export const FixHogqlCreateBody = /* @__PURE__ */ zod.object({
-    query: zod.string().describe('The HogQL query to work on.'),
-    error: zod
-        .string()
-        .default(fixHogqlCreateBodyErrorDefault)
-        .describe('The error the query returned. When set, the tool fixes that error and changes nothing else.'),
-    connection_id: zod
-        .string()
-        .default(fixHogqlCreateBodyConnectionIdDefault)
-        .describe(
-            "Id of the data warehouse connection the query runs against, so the tool sees that connection's tables instead of only the ClickHouse catalog."
-        ),
-})
-
 export const insightVariablesCreateBodyNameMax = 400
 
 export const InsightVariablesCreateBody = /* @__PURE__ */ zod.object({

@@ -79,15 +79,12 @@ class TestExplainParsing(SimpleTestCase):
         self.assertEqual(bounds.lower, lower_bound)
         self.assertIsNone(bounds.upper)
 
-    def test_steps_are_kept_in_order_and_skip_steps_carry_names(self) -> None:
+    def test_steps_are_kept_in_plan_order(self) -> None:
         read = parse_query_plan(load_plan("plan_skip_index_pruned")).events_read()
         assert read is not None
 
         self.assertEqual([step.type for step in read.indexes], ["Min-Max", "Partition", "PrimaryKey", "Skip", "Skip"])
-        self.assertEqual(
-            [step.name for step in read.skip_steps()],
-            ["minmax_$session_id", "minmax_sharded_events_timestamp"],
-        )
+        self.assertEqual(len(read.skip_steps()), 2)
 
     @parameterized.expand(
         [
@@ -114,19 +111,17 @@ class TestExplainParsing(SimpleTestCase):
         assert events_read is not None
         self.assertEqual(events_read.table, "posthog.sharded_events")
         self.assertEqual([read.table for read in plan.person_reads()], ["posthog.person"])
-        self.assertFalse(plan.has_non_mergetree_read)
 
     @parameterized.expand(
         [
-            ("object storage read has no events read", "plan_object_storage_read", True),
-            ("a replay list reads its own table, not events", "plan_replay_list_in_subqueries", False),
+            ("object storage read has no events read", "plan_object_storage_read"),
+            ("a replay list reads its own table, not events", "plan_replay_list_in_subqueries"),
         ]
     )
-    def test_plans_without_an_events_read(self, _name: str, fixture: str, non_mergetree: bool) -> None:
+    def test_plans_without_an_events_read(self, _name: str, fixture: str) -> None:
         plan = parse_query_plan(load_plan(fixture))
 
         self.assertIsNone(plan.events_read())
-        self.assertEqual(plan.has_non_mergetree_read, non_mergetree)
 
     @parameterized.expand(
         [

@@ -12,7 +12,7 @@ import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 
 const SCAN_ENDPOINT = '/api/environments/:team_id/query/scan/:cache_key/'
-const PENDING_SCAN = { status: 'pending', warnings: [], range_share: null, project_share: null, killed: false }
+const PENDING_SCAN = { status: 'pending', warnings: [], killed: false }
 const DONE_SCAN = {
     status: 'done',
     warnings: [
@@ -21,8 +21,6 @@ const DONE_SCAN = {
             kind: 'no_event_filter',
             message: 'This query read every event in its date range.',
             fix: 'Add an event filter.',
-            rows_read: 10,
-            duration_ms: 2000,
         },
     ],
     range_share: 0.42,

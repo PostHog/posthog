@@ -3,11 +3,10 @@ import { DashboardTile, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import {
     queryScanAssistantPrompt,
-    queryScanDashboardSummary,
+    queryScanDashboardEntries,
     queryScanStatLine,
     queryScanTileStatLine,
     resolveQueryScan,
-    showQueryScanTag,
 } from './queryScan'
 
 const SUMMARY: QueryScanSummary = {
@@ -22,9 +21,6 @@ const FINDING: QueryScanWarning = {
     kind: 'no_event_filter',
     message: 'This query read every event in its date range.',
     fix: 'Add an event filter naming the events this question is about.',
-    clause: "event != 'x'",
-    rows_read: 8_400_000_000,
-    duration_ms: 19_000,
 }
 
 function tile(id: number, insight: Partial<QueryBasedInsightModel> | null): DashboardTile<QueryBasedInsightModel> {
@@ -76,17 +72,6 @@ describe('queryScan', () => {
         expect(queryScanTileStatLine({ ...SUMMARY, ...summary })).toEqual(expected)
     })
 
-    it.each([
-        ['a finding and advice on', [FINDING], true, true],
-        ['a finding and advice off', [FINDING], false, false],
-        ['advice on and no finding', [], true, false],
-    ] as [string, QueryScanWarning[], boolean, boolean][])(
-        'decides the tile tag for %s',
-        (_label, findings, showAdvice, expected) => {
-            expect(showQueryScanTag(findings, showAdvice)).toEqual(expected)
-        }
-    )
-
     it('builds a goal-first prompt with the run, its shares, each finding and the standing rules', () => {
         const summary: QueryScanSummary = { ...SUMMARY, range_share: 0.42, project_share: 0.07 }
         const finding: QueryScanWarning = {
@@ -128,7 +113,7 @@ describe('queryScan', () => {
     })
 
     it('names only the insights whose last run has advice', () => {
-        const { entries } = queryScanDashboardSummary([
+        const entries = queryScanDashboardEntries([
             tile(1, null),
             tile(2, slowInsight('aaa', 'Active users', 2)),
             tile(3, slowInsight('bbb', 'Fast enough', 0)),
@@ -144,17 +129,5 @@ describe('queryScan', () => {
             { tileId: 7, shortId: 'fff', name: 'Pageview count', findingCount: 1 },
             { tileId: 8, shortId: 'ggg', name: 'Untitled', findingCount: 1 },
         ])
-    })
-
-    it('signs the slow tiles and their counts, ignoring tile order', () => {
-        const first = tile(2, slowInsight('aaa', 'Active users', 2))
-        const second = tile(10, slowInsight('bbb', 'Slow SQL', 1))
-
-        expect(queryScanDashboardSummary([first, second]).signature).toEqual(
-            queryScanDashboardSummary([second, first]).signature
-        )
-        expect(queryScanDashboardSummary([first, second]).signature).not.toEqual(
-            queryScanDashboardSummary([first, tile(10, slowInsight('bbb', 'Slow SQL', 3))]).signature
-        )
     })
 })

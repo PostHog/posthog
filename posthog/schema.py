@@ -2619,6 +2619,20 @@ class QueryResponseAlternative7(BaseModel):
     stdout: str | None = None
 
 
+class QueryScanWarning(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    evidence: str | None = Field(default=None, description="The one fact the finding rests on.")
+    fix: str = Field(..., description='What "Fix with AI" and the assistant are told to do.')
+    kind: QueryScanFindingKind
+    message: str = Field(..., description="Shown to the person: what happened and what to do.")
+    reason: QueryScanFindingReason | None = Field(
+        default=None, description="Only with `no_event_filter` and `no_start_date`."
+    )
+    type: Literal["query_scan"] = "query_scan"
+
+
 class QueryTiming(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6637,6 +6651,20 @@ class QueryResponseAlternative31(BaseModel):
     status: ExternalQueryStatus
 
 
+class QueryScanResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    killed: bool
+    project_share: float | None = None
+    range_share: float | None = None
+    status: QueryScanStatus
+    warnings: list[QueryScanWarning] = Field(
+        ...,
+        description=("Empty until the status is `done`, and when the analysis found nothing to fix."),
+    )
+
+
 class QueryScanSummary(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6666,23 +6694,6 @@ class QueryScanSummary(BaseModel):
         description="Rows ClickHouse read for the last fresh run, all tables included.",
     )
     status: QueryScanStatus | None = Field(default=None, description="Absent when the run was too fast to analyze.")
-
-
-class QueryScanWarning(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    clause: str | None = Field(default=None, description="The condition at fault, as HogQL.")
-    duration_ms: int
-    evidence: str | None = Field(default=None, description="The one fact the finding rests on.")
-    fix: str = Field(..., description='What "Fix with AI" and the assistant are told to do.')
-    kind: QueryScanFindingKind
-    message: str = Field(..., description="Shown to the person: what happened and what to do.")
-    reason: QueryScanFindingReason | None = Field(
-        default=None, description="Only with `no_event_filter` and `no_start_date`."
-    )
-    rows_read: int
-    type: Literal["query_scan"] = "query_scan"
 
 
 class QueryStatus(BaseModel):
@@ -24689,13 +24700,6 @@ class UsageMetricsQuery(BaseModel):
 
 
 class UserUIConfiguration(BaseModel):
-    hide_query_scan_advice: bool | None = Field(
-        default=None,
-        description=(
-            "Hide the advice a query scan produces, including the Slow query tag on"
-            " dashboard tiles. The stat line stays."
-        ),
-    )
     sidebar: SidebarConfiguration | None = None
     version: int = Field(
         ...,

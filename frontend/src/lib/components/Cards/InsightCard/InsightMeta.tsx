@@ -45,10 +45,9 @@ import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { isSurveyableFunnelInsight, SurveyableFunnelInsight } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
-import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { queryScanFindings, showQueryScanTag } from '~/queries/nodes/DataNode/queryScan'
+import { queryScanFindings } from '~/queries/nodes/DataNode/queryScan'
 import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTooltip'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
 import { Node, ProductKey } from '~/queries/schema/schema-general'
@@ -195,7 +194,6 @@ export function InsightMeta({
     const { updateInsightDirect } = useActions(insightsModel)
     const { reportDashboardInsightMetaUpdated } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { showQueryScanAdvice } = useValues(uiCustomizationLogic)
 
     const showCompactTile =
         placement === DashboardPlacement.Dashboard ||
@@ -254,7 +252,7 @@ export function InsightMeta({
     const scanFindings = queryScanFindings(queryScan?.warnings)
     // Without a finding the tag can only say that PostHog was slow, which leaves the viewer nothing to do.
     const queryScanTooltip =
-        canEditInsight && queryScan?.mode === 'show' && showQueryScanTag(scanFindings, showQueryScanAdvice) ? (
+        canEditInsight && queryScan?.mode === 'show' && scanFindings.length > 0 ? (
             <QueryScanTileTooltip summary={queryScan} findings={scanFindings} />
         ) : null
 

@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from posthog.query_scan.findings import ASSISTANT_GOAL, ASSISTANT_RULES, FindingKind, ScanMeasurements, build_warning
+from posthog.query_scan.findings import ASSISTANT_GOAL, ASSISTANT_RULES, FindingKind, build_warning
 
 from .. import format_access_control_warnings, format_query_scan_warnings, format_warehouse_sync_warnings
 
@@ -20,8 +20,6 @@ _SCAN_FINDING = {
         "could not use it. Put the event filter outside the OR: `WHERE event IN ('…') AND (… OR …)`."
     ),
     "fix": "Move the event filter out of the OR so it stands on its own. Change nothing else.",
-    "rows_read": 4_200_000_000,
-    "duration_ms": 12_300,
 }
 _SCAN_SHOWN: dict[str, Any] = {"mode": "show", "rows_read": 4_200_000_000, "duration_ms": 12_300, "status": "done"}
 
@@ -30,11 +28,7 @@ def _scan(**overrides: Any) -> dict[str, Any]:
     return {**_SCAN_SHOWN, **overrides}
 
 
-_START_DATE_ADVICE = build_warning(
-    kind=FindingKind.NO_START_DATE,
-    query_kind="HogQLQuery",
-    measurements=ScanMeasurements(rows_read=4_200_000_000, duration_ms=12_300),
-).message
+_START_DATE_ADVICE = build_warning(kind=FindingKind.NO_START_DATE, query_kind="HogQLQuery").message
 
 
 _SYNC = {

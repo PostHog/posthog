@@ -24,14 +24,13 @@ import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
-import { QueryScanApiResponse } from '~/queries/nodes/DataNode/queryScan'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     AggregatedSpanRow,
     AnyResponseType,
     DashboardFilter,
-    DataWarehouseManagedViewsetKind,
     DatabaseSerializedFieldType,
+    DataWarehouseManagedViewsetKind,
     DomainConnectProviderName,
     EndpointLastExecutionTimesRequest,
     EndpointRequest,
@@ -55,6 +54,7 @@ import {
     Node,
     NodeKind,
     QueryLogTags,
+    QueryScanResponse,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
@@ -6382,7 +6382,7 @@ const api = {
     },
 
     queryScan: {
-        async get(cacheKey: string): Promise<QueryScanApiResponse> {
+        async get(cacheKey: string): Promise<QueryScanResponse> {
             return await new ApiRequest().queryScan(cacheKey).get()
         },
     },

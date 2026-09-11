@@ -6,7 +6,6 @@ the result in the scan slot. It runs EXPLAINs only, on the offline pool.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
 
@@ -26,7 +25,7 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.query_scan.analyze import PlanSet, QueryScanResult, analyze
 from posthog.query_scan.checks.event_filter import EventFilterOutcome, combine_event_filter
 from posthog.query_scan.explain import QueryPlan, TimestampBounds, parse_query_plan
-from posthog.query_scan.findings import ScanMeasurements, ScanThresholds
+from posthog.query_scan.findings import ScanThresholds
 from posthog.query_scan.flag import get_query_scan_flag
 from posthog.query_scan.slot import QueryScanSlot, set_done
 
@@ -120,7 +119,6 @@ def _run(job: QueryScanJob, started: float) -> None:
         # The flag went off between the enqueue and now. Leave the pending slot to expire.
         return
     thresholds = ScanThresholds(event_ratio=flag.event_ratio, persons_ratio=flag.persons_ratio)
-    measurements = ScanMeasurements(rows_read=job.rows_read, duration_ms=job.duration_ms)
 
     # Read once per run: the average is a table-wide property, the same for every execution.
     table_row_averages = _table_row_averages(job.team.pk)
@@ -147,7 +145,6 @@ def _run(job: QueryScanJob, started: float) -> None:
                 query_kind=job.query_kind or "",
                 open_filters_placeholder=job.open_filters_placeholder,
                 all_time=job.all_time,
-                measurements=measurements,
                 event_filter=_combined_event_filter(execution, outer),
                 table_row_averages=table_row_averages,
             )
@@ -159,16 +156,10 @@ def _run(job: QueryScanJob, started: float) -> None:
         job.cache_key,
         QueryScanSlot(
             status=QueryScanStatus.DONE,
-            analyzed_at=datetime.now(UTC).isoformat(),
-            query_kind=job.query_kind,
-            rows_read=job.rows_read,
-            duration_ms=job.duration_ms,
             range_share=merged.range_share,
             project_share=merged.project_share,
-            explain_ok=merged.explain_ok,
             findings=tuple(merged.findings),
             killed=job.killed,
-            error_type=job.error_type,
             thresholds=flag.thresholds_fingerprint,
         ),
     )

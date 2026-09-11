@@ -43,13 +43,6 @@ class ScanThresholds:
 
 
 @frozen
-class ScanMeasurements:
-    # Rows across every table the run read, from the run itself rather than the plan.
-    rows_read: int
-    duration_ms: int
-
-
-@frozen
 class _Copy:
     lead: str
     advice: str
@@ -220,7 +213,6 @@ def build_warning(
     *,
     kind: FindingKind,
     query_kind: str,
-    measurements: ScanMeasurements,
     reason: FindingReason | None = None,
     evidence: str | None = None,
 ) -> QueryScanWarning:
@@ -231,8 +223,6 @@ def build_warning(
         message=f"{copy.lead} {copy.advice}",
         fix=copy.fix,
         evidence=evidence,
-        rows_read=measurements.rows_read,
-        duration_ms=measurements.duration_ms,
     )
 
 

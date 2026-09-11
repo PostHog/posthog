@@ -5061,8 +5061,6 @@ class TestInsightQueryScan(APIBaseTest):
                         "kind": "no_start_date",
                         "message": "This insight has no start date.",
                         "fix": "Set a date range on the insight instead of All time.",
-                        "rows_read": 41_200,
-                        "duration_ms": 19_000,
                     }
                 ],
             }

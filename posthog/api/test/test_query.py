@@ -1367,8 +1367,6 @@ A_STORED_SCAN = json.dumps(
                 "kind": "no_event_filter",
                 "message": "This query read every event in its date range.",
                 "fix": "Add an event filter naming the events this question is about.",
-                "rows_read": 41_200,
-                "duration_ms": 19_000,
             }
         ],
     }

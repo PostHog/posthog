@@ -123,7 +123,6 @@ class TestQueryScanJob(BaseTest):
         stored = slot.get(self.team.pk, "cache_key_1")
         assert stored is not None
         assert stored.status == "done"
-        assert stored.explain_ok is expected_explain_ok
         assert [str(finding.kind) for finding in stored.findings] == expected_kinds
         assert stored.thresholds == FLAG.thresholds_fingerprint
 

@@ -250,7 +250,6 @@ export type SettingId =
     | 'profile-picture'
     | 'project-delete'
     | 'project-move'
-    | 'query-scan-advice'
     | 'realtime-notifications'
     | 'replay'
     | 'replay-ai-config'

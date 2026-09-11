@@ -217,7 +217,6 @@ export const FEATURE_FLAGS = {
     METRIC_INSIGHT: 'metric-insight', // owner: @sampennington #team-product-analytics
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: #team-analytics-platform
     QUERY_RUNNING_TIME: 'query_running_time', // owner: #team-analytics-platform
-    QUERY_SCAN_WARNINGS: 'query-scan-warnings', // owner: #team-analytics-platform, gates the slow query advice surfaces (a multivariate flag the server evaluates, so a client only reads the mode off a response)
     REPLAY_HOGQL_FILTERS: 'replay-hogql-filters', // owner: @pauldambra #team-replay
     REPLAY_OVERSIZED_RECORDING_GATE: 'replay-oversized-recording-gate', // owner: #team-replay
     REPLAY_PLAYER_OWN_DOCUMENT: 'replay-player-own-document', // owner: #team-replay

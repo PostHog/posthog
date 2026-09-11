@@ -59,8 +59,6 @@ _SCAN_FINDING = QueryScanWarning(
     kind=QueryScanFindingKind.NO_EVENT_FILTER,
     message="This query has no event filter, so it reads every event.",
     fix="Add an event filter naming the events this question is about. Change nothing else.",
-    rows_read=4_200_000_000,
-    duration_ms=12_300,
 )
 _SCAN_FLAG = QueryScanFlag(mode="show", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
 # ClickHouse says why it stopped a query at this length, which is what makes the order of the

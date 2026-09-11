@@ -155,23 +155,6 @@ describe('uiCustomizationLogic', () => {
         })
     })
 
-    it('shows query scan advice until it is hidden, whatever the customization flag says', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], {})
-        seedUser({ version: 1, sidebar: { density: 'compact' } })
-        expect(logic.values.showQueryScanAdvice).toBe(true)
-
-        await expectLogic(logic, () => {
-            logic.actions.setQueryScanAdviceShown(false)
-        }).toFinishAllListeners()
-
-        expect(logic.values.showQueryScanAdvice).toBe(false)
-        expect(patchedUser?.ui_configuration).toEqual({
-            version: 1,
-            sidebar: { density: 'compact' },
-            hide_query_scan_advice: true,
-        })
-    })
-
     it('withSidebarPatch merges density into configuration', () => {
         expect(withSidebarPatch(null, { density: 'compact' })).toEqual({
             version: 1,

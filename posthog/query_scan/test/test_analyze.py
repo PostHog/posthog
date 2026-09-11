@@ -5,14 +5,16 @@ from parameterized import parameterized
 from posthog.query_scan.analyze import PlanSet, QueryScanResult, analyze
 from posthog.query_scan.checks.event_filter import EventFilterOutcome
 from posthog.query_scan.explain import QueryPlan, parse_query_plan
-from posthog.query_scan.findings import FindingReason, ScanMeasurements, ScanThresholds
+from posthog.query_scan.findings import FindingReason, ScanThresholds
 from posthog.query_scan.test.test_explain import load_plan
-
-MEASUREMENTS = ScanMeasurements(rows_read=3_000_000_000, duration_ms=6_000)
 
 
 def plan(name: str) -> QueryPlan:
     return parse_query_plan(load_plan(name))
+
+
+def kinds(result: QueryScanResult) -> list[str]:
+    return [str(finding.kind) for finding in result.findings]
 
 
 def analyze_fixture(
@@ -38,7 +40,6 @@ def analyze_fixture(
         ScanThresholds(persons_ratio=persons_ratio),
         query_kind=query_kind,
         open_filters_placeholder=open_filters_placeholder,
-        measurements=MEASUREMENTS,
         event_filter=event_filter,
         table_row_averages=table_row_averages,
         all_time=all_time,
@@ -110,7 +111,7 @@ class TestAnalyze(SimpleTestCase):
         result = analyze_fixture(outer, **kwargs)  # type: ignore[arg-type]
 
         self.assertTrue(result.explain_ok)
-        self.assertEqual(result.finding_kinds(), expected_kinds)
+        self.assertEqual(kinds(result), expected_kinds)
 
     def test_no_outer_plan_fails_closed(self) -> None:
         result = analyze(
@@ -118,7 +119,6 @@ class TestAnalyze(SimpleTestCase):
             ScanThresholds(),
             query_kind="HogQLQuery",
             open_filters_placeholder=False,
-            measurements=MEASUREMENTS,
         )
 
         self.assertFalse(result.explain_ok)
@@ -133,7 +133,7 @@ class TestAnalyze(SimpleTestCase):
     def test_insight_kind_uses_the_insight_wording(self) -> None:
         result = analyze_fixture("plan_no_date_bound", query_kind="TrendsQuery")
 
-        self.assertEqual(result.finding_kinds(), ["no_start_date"])
+        self.assertEqual(kinds(result), ["no_start_date"])
         self.assertIsNone(result.findings[0].reason)
         self.assertIn("This insight has no start date", result.findings[0].message)
 
@@ -146,7 +146,7 @@ class TestAnalyze(SimpleTestCase):
             event_filter=EventFilterOutcome(classification="not_used", reason="negated"),
         )
 
-        self.assertEqual(result.finding_kinds(), ["no_event_filter"])
+        self.assertEqual(kinds(result), ["no_event_filter"])
         self.assertEqual(result.findings[0].reason, FindingReason.NEGATED)
         self.assertIn("only excludes events", result.findings[0].message)
 

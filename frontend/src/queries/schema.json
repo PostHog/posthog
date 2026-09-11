@@ -50411,6 +50411,33 @@
             "enum": ["log_only", "show"],
             "type": "string"
         },
+        "QueryScanResponse": {
+            "additionalProperties": false,
+            "description": "The stored analysis of one query, from `GET /query/scan/{cache_key}`.",
+            "properties": {
+                "killed": {
+                    "type": "boolean"
+                },
+                "project_share": {
+                    "type": "number"
+                },
+                "range_share": {
+                    "type": "number"
+                },
+                "status": {
+                    "$ref": "#/definitions/QueryScanStatus"
+                },
+                "warnings": {
+                    "description": "Empty until the status is `done`, and when the analysis found nothing to fix.",
+                    "items": {
+                        "$ref": "#/definitions/QueryScanWarning"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["status", "warnings", "killed"],
+            "type": "object"
+        },
         "QueryScanStatus": {
             "description": "The analysis of a slow query runs in the background, so the response that started it says `pending`. Once `done`, the scan endpoint returns the findings, and later responses for the same query carry them in their `warnings` list.",
             "enum": ["pending", "done"],
@@ -50455,13 +50482,6 @@
             "additionalProperties": false,
             "description": "One finding of a query scan. Sits in the response's `warnings` list next to the other warning kinds.",
             "properties": {
-                "clause": {
-                    "description": "The condition at fault, as HogQL.",
-                    "type": "string"
-                },
-                "duration_ms": {
-                    "$ref": "#/definitions/integer"
-                },
                 "evidence": {
                     "description": "The one fact the finding rests on.",
                     "type": "string"
@@ -50481,15 +50501,12 @@
                     "$ref": "#/definitions/QueryScanFindingReason",
                     "description": "Only with `no_event_filter` and `no_start_date`."
                 },
-                "rows_read": {
-                    "$ref": "#/definitions/integer"
-                },
                 "type": {
                     "const": "query_scan",
                     "type": "string"
                 }
             },
-            "required": ["type", "kind", "message", "fix", "rows_read", "duration_ms"],
+            "required": ["type", "kind", "message", "fix"],
             "type": "object"
         },
         "QuerySchema": {
@@ -57405,10 +57422,6 @@
             "additionalProperties": {},
             "description": "Per-user UI customization, persisted on the User model as a single JSONB blob. A null configuration and any absent key mean \"default\", which for visibility is \"shown\", so newly added UI surfaces appear for everyone until explicitly hidden. Writers must send the complete object; the server validates and replaces it wholesale.",
             "properties": {
-                "hide_query_scan_advice": {
-                    "description": "Hide the advice a query scan produces, including the Slow query tag on dashboard tiles. The stat line stays.",
-                    "type": "boolean"
-                },
                 "sidebar": {
                     "$ref": "#/definitions/SidebarConfiguration"
                 },
