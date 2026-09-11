@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="experiment",
-            name="analysis_snapshot",
+            name="feature_flag_rule_snapshot",
             field=models.JSONField(blank=True, null=True),
         ),
         migrations.AddField(

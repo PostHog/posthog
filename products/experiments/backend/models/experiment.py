@@ -153,9 +153,9 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     repository = models.CharField(max_length=255, null=True, blank=True)
 
     # A started experiment's rule ID selects v2 analysis; legacy experiments keep both fields null.
-    # The snapshot preserves the original rule after winner shipping removes its experiment fields.
     feature_flag_rule_id = models.UUIDField(null=True, blank=True)
-    analysis_snapshot = models.JSONField(null=True, blank=True)
+    # The immutable first-start snapshot preserves the rule and relevant flag context after winner shipping.
+    feature_flag_rule_snapshot = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_experiment"

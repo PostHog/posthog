@@ -26,4 +26,4 @@ class ExperimentDormantV2AnalysisColumnsMigrationTest(TestMigrations):
 
         experiment = Experiment.objects.get(id=self.experiment_id)
         assert experiment.feature_flag_rule_id is None
-        assert experiment.analysis_snapshot is None
+        assert experiment.feature_flag_rule_snapshot is None

@@ -64,7 +64,6 @@
 # ---
 # name: TestVisitorFieldSnapshots.test_excluded_fields_Experiment
   list([
-    'analysis_snapshot',
     'archived',
     'conclusion',
     'conclusion_comment',
@@ -72,6 +71,7 @@
     'deleted',
     'end_date',
     'feature_flag_rule_id',
+    'feature_flag_rule_snapshot',
     'flag_cleanup_task_id',
     'repository',
     'start_date',
@@ -693,7 +693,6 @@
     '__static_attributes__',
     '__str__',
     '_meta',
-    'analysis_snapshot',
     'archived',
     'can_freeze_exposure',
     'computed_status',
@@ -710,6 +709,7 @@
     'exposure_cohort_id',
     'feature_flag_id',
     'feature_flag_rule_id',
+    'feature_flag_rule_snapshot',
     'flag_cleanup_task_id',
     'freeze_exposure_blocker',
     'get_analytics_metadata',

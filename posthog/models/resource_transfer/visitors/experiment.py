@@ -33,7 +33,7 @@ class ExperimentVisitor(
         "repository",
         # Rules v2 link and frozen snapshot belong to the source flag's rule; a copy starts unlinked.
         "feature_flag_rule_id",
-        "analysis_snapshot",
+        "feature_flag_rule_snapshot",
         "created_at",
         "updated_at",
     ],
