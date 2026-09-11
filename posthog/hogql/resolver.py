@@ -59,6 +59,7 @@ from posthog.hogql.transforms.trino.persons import (
     resolve_internal_trino_logical_table,
     resolve_trino_table_reference,
 )
+from posthog.hogql.transforms.trino.pivot import TrinoPivotLowerer
 from posthog.hogql.type_system import (
     infer_array_access_constant_type,
     infer_array_constant_type,
@@ -143,6 +144,8 @@ _HIGHER_ORDER_ARRAY_FUNCTIONS = frozenset(
     {
         "arrayall",
         "arraycount",
+        "arraycumsum",
+        "arraycumsumnonnegative",
         "arrayexists",
         "arrayfill",
         "arrayfilter",
@@ -272,6 +275,7 @@ def _unify_select_set_columns(
     select_types: list[ast.SelectQueryType | ast.SelectSetQueryType],
     dialect: HogQLDialect,
     context: HogQLContext,
+    select_queries: list[ast.SelectQuery | ast.SelectSetQuery] | None = None,
 ) -> dict[str, ast.Type]:
     if not select_types:
         return {}
@@ -280,8 +284,23 @@ def _unify_select_set_columns(
     first_columns = branch_columns_per_select[0]
     columns: dict[str, ast.Type] = {}
     for index, (column_name, _) in enumerate(first_columns):
+        projection_index = index
+        if dialect == "trino" and select_queries and isinstance(select_queries[0], ast.SelectQuery):
+            for candidate_index, projection in enumerate(select_queries[0].select):
+                if (isinstance(projection, ast.Alias) and projection.alias == column_name) or (
+                    isinstance(projection, ast.Field) and projection.chain[-1] == column_name
+                ):
+                    projection_index = candidate_index
+                    break
         branch_types: list[ast.ConstantType] = []
-        for branch_columns in branch_columns_per_select:
+        for branch_index, branch_columns in enumerate(branch_columns_per_select):
+            query = select_queries[branch_index] if select_queries else None
+            if dialect == "trino" and isinstance(query, ast.SelectQuery) and projection_index < len(query.select):
+                projection_type = query.select[projection_index].type
+                branch_types.append(
+                    projection_type.resolve_constant_type(context) if projection_type is not None else ast.UnknownType()
+                )
+                continue
             if index >= len(branch_columns):
                 branch_types.append(ast.UnknownType())
                 continue
@@ -316,7 +335,11 @@ def _remap_positional_ordinals(leaf: ast.SelectQuery, new_index_by_old: dict[int
     if leaf.limit_by:
         referencing.extend(leaf.limit_by.exprs)
     for expr in referencing:
-        if isinstance(expr, ast.Constant) and isinstance(expr.value, int) and not isinstance(expr.value, bool):
+        if isinstance(expr, ast.PositionalRef):
+            new_index = new_index_by_old.get(expr.index - 1)
+            if new_index is not None:
+                expr.index = new_index + 1
+        elif isinstance(expr, ast.Constant) and isinstance(expr.value, int) and not isinstance(expr.value, bool):
             new_index = new_index_by_old.get(expr.value - 1)
             if new_index is not None:
                 expr.value = new_index + 1
@@ -444,7 +467,7 @@ class Resolver(CloningVisitor):
         ]
         result.type = ast.SelectSetQueryType(
             types=select_types,  # type: ignore[arg-type]
-            columns=_unify_select_set_columns(select_types, self.dialect, self.context),  # type: ignore[arg-type]
+            columns=_unify_select_set_columns(select_types, self.dialect, self.context, result.select_queries()),  # type: ignore[arg-type]
         )
 
         self.ctes = parent_ctes
@@ -452,21 +475,26 @@ class Resolver(CloningVisitor):
         return result
 
     def _lower_by_name_operators(self, node: ast.SelectSetQuery) -> None:
-        """ClickHouse has no `UNION ... BY NAME` syntax, so the operator cannot be printed there. Lower
-        it instead: reorder each BY NAME operand's select lists to the first branch's column order and
-        emit the plain operator. Dialects with native support (DuckDB behind the postgres printer) keep
-        the operator untouched. Differing column sets raise here, where DuckDB's native BY NAME would
-        null-fill — the error tells the user how to close the gap.
+        """Align named set operands before positional type unification.
 
-        Only UNION variants are lowered. INTERSECT/EXCEPT BY NAME bind tighter than UNION, so their
-        real set partner is the preceding operand rather than the first branch; aligning to the first
-        branch would silently misalign them. No engine we target supports them either, so they are
-        refused rather than lowered."""
-        if self.dialect != "clickhouse":
+        ClickHouse accepts UNION rewrites. Trino also accepts chains from one
+        INTERSECT or EXCEPT family. Mixed-precedence chains keep an explicit error.
+        Other dialects retain their native syntax. Every input must have the same
+        unique column names; the compiler does not invent missing columns.
+        """
+        if self.dialect not in {"clickhouse", "trino"}:
             return
+        families = {sub.set_operator.split()[0] for sub in node.subsequent_select_queries}
+        if (
+            self.dialect == "trino"
+            and len(families) > 1
+            and any(sub.set_operator.endswith(_BY_NAME_SUFFIX) for sub in node.subsequent_select_queries)
+        ):
+            raise QueryError("Mixed set operators with BY NAME require explicit subqueries in the 'trino' dialect")
         for sub in node.subsequent_select_queries:
             if sub.set_operator.endswith(_BY_NAME_SUFFIX) and not sub.set_operator.startswith("UNION "):
-                raise QueryError(f"{sub.set_operator} is not supported in the '{self.dialect}' dialect")
+                if self.dialect != "trino" or len(families) != 1:
+                    raise QueryError(f"{sub.set_operator} is not supported in the '{self.dialect}' dialect")
         if not any(sub.set_operator.endswith(_BY_NAME_SUFFIX) for sub in node.subsequent_select_queries):
             return
         initial = node.initial_select_query
@@ -519,7 +547,7 @@ class Resolver(CloningVisitor):
         return result
 
     def visit_unpivot_expr(self, node: ast.UnpivotExpr):
-        if self.dialect not in _PIVOT_DIALECTS:
+        if self.dialect not in _PIVOT_DIALECTS and self.dialect != "trino":
             raise QueryError(f"UNPIVOT is not allowed in {self.dialect} dialect")
 
         node = cast(ast.UnpivotExpr, clone_expr(node))
@@ -706,7 +734,7 @@ class Resolver(CloningVisitor):
             self.scopes.pop()
 
     def visit_pivot_expr(self, node: ast.PivotExpr):
-        if self.dialect not in _PIVOT_DIALECTS:
+        if self.dialect not in _PIVOT_DIALECTS and self.dialect != "trino":
             raise QueryError(f"PIVOT is not allowed in {self.dialect} dialect")
 
         node = cast(ast.PivotExpr, clone_expr(node))
@@ -774,6 +802,13 @@ class Resolver(CloningVisitor):
                 for expr in node.group_by:
                     ensure_pivot_column_valid(expr)
 
+            if self.dialect == "trino":
+                source_columns = (
+                    list(base_type.resolve_database_table(self.context).get_asterisk())
+                    if isinstance(base_type, ast.BaseTableType)
+                    else list(columns)
+                )
+                return self.visit(clone_expr(TrinoPivotLowerer().lower(node, source_columns), clear_types=True))
             node.type = ast.SelectQueryType(columns=columns)
             return node
         finally:
@@ -922,7 +957,7 @@ class Resolver(CloningVisitor):
         # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1]
         new_node.select_from = self.visit(node.select_from)
 
-        if node.limit_percent and self.dialect not in _POSTGRES_FAMILY:
+        if node.limit_percent and self.dialect not in _POSTGRES_FAMILY and self.dialect != "trino":
             if self.dialect == "clickhouse":
                 if not (isinstance(node.limit, ast.Constant) and isinstance(node.limit.value, (int, float))):
                     raise QueryError("LIMIT percent with expressions is not supported in clickhouse dialect")
@@ -1826,7 +1861,9 @@ class Resolver(CloningVisitor):
         left_type = node.left.type.resolve_constant_type(self.context)
         right_type = node.right.type.resolve_constant_type(self.context)
 
-        if isinstance(left_type, ast.IntegerType) and isinstance(right_type, ast.IntegerType):
+        if self.dialect == "trino" and node.op == ast.ArithmeticOperationOp.Div:
+            node.type = ast.FloatType()
+        elif isinstance(left_type, ast.IntegerType) and isinstance(right_type, ast.IntegerType):
             node.type = ast.IntegerType()
         elif isinstance(left_type, ast.FloatType) and isinstance(right_type, ast.FloatType):
             node.type = ast.FloatType()

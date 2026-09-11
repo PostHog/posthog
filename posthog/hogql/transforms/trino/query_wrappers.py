@@ -1,7 +1,7 @@
 from posthog.hogql import ast
 from posthog.hogql.functions.mapping import find_hogql_aggregation
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
-from posthog.hogql.transforms.trino.expressions import expression_key, positional_index
+from posthog.hogql.transforms.trino.expressions import constant_integer, expression_key, positional_index
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 
@@ -33,27 +33,154 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         lowered = super().visit_select_query(node)
-        if lowered.qualify is not None and lowered.limit_by is not None:
-            raise TrinoLoweringError("TRINO_QUALIFY_LIMIT_BY_UNSUPPORTED", "combined QUALIFY and LIMIT BY", node)
+        if lowered.limit_by is not None:
+            finder = _WindowFunctionFinder()
+            for expr in lowered.limit_by.exprs:
+                finder.visit(self._input_expression(expr, lowered.select))
+            for order in lowered.order_by or []:
+                finder.visit(self._input_expression(order.expr, lowered.select))
+            if lowered.qualify is not None or finder.found:
+                lowered = self._stage_limit_by(lowered)
         if lowered.qualify is not None:
             lowered = self._lower_qualify(lowered)
         if lowered.limit_by is not None:
             lowered = self._lower_limit_by(lowered)
+        if lowered.limit_percent:
+            lowered = self._lower_limit_percent(lowered)
         return lowered
+
+    def _lower_limit_percent(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        if (
+            not isinstance(node.limit, ast.Constant)
+            or isinstance(node.limit.value, bool)
+            or not isinstance(node.limit.value, (int, float))
+            or not 0 <= node.limit.value <= 100
+            or node.limit_with_ties
+        ):
+            raise TrinoLoweringError(
+                "TRINO_LIMIT_PERCENT_UNSUPPORTED", "LIMIT PERCENT without a constant percentage, or with ties", node
+            )
+        percentage = node.limit.value / 100
+        offset = self._non_negative_integer(node.offset, "percentage offset", default=0)
+        node.limit = None
+        node.offset = None
+        node.limit_percent = False
+        staged = self._wrap(node, ast.Constant(value=True))
+        row_number = ast.WindowFunction(name="row_number", exprs=[], over_expr=ast.WindowExpr(order_by=staged.order_by))
+        count = ast.WindowFunction(name="count", exprs=[], over_expr=ast.WindowExpr())
+        upper_bound = ast.ArithmeticOperation(
+            left=ast.Constant(value=offset),
+            op=ast.ArithmeticOperationOp.Add,
+            right=ast.Call(
+                name="ceil",
+                args=[
+                    ast.ArithmeticOperation(
+                        left=count, op=ast.ArithmeticOperationOp.Mult, right=ast.Constant(value=percentage)
+                    )
+                ],
+            ),
+        )
+        predicate: ast.Expr = ast.CompareOperation(left=row_number, op=ast.CompareOperationOp.LtEq, right=upper_bound)
+        if offset:
+            predicate = ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        left=row_number, op=ast.CompareOperationOp.Gt, right=ast.Constant(value=offset)
+                    ),
+                    predicate,
+                ]
+            )
+        helper_name = self._helper_name(staged, f"__hogql_percent_{self.wrapper_index}")
+        staged.select.append(ast.Alias(alias=helper_name, expr=predicate))
+        return self._wrap(staged, ast.Field(chain=[helper_name]), helper_name=helper_name)
+
+    def _stage_limit_by(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        assert node.limit_by is not None
+        if any(order.with_fill is not None for order in node.order_by or []):
+            raise TrinoLoweringError("TRINO_WITH_FILL_UNSUPPORTED", "WITH FILL in a staged LIMIT BY query", node)
+        output_names = self._output_names(node)
+        visible_count = len(output_names)
+        limit_by = node.limit_by
+        node.limit_by = None
+        columns = dict(node.type.columns) if node.type is not None else {}
+        node.type = ast.SelectQueryType(columns=columns)
+
+        def project(expr: ast.Expr) -> str:
+            expression = self._input_expression(expr, node.select[:visible_count])
+            key = expression_key(expression)
+            for name, projection in zip(columns, node.select, strict=True):
+                if expression_key(self._input_expression(projection, node.select)) == key:
+                    return name
+            if node.distinct:
+                raise TrinoLoweringError(
+                    "TRINO_LIMIT_BY_DISTINCT_PARTITION_NOT_PROJECTED",
+                    "DISTINCT LIMIT BY stage with an unprojected expression",
+                    expr,
+                )
+            name = self._helper_name(node, f"__hogql_stage_{len(columns)}")
+            node.select.append(ast.Alias(alias=name, expr=expression))
+            columns[name] = expression.type or ast.UnknownType()
+            return name
+
+        partition_names = [project(expr) for expr in limit_by.exprs]
+        ordering = [(project(order.expr), order.order) for order in node.order_by or []]
+        node.order_by = None
+        staged = self._lower_qualify(node) if node.qualify is not None else self._wrap(node, ast.Constant(value=True))
+        assert staged.select_from is not None
+        source_alias = staged.select_from.alias
+        assert source_alias is not None
+        staged.limit_by = ast.LimitByExpr(
+            n=limit_by.n,
+            offset_value=limit_by.offset_value,
+            exprs=[ast.Field(chain=[source_alias, name]) for name in partition_names],
+        )
+        staged.order_by = [
+            ast.OrderExpr(expr=ast.Field(chain=[source_alias, name]), order=order) for name, order in ordering
+        ] or None
+        result = self._lower_limit_by(staged)
+        result.select = result.select[:visible_count]
+        result.type = ast.SelectQueryType(columns={name: columns[name] for name in output_names})
+        return result
 
     def _lower_qualify(self, node: ast.SelectQuery) -> ast.SelectQuery:
         assert node.qualify is not None
         finder = _WindowFunctionFinder()
         finder.visit(node.qualify)
-        if finder.found:
-            raise TrinoLoweringError(
-                "TRINO_QUALIFY_WINDOW_NOT_PROJECTED",
-                "QUALIFY window expression without a projected alias",
-                node.qualify,
-            )
         predicate = node.qualify
         node.qualify = None
-        return self._wrap(node, predicate)
+        output_names = self._output_names(node)
+        projection_keys = [expression_key(self._input_expression(expr, node.select)) for expr in node.select]
+
+        class ProjectedPredicate(CloningVisitor):
+            def visit_field(self, field: ast.Field) -> ast.Field:
+                if (
+                    isinstance(field.type, ast.FieldAliasType)
+                    and len(field.chain) == 1
+                    and field.chain[0] in output_names
+                ):
+                    return ast.Field(chain=list(field.chain))
+                key = expression_key(field)
+                if key in projection_keys:
+                    return ast.Field(chain=[output_names[projection_keys.index(key)]])
+                raise TrinoLoweringError("TRINO_QUALIFY_HELPER_REQUIRED", "QUALIFY with an unprojected field", field)
+
+        projected_predicate = predicate
+        try:
+            projected_predicate = ProjectedPredicate(clear_types=False).visit(predicate)
+            needs_helper = finder.found
+        except TrinoLoweringError:
+            needs_helper = True
+        if not needs_helper:
+            return self._wrap(node, projected_predicate)
+        if node.distinct:
+            self._outer_order_by(node, output_names, "")
+        helper_name = self._helper_name(node, f"__hogql_qualify_{self.wrapper_index}")
+        node.select.append(ast.Alias(alias=helper_name, expr=predicate))
+        distinct = node.distinct
+        node.distinct = False
+        result = self._wrap(node, ast.Field(chain=[helper_name]), helper_name=helper_name)
+        result.distinct = distinct
+        return result
 
     def _lower_limit_by(self, node: ast.SelectQuery) -> ast.SelectQuery:
         assert node.limit_by is not None
@@ -192,6 +319,7 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
 
         return ast.SelectQuery(
             ctes=outer_ctes,
+            type=ast.SelectQueryType(columns=dict(node.type.columns)) if node.type is not None else None,
             select=[ast.Field(chain=[source_alias, name]) for name in output_names],
             select_from=ast.JoinExpr(table=node, alias=source_alias),
             where=self._qualify_wrapper_fields(
@@ -315,11 +443,12 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
     def _non_negative_integer(self, node: ast.Expr | None, label: str, default: int | None = None) -> int:
         if node is None and default is not None:
             return default
-        if not isinstance(node, ast.Constant) or isinstance(node.value, bool) or not isinstance(node.value, int):
+        value = constant_integer(node)
+        if value is None:
             raise TrinoLoweringError("TRINO_LIMIT_BY_NON_CONSTANT_LIMIT", f"non-constant {label}", node)
-        if node.value < 0:
+        if value < 0:
             raise TrinoLoweringError("TRINO_LIMIT_BY_NEGATIVE_LIMIT", f"negative {label}", node)
-        return node.value
+        return value
 
 
 def lower_trino_query_wrappers(node: ast.AST) -> ast.AST:

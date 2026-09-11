@@ -1,7 +1,7 @@
 from posthog.hogql import ast
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
-from posthog.hogql.visitor import CloningVisitor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 _SUPPORTED_ANY_JOIN_TYPES = {
     "ANY INNER JOIN": "INNER JOIN",
@@ -13,6 +13,120 @@ class TrinoAnyJoinLowerer(CloningVisitor):
     def __init__(self) -> None:
         super().__init__(clear_types=False)
         self.join_index = 0
+
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        first = node.select_from
+        second = first.next_join if first is not None else None
+        right_modes = {
+            "RIGHT ANY JOIN": "LEFT ANY JOIN",
+            "RIGHT SEMI JOIN": "LEFT SEMI JOIN",
+            "RIGHT ANTI JOIN": "LEFT ANTI JOIN",
+        }
+        if first is not None and second is not None and second.join_type in right_modes:
+            if second.next_join is not None:
+                raise TrinoLoweringError(
+                    "TRINO_RIGHT_JOIN_CHAIN_UNSUPPORTED", "RIGHT ANY, SEMI, or ANTI in a join chain", second
+                )
+            node = clone_expr(node, clear_types=False)
+            first = node.select_from
+            assert first is not None and first.next_join is not None
+            second = first.next_join
+            assert second.join_type is not None
+            first.join_type = right_modes[second.join_type]
+            first.constraint = second.constraint
+            first.next_join = None
+            second.join_type = None
+            second.constraint = None
+            second.next_join = first
+            node.select_from = second
+        lowered = super().visit_select_query(node)
+        join = lowered.select_from
+        while join is not None:
+            if join.join_type in {"LEFT SEMI JOIN", "SEMI JOIN", "LEFT ANTI JOIN", "ANTI JOIN"}:
+                self._lower_filter_join(lowered, join)
+            join = join.next_join
+        return lowered
+
+    def _lower_filter_join(self, query: ast.SelectQuery, join: ast.JoinExpr) -> None:
+        if join.column_aliases:
+            raise TrinoLoweringError(
+                "TRINO_FILTER_JOIN_COLUMN_ALIASES_UNSUPPORTED", "SEMI or ANTI column aliases", join
+            )
+        alias = join.alias
+        if alias is None and isinstance(join.table, ast.Field) and isinstance(join.table.chain[-1], str):
+            alias = join.table.chain[-1]
+        if alias is None or join.constraint is None or join.constraint.constraint_type != "ON":
+            raise TrinoLoweringError("TRINO_FILTER_JOIN_ON_REQUIRED", "SEMI or ANTI JOIN without an alias and ON", join)
+        table_type = join.type
+        while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+            table_type = table_type.table_type
+        if not isinstance(table_type, (ast.BaseTableType, ast.SelectQueryAliasType)):
+            raise TrinoLoweringError(
+                "TRINO_FILTER_JOIN_TABLE_UNRESOLVED", "SEMI or ANTI JOIN without a table type", join
+            )
+        keys = self._right_key_expressions(join.constraint.expr, alias, table_type)
+        names = [self._right_field_name(key, alias, table_type) for key in keys]
+        if not names or any(name is None for name in names):
+            raise TrinoLoweringError(
+                "TRINO_FILTER_JOIN_FIELD_KEYS_REQUIRED", "SEMI or ANTI JOIN with a computed right key", join
+            )
+        outer = self
+        right_alias: str = alias
+        right_type: ast.TableOrSelectType = table_type
+
+        class RightReferenceValidator(TraversingVisitor):
+            def visit_field(self, field: ast.Field) -> None:
+                if outer._right_field_name(field, right_alias, right_type) is not None:
+                    raise TrinoLoweringError(
+                        "TRINO_FILTER_JOIN_RIGHT_OUTPUT_UNSUPPORTED", "SEMI or ANTI JOIN right-side output", field
+                    )
+
+        validator = RightReferenceValidator()
+        for expression in [
+            *query.select,
+            query.where,
+            query.prewhere,
+            query.having,
+            query.qualify,
+            query.limit_by,
+            *(query.group_by or []),
+            *(query.order_by or []),
+            *(query.array_join_list or []),
+            *(query.window_exprs or {}).values(),
+        ]:
+            if expression is not None:
+                validator.visit(expression)
+        following = join.next_join
+        while following is not None:
+            if following.constraint is not None:
+                validator.visit(following.constraint)
+            if following.table is not None:
+                validator.visit(following.table)
+            for argument in following.table_args or []:
+                validator.visit(argument)
+            following = following.next_join
+        source = clone_expr(join, clear_types=False)
+        source.join_type = None
+        source.constraint = None
+        source.next_join = None
+        join.table = ast.SelectQuery(
+            select=[
+                ast.Alias(alias=name, expr=ast.Field(chain=[alias, name])) for name in dict.fromkeys(names) if name
+            ],
+            select_from=source,
+            distinct=True,
+        )
+        join.alias = alias
+        join.table_args = None
+        join.column_aliases = None
+        join.table_final = None
+        join.sample = None
+        if "ANTI" in (join.join_type or "").split():
+            predicate = ast.Call(name="isNull", args=[ast.Field(chain=[alias, str(names[0])])])
+            query.where = ast.And(exprs=[query.where, predicate]) if query.where is not None else predicate
+            join.join_type = "LEFT JOIN"
+        else:
+            join.join_type = "INNER JOIN"
 
     def visit_join_expr(self, node: ast.JoinExpr) -> ast.JoinExpr:
         lowered = super().visit_join_expr(node)
@@ -124,7 +238,7 @@ class TrinoAnyJoinLowerer(CloningVisitor):
         return lowered
 
     def _right_key_expressions(
-        self, constraint: ast.Expr, alias: str, right_table_type: ast.BaseTableType
+        self, constraint: ast.Expr, alias: str, right_table_type: ast.TableOrSelectType
     ) -> list[ast.Expr]:
         terms = constraint.exprs if isinstance(constraint, ast.And) else [constraint]
         key_expressions: list[ast.Expr] = []
@@ -147,7 +261,7 @@ class TrinoAnyJoinLowerer(CloningVisitor):
         return key_expressions
 
     def _expression_uses_only_right_fields(
-        self, expression: ast.Expr, alias: str, right_table_type: ast.BaseTableType
+        self, expression: ast.Expr, alias: str, right_table_type: ast.TableOrSelectType
     ) -> bool:
         outer = self
 
@@ -172,7 +286,7 @@ class TrinoAnyJoinLowerer(CloningVisitor):
         self,
         expression: ast.Expr,
         alias: str,
-        right_table_type: ast.BaseTableType,
+        right_table_type: ast.TableOrSelectType,
         source_alias: str,
     ) -> ast.Expr:
         outer = self
@@ -190,7 +304,9 @@ class TrinoAnyJoinLowerer(CloningVisitor):
 
         return RightFieldQualifier(clear_types=False).visit(expression)
 
-    def _right_field_name(self, expression: ast.Expr, alias: str, right_table_type: ast.BaseTableType) -> str | None:
+    def _right_field_name(
+        self, expression: ast.Expr, alias: str, right_table_type: ast.TableOrSelectType
+    ) -> str | None:
         while isinstance(expression, ast.Alias):
             expression = expression.expr
         if not isinstance(expression, ast.Field):

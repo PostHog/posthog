@@ -4,6 +4,7 @@ from posthog.hogql.database.models import DatabaseField, ExpressionField
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_unnest_table import TRINO_UNNEST_TABLE_NAME
 from posthog.hogql.transforms.trino.any_join import lower_trino_any_joins
+from posthog.hogql.transforms.trino.asof_join import TrinoAsOfJoinLowerer
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.expressions import expression_key, positional_index
 from posthog.hogql.transforms.trino.query_wrappers import lower_trino_query_wrappers
@@ -37,6 +38,88 @@ def _wrap_unnest_elements(array_expr: ast.Expr, lambda_name: str) -> ast.Call:
             array_expr,
         ],
     )
+
+
+class TrinoUnpivotLowerer(CloningVisitor):
+    def __init__(self, context: HogQLContext) -> None:
+        super().__init__(clear_types=False)
+        self.context = context
+        self.index = 0
+
+    def visit_unpivot_expr(self, node: ast.UnpivotExpr) -> ast.SelectQuery:
+        lowered = super().visit_unpivot_expr(node)
+        if len(lowered.columns) != 1 or not isinstance(lowered.type, ast.SelectQueryType):
+            raise TrinoLoweringError(
+                "TRINO_UNPIVOT_SHAPE_UNSUPPORTED", "UNPIVOT without a resolved single column group", node
+            )
+        column = lowered.columns[0]
+        if not isinstance(column.value_columns, ast.Field) or not isinstance(column.name_columns, ast.Field):
+            raise TrinoLoweringError("TRINO_UNPIVOT_SHAPE_UNSUPPORTED", "UNPIVOT tuple outputs", node)
+        value_name = str(column.value_columns.chain[-1])
+        label_name = str(column.name_columns.chain[-1])
+        if value_name == label_name or not column.unpivot_values:
+            raise TrinoLoweringError(
+                "TRINO_UNPIVOT_SHAPE_UNSUPPORTED", "UNPIVOT without distinct output names or inputs", node
+            )
+        rows: list[ast.Expr] = []
+        value_types: set[type[ast.ConstantType]] = set()
+        for value in column.unpivot_values:
+            if not isinstance(value, ast.Field):
+                raise TrinoLoweringError("TRINO_UNPIVOT_SHAPE_UNSUPPORTED", "UNPIVOT input that is not a field", value)
+            value_type = value.type.resolve_constant_type(self.context) if value.type else ast.UnknownType()
+            if not isinstance(value_type, ast.UnknownType):
+                value_types.add(type(value_type))
+            binding = value.type
+            while isinstance(binding, ast.FieldAliasType):
+                binding = binding.type
+            label = binding.name if isinstance(binding, ast.FieldType) else str(value.chain[-1])
+            rows.append(ast.Call(name="tuple", args=[value, ast.Constant(value=label)]))
+        if len(value_types) > 1 and not value_types <= {ast.IntegerType, ast.FloatType}:
+            raise TrinoLoweringError("TRINO_UNPIVOT_TYPE_UNSUPPORTED", "UNPIVOT with incompatible value types", node)
+        if isinstance(lowered.table, ast.JoinExpr):
+            source = lowered.table
+        elif isinstance(
+            lowered.table,
+            (ast.Field, ast.SelectQuery, ast.SelectSetQuery, ast.ValuesQuery, ast.UnpivotExpr, ast.PivotExpr),
+        ):
+            source = ast.JoinExpr(table=lowered.table)
+        else:
+            raise TrinoLoweringError("TRINO_UNPIVOT_SOURCE_UNSUPPORTED", "UNPIVOT without a table source", node)
+        alias = f"__hogql_unpivot_{self.index}"
+        self.index += 1
+        aliases: set[str] = set()
+        relation: ast.JoinExpr | None = source
+        while relation is not None:
+            if relation.alias is not None:
+                aliases.add(relation.alias)
+            elif isinstance(relation.table, ast.Field) and isinstance(relation.table.chain[-1], str):
+                aliases.add(relation.table.chain[-1])
+            relation = relation.next_join
+        while alias in aliases:
+            alias += "_"
+        final_join = source
+        while final_join.next_join is not None:
+            final_join = final_join.next_join
+        final_join.next_join = ast.JoinExpr(
+            join_type="CROSS JOIN",
+            table=ast.Field(chain=[TRINO_UNNEST_TABLE_NAME]),
+            table_args=[ast.Array(exprs=rows)],
+            alias=alias,
+            column_aliases=[value_name, label_name],
+        )
+        return ast.SelectQuery(
+            type=lowered.type,
+            select=[
+                ast.Field(chain=[alias, name]) if name in {value_name, label_name} else ast.Field(chain=[name])
+                for name in lowered.type.columns
+            ],
+            select_from=source,
+            where=(
+                None
+                if lowered.include_nulls
+                else ast.Call(name="isNotNull", args=[ast.Field(chain=[alias, value_name])])
+            ),
+        )
 
 
 class TrinoPhysicalFieldLowerer(CloningVisitor):
@@ -305,7 +388,7 @@ class TrinoNormalizer(TraversingVisitor):
     def _lower_array_join(self, node: ast.SelectQuery) -> None:
         if node.array_join_op is None and not node.array_join_list:
             return
-        if node.array_join_op not in {"ARRAY JOIN", "INNER ARRAY JOIN"}:
+        if node.array_join_op not in {"ARRAY JOIN", "INNER ARRAY JOIN", "LEFT ARRAY JOIN"}:
             raise TrinoLoweringError(
                 "TRINO_ARRAY_JOIN_MODE_UNSUPPORTED", node.array_join_op or "ARRAY JOIN without an operation", node
             )
@@ -313,27 +396,70 @@ class TrinoNormalizer(TraversingVisitor):
             isinstance(array_expr, ast.Alias) for array_expr in node.array_join_list
         ):
             raise TrinoLoweringError("TRINO_ARRAY_JOIN_ALIAS_REQUIRED", "ARRAY JOIN without an output alias", node)
-        if node.select_from is None:
-            raise TrinoLoweringError("TRINO_ARRAY_JOIN_RELATION_REQUIRED", "ARRAY JOIN without a FROM relation", node)
         array_exprs = [array_expr for array_expr in node.array_join_list if isinstance(array_expr, ast.Alias)]
         table_name = f"__trino_unnest_{self.unnest_index}"
         self.unnest_index += 1
-        final_join = node.select_from
-        while final_join.next_join is not None:
-            final_join = final_join.next_join
-        final_join.next_join = ast.JoinExpr(
-            join_type="CROSS JOIN",
+        elements: ast.Expr = (
+            _wrap_unnest_elements(array_exprs[0].expr, f"{table_name}_value")
+            if len(array_exprs) == 1
+            else ast.Call(name="arrayZip", args=[array_expr.expr for array_expr in array_exprs])
+        )
+        if node.array_join_op == "LEFT ARRAY JOIN":
+            defaults = []
+            for array_expr in array_exprs:
+                array_type = array_expr.expr.type.resolve_constant_type(self.context) if array_expr.expr.type else None
+                if not isinstance(array_type, ast.ArrayType):
+                    raise TrinoLoweringError(
+                        "TRINO_ARRAY_JOIN_DEFAULT_TYPE_REQUIRED",
+                        "LEFT ARRAY JOIN without an array item type",
+                        array_expr,
+                    )
+                defaults.append(self._array_default(array_type.item_type))
+            elements = ast.Call(
+                name="if",
+                args=[
+                    ast.Call(name="empty", args=[elements]),
+                    ast.Array(exprs=[ast.Call(name="tuple", args=defaults)]),
+                    elements,
+                ],
+            )
+        unnest = ast.JoinExpr(
             table=ast.Field(chain=[TRINO_UNNEST_TABLE_NAME]),
-            table_args=[
-                _wrap_unnest_elements(array_exprs[0].expr, f"{table_name}_value")
-                if len(array_exprs) == 1
-                else ast.Call(name="arrayZip", args=[array_expr.expr for array_expr in array_exprs])
-            ],
+            table_args=[elements],
             alias=table_name,
             column_aliases=[array_expr.alias for array_expr in array_exprs],
         )
+        final_join = node.select_from
+        if final_join is None:
+            node.select_from = unnest
+        else:
+            while final_join.next_join is not None:
+                final_join = final_join.next_join
+            unnest.join_type = "CROSS JOIN"
+            final_join.next_join = unnest
         node.array_join_op = None
         node.array_join_list = None
+
+    def _array_default(self, item_type: ast.ConstantType) -> ast.Expr:
+        if isinstance(item_type, ast.UnknownType) and item_type.unanalyzable:
+            raise TrinoLoweringError(
+                "TRINO_ARRAY_JOIN_DEFAULT_TYPE_REQUIRED", "LEFT ARRAY JOIN with an unknown item type"
+            )
+        if item_type.nullable:
+            return ast.Constant(value=None)
+        if isinstance(item_type, ast.StringType):
+            return ast.Constant(value="")
+        if isinstance(item_type, ast.IntegerType):
+            return ast.Constant(value=0)
+        if isinstance(item_type, ast.FloatType):
+            return ast.Constant(value=0.0)
+        if isinstance(item_type, ast.BooleanType):
+            return ast.Constant(value=False)
+        if isinstance(item_type, ast.ArrayType):
+            return ast.Array(exprs=[])
+        if isinstance(item_type, ast.TupleType):
+            return ast.Call(name="tuple", args=[self._array_default(nested) for nested in item_type.item_types])
+        raise TrinoLoweringError("TRINO_ARRAY_JOIN_DEFAULT_TYPE_UNSUPPORTED", item_type.print_type())
 
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
         if node.join_type is not None and node.join_type.startswith("GLOBAL "):
@@ -395,9 +521,11 @@ class TrinoNormalizer(TraversingVisitor):
 
 def normalize_trino_ast(node: ast.AST, context: HogQLContext) -> ast.AST:
     lowered = TrinoScalarCTELowerer().visit(node)
+    lowered = TrinoUnpivotLowerer(context).visit(lowered)
     lowered = TrinoArrayJoinFunctionLowerer(context).visit(lowered)
     lowered = TrinoPhysicalFieldLowerer(context).visit(lowered)
     lowered = TrinoSemanticCallLowerer().visit(lowered)
+    lowered = TrinoAsOfJoinLowerer().visit(lowered)
     lowered = lower_trino_any_joins(lowered)
     lowered = lower_trino_query_wrappers(lowered)
     lowered = TrinoSelectAliasLowerer().visit(lowered)

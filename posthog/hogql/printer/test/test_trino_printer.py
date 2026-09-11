@@ -4,6 +4,7 @@ from contextlib import closing
 import pytest
 from unittest import mock
 
+import duckdb
 from syrupy.assertion import SnapshotAssertion
 
 from posthog.schema import HogQLQueryModifiers
@@ -30,6 +31,7 @@ from posthog.hogql.helpers.timestamp_visitor import is_time_or_interval_constant
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.printer.trino_functions import (
+    TRINO_AGGREGATE_COMBINATORS,
     TRINO_FUNCTION_HANDLERS_LOWER,
     TRINO_FUNCTION_RENAMES_LOWER,
     TRINO_PASSTHROUGH_FUNCTIONS,
@@ -289,10 +291,10 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
             'IF(cardinality(array_agg("users"."user_id")) = cardinality(array_agg("users"."created_at")), zip(',
         ),
         ("extractURLParameter(user_id, 'ref')", "coalesce(substr(element_at(filter(split(IF(strpos("),
-        ("extractAllGroups(user_id, '([a-z]+)')", "-> ARRAY[coalesce(__hogql_group, '')])"),
+        ("extractAllGroups(user_id, '([a-z]+)')", "__hogql_index -> ARRAY[coalesce(element_at("),
         (
             "extractAllGroups(user_id, '([a-z]+)=([0-9]+)')",
-            "-> ARRAY[coalesce(__hogql_match[1], ''), coalesce(__hogql_match[2], '')])",
+            "__hogql_index -> ARRAY[coalesce(element_at(",
         ),
         (
             "replaceRegexpOne(user_id, '([a-z]+)', 'x')",
@@ -351,11 +353,11 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("countDistinctIf(user_id, user_id != '')", 'count(DISTINCT "users"."user_id") FILTER (WHERE'),
         ("multiSearchAnyCaseInsensitive(user_id, ['a']) = 1", "CAST(any_match("),
         ("toFloat64OrNull(user_id)", 'TRY_CAST("users"."user_id" AS DOUBLE)'),
-        ("accurateCastOrNull(user_id, 'Int64')", 'TRY_CAST("users"."user_id" AS BIGINT)'),
+        ("accurateCastOrNull(user_id, 'Int64')", "TRY_CAST(__hogql_accurate_cast_value AS DECIMAL(38, 18))"),
         ("DATE(created_at)", 'CAST("users"."created_at" AS DATE)'),
         ("domain(user_id)", "coalesce(TRY(url_extract_host(CAST("),
         ("multiplyDecimal(1, 2)", "CAST((1 * 2) AS DECIMAL(38, 0))"),
-        ("quantileExact(0.9)(length(user_id))", "array_sort(filter(array_agg(length("),
+        ("quantileExact(0.9)(length(user_id))", "filter(coalesce(array_agg(length("),
         ("ngramDistance(user_id, 'abc')", "MAP(VARBINARY, BIGINT)"),
         ("formatReadableTimeDelta(3661)", "'hour', 'hours'"),
         (
@@ -373,6 +375,11 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("arraySlice([1, 2, 3], -2, -1)", "slice(ARRAY[1, 2, 3], greatest(1, IF(-2 < 0,"),
         ("arraySort(x -> -x, [1, 3, 2])", 'transform(array_sort(transform(ARRAY[1, 3, 2], "x" -> ROW('),
         ("toStartOfInterval(created_at, INTERVAL 10 MINUTE)", " / 600e0) AS BIGINT) * 600"),
+        ("toStartOfInterval(created_at, INTERVAL 2 MONTH)", "date_diff('month', TIMESTAMP '1900-01-01"),
+        (
+            "toStartOfInterval(created_at, INTERVAL 3 HOUR, toDateTime('2024-01-01'))",
+            "date_diff('second', CAST(%(hogql_val_0)s AS TIMESTAMP)",
+        ),
         ("parseDateTimeBestEffort(user_id)", 'CAST(at_timezone(coalesce(IF(regexp_like("users"."user_id",'),
         (
             "dateDiff('day', user_id, created_at)",
@@ -453,7 +460,7 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
             "fail('appendTrailingCharIfAbsent expects one character')",
         ),
         ("countMatches(user_id, 'a')", 'cardinality(regexp_extract_all("users"."user_id"'),
-        ("countSubstrings(user_id, 'a')", 'length(replace("users"."user_id"'),
+        ("countSubstrings(user_id, 'a')", "__hogql_substrings -> IF(length(__hogql_substrings[2])"),
         ("splitByRegexp('-', user_id)", 'regexp_split("users"."user_id"'),
         ("mapContainsKeyLike(mapFromArrays(['a'], [1]), 'a%')", "cardinality(map_filter(map(ARRAY["),
         ("bitTest(4, 2)", "bitwise_and(4, bitwise_left_shift(BIGINT '1', 2)) <> 0"),
@@ -483,6 +490,7 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
 
 def test_drops_clickhouse_global_distribution_modifiers() -> None:
     membership_query = parse_select("SELECT user_id FROM users WHERE user_id IN ['a']")
+    assert isinstance(membership_query, ast.SelectQuery)
     assert isinstance(membership_query.where, ast.CompareOperation)
     membership_query.where.op = ast.CompareOperationOp.GlobalIn
     membership_sql, _ = prepare_and_print_ast(
@@ -494,6 +502,7 @@ def test_drops_clickhouse_global_distribution_modifiers() -> None:
     assert '"users"."user_id" IN (%(hogql_val_0)s)' in membership_sql
 
     query = parse_select("SELECT users.user_id FROM users LEFT JOIN users AS other ON users.user_id = other.user_id")
+    assert isinstance(query, ast.SelectQuery)
     assert isinstance(query.select_from, ast.JoinExpr)
     assert query.select_from.next_join is not None
     query.select_from.next_join.join_type = "GLOBAL LEFT JOIN"
@@ -525,13 +534,34 @@ def test_tracks_every_registered_function_without_a_trino_mapping(snapshot: Snap
 @pytest.mark.parametrize(
     "expression, feature_code",
     [
+        ("tuplePlus((1, 2), tuple(1))", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("tuplePlus(('a', 2), ('b', 3))", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("sumArray(user_id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("sumOrNull(DISTINCT created_at)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("sumForEach(user_id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("sumMap([1, 2])", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("sumArgMin(id, uuid)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("sumArgMax(id, [1, 2])", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("medianExact(user_id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("medianExact(DISTINCT id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("avgWeighted(id, user_id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("toNullableString(1.5)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("groupUniqArrayArray(0)([1, 2])", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("to_timestamp(1.5)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("lagInFrame(id)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("arrayCumSum([1, NULL])", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("L1Normalize([3, 4])", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
+        ("factorial(3.5)", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("intDiv(1.5, 2)", "TRINO_INT_DIV_TYPE_UNSUPPORTED"),
         ("roundBankers(1, length(user_id))", "TRINO_ROUND_BANKERS_PRECISION_UNSUPPORTED"),
         ("roundBankers(1, 19)", "TRINO_ROUND_BANKERS_PRECISION_UNSUPPORTED"),
         ("arrayZip([1], [2, 3])", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("arrayZip([1], [2], [3], [4], [5], [6])", "TRINO_ARRAY_ZIP_DYNAMIC_UNSUPPORTED"),
         ("extractAllGroups(user_id, user_id)", "TRINO_REGEX_CONSTANT_REQUIRED"),
-        ("extractAllGroups(user_id, '(a)(b)(c)(d)(e)(f)')", "TRINO_REGEX_GROUPS_UNSUPPORTED"),
+        (
+            "extractAllGroups(user_id, '(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)(k)(l)(m)(n)(o)(p)(q)(r)(s)(t)(u)')",
+            "TRINO_REGEX_GROUPS_UNSUPPORTED",
+        ),
         ("replaceRegexpOne(user_id, 'a', user_id)", "TRINO_REGEX_CONSTANT_REQUIRED"),
         ("cityHash64(user_id)", "TRINO_FUNCTION_UNSUPPORTED"),
     ],
@@ -1039,6 +1069,334 @@ def test_lowers_qualify_alias_to_outer_filter() -> None:
     assert "QUALIFY" not in sql
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT user_id FROM users QUALIFY row_number() OVER (ORDER BY created_at) = 1",
+        "SELECT user_id, row_number() OVER (ORDER BY created_at) AS rn FROM users QUALIFY rn = 1 AND id > 0",
+        "SELECT user_id FROM users QUALIFY row_number() OVER (ORDER BY created_at) > 0 ORDER BY id LIMIT 1 BY user_id",
+        "SELECT user_id, row_number() OVER (ORDER BY created_at) AS rn FROM users QUALIFY rn > 1 LIMIT 2 BY user_id LIMIT 3",
+        "SELECT user_id FROM users ORDER BY row_number() OVER (ORDER BY created_at) LIMIT 1 BY user_id",
+        "SELECT user_id, row_number() OVER (ORDER BY created_at) AS rn FROM users ORDER BY 2 LIMIT 1 BY user_id",
+        "SELECT user_id, row_number() OVER (ORDER BY created_at) AS rn FROM users LIMIT 1 BY rn",
+    ],
+)
+def test_lowers_staged_window_filters(query: str) -> None:
+    sql, node = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
+    assert "QUALIFY" not in sql
+    assert "row_number() OVER" in sql
+    assert isinstance(node, ast.SelectQuery)
+    assert node.limit_by is None
+    original = parse_select(query)
+    assert isinstance(original, ast.SelectQuery)
+    assert len(node.select) == len(original.select)
+
+
+@pytest.mark.parametrize(
+    "operator",
+    [
+        "UNION ALL",
+        "UNION DISTINCT",
+        "INTERSECT",
+        "INTERSECT ALL",
+        "INTERSECT DISTINCT",
+        "EXCEPT",
+        "EXCEPT ALL",
+    ],
+)
+def test_lowers_named_set_operations(operator: str) -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT 1 AS first, 2 AS second {operator} BY NAME SELECT 2 AS second, 1 AS first"),
+        _context_with_trino_table(),
+        "trino",
+    )
+    assert "BY NAME" not in sql
+    assert sql.count('1 AS "first", 2 AS "second"') == 2
+
+
+def test_folds_constant_row_counts() -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select("SELECT user_id FROM users LIMIT (2 + 3) * 2 OFFSET 3 - 1"),
+        _context_with_trino_table(),
+        "trino",
+    )
+    assert sql.endswith("OFFSET 2 ROWS LIMIT 10")
+    sql, _ = prepare_and_print_ast(
+        parse_select("SELECT user_id FROM users LIMIT 1 + 1 BY user_id"),
+        _context_with_trino_table(),
+        "trino",
+    )
+    assert "<= 2)" in sql
+
+
+@pytest.mark.parametrize("join", ["LEFT SEMI JOIN", "LEFT ANTI JOIN", "SEMI JOIN", "ANTI JOIN"])
+def test_lowers_filter_joins(join: str) -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT users.user_id FROM users {join} users AS other ON users.user_id = other.user_id"),
+        _context_with_trino_table(),
+        "trino",
+    )
+    assert "SEMI" not in sql
+    assert "ANTI" not in sql
+    assert 'SELECT DISTINCT "other"."user_id"' in sql
+    if "ANTI" in join:
+        assert '"other"."user_id" IS NULL' in sql
+
+
+@pytest.mark.parametrize("join", ["RIGHT ANY JOIN", "RIGHT SEMI JOIN", "RIGHT ANTI JOIN"])
+def test_lowers_right_join_by_reversing_inputs(join: str) -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT other.user_id FROM users {join} users AS other ON users.user_id = other.user_id"),
+        _context_with_trino_table(),
+        "trino",
+    )
+    assert "RIGHT" not in sql
+    assert "ANY" not in sql
+    assert "SEMI" not in sql
+    assert "ANTI" not in sql
+
+
+@pytest.mark.parametrize(
+    ("join", "comparison", "expected"),
+    [
+        ("LEFT ASOF JOIN", "lhs.ts >= rhs.ts", [(5, 40), (5, 40), (7, None)]),
+        ("LEFT ASOF JOIN", "rhs.ts <= lhs.ts", [(5, 40), (5, 40), (7, None)]),
+        ("LEFT ASOF JOIN", "lhs.ts <= rhs.ts", [(5, 60), (5, 60), (7, None)]),
+        ("LEFT ASOF JOIN", "rhs.ts >= lhs.ts", [(5, 60), (5, 60), (7, None)]),
+        ("ASOF INNER JOIN", "lhs.ts >= rhs.ts", [(5, 40), (5, 40)]),
+    ],
+)
+def test_asof_rewrite_preserves_duplicate_left_rows(
+    join: str, comparison: str, expected: list[tuple[int, int | None]]
+) -> None:
+    query = (
+        "WITH left_rows AS (SELECT 1 AS key, 5 AS ts UNION ALL SELECT 1, 5 UNION ALL SELECT 3, 7), "
+        "right_rows AS (SELECT 1 AS key, 2 AS ts, 20 AS amount UNION ALL SELECT 1, 4, 40 UNION ALL SELECT 1, 6, 60) "
+        f"SELECT lhs.ts, rhs.amount FROM left_rows lhs {join} right_rows rhs "
+        f"ON lhs.key = rhs.key AND {comparison} ORDER BY lhs.ts"
+    )
+    context = _context_with_trino_table()
+    sql, node = prepare_and_print_ast(parse_select(query), context, "trino")
+    assert "ASOF" not in sql
+    assert "row_number() OVER" in sql
+    assert isinstance(node, ast.SelectQuery)
+    assert node.type is not None
+    assert list(node.type.columns) == ["ts", "amount"]
+    sql, values = convert_pyformat_placeholders(sql, context.values)
+    with duckdb.connect(":memory:", config={"threads": 1}) as connection:
+        assert connection.execute(sql, values).fetchall() == expected
+
+
+@pytest.mark.parametrize("array", ["[1, 2]", "['a', 'b']", "[true, false]", "[NULL, 1]"])
+def test_lowers_left_array_join_with_typed_default(array: str) -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT item FROM users LEFT ARRAY JOIN {array} AS item"),
+        _context_with_trino_table(),
+        "trino",
+    )
+    assert "LEFT ARRAY JOIN" not in sql
+    assert "CROSS JOIN UNNEST(CASE WHEN" in sql
+    assert "cardinality(" in sql
+
+
+@pytest.mark.parametrize("include_nulls", [False, True])
+def test_lowers_unpivot_to_single_scan(include_nulls: bool) -> None:
+    modifier = " INCLUDE NULLS" if include_nulls else ""
+    sql, node = prepare_and_print_ast(
+        parse_select(f"SELECT * FROM users UNPIVOT{modifier}(value FOR key IN (user_id))"),
+        _context_with_trino_table(),
+        "trino",
+    )
+    assert "UNPIVOT" not in sql
+    assert sql.count('"ducklake"."analytics"."users"') == 1
+    assert "CROSS JOIN UNNEST(ARRAY[ROW(" in sql
+    assert ("IS NOT NULL" in sql) is not include_nulls
+    assert isinstance(node, ast.SelectQuery)
+    assert node.type is not None
+    assert "user_id" not in node.type.columns
+    assert {"value", "key"} <= node.type.columns.keys()
+
+
+@pytest.mark.parametrize(
+    ("query", "code"),
+    [
+        (
+            "SELECT other.id FROM users LEFT SEMI JOIN users other ON users.id = other.id",
+            "TRINO_FILTER_JOIN_RIGHT_OUTPUT_UNSUPPORTED",
+        ),
+        (
+            "SELECT users.id FROM users RIGHT ANY JOIN users other ON users.id = other.id JOIN users third ON users.id = third.id",
+            "TRINO_RIGHT_JOIN_CHAIN_UNSUPPORTED",
+        ),
+        (
+            "SELECT users.id FROM users LEFT ASOF JOIN users other ON users.id = other.id",
+            "TRINO_ASOF_CONSTRAINT_UNSUPPORTED",
+        ),
+        (
+            "SELECT users.id FROM users LEFT ASOF JOIN users other ON users.id = other.id AND users.created_at >= other.created_at AND users.id > other.id",
+            "TRINO_ASOF_CONSTRAINT_UNSUPPORTED",
+        ),
+        ("SELECT * FROM users PIVOT(sum(id) FOR user_id IN ('a', 'a'))", "TRINO_PIVOT_OUTPUT_COLLISION"),
+        ("SELECT * FROM users UNPIVOT(value FOR key IN (id, user_id))", "TRINO_UNPIVOT_TYPE_UNSUPPORTED"),
+        (
+            "SELECT user_id FROM users QUALIFY row_number() OVER (ORDER BY id) > 0 ORDER BY id WITH FILL LIMIT 1 BY user_id",
+            "TRINO_WITH_FILL_UNSUPPORTED",
+        ),
+    ],
+)
+def test_relational_rewrites_reject_unsafe_shapes(query: str, code: str) -> None:
+    with pytest.raises(TrinoLoweringError, match=code):
+        prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
+
+
+def test_internal_array_join_without_from() -> None:
+    query = parse_select("SELECT 1")
+    assert isinstance(query, ast.SelectQuery)
+    query.select = [ast.Field(chain=["item"])]
+    query.array_join_op = "LEFT ARRAY JOIN"
+    query.array_join_list = [ast.Alias(alias="item", expr=parse_expr("arrayFilter(value -> false, [1])"))]
+    sql, _ = prepare_and_print_ast(query, _context_with_trino_table(), "trino")
+    assert "FROM UNNEST(" in sql
+    assert "ROW(0)" in sql
+
+
+def test_qualify_uses_the_resolved_field_not_a_matching_output_name() -> None:
+    query = (
+        "WITH rows AS (SELECT 1 AS id UNION ALL SELECT 2) "
+        "SELECT lhs.id, row_number() OVER (ORDER BY lhs.id) AS rn FROM rows lhs "
+        "JOIN rows rhs ON lhs.id + 1 = rhs.id QUALIFY rhs.id = 2"
+    )
+    context = _context_with_trino_table()
+    sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
+    sql, values = convert_pyformat_placeholders(sql, context.values)
+    with duckdb.connect(":memory:") as connection:
+        assert connection.execute(sql, values).fetchall() == [(1, 1)]
+
+
+@pytest.mark.parametrize("aggregate", ["count()", "sum(id)", "avg(id)", "min(id)", "max(id)"])
+def test_lowers_static_pivot(aggregate: str) -> None:
+    context = _context_with_trino_table()
+    sql, node = prepare_and_print_ast(
+        parse_select(f"SELECT * FROM (SELECT user_id, id FROM users) PIVOT({aggregate} FOR user_id IN ('a', 'b'))"),
+        context,
+        "trino",
+    )
+    assert "PIVOT" not in sql
+    assert sql.count("FILTER (WHERE") == 2
+    assert 'AS "a"' in sql
+    assert 'AS "b"' in sql
+    assert isinstance(node, ast.SelectQuery)
+    assert node.type is not None
+    assert "user_id" not in node.type.columns
+
+
+@pytest.mark.parametrize(
+    "percentage, offset, expected",
+    [
+        (50, 0, [(1,), (2,), (3,)]),
+        (50, 1, [(2,), (3,), (4,)]),
+        (1, 0, [(1,)]),
+        (0, 0, []),
+        (100, 0, [(1,), (2,), (3,), (4,), (5,)]),
+    ],
+)
+def test_percentage_limit_rounds_up(percentage: int, offset: int, expected: list[tuple[int]]) -> None:
+    context = _context_with_trino_table()
+    query = parse_select(
+        f"WITH rows AS (SELECT 1 AS id UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5) "
+        f"SELECT id FROM rows ORDER BY id LIMIT {percentage} OFFSET {offset}"
+    )
+    assert isinstance(query, ast.SelectQuery)
+    query.limit_percent = True
+    sql, _ = prepare_and_print_ast(query, context, "trino")
+    sql, values = convert_pyformat_placeholders(sql, context.values)
+    assert "PERCENT" not in sql
+    with duckdb.connect(":memory:") as connection:
+        assert connection.execute(sql, values).fetchall() == expected
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'a' UNION ALL SELECT 3, 'b') "
+            "SELECT name FROM rows QUALIFY row_number() OVER (ORDER BY id) > 1 ORDER BY id DESC LIMIT 1 BY name",
+            [("b",), ("a",)],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'a' UNION ALL SELECT 3, 'b') "
+            "SELECT name FROM rows ORDER BY row_number() OVER (ORDER BY id DESC) LIMIT 1 BY name",
+            [("b",), ("a",)],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'a' UNION ALL SELECT 3, 'b') "
+            "SELECT DISTINCT name FROM rows QUALIFY row_number() OVER (ORDER BY id) > 0 ORDER BY name",
+            [("a",), ("b",)],
+        ),
+        (
+            "WITH left_rows AS (SELECT 1 AS id UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT NULL), "
+            "right_rows AS (SELECT 1 AS id UNION ALL SELECT 1 UNION ALL SELECT NULL) "
+            "SELECT lhs.id FROM left_rows lhs LEFT SEMI JOIN right_rows rhs ON lhs.id = rhs.id",
+            [(1,), (1,)],
+        ),
+        (
+            "WITH left_rows AS (SELECT 1 AS id UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT NULL), "
+            "right_rows AS (SELECT 1 AS id UNION ALL SELECT 1 UNION ALL SELECT NULL) "
+            "SELECT lhs.id FROM left_rows lhs LEFT ANTI JOIN right_rows rhs ON lhs.id = rhs.id",
+            [(2,), (None,)],
+        ),
+        (
+            "SELECT 1 AS first, 2 AS second UNION ALL BY NAME SELECT 2 AS second, 1 AS first",
+            [(1, 2), (1, 2)],
+        ),
+    ],
+)
+def test_relational_rewrites_preserve_results(query: str, expected: list[tuple[object, ...]]) -> None:
+    context = _context_with_trino_table()
+    sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
+    sql, values = convert_pyformat_placeholders(sql, context.values)
+    with duckdb.connect(":memory:") as connection:
+        assert connection.execute(sql, values).fetchall() == expected
+
+
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        (
+            "SELECT sumOrNull(value), sumOrDefault(value), avgOrDefault(value), countOrNull(), minOrDefault(value) "
+            "FROM (SELECT 1 value) WHERE false",
+            [(None, 0, 0, None, 0)],
+        ),
+        (
+            "SELECT sumOrNullIf(value, value > 5), sumOrDefaultIf(value, value > 5), countDistinctOrNullIf(value, value > 5) "
+            "FROM (SELECT 1 value UNION ALL SELECT 2)",
+            [(None, 0, None)],
+        ),
+        (
+            "SELECT sumOrNullIf(value, value > 1) FILTER (WHERE value < 3), countOrDefault(value), countDistinctOrNull(value) "
+            "FROM (SELECT 1 value UNION ALL SELECT 2 UNION ALL SELECT 2 UNION ALL SELECT 3)",
+            [(4, 4, 3)],
+        ),
+        (
+            "SELECT minOrDefault(value), maxOrNull(value) FROM (SELECT 'value' AS value) WHERE false",
+            [("", None)],
+        ),
+        (
+            "SELECT sumOrDefault(value) FROM (SELECT 1 / 2 AS value UNION ALL SELECT 3 / 2)",
+            [(2.0,)],
+        ),
+    ],
+)
+def test_aggregate_combinators_preserve_empty_and_filtered_results(
+    query: str, expected: list[tuple[object, ...]]
+) -> None:
+    context = _context_with_trino_table()
+    sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
+    sql, values = convert_pyformat_placeholders(sql, context.values)
+    with duckdb.connect(":memory:") as connection:
+        assert connection.execute(sql, values).fetchall() == expected
+
+
 def test_lowers_window_count_distinct_without_unsupported_distinct_window_aggregate() -> None:
     context = _context_with_trino_table()
 
@@ -1227,6 +1585,245 @@ def test_prints_additional_semantics_safe_trino_expressions(expression: str, exp
     )
 
     assert expected in sql
+
+
+@pytest.mark.parametrize(
+    "expression, expected",
+    [
+        ("sumArray([1, 2])", "CAST(0 AS BIGINT)"),
+        ("sumArgMin(3, 1)", "__hogql_arg_row[2] = __hogql_extreme"),
+        ("maxArgMax('value', 2)", "array_max(transform(__hogql_value_rows"),
+        ("countArgMin(1)", "array_agg(ROW(1, 1))"),
+        ("countArgMinOrNull(NULL, 1)", "IF(cardinality(__hogql_value_rows) = 0, NULL"),
+        ("countDistinctArgMinOrNull(NULL, 1)", "IF(cardinality(__hogql_value_rows) = 0, NULL"),
+        ("avgArgMaxOrDefaultIf(3, 1, false)", "FILTER (WHERE (false))"),
+        ("sumArgMin(1, 0.0 / 0.0)", "NaN selection keys are not supported"),
+        ("minArgMin(0.0 / 0.0, 1)", "NaN argument-selection values are not supported"),
+        ("medianExact(1)", "IF(cardinality(__hogql_quantile_values) = 0, 0"),
+        ("medianExactLow(1)", "ceil(0.5 * cardinality(__hogql_quantile_values))"),
+        ("medianExactHigh(1)", "floor(0.5 * cardinality(__hogql_quantile_values))"),
+        ("medianExact(0.0 / 0.0)", "NOT is_nan(__hogql_quantile_value)"),
+        ("quantileExact(0.5)(1.0)", "IF(cardinality(__hogql_quantile_values) = 0, nan()"),
+        ("avgWeighted(1.5, 2)", "CAST(truncate(__hogql_pair[1]) AS BIGINT)"),
+        ("avgWeighted(1, 2.0)", "ROW(numerator DOUBLE, denominator DOUBLE)"),
+        ("avgWeightedIf(1, 2.0, false)", "FILTER (WHERE (false))"),
+        ("skewPopIf(1, false)", "__hogql_state[4]"),
+        ("skewSamp(1)", "__hogql_state[1] - 1e0"),
+        ("kurtPop(1)", "__hogql_state[5]"),
+        ("kurtSampIf(1, false)", "FILTER (WHERE (false))"),
+        ("simpleLinearRegression(1, 2)", "ROW(n DOUBLE, sx DOUBLE, sy DOUBLE, sxx DOUBLE, sxy DOUBLE)"),
+        ("locate('ç', 'éç', 2)", "to_hex(to_utf8(__hogql_locate[2]))"),
+        ("hasSubsequence('abc', 'ac')", "__hogql_position + __hogql_relative"),
+        ("hasSubsequenceCaseInsensitive('AbÇ', 'aBç')", "'ABCDEFGHIJKLMNOPQRSTUVWXYZ'"),
+        ("hasSubsequenceUTF8('aéç', 'aç')", "regexp_extract_all(__hogql_subsequence[1], '(?s).')"),
+        (
+            "hasSubsequenceCaseInsensitiveUTF8('AbÇ', 'aBç')",
+            "UTF-8 case conversion with a different byte length is not supported",
+        ),
+        (
+            "countSubstringsCaseInsensitiveUTF8('ÄäA', 'ä', 1)",
+            "length(to_utf8(lower(__hogql_character)))",
+        ),
+        ("splitByNonAlpha('é_foo-你好-42')", "'[\\p{L}\\p{N}]+'"),
+        ("alphaTokens('é_foo-你好-42', 1)", "'[A-Za-z]+'"),
+        ("tokens('é_foo-你好-42')", "'[\\p{L}\\p{N}]+'"),
+        (
+            "queryStringAndFragment('https://example.com/p?x#f')",
+            "concat(coalesce(regexp_extract(split_part(__hogql_url, '#', 1), '\\?(.*)$', 1), ''), '#',",
+        ),
+        ("pathFull('https://example.com/p?#f')", "strpos(split_part(__hogql_url, '#', 1), '?') > 0"),
+        ("btrim('xyxabcxy', 'xy')", "trim("),
+        ("translateUTF8('héllo', 'élo', 'ÉXY')", "translate("),
+        ("toNullableString(1)", "CAST(1 AS VARCHAR)"),
+        ("extractURLParameters('/p?x=a%20b&flag')", "split(coalesce(regexp_extract("),
+        ("extractURLParameterNames('/p?x=a%20b&flag')", "split_part(__hogql_parameter, '=', 1)"),
+        ("defaultValueOfTypeName('UInt64')", "CAST(0 AS DECIMAL(20, 0))"),
+        ("defaultValueOfTypeName('Array(Int64)')", "CAST(ARRAY[] AS ARRAY(BIGINT))"),
+        ("groupUniqArrayArray([1, 2])", "array_distinct(filter(flatten(__hogql_arrays)"),
+        ("groupUniqArrayArrayIf(1)([1, 2], false)", "slice(array_distinct("),
+        ("groupArrayMovingSumIf(1, false)", "ROW(total BIGINT, items ARRAY(BIGINT))"),
+        ("groupArrayMovingAvg(1)", "__hogql_total / cardinality(__hogql_moving_values)"),
+        ("xor(1, 0, 1)", "reduce(ARRAY[CAST(1 AS BOOLEAN), CAST(0 AS BOOLEAN), CAST(1 AS BOOLEAN)]"),
+        ("throwIf(0, 'stop')", "IF(CAST(0 AS BOOLEAN), fail("),
+        ("isValidUTF8('abc')", "IS NULL, NULL, true"),
+        ("regexpQuoteMeta('a.b')", "regexp_replace("),
+        ("encodeURLFormComponent('a b')", "url_encode("),
+        ("decodeURLFormComponent('a+b')", "url_decode("),
+        ("isIPv4String('1.2.3.4')", "all_match(transform(split(__hogql_ip, '.')"),
+        ("isIPv6String('::1')", "TRY_CAST(__hogql_ip AS IPADDRESS) IS NOT NULL"),
+        ("isIPAddressInRange('1.2.3.4', '1.2.3.0/24')", "contains("),
+        ("IPv4StringToNum('1.2.3.4')", "__hogql_total * 256 + __hogql_octet"),
+        ("IPv4StringToNumOrDefault('bad')", "IF(regexp_like(__hogql_ip"),
+        ("IPv4StringToNumOrNull('bad')", ", NULL)"),
+        ("IPv4NumToString(16909060)", "array_join(transform(ARRAY[24, 16, 8, 0]"),
+        ("to_timestamp(1704164645)", "CAST(from_unixtime(CAST(1704164645 AS DOUBLE)) AS TIMESTAMP)"),
+        ("timeStampAdd(toDateTime('2024-01-02'), toIntervalDay(2))", " + "),
+        ("timeStampSub(toDateTime('2024-01-02'), toIntervalHour(2))", " - "),
+        ("timeSlot(toDateTime('2024-01-02 03:14:59'))", "-mod(minute("),
+        ("toTime(toDateTime('2024-01-02 03:14:59'))", "TIMESTAMP '1970-01-02 00:00:00'"),
+        ("timeSlots(toDateTime('2024-01-02 03:14:59'), 3600)", "BIGINT '1800'"),
+        ("regexpExtract('abc123', '([a-z]+)([0-9]+)', 2)", "regexp_extract("),
+        ("extractGroups('a1', '([a-z])([0-9])')", "IS NULL, ARRAY[], ARRAY["),
+        ("extractAllGroupsVertical('a1 b2', '([a-z])([0-9])')", "__hogql_index -> ARRAY["),
+        ("extractAllGroupsHorizontal('a1 b2', '([a-z])([0-9])')", "ARRAY[transform("),
+        ("initcap('foo-bar_bAZ 123abc')", "ROW(at_word_start BOOLEAN, value VARCHAR)"),
+        ("dateName('weekday', toDateTime('2024-01-02'))", "date_format(CAST("),
+        (
+            "date_bin(toIntervalMinute(15), toDateTime('2024-01-02 03:14:59'), toDateTime('2024-01-02 00:07:00'))",
+            "date_diff('second', __hogql_date_bin[2], __hogql_date_bin[1]) / 900e0",
+        ),
+        ("hasToken('foo bar', 'bar')", "regexp_like(__hogql_token_args[1], concat("),
+        ("hasTokenOrNull('foo', 'f.o')", "NULL"),
+        ("hasTokenCaseInsensitive('Foo BAR', 'bar')", "translate(__hogql_token_args[1]"),
+        ("hasTokenCaseInsensitiveOrNull('FOO', 'f_o')", "^[A-Za-z0-9\\P{ASCII}]+$"),
+        ("netloc('https://u:p@example.com:8080/a')", "(?:[A-Za-z][A-Za-z0-9+.-]*:)?//"),
+        ("URLHierarchy('https://example.com/a/b?x=1#f')", "__hogql_position IN"),
+        ("URLPathHierarchy('https://example.com/a/b?x=1#f')", "__hogql_position - length(__hogql_authority)"),
+        ("cutURLParameter('https://example.com/p?x=1&y=2', 'x')", "__hogql_match_position"),
+        ("encodeXMLComponent('<a&b>')", "'&apos;'"),
+        ("decodeXMLComponent('&lt;&#65;&gt;')", "__hogql_xml_entity -> chr("),
+        ("JSONType('{\"x\": 1}', 'x')", "WHEN __hogql_json_type IN ('true', 'false')"),
+        (
+            "UUIDv7ToDateTime(toUUID('01a09219-c11f-7429-a26e-794d5a382dd4'))",
+            "from_base(substr(replace(CAST(",
+        ),
+        ("make_timestamp(2024, 1, 2, 3, 4, 5.25)", "CAST(truncate(5.25) AS BIGINT)"),
+        (
+            "make_timestamptz(2024, 1, 2, 3, 4, 5, 'America/New_York')",
+            "with_timezone(CAST(format(",
+        ),
+        ("sortablesemver('v1.2.3-beta')", "ARRAY[CAST(NULL AS BIGINT)]"),
+        ("pointInEllipses(5.0, 5.0, 0.0, 0.0, 1.0, 1.0, 5.0, 5.0, 2.0, 2.0)", " OR power(("),
+        ("ifNotFinite(0.0 / 0.0, 9.0)", "IF(is_finite(CAST("),
+        ("ngrams('hello', 2)", "substr(__hogql_ngram_args[1], __hogql_position"),
+        ("hasAllTokens('foo bar', ['foo', 'bar'])", "all_match(__hogql_token_array_args[2]"),
+        ("hasAnyTokens('foo bar', ['x', 'bar'])", "any_match(__hogql_token_array_args[2]"),
+        ("mapPopulateSeries(map(1, 10, 3, 30), 5)", "map_from_entries(transform("),
+        ("extractIPv4Substrings('a 1.2.3.4 b 999.2.3.4')", "25[0-5]"),
+        ("indexHint(1 = 1)", "SELECT (1 = 1)"),
+        ("accurateCast(255, 'UInt8')", "DECIMAL '255'"),
+        ("accurateCastOrNull(1.5, 'Int64')", "= truncate("),
+        ("base58Encode('PostHog')", "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"),
+        ("bar(5.5, 0, 10, 10)", "substr('▏▎▍▌▋▊▉'"),
+        ("toIPv4('01.2.3.4')", "CAST(array_join(transform(ARRAY[24, 16, 8, 0]"),
+        ("toIPv4(16909060)", "__hogql_ipv4 BETWEEN 0 AND 4294967295"),
+        ("toIPv4OrDefault('bad', toIPv4('5.6.7.8'))", "fail('Invalid IPv4 address')"),
+        ("toIPv4OrNull('bad')", "CAST(NULL AS IPADDRESS)"),
+        ("toIPv4OrZero('bad')", "CAST('0.0.0.0' AS IPADDRESS)"),
+        ("IPv4CIDRToRange(toIPv4('192.0.2.129'), 24)", "IPv4 CIDR prefix must be between 0 and 32"),
+        ("format('{{}} {}', 12, 99)", "CAST(12 AS VARCHAR)"),
+        ("ngramDistanceCaseInsensitive('ABCdef', 'bcDE')", "translate(CAST("),
+        ("ngramDistanceUTF8('abcdef', 'bcde')", "MAP(VARCHAR, BIGINT)"),
+        ("ngramSearch('abcdef', 'bcde')", "map_values(__hogql_ngram_maps[2])"),
+        ("ngramSearchCaseInsensitive('ABCdef', 'bcDE')", "least("),
+        ("ngramSearchUTF8('abcdef', 'abcf')", "substr(__hogql_ngram_args[1], __hogql_left_index, 3)"),
+        ("timeZoneOffset(toDateTime('2024-01-01', 'America/New_York'))", "timezone_hour("),
+        ("toWeek(toDate('2018-12-31'), 3)", "CASE __hogql_week[2]"),
+        ("toYearWeek(toDate('2018-12-31'), 3)", "year(__hogql_week[1]) * 100"),
+        ("to_char(toDateTime('2024-05-17 12:34:56'), '%Y-%m-%d')", "date_format("),
+        ("toStartOfISOYear(toDate('2018-12-31'))", "year_of_week("),
+        ("toStartOfWeek(toDate('2024-01-03'), 8)", "date_add('day', -1, date_trunc('week'"),
+        ("toStartOfWeek(toDate('2024-01-03'), 9)", "date_trunc('week'"),
+        ("formatReadableSize(1536)", "ARRAY['B', 'KiB', 'MiB'"),
+        ("formatReadableDecimalSize(1500)", "ln(1000e0)"),
+        ("formatReadableQuantity(1234567)", "'vigintillion'"),
+        ("roundToExp2(7)", "reduce(sequence(0, 62), BIGINT '0'"),
+        ("roundToExp2(-7.5)", "sign(__hogql_round_to_exp2) * power(2e0"),
+        ("gcd(-48, 18)", "mod(__hogql_state[1], __hogql_state[2])"),
+        ("lcm(-21, 6)", "abs(__hogql_integer_pair[1] /"),
+        ("arrayAUC([0.1, 0.4, 0.35, 0.8], [0, 0, 1, 1])", "group_positive BIGINT"),
+        ("maxIntersections(1, 2)", "maximum_count BIGINT"),
+        ("maxIntersectionsIf(1, 2, false)", "FILTER (WHERE (false))"),
+        ("maxIntersectionsPosition(1, 2)", "__hogql_intersection_state[3]"),
+        ("maxIntersectionsPositionIf(1, 2, false)", "__hogql_intersection_state[3]"),
+        ("medianExactWeighted(3, 2)", "ROW(total BIGINT, cumulative ARRAY(BIGINT))"),
+        ("medianExactWeightedIf(3, 2, false)", "FILTER (WHERE (false))"),
+        ("quantiles(0, 0.5, 1)(3)", "ARRAY[DOUBLE '0', DOUBLE '0.5', DOUBLE '1']"),
+        ("quantilesIf(0.5)(3, false)", "FILTER (WHERE (false))"),
+        ("deltaSumIf(3, false)", "ROW(seen BOOLEAN, previous BIGINT, total BIGINT)"),
+        ("groupArrayInsertAtIf('x', 2, false)", "__hogql_row[2] = __hogql_position"),
+        ("sumForEach([1, 2])", "cardinality(__hogql_row) >= __hogql_position"),
+        ("avgForEachOrNullIf([1, NULL], 0)", "FILTER (WHERE (CAST(0 AS BOOLEAN)))"),
+        ("countDistinctMap(map('a', 1))", "cardinality(array_distinct(__hogql_values))"),
+        ("minMapOrDefault(map('a', 'value'))", "coalesce(array_min(__hogql_values), '')"),
+        ("arrayReduce('sum', [1, 2])", "CAST(0 AS BIGINT)"),
+        ("arrayReduce('sumMap', [map('a', 1), map('a', 2)])", "map_from_entries(transform("),
+        ("arrayCumSum([1, -3, 2])", "ROW(total BIGINT, items ARRAY(BIGINT))"),
+        ("arrayCumSumNonNegative([1, -3, 2])", "greatest(__hogql_scan_state[1] + __hogql_item, 0)"),
+        ("arrayCumSum(value -> value / 2, [1, 2])", "ROW(total DOUBLE, items ARRAY(DOUBLE))"),
+        ("arrayResize(arrayCumSum(value -> value / 2, [1, 2]), 4)", "repeat(DOUBLE '0',"),
+        ("arrayFill(value -> value > 0, [0, 1, 0])", "element_at(__hogql_filled, -1)"),
+        ("arrayReverseFill(value -> value > 0, [0, 1, 0])", "reverse(reduce(reverse(zip("),
+        ("arraySplit(value -> value > 0, [0, 1, 0])", "element_at(__hogql_flags, __hogql_position)"),
+        ("arrayReverseSplit(value -> value > 0, [0, 1, 0])", "element_at(__hogql_flags, __hogql_position - 1)"),
+        ("L1Normalize((3, 4))", "element_at(__hogql_vectors[1], 2) / __hogql_norm"),
+        ("L2Normalize((3, 4))", "__hogql_vectors[2]"),
+        ("LinfNormalize((3, 4))", "array_max(transform("),
+        ("LpNormalize((3, 4), 2)", "Lp exponent must be at least one and not infinite"),
+        ("LpNorm([3, 4], 2)", "power(reduce("),
+        ("LpNorm([3, 4], 0.0 / 0.0)", "is_nan(CAST(__hogql_vectors[2] AS DOUBLE))"),
+        ("tuplePlus(L2Normalize((3, 4)), (1, 2))", "(__hogql_tuple_args[1][2] + __hogql_tuple_args[2][2])"),
+        ("LpDistance((3, 4), (0, 0), 2)", "LpDistance requires equal vector lengths"),
+        ("roundDown(7, [10, 0, 5])", "roundDown requires a non-empty boundary array"),
+        ("roundDown(0.0 / 0.0, [0, 1, 5])", "IF(is_nan(CAST(__hogql_round[1] AS DOUBLE)), __hogql_round[1]"),
+        ("roundAge(17)", "WHEN __hogql_age < 18 THEN 17"),
+        ("roundDuration(15)", "WHEN __hogql_duration < 36000 THEN 18000"),
+        ("factorial(20)", "2432902008176640000"),
+        ("factorial(NULL)", "transform(ARRAY[NULL], __hogql_factorial"),
+        ("avgArrayIf([1, 2], 1)", "FILTER (WHERE (CAST(1 AS BOOLEAN)))"),
+        ("minArrayOrNullIf([1], false)", "IF(count(ARRAY[1]) FILTER (WHERE (false)) = 0, NULL"),
+        ("countDistinctArray([1, 1, 2])", "cardinality(array_distinct(__hogql_values))"),
+        ("arrayLast(value -> value > 1, [1, 2])", 'element_at(filter(ARRAY[1, 2], "value" -> ("value" > 1)), -1)'),
+        ("arrayResize([1], 3)", "repeat(0,"),
+        ("arrayResize([[1]], 3)", "repeat(ARRAY[],"),
+        ("arrayResize([1, NULL], 3)", "element_at(ARRAY[1, NULL], cardinality(ARRAY[1, NULL]) + 1)"),
+        ("tuplePlus((1, 2), (3, 4))", "(__hogql_tuple_args[1][2] + __hogql_tuple_args[2][2])"),
+        ("tupleToNameValuePairs((1, 2))", "__hogql_named_tuple[2]"),
+        ("tupleDivide((1, 2), (3, 4))", "CAST(__hogql_tuple_args[1][1] AS DOUBLE)"),
+        ("tupleNegate(tuplePlus((1, 2), (3, 4)))", "(-__hogql_tuple_args[1][2])"),
+        (
+            "tupleHammingDistance((1, NULL), (2, NULL))",
+            "CAST(__hogql_tuple_args[1][2] != __hogql_tuple_args[2][2] AS BIGINT)",
+        ),
+        ("multiSearchAllPositions('éx', ['x'])", "length(to_utf8(substr("),
+        ("multiSearchFirstIndexUTF8('abc', ['c', 'a'])", "array_position(transform("),
+        ("multiSearchFirstPositionUTF8('abc', ['c', 'a'])", "coalesce(array_min(filter("),
+        (
+            "multiSearchAnyCaseInsensitiveUTF8('İ', ['i'])",
+            "UTF-8 case conversion with a different byte length is not supported",
+        ),
+    ],
+)
+def test_prints_type_aware_and_search_rewrites(expression: str, expected: str) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(f"SELECT {expression}"), _context_with_trino_table(), "trino")
+    assert expected in sql
+
+
+@pytest.mark.parametrize(
+    "name",
+    sorted(name for name in TRINO_AGGREGATE_COMBINATORS if name.startswith("median")),
+)
+@pytest.mark.parametrize("window", ["", " OVER ()"], ids=["aggregate", "window"])
+def test_prints_all_median_aggregate_combinators(name: str, window: str) -> None:
+    _, mode, _, conditional = TRINO_AGGREGATE_COMBINATORS[name]
+    canonical_name = next(candidate for candidate in HOGQL_AGGREGATIONS if candidate.lower() == name)
+    if mode in {"Array", "ForEach"}:
+        args = ["[1.0, 2.0]"]
+    elif mode == "Map":
+        args = ["map('a', 1.0)"]
+    elif mode in {"ArgMin", "ArgMax"}:
+        args = ["1.0", "1"]
+    else:
+        args = ["1.0"]
+    if conditional:
+        args.append("true")
+
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT {canonical_name}({', '.join(args)}){window}"), _context_with_trino_table(), "trino"
+    )
+
+    assert "array_sort(" in sql
+    assert "median(" not in sql.lower()
 
 
 @pytest.mark.parametrize(
@@ -1457,8 +2054,28 @@ def test_rejects_trino_identifiers_that_can_collide_with_parameter_binding(ident
         ),
         (
             "quantileExactIf(0.5)(length(user_id), length(user_id) > 1) OVER ()",
-            "array_sort(filter(array_agg(IF(",
+            "filter(coalesce(array_agg(IF(",
         ),
+        ("medianExactLow(length(user_id)) OVER ()", "ceil(0.5 * cardinality(__hogql_quantile_values))"),
+        ("medianExactHighIf(length(user_id), id > 1) OVER ()", "OVER ()"),
+        ("sumArgMin(id, created_at) OVER ()", 'array_agg(ROW("users"."id", "users"."created_at")) OVER ()'),
+        ("countArgMaxOrNullIf(id, created_at, id > 1) OVER ()", 'array_agg(IF((("users"."id" > 1)), ROW('),
+        ("sumForEach([id]) OVER ()", 'array_agg(ARRAY["users"."id"]) OVER ()'),
+        ("avgArrayOrNull([id]) OVER ()", 'count(ARRAY["users"."id"]) OVER ()'),
+        ("avgArray([id]) OVER ()", "IF(cardinality(__hogql_values) = 0, nan()"),
+        ("sumMap(map('a', id)) OVER ()", "map_from_entries(transform("),
+        ("avgWeighted(id, 1.0) OVER ()", 'array_agg(ROW("users"."id", 1.0)) OVER ()'),
+        ("skewPopIf(id, id > 1) OVER ()", 'array_agg(IF((("users"."id" > 1)), CAST('),
+        ("simpleLinearRegression(id, id * 2) OVER ()", "__hogql_state[5] * __hogql_state[1]"),
+        ("groupUniqArrayArrayIf([id], id > 1) OVER ()", 'array_agg(IF((("users"."id" > 1)), ARRAY['),
+        ("groupArrayMovingSumIf(id, id > 1) OVER ()", 'array_agg(IF((("users"."id" > 1)), CAST('),
+        ("groupArrayMovingAvg(id) OVER ()", "ROW(total DOUBLE, items ARRAY(DOUBLE))"),
+        ("medianExactWeightedIf(id, 2, id > 1) OVER ()", "__hogql_weights[2]"),
+        ("quantilesIf(0, 0.5, 1)(id, id > 1) OVER ()", "approx_percentile("),
+        ("deltaSumIf(id, id > 1) OVER ()", 'array_agg(IF((("users"."id" > 1)), CAST('),
+        ("groupArrayInsertAtIf(id, id, id > 1) OVER ()", "__hogql_insert_rows"),
+        ("maxIntersectionsIf(id, id + 2, id > 1) OVER ()", "__hogql_intersection_state[2]"),
+        ("maxIntersectionsPosition(id, id + 2) OVER ()", "__hogql_intersection_state[3]"),
     ],
 )
 def test_prints_semantics_safe_trino_window_functions(expression: str, expected: str) -> None:
@@ -1708,7 +2325,7 @@ def test_lowers_left_any_join_against_a_cte() -> None:
 @pytest.mark.parametrize(
     ("join", "constraint", "feature_code"),
     [
-        ("RIGHT ANY JOIN", "users.user_id = other.user_id", "TRINO_ANY_JOIN_MODE_UNSUPPORTED"),
+        ("FULL ANY JOIN", "users.user_id = other.user_id", "TRINO_ANY_JOIN_MODE_UNSUPPORTED"),
         ("LEFT ANY JOIN", "users.user_id < other.user_id", "TRINO_ANY_JOIN_EQUI_KEYS_REQUIRED"),
     ],
 )
@@ -1758,12 +2375,12 @@ def test_removes_noop_sample_one_for_trino() -> None:
     [
         ("SELECT user_id FROM users SAMPLE 0.5", "TRINO_SAMPLE_UNSUPPORTED"),
         (
-            "SELECT * FROM users PIVOT(count(user_id) FOR created_at IN ('2026-01-01'))",
-            "TRINO_PIVOT_UNSUPPORTED",
+            "SELECT * FROM users PIVOT(uniq(user_id) FOR created_at IN ('2026-01-01'))",
+            "TRINO_PIVOT_AGGREGATE_UNSUPPORTED",
         ),
         (
-            "SELECT * FROM users UNPIVOT(value FOR key IN (user_id))",
-            "TRINO_UNPIVOT_UNSUPPORTED",
+            "SELECT * FROM users UNPIVOT((value1, value2) FOR (key1, key2) IN ((user_id, id)))",
+            "TRINO_UNPIVOT_SHAPE_UNSUPPORTED",
         ),
     ],
 )
@@ -1889,18 +2506,6 @@ def test_wrapper_sort_projections_preserve_output(query: str, snapshot: Snapshot
             "SELECT DISTINCT user_id, user_id = toString(1) AS bucket, row_number() OVER (ORDER BY user_id) AS rn "
             "FROM users QUALIFY rn > 0 ORDER BY user_id = toString(true)",
             "TRINO_WRAPPER_ORDER_NOT_PROJECTED",
-        ),
-        (
-            "SELECT user_id FROM users ORDER BY row_number() OVER (ORDER BY created_at) LIMIT 1 BY user_id",
-            "TRINO_LIMIT_BY_WINDOW_UNSUPPORTED",
-        ),
-        (
-            "SELECT user_id, row_number() OVER (ORDER BY created_at) AS rn FROM users ORDER BY 2 LIMIT 1 BY user_id",
-            "TRINO_LIMIT_BY_WINDOW_UNSUPPORTED",
-        ),
-        (
-            "SELECT user_id, row_number() OVER (ORDER BY created_at) AS rn FROM users LIMIT 1 BY rn",
-            "TRINO_LIMIT_BY_WINDOW_UNSUPPORTED",
         ),
     ],
 )

@@ -1,5 +1,7 @@
 import re
 from collections.abc import Callable, Iterable
+from dataclasses import replace
+from string import Formatter
 from typing import TYPE_CHECKING, ClassVar, NoReturn
 
 from posthog.hogql import ast
@@ -11,12 +13,26 @@ from posthog.hogql.escape_sql import escape_trino_identifier
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.printer.trino_functions import (
+    TRINO_AGGREGATE_COMBINATORS,
+    TRINO_ARRAY_INSERT_AGGREGATES,
+    TRINO_DELTA_AGGREGATES,
+    TRINO_EXACT_QUANTILES,
+    TRINO_EXACT_WEIGHTED_MEDIANS,
     TRINO_FUNCTION_HANDLERS_LOWER,
     TRINO_FUNCTION_RENAMES_LOWER,
+    TRINO_INTERSECTION_AGGREGATES,
+    TRINO_MOVING_ARRAY_AGGREGATES,
     TRINO_PASSTHROUGH_FUNCTIONS,
+    TRINO_QUANTILES,
+    TRINO_STATISTICAL_AGGREGATES,
+    TRINO_TUPLE_OPERATORS,
+    TRINO_UNIQUE_ARRAY_AGGREGATES,
+    TRINO_VECTOR_REWRITES,
+    TRINO_WINDOW_ONLY_FUNCTIONS,
 )
 from posthog.hogql.printer.types import JoinExprResponse
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
+from posthog.hogql.transforms.trino.expressions import constant_integer
 from posthog.hogql.visitor import clone_expr
 
 from posthog.dataclasses import frozen
@@ -197,19 +213,15 @@ class TrinoPrinter(PostgresPrinter):
 
     @staticmethod
     def _validate_row_count(value: ast.Expr, clause: str) -> int:
-        if (
-            not isinstance(value, ast.Constant)
-            or isinstance(value.value, bool)
-            or not isinstance(value.value, int)
-            or value.value < 0
-        ):
+        count = constant_integer(value)
+        if count is None or count < 0:
             raise TrinoLoweringError(
                 "TRINO_ROW_COUNT_NON_LITERAL",
                 clause,
                 value,
-                detail=f"{clause} must be a non-negative integer literal in Trino mode.",
+                detail=f"{clause} must be a non-negative integer constant in Trino mode.",
             )
-        return value.value
+        return count
 
     def _append_select_limit_and_offset(
         self, clauses: list[str | None], node: ast.SelectQuery, limit: ast.Expr | None
@@ -347,6 +359,14 @@ class TrinoPrinter(PostgresPrinter):
 
     def visit_call(self, node: ast.Call) -> str:
         name = node.name.lower()
+        if name in TRINO_WINDOW_ONLY_FUNCTIONS:
+            self._invalid_function_arguments(node, f"{node.name} requires an OVER clause in Trino mode.")
+        if name in TRINO_AGGREGATE_COMBINATORS:
+            return self._visit_aggregate_combinator(node)
+        if node.filter_expr is not None and name in {"count", "sum", "avg", "min", "max", "countdistinct"}:
+            unfiltered = clone_expr(node, clear_types=False)
+            unfiltered.filter_expr = None
+            return f"{self.visit_call(unfiltered)} FILTER (WHERE {self._visit_predicate(node.filter_expr)})"
         if find_hogql_aggregation(node.name) is None and (
             node.distinct or node.within_group is not None or node.order_by is not None or node.filter_expr is not None
         ):
@@ -367,6 +387,88 @@ class TrinoPrinter(PostgresPrinter):
             "notlike": ast.CompareOperationOp.NotLike,
             "notilike": ast.CompareOperationOp.NotILike,
         }
+        if name in TRINO_TUPLE_OPERATORS:
+            return self._visit_tuple_arithmetic(node)
+        if name == "tupletonamevaluepairs":
+            return self._visit_tuple_to_name_value_pairs(node)
+        if name in TRINO_VECTOR_REWRITES:
+            return self._visit_vector_rewrite(node)
+        if name == "arrayreduce":
+            return self._visit_array_reduce(node)
+        if name == "arrayauc":
+            return self._visit_array_auc(node)
+        if name == "mappopulateseries":
+            return self._visit_map_populate_series(node)
+        if name in {
+            "arraycumsum",
+            "arraycumsumnonnegative",
+            "arrayfill",
+            "arrayreversefill",
+            "arraysplit",
+            "arrayreversesplit",
+        }:
+            return self._visit_array_scan(node)
+        if name == "factorial" and (
+            len(node.args) != 1
+            or not (
+                isinstance(self._resolve_type(node.args[0]), ast.IntegerType)
+                or isinstance(node.args[0], ast.Constant)
+                and node.args[0].value is None
+            )
+        ):
+            self._invalid_function_arguments(node, "factorial requires an integer argument in Trino mode.")
+        if name == "roundtoexp2":
+            if len(node.args) != 1:
+                self._invalid_function_arguments(node, "roundToExp2 requires one numeric argument in Trino mode.")
+            value_type = self._resolve_type(node.args[0])
+            if not isinstance(value_type, (ast.IntegerType, ast.FloatType)):
+                self._invalid_function_arguments(
+                    node, "roundToExp2 requires an integer or float argument in Trino mode."
+                )
+            target_type = "BIGINT" if isinstance(value_type, ast.IntegerType) else "DOUBLE"
+            value = self.visit(node.args[0])
+            if isinstance(value_type, ast.IntegerType):
+                rounded = (
+                    "reduce(sequence(0, 62), BIGINT '0', (__hogql_result, __hogql_exponent) -> "
+                    "IF(__hogql_round_to_exp2 >= "
+                    "bitwise_left_shift(BIGINT '1', CAST(__hogql_exponent AS INTEGER)), "
+                    "bitwise_left_shift(BIGINT '1', CAST(__hogql_exponent AS INTEGER)), __hogql_result), "
+                    "__hogql_result -> __hogql_result)"
+                )
+                return (
+                    f"element_at(transform(ARRAY[CAST({value} AS {target_type})], __hogql_round_to_exp2 -> "
+                    f"{rounded}), 1)"
+                )
+            rounded = "sign(__hogql_round_to_exp2) * power(2e0, floor(ln(abs(__hogql_round_to_exp2)) / ln(2e0)))"
+            return (
+                f"element_at(transform(ARRAY[CAST({value} AS {target_type})], __hogql_round_to_exp2 -> "
+                f"IF(__hogql_round_to_exp2 = 0, CAST(0 AS {target_type}), CAST({rounded} AS {target_type}))), 1)"
+            )
+        if name in {"gcd", "lcm"}:
+            if len(node.args) != 2 or any(
+                not isinstance(self._resolve_type(argument), ast.IntegerType) for argument in node.args
+            ):
+                self._invalid_function_arguments(node, f"{node.name} requires two integer arguments in Trino mode.")
+            left, right = (self.visit(argument) for argument in node.args)
+            state_type = "ROW(first_value BIGINT, second_value BIGINT)"
+            gcd = (
+                f"reduce(sequence(1, 64), CAST(ROW(abs(__hogql_integer_pair[1]), "
+                f"abs(__hogql_integer_pair[2])) AS {state_type}), "
+                "(__hogql_state, __hogql_step) -> IF(__hogql_state[2] = 0, __hogql_state, "
+                f"CAST(ROW(__hogql_state[2], mod(__hogql_state[1], __hogql_state[2])) AS {state_type})), "
+                "__hogql_state -> __hogql_state[1])"
+            )
+            result = gcd
+            if name == "lcm":
+                result = f"abs(__hogql_integer_pair[1] / ({gcd}) * __hogql_integer_pair[2])"
+            result = (
+                "IF(__hogql_integer_pair[1] = 0 OR __hogql_integer_pair[2] = 0, "
+                f"fail('{node.name} does not accept zero'), {result})"
+            )
+            return (
+                f"element_at(transform(ARRAY[CAST(ROW({left}, {right}) AS {state_type})], "
+                f"__hogql_integer_pair -> {result}), 1)"
+            )
         if name in comparison_operators:
             if len(node.args) != 2:
                 self._invalid_function_arguments(node, f"{node.name} expects exactly 2 arguments in Trino mode.")
@@ -452,8 +554,22 @@ class TrinoPrinter(PostgresPrinter):
                     "TRINO_INT_DIV_TYPE_UNSUPPORTED", "intDiv requires integer operands in Trino mode.", node
                 )
             return f"(CAST({binary_args.left} AS BIGINT) / CAST({binary_args.right} AS BIGINT))"
-        if name == "accuratecastornull":
-            return self._visit_accurate_cast_or_null(node)
+        if name in {"accuratecast", "accuratecastornull"}:
+            return self._visit_accurate_cast(node, nullable=name == "accuratecastornull")
+        if name == "format":
+            return self._visit_format(node)
+        if name == "toipv4" and len(node.args) == 1 and isinstance(self._resolve_type(node.args[0]), ast.IntegerType):
+            value = self.visit(node.args[0])
+            address = (
+                "CAST(array_join(transform(ARRAY[24, 16, 8, 0], __hogql_shift -> "
+                "CAST(bitwise_and(bitwise_right_shift_arithmetic(__hogql_ipv4, __hogql_shift), 255) AS VARCHAR)), '.') "
+                "AS IPADDRESS)"
+            )
+            result = f"IF(__hogql_ipv4 BETWEEN 0 AND 4294967295, {address}, fail('IPv4 number is out of range'))"
+            return (
+                f"element_at(transform(ARRAY[CAST({value} AS BIGINT)], __hogql_ipv4 -> "
+                f"IF(__hogql_ipv4 IS NULL, NULL, {result})), 1)"
+            )
         if name in {"_toint8", "_toint16", "_toint32", "_toint64"}:
             return self._visit_internal_integer_cast(node)
         if name == "multiplydecimal":
@@ -486,7 +602,14 @@ class TrinoPrinter(PostgresPrinter):
                 return zipped
             same_length = " AND ".join(f"cardinality({arrays[0]}) = cardinality({array})" for array in arrays[1:])
             return f"IF({same_length}, {zipped}, fail('arrayZip requires equal-length arrays'))"
-        if name in {"extractallgroups", "replaceregexpone"}:
+        if name in {
+            "extractallgroups",
+            "extractallgroupshorizontal",
+            "extractallgroupsvertical",
+            "extractgroups",
+            "regexpextract",
+            "replaceregexpone",
+        }:
             return self._visit_constant_regex(node)
         if name == "median":
             if node.distinct or node.order_by or node.filter_expr or node.params:
@@ -504,10 +627,48 @@ class TrinoPrinter(PostgresPrinter):
             return f"approx_percentile({self.visit(node.args[0])}, 0.5) FILTER (WHERE {self._visit_predicate(node.args[1])})"
         if name == "topk":
             return self._visit_top_k(node)
-        if name in {"quantileexact", "quantileexactif"}:
+        if name in {"avgweighted", "avgweightedif"}:
+            return self._visit_weighted_average(node)
+        if name == "tonullablestring":
+            return self._visit_to_nullable_string(node)
+        if name == "to_timestamp":
+            return self._visit_to_timestamp(node)
+        if name == "defaultvalueoftypename":
+            return self._visit_default_value_of_type_name(node)
+        if name == "datename":
+            return self._visit_date_name(node)
+        if name in TRINO_STATISTICAL_AGGREGATES:
+            return self._visit_statistical_aggregate(node)
+        if name in TRINO_INTERSECTION_AGGREGATES:
+            return self._visit_max_intersections(node)
+        if name in TRINO_UNIQUE_ARRAY_AGGREGATES:
+            return self._visit_unique_array_aggregate(node)
+        if name in TRINO_MOVING_ARRAY_AGGREGATES:
+            return self._visit_moving_array_aggregate(node)
+        if name in TRINO_DELTA_AGGREGATES:
+            return self._visit_delta_sum(node)
+        if name in TRINO_ARRAY_INSERT_AGGREGATES:
+            return self._visit_group_array_insert_at(node)
+        if name in TRINO_EXACT_QUANTILES:
             return self._visit_exact_quantile(node, filtered=name.endswith("if"))
-        if name == "ngramdistance":
-            return self._visit_ngram_distance(node)
+        if name in TRINO_EXACT_WEIGHTED_MEDIANS:
+            return self._visit_exact_weighted_median(node)
+        if name in TRINO_QUANTILES:
+            return self._visit_quantiles(node)
+        if name in {
+            "ngramdistance",
+            "ngramdistancecaseinsensitive",
+            "ngramdistanceutf8",
+            "ngramsearch",
+            "ngramsearchcaseinsensitive",
+            "ngramsearchutf8",
+        }:
+            return self._visit_ngram(
+                node,
+                utf8=name.endswith("utf8"),
+                case_insensitive="caseinsensitive" in name,
+                search=name.startswith("ngramsearch"),
+            )
         if name == "formatreadabletimedelta":
             return self._visit_format_readable_time_delta(node)
         if name == "convertcurrency":
@@ -542,6 +703,8 @@ class TrinoPrinter(PostgresPrinter):
             return f"({name}({binary_args.left} * {scale}) / {scale})"
         if name == "tostartofinterval":
             return self._visit_start_of_interval(node)
+        if name == "date_bin":
+            return self._visit_date_bin(node)
         if name == "mapfromarrays":
             return self._visit_map_from_arrays(node)
         if name in {"datediff", "date_diff"} and len(node.args) == 3:
@@ -677,6 +840,8 @@ class TrinoPrinter(PostgresPrinter):
             return self._visit_json_metadata(node)
         if name == "jsonextractkeysandvalues":
             return self._visit_json_metadata(node)
+        if name == "jsontype":
+            return self._visit_json_type(node)
         if name == "tojsonstring":
             return self._visit_to_json_string(node)
         if name == "arraymap":
@@ -725,8 +890,18 @@ class TrinoPrinter(PostgresPrinter):
             return self._visit_unary_function(node, "flatten")
         if name == "arraymin":
             return self._visit_unary_function(node, "array_min")
-        if name == "arrayfirst":
+        if name in {"arrayfirst", "arraylast"}:
             return self._visit_array_first(node)
+        if name == "arrayresize" and len(node.args) == 2:
+            array_type = self._resolve_type(node.args[0])
+            if not isinstance(array_type, ast.ArrayType):
+                self._invalid_function_arguments(node, "arrayResize requires a resolved array item type in Trino mode.")
+            args = [self.visit(arg) for arg in node.args]
+            default = self._default_value(array_type.item_type, node)
+            if default == "NULL":
+                default = f"element_at({args[0]}, cardinality({args[0]}) + 1)"
+            args.append(default)
+            return TRINO_FUNCTION_HANDLERS_LOWER[name](args)
         if name == "arrayconcat":
             return self._visit_variadic_function(node, "concat", minimum=2)
         if name == "arraysum":
@@ -1007,6 +1182,10 @@ class TrinoPrinter(PostgresPrinter):
         return super().visit_arithmetic_operation(node)
 
     def _resolve_type(self, node: ast.Expr) -> ast.ConstantType | None:
+        if isinstance(node, ast.Call) and node.name.lower() in TRINO_TUPLE_OPERATORS:
+            if node.name.lower() == "tuplehammingdistance":
+                return ast.IntegerType()
+            return self._tuple_arithmetic_type(node)
         if isinstance(node, ast.Call) and node.name.lower() in {"jsonhas", "multisearchanycaseinsensitive"}:
             return ast.BooleanType()
         if isinstance(node, ast.Call) and node.name.lower() in {"coalesce", "ifnull", "nullif"}:
@@ -1082,14 +1261,14 @@ class TrinoPrinter(PostgresPrinter):
             )
         return f"CAST({self.visit(value)} AS {target})"
 
-    def _visit_accurate_cast_or_null(self, node: ast.Call) -> str:
+    def _visit_accurate_cast(self, node: ast.Call, *, nullable: bool) -> str:
         if len(node.args) != 2:
-            self._invalid_function_arguments(node, "accurateCastOrNull expects a value and target type in Trino mode.")
+            self._invalid_function_arguments(node, f"{node.name} expects a value and target type in Trino mode.")
         target = node.args[1]
         if not isinstance(target, ast.Constant) or not isinstance(target.value, str):
             self._unsupported(
                 "TRINO_CAST_TARGET_UNSUPPORTED",
-                "accurateCastOrNull requires a constant target type in Trino mode.",
+                f"{node.name} requires a constant target type in Trino mode.",
                 node,
             )
         type_name = target.value
@@ -1125,7 +1304,92 @@ class TrinoPrinter(PostgresPrinter):
                 f"accurateCastOrNull target type '{target.value}' is not supported in Trino mode.",
                 node,
             )
-        return f"TRY_CAST({self.visit(node.args[0])} AS {trino_type})"
+        value = "__hogql_accurate_cast_value"
+        source_type = self._resolve_type(node.args[0])
+        normalized_type = type_name.lower()
+        integer_bounds = {
+            "int8": (-(2**7), 2**7 - 1),
+            "int16": (-(2**15), 2**15 - 1),
+            "int32": (-(2**31), 2**31 - 1),
+            "int64": (-(2**63), 2**63 - 1),
+            "uint8": (0, 2**8 - 1),
+            "uint16": (0, 2**16 - 1),
+            "uint32": (0, 2**32 - 1),
+            "uint64": (0, 2**64 - 1),
+        }
+        if normalized_type in integer_bounds:
+            minimum, maximum = integer_bounds[normalized_type]
+            decimal_value = f"TRY_CAST({value} AS DECIMAL(38, 18))"
+            valid = (
+                f"{decimal_value} BETWEEN DECIMAL '{minimum}' AND DECIMAL '{maximum}' "
+                f"AND {decimal_value} = truncate({decimal_value})"
+            )
+            if isinstance(source_type, ast.StringType):
+                valid = f"{value} = trim({value}) AND {valid}"
+            converted = f"CAST({decimal_value} AS {trino_type})"
+        elif normalized_type in {"bool", "boolean"} and isinstance(
+            source_type, (ast.IntegerType, ast.FloatType, ast.DecimalType)
+        ):
+            valid = "TRUE"
+            converted = f"({value} <> 0)"
+        else:
+            converted = f"TRY_CAST({value} AS {trino_type})"
+            valid = f"{converted} IS NOT NULL"
+            if normalized_type in {"bool", "boolean"} and isinstance(source_type, ast.StringType):
+                valid = f"{value} = trim({value}) AND regexp_like({value}, '(?i)^(?:true|false|0|1)$')"
+        fallback = "NULL" if nullable else f"fail('Value cannot be safely converted to {type_name}')"
+        result = f"IF({value} IS NULL, CAST(NULL AS {trino_type}), IF({valid}, {converted}, {fallback}))"
+        return f"element_at(transform(ARRAY[{self.visit(node.args[0])}], {value} -> {result}), 1)"
+
+    def _visit_format(self, node: ast.Call) -> str:
+        if len(node.args) < 2:
+            self._invalid_function_arguments(node, "format expects a template and at least one value in Trino mode.")
+        template = node.args[0]
+        if not isinstance(template, ast.Constant) or not isinstance(template.value, str):
+            self._unsupported(
+                "TRINO_FORMAT_TEMPLATE_UNSUPPORTED",
+                "format requires a constant template in Trino mode.",
+                node,
+            )
+        parts: list[str] = []
+        argument_index = 1
+        try:
+            parsed = Formatter().parse(template.value)
+            for literal, field_name, format_spec, conversion in parsed:
+                if literal:
+                    parts.append(self.visit(ast.Constant(value=literal)))
+                if field_name is None:
+                    continue
+                if field_name or format_spec or conversion:
+                    self._unsupported(
+                        "TRINO_FORMAT_TEMPLATE_UNSUPPORTED",
+                        "format supports only empty placeholders and escaped braces in Trino mode.",
+                        node,
+                    )
+                if argument_index >= len(node.args):
+                    self._invalid_function_arguments(node, "format has more placeholders than values in Trino mode.")
+                argument = node.args[argument_index]
+                argument_type = self._resolve_type(argument)
+                if not isinstance(
+                    argument_type,
+                    (ast.BooleanType, ast.DateType, ast.DateTimeType, ast.IntegerType, ast.StringType, ast.UUIDType),
+                ):
+                    self._unsupported(
+                        "TRINO_FORMAT_VALUE_TYPE_UNSUPPORTED",
+                        "format supports Boolean, Date, DateTime, Integer, String, and UUID values in Trino mode.",
+                        argument,
+                    )
+                parts.append(f"CAST({self.visit(argument)} AS VARCHAR)")
+                argument_index += 1
+        except ValueError:
+            self._unsupported(
+                "TRINO_FORMAT_TEMPLATE_UNSUPPORTED",
+                "format received an invalid brace sequence in Trino mode.",
+                node,
+            )
+        if not parts:
+            return self.visit(ast.Constant(value=""))
+        return parts[0] if len(parts) == 1 else f"concat({', '.join(parts)})"
 
     @staticmethod
     def _known_decimal_scale(node: ast.Expr) -> int | None:
@@ -1619,6 +1883,28 @@ class TrinoPrinter(PostgresPrinter):
         )
         return f"map_keys({raw})"
 
+    def _visit_json_type(self, node: ast.Call) -> str:
+        if not 1 <= len(node.args) <= 6:
+            self._invalid_function_arguments(node, "JSONType expects a JSON expression and up to five path items.")
+        source = self.visit(node.args[0])
+        extracted = (
+            f"json_parse(CAST({source} AS VARCHAR))"
+            if len(node.args) == 1
+            else self._visit_json_path(source, node.args[1:])
+        )
+        raw = f"coalesce(json_format({extracted}), 'null')"
+        result = (
+            "CASE WHEN __hogql_json_type = 'null' THEN 'Null' "
+            "WHEN __hogql_json_type IN ('true', 'false') THEN 'Bool' "
+            "WHEN starts_with(__hogql_json_type, '\"') THEN 'String' "
+            "WHEN starts_with(__hogql_json_type, '[') THEN 'Array' "
+            "WHEN starts_with(__hogql_json_type, '{') THEN 'Object' "
+            "WHEN regexp_like(__hogql_json_type, '^-?[0-9]+$') THEN "
+            "IF(starts_with(__hogql_json_type, '-') OR TRY_CAST(__hogql_json_type AS BIGINT) IS NOT NULL, "
+            "'Int64', 'UInt64') ELSE 'Double' END"
+        )
+        return f"IF({source} IS NULL, NULL, element_at(transform(ARRAY[{raw}], __hogql_json_type -> {result}), 1))"
+
     def _convert_json_scalar(self, value: str, target_type: str) -> str:
         if target_type == "VARCHAR":
             converted = f"coalesce(TRY_CAST({value} AS VARCHAR), json_format({value}))"
@@ -1823,12 +2109,89 @@ class TrinoPrinter(PostgresPrinter):
             "WHEN __hogql_left[1] > __hogql_right[1] THEN 1 ELSE 0 END), __hogql_pair -> __hogql_pair[2])"
         )
 
+    def _visit_array_auc(self, node: ast.Call) -> str:
+        if len(node.args) != 2:
+            self._invalid_function_arguments(node, "arrayAUC expects score and label arrays in Trino mode.")
+        score_type = self._resolve_type(node.args[0])
+        label_type = self._resolve_type(node.args[1])
+        if (
+            not isinstance(score_type, ast.ArrayType)
+            or not isinstance(score_type.item_type, (ast.IntegerType, ast.FloatType))
+            or score_type.item_type.nullable
+            or not isinstance(label_type, ast.ArrayType)
+            or not isinstance(label_type.item_type, (ast.IntegerType, ast.FloatType))
+            or label_type.item_type.nullable
+        ):
+            self._invalid_function_arguments(node, "arrayAUC requires non-null numeric score and label items.")
+        scores = self.visit(node.args[0])
+        labels = self.visit(node.args[1])
+        pairs = (
+            "zip(transform(__hogql_auc_arrays[1], __hogql_score -> CAST(__hogql_score AS DOUBLE)), "
+            "transform(__hogql_auc_arrays[2], __hogql_label -> __hogql_label <> 0))"
+        )
+        ordered = (
+            f"array_sort({pairs}, (__hogql_left, __hogql_right) -> CASE "
+            "WHEN is_nan(__hogql_left[1]) AND is_nan(__hogql_right[1]) THEN 0 "
+            "WHEN is_nan(__hogql_left[1]) THEN 1 WHEN is_nan(__hogql_right[1]) THEN -1 "
+            "WHEN __hogql_left[1] < __hogql_right[1] THEN -1 "
+            "WHEN __hogql_left[1] > __hogql_right[1] THEN 1 ELSE 0 END)"
+        )
+        state_type = (
+            "ROW(seen BOOLEAN, score DOUBLE, group_positive BIGINT, group_negative BIGINT, "
+            "negative_before BIGINT, positive_total BIGINT, negative_total BIGINT, favorable DOUBLE)"
+        )
+        positive = "IF(__hogql_pair[2], BIGINT '1', BIGINT '0')"
+        negative = "IF(__hogql_pair[2], BIGINT '0', BIGINT '1')"
+        same_score = "(is_nan(__hogql_state[2]) AND is_nan(__hogql_pair[1])) OR __hogql_state[2] = __hogql_pair[1]"
+        initial = f"CAST(ROW(false, 0e0, 0, 0, 0, 0, 0, 0e0) AS {state_type})"
+        first = (
+            f"CAST(ROW(true, __hogql_pair[1], {positive}, {negative}, 0, {positive}, {negative}, 0e0) AS {state_type})"
+        )
+        tied = (
+            f"CAST(ROW(true, __hogql_state[2], __hogql_state[3] + {positive}, "
+            f"__hogql_state[4] + {negative}, __hogql_state[5], __hogql_state[6] + {positive}, "
+            f"__hogql_state[7] + {negative}, __hogql_state[8]) AS {state_type})"
+        )
+        next_score = (
+            f"CAST(ROW(true, __hogql_pair[1], {positive}, {negative}, "
+            f"__hogql_state[5] + __hogql_state[4], __hogql_state[6] + {positive}, "
+            f"__hogql_state[7] + {negative}, __hogql_state[8] + __hogql_state[3] * "
+            f"(__hogql_state[5] + __hogql_state[4] / 2e0)) AS {state_type})"
+        )
+        scan = (
+            f"reduce({ordered}, {initial}, (__hogql_state, __hogql_pair) -> "
+            f"IF(NOT __hogql_state[1], {first}, IF({same_score}, {tied}, {next_score})), "
+            "__hogql_state -> __hogql_state)"
+        )
+        favorable = "__hogql_state[8] + __hogql_state[3] * (__hogql_state[5] + __hogql_state[4] / 2e0)"
+        result = (
+            "IF(__hogql_state[6] = 0 OR __hogql_state[7] = 0, nan(), "
+            f"({favorable}) / (__hogql_state[6] * __hogql_state[7]))"
+        )
+        result = f"element_at(transform(ARRAY[{scan}], __hogql_state -> {result}), 1)"
+        result = (
+            "IF(cardinality(__hogql_auc_arrays[1]) = cardinality(__hogql_auc_arrays[2]), "
+            f"{result}, fail('arrayAUC requires equal-length arrays'))"
+        )
+        return (
+            f"element_at(transform(ARRAY[ROW({scores}, {labels})], __hogql_auc_arrays -> "
+            f"IF(__hogql_auc_arrays[1] IS NULL OR __hogql_auc_arrays[2] IS NULL, NULL, {result})), 1)"
+        )
+
     def _visit_start_of_interval(self, node: ast.Call) -> str:
-        if len(node.args) != 2 or not isinstance(node.args[1], ast.Call):
+        if len(node.args) not in {2, 3} or not isinstance(node.args[1], ast.Call):
             self._invalid_function_arguments(node, "toStartOfInterval expects a timestamp and constant interval.")
         interval = node.args[1]
-        units = {"tointervalsecond": 1, "tointervalminute": 60}
-        unit = units.get(interval.name.lower())
+        fixed_units = {
+            "tointervalsecond": 1,
+            "tointervalminute": 60,
+            "tointervalhour": 60 * 60,
+            "tointervalday": 24 * 60 * 60,
+            "tointervalweek": 7 * 24 * 60 * 60,
+        }
+        calendar_units = {"tointervalmonth": 1, "tointervalquarter": 3, "tointervalyear": 12}
+        normalized_unit = interval.name.lower()
+        unit = fixed_units.get(normalized_unit) or calendar_units.get(normalized_unit)
         if (
             unit is None
             or len(interval.args) != 1
@@ -1838,15 +2201,72 @@ class TrinoPrinter(PostgresPrinter):
         ):
             self._unsupported(
                 "TRINO_INTERVAL_BUCKET_UNSUPPORTED",
-                "toStartOfInterval supports positive constant second and minute intervals in Trino mode.",
+                "toStartOfInterval requires a positive constant whole-unit interval in Trino mode.",
                 node,
             )
-        seconds = unit * interval.args[0].value
+        width = unit * interval.args[0].value
         value = self.visit(node.args[0])
+        if len(node.args) == 3:
+            origin = self.visit(node.args[2])
+        elif normalized_unit == "tointervalhour":
+            origin = f"date_trunc('day', {value})"
+        else:
+            origins = {
+                "tointervalsecond": "TIMESTAMP '1970-01-01 00:00:00'",
+                "tointervalminute": "TIMESTAMP '1970-01-01 00:00:00'",
+                "tointervalday": "TIMESTAMP '1970-01-01 00:00:00'",
+                "tointervalweek": "TIMESTAMP '1970-01-05 00:00:00'",
+                "tointervalmonth": "TIMESTAMP '1900-01-01 00:00:00'",
+                "tointervalquarter": "TIMESTAMP '1900-01-01 00:00:00'",
+                "tointervalyear": "TIMESTAMP '0000-01-01 00:00:00'",
+            }
+            origin = origins[normalized_unit]
+        if normalized_unit in calendar_units:
+            return (
+                f"date_add('month', CAST(floor(date_diff('month', {origin}, {value}) / {width}e0) AS BIGINT) * "
+                f"{width}, {origin})"
+            )
         return (
-            f"date_add('second', CAST(floor(date_diff('second', TIMESTAMP '1970-01-01 00:00:00', "
-            f"{value}) / {seconds}e0) AS BIGINT) * {seconds}, TIMESTAMP '1970-01-01 00:00:00')"
+            f"date_add('second', CAST(floor(date_diff('second', {origin}, {value}) / {width}e0) AS BIGINT) * "
+            f"{width}, {origin})"
         )
+
+    def _visit_date_bin(self, node: ast.Call) -> str:
+        if len(node.args) != 3 or not isinstance(node.args[0], ast.Call):
+            self._invalid_function_arguments(node, "date_bin expects a constant interval, timestamp, and origin.")
+        interval = node.args[0]
+        fixed_units = {
+            "tointervalsecond": 1,
+            "tointervalminute": 60,
+            "tointervalhour": 60 * 60,
+            "tointervalday": 24 * 60 * 60,
+            "tointervalweek": 7 * 24 * 60 * 60,
+        }
+        calendar_units = {"tointervalmonth": 1, "tointervalquarter": 3, "tointervalyear": 12}
+        normalized_unit = interval.name.lower()
+        unit = fixed_units.get(normalized_unit) or calendar_units.get(normalized_unit)
+        if (
+            unit is None
+            or len(interval.args) != 1
+            or not isinstance(interval.args[0], ast.Constant)
+            or not isinstance(interval.args[0].value, int)
+            or interval.args[0].value <= 0
+        ):
+            self._unsupported(
+                "TRINO_INTERVAL_BUCKET_UNSUPPORTED",
+                "date_bin requires a positive constant whole-unit interval in Trino mode.",
+                node,
+            )
+        width = unit * interval.args[0].value
+        source = self.visit(node.args[1])
+        origin = self.visit(node.args[2])
+        date_part = "month" if normalized_unit in calendar_units else "second"
+        bucket = f"date_add('{date_part}', CAST(floor(date_diff('{date_part}', __hogql_date_bin[2], __hogql_date_bin[1]) / {width}e0) AS BIGINT) * {width}, __hogql_date_bin[2])"
+        bucket = (
+            "IF(__hogql_date_bin[1] < __hogql_date_bin[2], "
+            f"fail('date_bin origin must not be after timestamp'), {bucket})"
+        )
+        return f"element_at(transform(ARRAY[ROW({source}, {origin})], __hogql_date_bin -> {bucket}), 1)"
 
     def _visit_unary_function(self, node: ast.Call, target: str) -> str:
         return f"{target}({self._visit_unary_arg(node)})"
@@ -1908,10 +2328,414 @@ class TrinoPrinter(PostgresPrinter):
             "fail('mapFromArrays requires equal-length arrays with unique, non-null keys'))), 1)"
         )
 
+    def _visit_map_populate_series(self, node: ast.Call) -> str:
+        if len(node.args) not in {1, 2}:
+            self._invalid_function_arguments(node, "mapPopulateSeries supports a map and optional maximum key.")
+        map_type = self._resolve_type(node.args[0])
+        if not isinstance(map_type, ast.MapType) or not isinstance(map_type.key_type, ast.IntegerType):
+            self._invalid_function_arguments(node, "mapPopulateSeries requires a resolved integer-keyed map type.")
+        source = self.visit(node.args[0])
+        upper = self.visit(node.args[1]) if len(node.args) == 2 else "array_max(map_keys(__hogql_series_map))"
+        default = self._default_value(map_type.value_type, node)
+        keys = (
+            f"filter(sequence(array_min(map_keys(__hogql_series_map)), "
+            f"greatest(array_min(map_keys(__hogql_series_map)), {upper})), __hogql_key -> __hogql_key <= {upper})"
+        )
+        entries = (
+            f"transform({keys}, __hogql_key -> ROW(__hogql_key, "
+            f"IF(contains(map_keys(__hogql_series_map), __hogql_key), "
+            f"element_at(__hogql_series_map, __hogql_key), {default})))"
+        )
+        result = f"IF(cardinality(__hogql_series_map) = 0, __hogql_series_map, map_from_entries({entries}))"
+        return f"element_at(transform(ARRAY[{source}], __hogql_series_map -> {result}), 1)"
+
+    def _tuple_arithmetic_type(self, node: ast.Call) -> ast.TupleType:
+        name = node.name.lower()
+        if len(node.args) != (1 if name == "tuplenegate" else 2):
+            self._invalid_function_arguments(node, f"{node.name} has an unsupported argument count in Trino mode.")
+        left_type = self._resolve_type(node.args[0])
+        if not isinstance(left_type, ast.TupleType) or left_type.repeat or not left_type.item_types:
+            self._invalid_function_arguments(node, f"{node.name} requires a tuple with known items in Trino mode.")
+        right_type = self._resolve_type(node.args[1]) if len(node.args) == 2 else None
+        right_items: list[ast.ConstantType | None]
+        if name.endswith("bynumber"):
+            right_items = [right_type] * len(left_type.item_types)
+        elif name == "tuplenegate":
+            right_items = list(left_type.item_types)
+        else:
+            if (
+                not isinstance(right_type, ast.TupleType)
+                or right_type.repeat
+                or len(left_type.item_types) != len(right_type.item_types)
+            ):
+                self._invalid_function_arguments(node, f"{node.name} requires equal tuple sizes in Trino mode.")
+            right_items = list(right_type.item_types)
+        result_types: list[ast.ConstantType] = []
+        for left_item, right_item in zip(left_type.item_types, right_items):
+            if name != "tuplehammingdistance" and not all(
+                isinstance(item, (ast.IntegerType, ast.FloatType)) for item in (left_item, right_item)
+            ):
+                self._invalid_function_arguments(node, f"{node.name} requires integer or float items in Trino mode.")
+            nullable = left_item.nullable or (right_item is not None and right_item.nullable)
+            result_types.append(
+                ast.FloatType(nullable=nullable)
+                if "divide" in name or any(isinstance(item, ast.FloatType) for item in (left_item, right_item))
+                else ast.IntegerType(nullable=nullable)
+            )
+        return ast.TupleType(item_types=result_types)
+
+    def _visit_tuple_arithmetic(self, node: ast.Call) -> str:
+        name = node.name.lower()
+        result_type = self._tuple_arithmetic_type(node)
+        operator = TRINO_TUPLE_OPERATORS[name]
+        items = []
+        for index in range(1, len(result_type.item_types) + 1):
+            left = f"__hogql_tuple_args[1][{index}]"
+            right = f"__hogql_tuple_args[2][{index}]"
+            if name.endswith("bynumber"):
+                right = "__hogql_tuple_args[2]"
+            if name == "tuplenegate":
+                items.append(f"(-{left})")
+            elif name == "tuplehammingdistance":
+                items.append(f"CAST({left} != {right} AS BIGINT)")
+            else:
+                if operator == "/":
+                    left = f"CAST({left} AS DOUBLE)"
+                items.append(f"({left} {operator} {right})")
+        result = f"({' + '.join(items)})" if name == "tuplehammingdistance" else f"ROW({', '.join(items)})"
+        args = ", ".join(self.visit(arg) for arg in node.args)
+        return f"element_at(transform(ARRAY[ROW({args})], __hogql_tuple_args -> {result}), 1)"
+
+    def _default_value(self, value_type: ast.ConstantType | None, node: ast.Call) -> str:
+        if isinstance(value_type, ast.UnknownType):
+            self._unsupported(
+                "TRINO_DEFAULT_VALUE_TYPE_UNSUPPORTED", f"{node.name} requires a known result type in Trino mode.", node
+            )
+        if value_type is not None and value_type.nullable:
+            return "NULL"
+        if isinstance(value_type, ast.StringType):
+            return "''"
+        if isinstance(value_type, (ast.IntegerType, ast.DecimalType)):
+            return "0"
+        if isinstance(value_type, ast.FloatType):
+            return "DOUBLE '0'"
+        if isinstance(value_type, ast.BooleanType):
+            return "FALSE"
+        if isinstance(value_type, ast.DateType):
+            return "DATE '1970-01-01'"
+        if isinstance(value_type, ast.DateTimeType):
+            return "TIMESTAMP '1970-01-01 00:00:00'"
+        if isinstance(value_type, ast.ArrayType):
+            return "ARRAY[]"
+        if isinstance(value_type, ast.TupleType):
+            return f"ROW({', '.join(self._default_value(item, node) for item in value_type.item_types)})"
+        self._unsupported(
+            "TRINO_DEFAULT_VALUE_TYPE_UNSUPPORTED", f"{node.name} requires a supported result type in Trino mode.", node
+        )
+
+    def _visit_vector_rewrite(self, node: ast.Call) -> str:
+        name = node.name.lower()
+        normalized = name.endswith("normalize")
+        distance = name == "lpdistance"
+        parameterized = name.startswith("lp")
+        expected_args = 1 + int(distance) + int(parameterized)
+        if len(node.args) != expected_args:
+            self._invalid_function_arguments(node, f"{node.name} has an unsupported argument count in Trino mode.")
+        vectors = []
+        first_type = self._resolve_type(node.args[0])
+        for source in node.args[: 2 if distance else 1]:
+            value_type = self._resolve_type(source)
+            if isinstance(value_type, ast.ArrayType) and not normalized:
+                item_types = [value_type.item_type]
+                vector = f"transform({self.visit(source)}, __hogql_item -> CAST(__hogql_item AS DOUBLE))"
+            elif isinstance(value_type, ast.TupleType) and value_type.item_types and not value_type.repeat:
+                item_types = value_type.item_types
+                items = ", ".join(f"CAST(__hogql_tuple[{index}] AS DOUBLE)" for index in range(1, len(item_types) + 1))
+                vector = f"element_at(transform(ARRAY[{self.visit(source)}], __hogql_tuple -> ARRAY[{items}]), 1)"
+            else:
+                self._invalid_function_arguments(
+                    node, f"{node.name} requires a supported numeric vector in Trino mode."
+                )
+            if any(not isinstance(item, (ast.IntegerType, ast.FloatType)) or item.nullable for item in item_types):
+                self._invalid_function_arguments(
+                    node, f"{node.name} requires non-null integer or float items in Trino mode."
+                )
+            vectors.append(vector)
+        if distance and type(first_type) is not type(self._resolve_type(node.args[1])):
+            self._invalid_function_arguments(node, "LpDistance requires two arrays or two tuples in Trino mode.")
+        parameter = self.visit(node.args[-1]) if parameterized else ("2" if name == "l2normalize" else "1")
+        values = "__hogql_vectors[1]"
+        if distance:
+            values = "zip_with(__hogql_vectors[1], __hogql_vectors[2], (__hogql_left, __hogql_right) -> __hogql_left - __hogql_right)"
+        exponent = f"CAST(__hogql_vectors[{len(vectors) + 1}] AS DOUBLE)"
+        if name == "linfnormalize":
+            norm = f"coalesce(array_max(transform({values}, __hogql_item -> abs(__hogql_item))), DOUBLE '0')"
+        else:
+            norm = f"power(reduce({values}, DOUBLE '0', (__hogql_total, __hogql_item) -> __hogql_total + power(abs(__hogql_item), {exponent}), __hogql_total -> __hogql_total), 1e0 / {exponent})"
+        result = norm
+        if normalized:
+            assert isinstance(first_type, ast.TupleType)
+            items = ", ".join(
+                f"element_at(__hogql_vectors[1], {index}) / __hogql_norm"
+                for index in range(1, len(first_type.item_types) + 1)
+            )
+            result = f"element_at(transform(ARRAY[{norm}], __hogql_norm -> ROW({items})), 1)"
+        if parameterized:
+            result = f"IF(is_nan({exponent}) OR ({exponent} >= 1 AND NOT is_infinite({exponent})), {result}, fail('Lp exponent must be at least one and not infinite'))"
+        if distance:
+            result = f"IF(cardinality(__hogql_vectors[1]) = cardinality(__hogql_vectors[2]), {result}, fail('LpDistance requires equal vector lengths'))"
+        return f"element_at(transform(ARRAY[ROW({', '.join([*vectors, parameter])})], __hogql_vectors -> {result}), 1)"
+
+    def _visit_array_reduce(self, node: ast.Call) -> str:
+        if len(node.args) < 2 or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str):
+            self._invalid_function_arguments(node, "arrayReduce requires a constant aggregate name in Trino mode.")
+        aggregate_name = node.args[0].value
+        aggregates = {
+            f"{base}{suffix}": (base, suffix)
+            for base in ("sum", "avg", "min", "max", "count")
+            for suffix in ("", "Map")
+        }
+        if aggregate_name not in aggregates or len(node.args) != 2:
+            self._invalid_function_arguments(node, "arrayReduce does not support this aggregate form in Trino mode.")
+        array_type = self._resolve_type(node.args[1])
+        if not isinstance(array_type, ast.ArrayType):
+            self._invalid_function_arguments(node, "arrayReduce requires a resolved array type in Trino mode.")
+        values = self.visit(node.args[1])
+        base, mode = aggregates[aggregate_name]
+        if mode:
+            return self._container_aggregate(node, base, mode, values, array_type.item_type)
+        return self._array_aggregate(node, base, values, array_type.item_type)
+
+    def _visit_array_scan(self, node: ast.Call) -> str:
+        name = node.name.lower()
+        fill = name in {"arrayfill", "arrayreversefill"}
+        split = name in {"arraysplit", "arrayreversesplit"}
+        has_lambda = bool(node.args) and isinstance(node.args[0], ast.Lambda)
+        if len(node.args) != (2 if has_lambda else 1) or ((fill or split) and not has_lambda):
+            self._invalid_function_arguments(
+                node, f"{node.name} requires one array and an optional single-argument lambda in Trino mode."
+            )
+        array = node.args[-1]
+        array_type = self._resolve_type(array)
+        if not isinstance(array_type, ast.ArrayType):
+            self._invalid_function_arguments(node, f"{node.name} requires a resolved array type in Trino mode.")
+        if has_lambda:
+            predicate = node.args[0]
+            assert isinstance(predicate, ast.Lambda)
+            if len(predicate.args) != 1 or not isinstance(predicate.expr, ast.Expr):
+                self._invalid_function_arguments(node, f"{node.name} requires a single-argument lambda in Trino mode.")
+            mapped = f"transform(__hogql_scan_array, {self.visit(predicate)})"
+            item_type = self._resolve_type(predicate.expr)
+        else:
+            mapped = "__hogql_scan_array"
+            item_type = array_type.item_type
+        if split:
+            size = "cardinality(__hogql_scan_array)"
+            condition_index = "__hogql_position - 1" if name == "arrayreversesplit" else "__hogql_position"
+            positions = f"filter(sequence(1, {size}), __hogql_position -> IF(__hogql_position > 1, CAST(element_at(__hogql_flags, {condition_index}) AS BOOLEAN), FALSE))"
+            boundaries = f"concat(ARRAY[1], {positions}, ARRAY[{size} + 1])"
+            result = (
+                f"element_at(transform(ARRAY[{boundaries}], __hogql_boundaries -> "
+                "transform(sequence(1, cardinality(__hogql_boundaries) - 1), __hogql_segment -> "
+                "slice(__hogql_scan_array, __hogql_boundaries[__hogql_segment], "
+                "__hogql_boundaries[__hogql_segment + 1] - __hogql_boundaries[__hogql_segment]))), 1)"
+            )
+            result = f"IF({size} = 0, ARRAY[], element_at(transform(ARRAY[{mapped}], __hogql_flags -> {result}), 1))"
+        elif fill:
+            pairs = f"zip(__hogql_scan_array, {mapped})"
+            if name == "arrayreversefill":
+                pairs = f"reverse({pairs})"
+            item = "IF(cardinality(__hogql_filled) = 0 OR CAST(__hogql_pair[2] AS BOOLEAN), __hogql_pair[1], element_at(__hogql_filled, -1))"
+            result = f"reduce({pairs}, slice(__hogql_scan_array, 1, 0), (__hogql_filled, __hogql_pair) -> concat(__hogql_filled, ARRAY[{item}], slice(__hogql_scan_array, 1, 0)), __hogql_filled -> __hogql_filled)"
+            if name == "arrayreversefill":
+                result = f"reverse({result})"
+        else:
+            if not isinstance(item_type, (ast.IntegerType, ast.FloatType)) or item_type.nullable:
+                self._invalid_function_arguments(
+                    node, f"{node.name} requires non-null integer or float items in Trino mode."
+                )
+            numeric_type = "DOUBLE" if isinstance(item_type, ast.FloatType) else "BIGINT"
+            total = "__hogql_scan_state[1] + __hogql_item"
+            if name == "arraycumsumnonnegative":
+                total = f"greatest({total}, 0)"
+            initial = f"CAST(ROW(0, ARRAY[]) AS ROW(total {numeric_type}, items ARRAY({numeric_type})))"
+            result = f"reduce({mapped}, {initial}, (__hogql_scan_state, __hogql_item) -> ROW({total}, concat(__hogql_scan_state[2], ARRAY[{total}])), __hogql_scan_state -> __hogql_scan_state[2])"
+        return f"element_at(transform(ARRAY[{self.visit(array)}], __hogql_scan_array -> {result}), 1)"
+
+    def _argument_aggregate(
+        self,
+        node: ast.Call,
+        base: str,
+        mode: str,
+        empty: str,
+        args: list[ast.Expr],
+        aggregate_filter: str,
+        window_predicate: str,
+    ) -> str:
+        if len(args) != 2 and not (base == "count" and len(args) == 1):
+            self._invalid_function_arguments(node, f"{node.name} requires a value and a selection key in Trino mode.")
+        key_type = self._resolve_type(args[-1])
+        if not isinstance(
+            key_type,
+            (ast.IntegerType, ast.FloatType, ast.StringType, ast.DateType, ast.DateTimeType, ast.BooleanType),
+        ):
+            self._invalid_function_arguments(
+                node, f"{node.name} requires a supported scalar selection key in Trino mode."
+            )
+        value_type = self._resolve_type(args[0]) if len(args) == 2 else ast.IntegerType()
+        if value_type is None:
+            self._invalid_function_arguments(node, f"{node.name} requires a resolved value type in Trino mode.")
+        item_type = replace(value_type, nullable=value_type.nullable or key_type.nullable)
+        value = self.visit(args[0]) if len(args) == 2 else "1"
+        row = f"ROW({value}, {self.visit(args[-1])})"
+        if window_predicate:
+            row = f"IF({window_predicate}, {row}, NULL)"
+        rows = f"coalesce(array_agg({row}){aggregate_filter}, ARRAY[])"
+        valid_rows = "filter(__hogql_arg_rows, __hogql_arg_row -> __hogql_arg_row[2] IS NOT NULL)"
+        values = "filter(__hogql_key_rows, __hogql_arg_row -> __hogql_arg_row[1] IS NOT NULL)"
+        direction = "min" if mode == "ArgMin" else "max"
+        extreme = f"array_{direction}(transform(__hogql_value_rows, __hogql_arg_row -> __hogql_arg_row[2]))"
+        selected = "transform(filter(__hogql_value_rows, __hogql_arg_row -> __hogql_arg_row[2] = __hogql_extreme), __hogql_arg_row -> __hogql_arg_row[1])"
+        result = self._array_aggregate(node, base, selected, item_type)
+        if empty:
+            default = (
+                "NULL"
+                if empty == "OrNull"
+                else ("0" if base in {"count", "countDistinct"} else self._default_value(item_type, node))
+            )
+            result = f"IF(cardinality(__hogql_value_rows) = 0, {default}, {result})"
+        result = f"element_at(transform(ARRAY[{extreme}], __hogql_extreme -> {result}), 1)"
+        result = f"element_at(transform(ARRAY[{values}], __hogql_value_rows -> {result}), 1)"
+        result = f"element_at(transform(ARRAY[{valid_rows}], __hogql_key_rows -> {result}), 1)"
+        if isinstance(key_type, ast.FloatType):
+            result = f"IF(any_match(__hogql_arg_rows, __hogql_arg_row -> coalesce(is_nan(__hogql_arg_row[2]), false)), fail('NaN selection keys are not supported'), {result})"
+        if base in {"min", "max"} and isinstance(value_type, ast.FloatType):
+            result = f"IF(any_match(__hogql_arg_rows, __hogql_arg_row -> coalesce(is_nan(__hogql_arg_row[1]), false)), fail('NaN argument-selection values are not supported'), {result})"
+        return f"element_at(transform(ARRAY[{rows}], __hogql_arg_rows -> {result}), 1)"
+
+    def _visit_aggregate_combinator(self, node: ast.Call, *, over: str = "") -> str:
+        base, array, empty, conditional = TRINO_AGGREGATE_COMBINATORS[node.name.lower()]
+        if node.params or node.distinct or node.order_by or node.within_group:
+            self._invalid_function_arguments(
+                node, f"{node.name} does not support these aggregate modifiers in Trino mode."
+            )
+        args = node.args[:-1] if conditional else node.args
+        predicates = []
+        if conditional:
+            predicates.append(self._visit_predicate(node.args[-1]))
+        if node.filter_expr is not None:
+            predicates.append(self._visit_predicate(node.filter_expr))
+        predicate_sql = " AND ".join(f"({predicate})" for predicate in predicates)
+        window_predicate = predicate_sql if over else ""
+        aggregate_filter = f" FILTER (WHERE {predicate_sql})" if predicates and not over else ""
+        aggregate_filter += over
+        if array in {"ArgMin", "ArgMax"}:
+            return self._argument_aggregate(node, base, array, empty, args, aggregate_filter, window_predicate)
+        if len(args) != 1 and not (base == "count" and not array and not args):
+            self._invalid_function_arguments(node, f"{node.name} requires one value argument in Trino mode.")
+        value = self.visit(args[0]) if args else "*"
+        value_type = self._resolve_type(args[0]) if args else ast.IntegerType()
+        if value_type is None:
+            self._invalid_function_arguments(node, f"{node.name} requires a resolved value type in Trino mode.")
+        if window_predicate:
+            value = f"IF({window_predicate}, {value if args else '1'}, NULL)"
+        count = f"count({value}){aggregate_filter}"
+        if not array:
+            if base == "median":
+                rows = f"coalesce(array_agg({value}){aggregate_filter}, ARRAY[])"
+                result = self._array_aggregate(node, base, rows, value_type)
+                if empty == "OrNull":
+                    return f"IF({count} = 0, NULL, {result})"
+                default = self._default_value(value_type, node)
+                return f"IF({count} = 0, {default}, {result})"
+            target = "count" if base == "countDistinct" else base
+            distinct = "DISTINCT " if base == "countDistinct" else ""
+            aggregate = f"{target}({distinct}{value}){aggregate_filter}"
+            if empty == "OrNull":
+                return f"IF({count} = 0, NULL, {aggregate})"
+            if base in {"count", "countDistinct"}:
+                return aggregate
+            default = self._default_value(value_type, node)
+            return f"coalesce({aggregate}, {default})"
+        rows = f"coalesce(array_agg({value}){aggregate_filter}, ARRAY[])"
+        if window_predicate:
+            rows = f"filter({rows}, __hogql_array -> __hogql_array IS NOT NULL)"
+        if array in {"ForEach", "Map"}:
+            return self._container_aggregate(node, base, array, rows, value_type)
+        if not isinstance(value_type, ast.ArrayType):
+            self._invalid_function_arguments(node, f"{node.name} requires a resolved array type in Trino mode.")
+        item_type = value_type.item_type
+        values = f"flatten({rows})"
+        result = self._array_aggregate(node, base, values, item_type)
+        nullable_array_aggregate = not over and node.name.lower() in {"avgarray", "medianarray"}
+        if empty or nullable_array_aggregate:
+            default = "0" if base in {"count", "countDistinct"} else self._default_value(item_type, node)
+            empty_value = "NULL" if empty == "OrNull" or nullable_array_aggregate else default
+            result = f"IF({count} = 0, {empty_value}, {result})"
+        return result
+
+    def _container_aggregate(
+        self, node: ast.Call, base: str, mode: str, rows: str, value_type: ast.ConstantType | None
+    ) -> str:
+        if mode == "ForEach":
+            if not isinstance(value_type, ast.ArrayType):
+                self._invalid_function_arguments(node, f"{node.name} requires a resolved array type in Trino mode.")
+            maximum = "coalesce(array_max(transform(__hogql_rows, __hogql_row -> cardinality(__hogql_row))), 0)"
+            positions = (
+                f"filter(sequence(1, greatest({maximum}, 1)), __hogql_position -> __hogql_position <= {maximum})"
+            )
+            values = "transform(filter(__hogql_rows, __hogql_row -> cardinality(__hogql_row) >= __hogql_position), __hogql_row -> element_at(__hogql_row, __hogql_position))"
+            aggregate = self._array_aggregate(node, base, values, value_type.item_type)
+            result = f"transform({positions}, __hogql_position -> {aggregate})"
+        else:
+            if not isinstance(value_type, ast.MapType):
+                self._invalid_function_arguments(node, f"{node.name} requires a resolved map type in Trino mode.")
+            keys = "array_sort(array_distinct(flatten(transform(__hogql_rows, __hogql_row -> map_keys(__hogql_row)))))"
+            values = "transform(filter(__hogql_rows, __hogql_row -> contains(map_keys(__hogql_row), __hogql_key)), __hogql_row -> element_at(__hogql_row, __hogql_key))"
+            aggregate = self._array_aggregate(node, base, values, value_type.value_type)
+            result = f"map_from_entries(transform({keys}, __hogql_key -> ROW(__hogql_key, {aggregate})))"
+        return f"element_at(transform(ARRAY[{rows}], __hogql_rows -> {result}), 1)"
+
+    def _array_aggregate(self, node: ast.Call, base: str, values: str, item_type: ast.ConstantType) -> str:
+        values = f"filter({values}, __hogql_item -> __hogql_item IS NOT NULL)"
+        default = "0" if base in {"count", "countDistinct"} else self._default_value(item_type, node)
+        if base in {"sum", "avg"}:
+            if not isinstance(item_type, (ast.IntegerType, ast.FloatType)):
+                self._invalid_function_arguments(
+                    node, f"{node.name} requires integer or float array items in Trino mode."
+                )
+            numeric_type = "DOUBLE" if base == "avg" or isinstance(item_type, ast.FloatType) else "BIGINT"
+            total = f"reduce(__hogql_values, CAST(0 AS {numeric_type}), (__hogql_sum, __hogql_item) -> __hogql_sum + __hogql_item, __hogql_sum -> __hogql_sum)"
+            no_values = "NULL" if item_type.nullable else ("nan()" if base == "avg" else "0")
+            result = f"{total} / cardinality(__hogql_values)" if base == "avg" else total
+            result = f"IF(cardinality(__hogql_values) = 0, {no_values}, {result})"
+        elif base in {"min", "max"}:
+            result = f"coalesce(array_{base}(__hogql_values), {default})"
+        elif base == "median":
+            if not isinstance(item_type, (ast.IntegerType, ast.FloatType)):
+                self._invalid_function_arguments(node, f"{node.name} requires integer or float values in Trino mode.")
+            median_values = "__hogql_values"
+            if isinstance(item_type, ast.FloatType):
+                median_values = "filter(__hogql_values, __hogql_value -> NOT is_nan(__hogql_value))"
+            ordered = f"array_sort(transform({median_values}, __hogql_value -> CAST(__hogql_value AS DOUBLE)))"
+            lower = "CAST(floor((cardinality(__hogql_median) - 1) / 2e0) AS BIGINT) + 1"
+            upper = "CAST(ceil((cardinality(__hogql_median) - 1) / 2e0) AS BIGINT) + 1"
+            result = (
+                f"element_at(transform(ARRAY[{ordered}], __hogql_median -> "
+                "IF(cardinality(__hogql_median) = 0, nan(), "
+                f"(element_at(__hogql_median, {lower}) + element_at(__hogql_median, {upper})) / 2e0)), 1)"
+            )
+        elif base == "countDistinct":
+            result = "cardinality(array_distinct(__hogql_values))"
+        else:
+            result = "cardinality(__hogql_values)"
+        return f"element_at(transform(ARRAY[{values}], __hogql_values -> {result}), 1)"
+
     def _visit_array_first(self, node: ast.Call) -> str:
         if len(node.args) != 2 or not isinstance(node.args[0], ast.Lambda):
-            self._invalid_function_arguments(node, "arrayFirst expects a lambda and array in Trino mode.")
-        filtered = f"element_at(filter({self.visit(node.args[1])}, {self.visit(node.args[0])}), 1)"
+            self._invalid_function_arguments(node, f"{node.name} expects a lambda and array in Trino mode.")
+        index = -1 if node.name.lower() == "arraylast" else 1
+        filtered = f"element_at(filter({self.visit(node.args[1])}, {self.visit(node.args[0])}), {index})"
         array_type = node.args[1].type.resolve_constant_type(self.context) if node.args[1].type is not None else None
         if not isinstance(array_type, ast.ArrayType):
             self._unsupported(
@@ -1919,21 +2743,7 @@ class TrinoPrinter(PostgresPrinter):
                 "arrayFirst requires a resolved array type in Trino mode.",
                 node,
             )
-        defaults: list[tuple[type[ast.ConstantType], object]] = [
-            (ast.IntegerType, 0),
-            (ast.FloatType, 0.0),
-            (ast.DecimalType, 0),
-            (ast.StringType, ""),
-            (ast.BooleanType, False),
-        ]
-        default = next((value for type_class, value in defaults if isinstance(array_type.item_type, type_class)), None)
-        if default is None:
-            self._unsupported(
-                "TRINO_ARRAY_FIRST_ITEM_TYPE_UNSUPPORTED",
-                "arrayFirst does not support this array item type in Trino mode.",
-                node,
-            )
-        return f"coalesce({filtered}, {self.visit(ast.Constant(value=default))})"
+        return f"coalesce({filtered}, {self._default_value(array_type.item_type, node)})"
 
     def _visit_count_distinct(self, node: ast.Call) -> str:
         if not node.args:
@@ -1981,6 +2791,87 @@ class TrinoPrinter(PostgresPrinter):
             )
         return f"CAST({self.visit(node.args[0])} AS DECIMAL(38, {scale.value}))"
 
+    def _visit_to_nullable_string(self, node: ast.Call) -> str:
+        if len(node.args) != 1:
+            self._invalid_function_arguments(node, "toNullableString expects one argument in Trino mode.")
+        value_type = self._resolve_type(node.args[0])
+        if isinstance(node.args[0], ast.Constant) and node.args[0].value is None:
+            return "CAST(NULL AS VARCHAR)"
+        if not isinstance(value_type, (ast.StringType, ast.IntegerType, ast.BooleanType, ast.DateType)):
+            self._invalid_function_arguments(
+                node, "toNullableString supports string, integer, boolean, and date values in Trino mode."
+            )
+        value = self.visit(node.args[0])
+        if isinstance(value_type, ast.StringType):
+            return value
+        if isinstance(value_type, ast.BooleanType):
+            return f"IF({value} IS NULL, NULL, IF({value}, '1', '0'))"
+        return f"CAST({value} AS VARCHAR)"
+
+    def _visit_to_timestamp(self, node: ast.Call) -> str:
+        if len(node.args) != 1 or not isinstance(self._resolve_type(node.args[0]), ast.IntegerType):
+            self._invalid_function_arguments(node, "to_timestamp requires one integer Unix timestamp in Trino mode.")
+        return f"CAST(from_unixtime(CAST({self.visit(node.args[0])} AS DOUBLE)) AS TIMESTAMP)"
+
+    def _visit_default_value_of_type_name(self, node: ast.Call) -> str:
+        if len(node.args) != 1 or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str):
+            self._invalid_function_arguments(
+                node, "defaultValueOfTypeName requires one constant type name in Trino mode."
+            )
+        type_name = "".join(node.args[0].value.split())
+        normalized = type_name.lower()
+        if normalized.startswith("nullable(") and normalized.endswith(")"):
+            target = self._trino_json_type(type_name[9:-1], node)
+            return f"CAST(NULL AS {target})"
+        if normalized.startswith("array(") or normalized.startswith("map("):
+            target = self._trino_json_type(type_name, node)
+            empty = "ARRAY[]" if normalized.startswith("array(") else "map(ARRAY[], ARRAY[])"
+            return f"CAST({empty} AS {target})"
+        defaults = {
+            "bool": ("false", "BOOLEAN"),
+            "date": ("DATE '1970-01-01'", "DATE"),
+            "datetime": ("TIMESTAMP '1970-01-01 00:00:00'", "TIMESTAMP"),
+            "float32": ("REAL '0'", "REAL"),
+            "float64": ("DOUBLE '0'", "DOUBLE"),
+            "int8": ("0", "TINYINT"),
+            "int16": ("0", "SMALLINT"),
+            "int32": ("0", "INTEGER"),
+            "int64": ("0", "BIGINT"),
+            "string": ("''", "VARCHAR"),
+            "uint8": ("0", "SMALLINT"),
+            "uint16": ("0", "INTEGER"),
+            "uint32": ("0", "BIGINT"),
+            "uint64": ("0", "DECIMAL(20, 0)"),
+            "uuid": ("UUID '00000000-0000-0000-0000-000000000000'", "UUID"),
+        }
+        if normalized not in defaults:
+            self._invalid_function_arguments(
+                node, f"defaultValueOfTypeName does not support type '{type_name}' in Trino mode."
+            )
+        value, target = defaults[normalized]
+        return f"CAST({value} AS {target})"
+
+    def _visit_date_name(self, node: ast.Call) -> str:
+        if len(node.args) != 2 or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str):
+            self._invalid_function_arguments(node, "dateName requires a constant date part in Trino mode.")
+        unit = node.args[0].value.lower()
+        value = self.visit(node.args[1])
+        formats = {"month": "%M", "weekday": "%W"}
+        if unit in formats:
+            return f"date_format(CAST({value} AS TIMESTAMP), '{formats[unit]}')"
+        extract_units = {
+            "year": "year",
+            "quarter": "quarter",
+            "week": "week",
+            "day": "day",
+            "hour": "hour",
+            "minute": "minute",
+            "second": "second",
+        }
+        if unit not in extract_units:
+            self._invalid_function_arguments(node, f"dateName does not support date part '{unit}' in Trino mode.")
+        return f"CAST({extract_units[unit]}(CAST({value} AS TIMESTAMP)) AS VARCHAR)"
+
     def _visit_tuple_element(self, node: ast.Call) -> str:
         if len(node.args) != 2:
             self._invalid_function_arguments(node, "tupleElement expects a tuple and index in Trino mode.")
@@ -2007,6 +2898,23 @@ class TrinoPrinter(PostgresPrinter):
                 )
             return self.visit(source.args[index.value - 1])
         return f"({self.visit(source)})[{index.value}]"
+
+    def _visit_tuple_to_name_value_pairs(self, node: ast.Call) -> str:
+        if len(node.args) != 1:
+            self._invalid_function_arguments(node, "tupleToNameValuePairs expects one tuple in Trino mode.")
+        tuple_type = self._resolve_type(node.args[0])
+        if not isinstance(tuple_type, ast.TupleType) or not tuple_type.item_types:
+            self._invalid_function_arguments(node, "tupleToNameValuePairs requires a resolved non-empty tuple type.")
+        names = tuple_type.field_names
+        entries = [
+            f"ROW({self.context.add_value(names[index] if index < len(names) and names[index] else str(index + 1))}, "
+            f"__hogql_named_tuple[{index + 1}])"
+            for index in range(len(tuple_type.item_types))
+        ]
+        return (
+            f"element_at(transform(ARRAY[{self.visit(node.args[0])}], __hogql_named_tuple -> "
+            f"ARRAY[{', '.join(entries)}]), 1)"
+        )
 
     def _visit_round_bankers(self, node: ast.Call) -> str:
         if len(node.args) not in {1, 2}:
@@ -2036,8 +2944,11 @@ class TrinoPrinter(PostgresPrinter):
         )
 
     def _visit_constant_regex(self, node: ast.Call) -> str:
-        replacing = node.name.lower() == "replaceregexpone"
-        if len(node.args) != (3 if replacing else 2):
+        name = node.name.lower()
+        replacing = name == "replaceregexpone"
+        indexed = name == "regexpextract"
+        expected_counts = {2, 3} if indexed else {3} if replacing else {2}
+        if len(node.args) not in expected_counts:
             self._invalid_function_arguments(node, f"{node.name} has an invalid argument count.")
         pattern = node.args[1]
         if not isinstance(pattern, ast.Constant) or not isinstance(pattern.value, str):
@@ -2054,16 +2965,49 @@ class TrinoPrinter(PostgresPrinter):
             )
         value = self.visit(node.args[0])
         if not replacing:
-            if groups < 1 or groups > 5:
-                self._unsupported(
-                    "TRINO_REGEX_GROUPS_UNSUPPORTED", "extractAllGroups requires between 1 and 5 capture groups.", node
-                )
             regex = self.context.add_value("(?s)" + pattern.value)
+            if indexed:
+                default_group = 1 if groups else 0
+                group_index_node = node.args[2] if len(node.args) == 3 else ast.Constant(value=default_group)
+                if (
+                    not isinstance(group_index_node, ast.Constant)
+                    or isinstance(group_index_node.value, bool)
+                    or not isinstance(group_index_node.value, int)
+                    or group_index_node.value < 0
+                    or group_index_node.value > groups
+                ):
+                    self._invalid_function_arguments(
+                        node, "regexpExtract requires a valid constant capture-group index."
+                    )
+                extracted = f"regexp_extract({value}, {regex}, {group_index_node.value})"
+                result = f"coalesce({extracted}, '')"
+                value_type = self._resolve_type(node.args[0])
+                return f"IF({value} IS NULL, NULL, {result})" if value_type and value_type.nullable else result
+            if groups < 1 or groups > 20:
+                self._unsupported(
+                    "TRINO_REGEX_GROUPS_UNSUPPORTED",
+                    f"{node.name} requires between 1 and 20 capture groups.",
+                    node,
+                )
             columns = [f"regexp_extract_all({value}, {regex}, {i})" for i in range(1, groups + 1)]
-            if groups == 1:
-                return f"transform({columns[0]}, __hogql_group -> ARRAY[coalesce(__hogql_group, '')])"
-            entries = ", ".join(f"coalesce(__hogql_match[{i}], '')" for i in range(1, groups + 1))
-            return f"transform(zip({', '.join(columns)}), __hogql_match -> ARRAY[{entries}])"
+            if name == "extractgroups":
+                match = f"regexp_extract({value}, {regex}, 0)"
+                entries = ", ".join(
+                    f"coalesce(regexp_extract({value}, {regex}, {index}), '')" for index in range(1, groups + 1)
+                )
+                return f"IF({match} IS NULL, ARRAY[], ARRAY[{entries}])"
+            if name == "extractallgroupshorizontal":
+                entries = ", ".join(
+                    f"transform({column}, __hogql_group -> coalesce(__hogql_group, ''))" for column in columns
+                )
+                return f"ARRAY[{entries}]"
+            matches = f"regexp_extract_all({value}, {regex}, 0)"
+            indexes = (
+                f"filter(sequence(1, greatest(cardinality({matches}), 1)), "
+                f"__hogql_index -> __hogql_index <= cardinality({matches}))"
+            )
+            entries = ", ".join(f"coalesce(element_at({column}, __hogql_index), '')" for column in columns)
+            return f"transform({indexes}, __hogql_index -> ARRAY[{entries}])"
         replacement = node.args[2]
         if not isinstance(replacement, ast.Constant) or not isinstance(replacement.value, str):
             self._unsupported(
@@ -2138,11 +3082,414 @@ class TrinoPrinter(PostgresPrinter):
             aggregate += f" FILTER (WHERE {self.visit(node.args[1])})"
         return aggregate
 
-    def _visit_exact_quantile(self, node: ast.Call, *, filtered: bool) -> str:
+    def _visit_quantiles(self, node: ast.Call, *, over: str = "") -> str:
+        filtered = node.name.lower().endswith("if")
+        if (
+            len(node.args) != (2 if filtered else 1)
+            or not node.params
+            or node.distinct
+            or node.order_by
+            or node.within_group
+        ):
+            self._invalid_function_arguments(node, f"{node.name} has unsupported arguments in Trino mode.")
+        percentile_values: list[int | float] = []
+        for percentile in node.params:
+            if (
+                not isinstance(percentile, ast.Constant)
+                or isinstance(percentile.value, bool)
+                or not isinstance(percentile.value, (int, float))
+                or not 0 <= percentile.value <= 1
+            ):
+                self._invalid_function_arguments(
+                    node, f"{node.name} requires constant percentiles between zero and one."
+                )
+            assert isinstance(percentile.value, (int, float))
+            percentile_values.append(percentile.value)
+        value_type = self._resolve_type(node.args[0])
+        if not isinstance(value_type, (ast.IntegerType, ast.FloatType)):
+            self._invalid_function_arguments(node, f"{node.name} requires an integer or float value in Trino mode.")
+        source = f"CAST({self.visit(node.args[0])} AS DOUBLE)"
+        value = f"element_at(transform(ARRAY[{source}], __hogql_quantile -> IF(is_nan(__hogql_quantile), NULL, __hogql_quantile)), 1)"
+        predicates = [self._visit_predicate(node.args[1])] if filtered else []
+        if node.filter_expr is not None:
+            predicates.append(self._visit_predicate(node.filter_expr))
+        predicate_sql = " AND ".join(f"({predicate})" for predicate in predicates)
+        aggregate_filter = f" FILTER (WHERE {predicate_sql})" if predicates and not over else ""
+        if predicates and over:
+            value = f"IF({predicate_sql}, {value}, NULL)"
+        percentiles = ", ".join(f"DOUBLE '{percentile}'" for percentile in percentile_values)
+        default = f"repeat(nan(), {len(node.params)})"
+        return f"coalesce(approx_percentile({value}, ARRAY[{percentiles}]){aggregate_filter}{over}, {default})"
+
+    def _visit_weighted_average(self, node: ast.Call, *, over: str = "") -> str:
+        filtered = node.name.lower().endswith("if")
+        if (
+            len(node.args) != (3 if filtered else 2)
+            or node.params
+            or node.distinct
+            or node.order_by
+            or node.within_group
+        ):
+            self._invalid_function_arguments(node, f"{node.name} requires a value and a weight in Trino mode.")
+        value_type = self._resolve_type(node.args[0])
+        weight_type = self._resolve_type(node.args[1])
+        if not isinstance(value_type, (ast.IntegerType, ast.FloatType)) or not isinstance(
+            weight_type, (ast.IntegerType, ast.FloatType)
+        ):
+            self._invalid_function_arguments(node, f"{node.name} requires integer or float arguments in Trino mode.")
+        predicates = [self._visit_predicate(node.args[2])] if filtered else []
+        if node.filter_expr is not None:
+            predicates.append(self._visit_predicate(node.filter_expr))
+        predicate_sql = " AND ".join(f"({predicate})" for predicate in predicates)
+        aggregate_filter = f" FILTER (WHERE {predicate_sql})" if predicates and not over else ""
+        row = f"ROW({self.visit(node.args[0])}, {self.visit(node.args[1])})"
+        if predicates and over:
+            row = f"IF({predicate_sql}, {row}, NULL)"
+        rows = f"array_agg({row}){aggregate_filter}{over}"
+        rows = f"filter(coalesce({rows}, ARRAY[]), __hogql_pair -> __hogql_pair[1] IS NOT NULL AND __hogql_pair[2] IS NOT NULL)"
+        floating = isinstance(weight_type, ast.FloatType)
+        number_type = "DOUBLE" if floating else "BIGINT"
+        value = "__hogql_pair[1]"
+        if not floating and isinstance(value_type, ast.FloatType):
+            value = f"truncate({value})"
+        value = f"CAST({value} AS {number_type})"
+        weight = f"CAST(__hogql_pair[2] AS {number_type})"
+        state_type = f"ROW(numerator {number_type}, denominator {number_type})"
+        result = (
+            f"reduce(__hogql_weighted_rows, CAST(ROW(0, 0) AS {state_type}), "
+            f"(__hogql_fraction, __hogql_pair) -> CAST(ROW(__hogql_fraction[1] + {value} * {weight}, "
+            f"__hogql_fraction[2] + {weight}) AS {state_type}), "
+            "__hogql_fraction -> CAST(__hogql_fraction[1] AS DOUBLE) / CAST(__hogql_fraction[2] AS DOUBLE))"
+        )
+        if not floating:
+            valid = "__hogql_pair[1] >= 0 AND __hogql_pair[2] >= 0"
+            if isinstance(value_type, ast.FloatType):
+                valid += " AND is_finite(__hogql_pair[1])"
+            result = f"IF(all_match(__hogql_weighted_rows, __hogql_pair -> {valid}), {result}, fail('Integer weights require non-negative finite values and non-negative weights'))"
+        if value_type.nullable or weight_type.nullable:
+            result = f"IF(cardinality(__hogql_weighted_rows) = 0, NULL, {result})"
+        return f"element_at(transform(ARRAY[{rows}], __hogql_weighted_rows -> {result}), 1)"
+
+    def _visit_statistical_aggregate(self, node: ast.Call, *, over: str = "") -> str:
+        name = node.name.lower()
+        filtered = name.endswith("if")
+        regression = name.startswith("simplelinearregression")
+        argument_count = 2 if regression else 1
+        expected_count = argument_count + int(filtered)
+        if len(node.args) != expected_count or node.params or node.distinct or node.order_by or node.within_group:
+            self._invalid_function_arguments(node, f"{node.name} has unsupported arguments in Trino mode.")
+        argument_types = [self._resolve_type(argument) for argument in node.args[:argument_count]]
+        if any(not isinstance(argument_type, (ast.IntegerType, ast.FloatType)) for argument_type in argument_types):
+            self._invalid_function_arguments(node, f"{node.name} requires integer or float arguments in Trino mode.")
+        predicates = [self._visit_predicate(node.args[-1])] if filtered else []
+        if node.filter_expr is not None:
+            predicates.append(self._visit_predicate(node.filter_expr))
+        predicate_sql = " AND ".join(f"({predicate})" for predicate in predicates)
+        values = [f"CAST({self.visit(argument)} AS DOUBLE)" for argument in node.args[:argument_count]]
+        value = f"ROW({', '.join(values)})" if regression else values[0]
+        aggregate_filter = f" FILTER (WHERE {predicate_sql})" if predicates and not over else ""
+        if predicates and over:
+            value = f"IF({predicate_sql}, {value}, NULL)"
+        rows = f"coalesce(array_agg({value}){aggregate_filter}{over}, ARRAY[])"
+        if regression:
+            rows = f"filter({rows}, __hogql_value -> __hogql_value[1] IS NOT NULL AND __hogql_value[2] IS NOT NULL)"
+            result = self._linear_regression_from_array()
+        else:
+            rows = f"filter({rows}, __hogql_value -> __hogql_value IS NOT NULL)"
+            result = self._moment_statistic_from_array(name)
+        nullable_result = any(
+            argument_type.nullable for argument_type in argument_types if argument_type is not None
+        ) and not (regression and filtered)
+        if nullable_result:
+            result = f"IF(cardinality(__hogql_stat_rows) = 0, NULL, {result})"
+        return f"element_at(transform(ARRAY[{rows}], __hogql_stat_rows -> {result}), 1)"
+
+    def _visit_unique_array_aggregate(self, node: ast.Call, *, over: str = "") -> str:
+        filtered = node.name.lower().endswith("if")
+        if len(node.args) != (2 if filtered else 1) or node.distinct or node.order_by or node.within_group:
+            self._invalid_function_arguments(node, f"{node.name} has unsupported arguments in Trino mode.")
+        if node.params:
+            if (
+                len(node.params) != 1
+                or not isinstance(node.params[0], ast.Constant)
+                or isinstance(node.params[0].value, bool)
+                or not isinstance(node.params[0].value, int)
+                or node.params[0].value <= 0
+            ):
+                self._invalid_function_arguments(node, f"{node.name} requires one positive integer parameter.")
+            limit = node.params[0].value
+        else:
+            limit = None
+        value_type = self._resolve_type(node.args[0])
+        if not isinstance(value_type, ast.ArrayType):
+            self._invalid_function_arguments(node, f"{node.name} requires an array in Trino mode.")
+        predicates = [self._visit_predicate(node.args[1])] if filtered else []
+        if node.filter_expr is not None:
+            predicates.append(self._visit_predicate(node.filter_expr))
+        predicate_sql = " AND ".join(f"({predicate})" for predicate in predicates)
+        value = self.visit(node.args[0])
+        aggregate_filter = f" FILTER (WHERE {predicate_sql})" if predicates and not over else ""
+        if predicates and over:
+            value = f"IF({predicate_sql}, {value}, NULL)"
+        arrays = f"filter(coalesce(array_agg({value}){aggregate_filter}{over}, ARRAY[]), __hogql_array -> __hogql_array IS NOT NULL)"
+        result = "array_distinct(filter(flatten(__hogql_arrays), __hogql_value -> __hogql_value IS NOT NULL))"
+        if limit is not None:
+            result = f"slice({result}, 1, {limit})"
+        return f"element_at(transform(ARRAY[{arrays}], __hogql_arrays -> {result}), 1)"
+
+    def _visit_moving_array_aggregate(self, node: ast.Call, *, over: str = "") -> str:
+        name = node.name.lower()
+        filtered = name.endswith("if")
+        average = "avg" in name
+        if (
+            len(node.args) != (2 if filtered else 1)
+            or node.params
+            or node.distinct
+            or node.order_by
+            or node.within_group
+        ):
+            self._invalid_function_arguments(node, f"{node.name} has unsupported arguments in Trino mode.")
+        value_type = self._resolve_type(node.args[0])
+        if not isinstance(value_type, (ast.IntegerType, ast.FloatType)):
+            self._invalid_function_arguments(node, f"{node.name} requires an integer or float value in Trino mode.")
+        predicates = [self._visit_predicate(node.args[1])] if filtered else []
+        if node.filter_expr is not None:
+            predicates.append(self._visit_predicate(node.filter_expr))
+        predicate_sql = " AND ".join(f"({predicate})" for predicate in predicates)
+        number_type = "DOUBLE" if average or isinstance(value_type, ast.FloatType) else "BIGINT"
+        value = f"CAST({self.visit(node.args[0])} AS {number_type})"
+        aggregate_filter = f" FILTER (WHERE {predicate_sql})" if predicates and not over else ""
+        if predicates and over:
+            value = f"IF({predicate_sql}, {value}, NULL)"
+        values = f"filter(coalesce(array_agg({value}){aggregate_filter}{over}, ARRAY[]), __hogql_value -> __hogql_value IS NOT NULL)"
+        state_type = f"ROW(total {number_type}, items ARRAY({number_type}))"
+        state = (
+            f"reduce(__hogql_moving_values, CAST(ROW(0, ARRAY[]) AS {state_type}), "
+            "(__hogql_state, __hogql_value) -> CAST(ROW("
+            "__hogql_state[1] + __hogql_value, "
+            "concat(__hogql_state[2], ARRAY[__hogql_state[1] + __hogql_value])"
+            f") AS {state_type}), __hogql_state -> __hogql_state[2])"
+        )
+        if average:
+            state = f"transform({state}, __hogql_total -> __hogql_total / cardinality(__hogql_moving_values))"
+        return f"element_at(transform(ARRAY[{values}], __hogql_moving_values -> {state}), 1)"
+
+    def _visit_delta_sum(self, node: ast.Call, *, over: str = "") -> str:
+        filtered = node.name.lower().endswith("if")
+        if (
+            len(node.args) != (2 if filtered else 1)
+            or node.params
+            or node.distinct
+            or node.order_by
+            or node.within_group
+        ):
+            self._invalid_function_arguments(node, f"{node.name} has unsupported arguments in Trino mode.")
+        value_type = self._resolve_type(node.args[0])
+        if not isinstance(value_type, (ast.IntegerType, ast.FloatType)):
+            self._invalid_function_arguments(node, f"{node.name} requires an integer or float value in Trino mode.")
+        predicates = [self._visit_predicate(node.args[1])] if filtered else []
+        if node.filter_expr is not None:
+            predicates.append(self._visit_predicate(node.filter_expr))
+        predicate_sql = " AND ".join(f"({predicate})" for predicate in predicates)
+        number_type = "DOUBLE" if isinstance(value_type, ast.FloatType) else "BIGINT"
+        value = f"CAST({self.visit(node.args[0])} AS {number_type})"
+        aggregate_filter = f" FILTER (WHERE {predicate_sql})" if predicates and not over else ""
+        if predicates and over:
+            value = f"IF({predicate_sql}, {value}, NULL)"
+        values = f"filter(coalesce(array_agg({value}){aggregate_filter}{over}, ARRAY[]), __hogql_value -> __hogql_value IS NOT NULL)"
+        state_type = f"ROW(seen BOOLEAN, previous {number_type}, total {number_type})"
+        zero = "DOUBLE '0'" if number_type == "DOUBLE" else "BIGINT '0'"
+        result = (
+            f"reduce(__hogql_delta_values, CAST(ROW(false, {zero}, {zero}) AS {state_type}), "
+            "(__hogql_state, __hogql_value) -> CAST(ROW(true, __hogql_value, "
+            "__hogql_state[3] + IF(__hogql_state[1] AND __hogql_state[2] < __hogql_value, "
+            "__hogql_value - __hogql_state[2], 0)"
+            f") AS {state_type}), __hogql_state -> __hogql_state[3])"
+        )
+        return f"element_at(transform(ARRAY[{values}], __hogql_delta_values -> {result}), 1)"
+
+    def _visit_max_intersections(self, node: ast.Call, *, over: str = "") -> str:
+        name = node.name.lower()
+        filtered = name.endswith("if")
+        position_result = "position" in name
+        if (
+            len(node.args) != (3 if filtered else 2)
+            or node.params
+            or node.distinct
+            or node.order_by
+            or node.within_group
+        ):
+            self._invalid_function_arguments(node, f"{node.name} has unsupported arguments in Trino mode.")
+        value_types = [self._resolve_type(argument) for argument in node.args[:2]]
+        if any(not isinstance(value_type, (ast.IntegerType, ast.FloatType)) for value_type in value_types):
+            self._invalid_function_arguments(node, f"{node.name} requires integer or float interval bounds.")
+        numeric_type = (
+            "DOUBLE" if any(isinstance(value_type, ast.FloatType) for value_type in value_types) else "BIGINT"
+        )
+        predicates = [self._visit_predicate(node.args[2])] if filtered else []
+        if node.filter_expr is not None:
+            predicates.append(self._visit_predicate(node.filter_expr))
+        predicate_sql = " AND ".join(f"({predicate})" for predicate in predicates)
+        row = f"ROW(CAST({self.visit(node.args[0])} AS {numeric_type}), CAST({self.visit(node.args[1])} AS {numeric_type}))"
+        aggregate_filter = f" FILTER (WHERE {predicate_sql})" if predicates and not over else ""
+        if predicates and over:
+            row = f"IF({predicate_sql}, {row}, NULL)"
+        rows = f"filter(coalesce(array_agg({row}){aggregate_filter}{over}, ARRAY[]), __hogql_row -> __hogql_row IS NOT NULL)"
+        valid_rows = (
+            "filter(__hogql_intersection_rows, __hogql_row -> "
+            "__hogql_row[1] IS NOT NULL AND __hogql_row[2] IS NOT NULL AND __hogql_row[1] < __hogql_row[2])"
+        )
+        events = (
+            "flatten(transform(__hogql_valid_intervals, __hogql_row -> "
+            "ARRAY[ROW(__hogql_row[1], BIGINT '1'), ROW(__hogql_row[2], BIGINT '-1')]))"
+        )
+        ordered = (
+            f"array_sort({events}, (__hogql_left, __hogql_right) -> CASE "
+            "WHEN __hogql_left[1] < __hogql_right[1] THEN -1 "
+            "WHEN __hogql_left[1] > __hogql_right[1] THEN 1 "
+            "WHEN __hogql_left[2] < __hogql_right[2] THEN -1 "
+            "WHEN __hogql_left[2] > __hogql_right[2] THEN 1 ELSE 0 END)"
+        )
+        state_type = f"ROW(current_count BIGINT, maximum_count BIGINT, first_position {numeric_type})"
+        current = "__hogql_state[1] + __hogql_event[2]"
+        scan = (
+            f"reduce({ordered}, CAST(ROW(0, 0, 0) AS {state_type}), (__hogql_state, __hogql_event) -> "
+            f"CAST(ROW({current}, greatest(__hogql_state[2], {current}), "
+            f"IF({current} > __hogql_state[2], __hogql_event[1], __hogql_state[3])) AS {state_type}), "
+            "__hogql_state -> __hogql_state)"
+        )
+        result = f"__hogql_intersection_state[{3 if position_result else 2}]"
+        result = f"element_at(transform(ARRAY[{scan}], __hogql_intersection_state -> {result}), 1)"
+        if any(value_type.nullable for value_type in value_types if value_type is not None):
+            has_null = (
+                "any_match(__hogql_intersection_rows, __hogql_row -> __hogql_row[1] IS NULL OR __hogql_row[2] IS NULL)"
+            )
+            result = f"IF(cardinality(__hogql_valid_intervals) = 0 AND {has_null}, NULL, {result})"
+        result = f"element_at(transform(ARRAY[{valid_rows}], __hogql_valid_intervals -> {result}), 1)"
+        return f"element_at(transform(ARRAY[{rows}], __hogql_intersection_rows -> {result}), 1)"
+
+    def _visit_group_array_insert_at(self, node: ast.Call, *, over: str = "") -> str:
+        filtered = node.name.lower().endswith("if")
+        if (
+            len(node.args) != (3 if filtered else 2)
+            or node.params
+            or node.distinct
+            or node.order_by
+            or node.within_group
+        ):
+            self._invalid_function_arguments(node, f"{node.name} has unsupported arguments in Trino mode.")
+        value_type = self._resolve_type(node.args[0])
+        position_type = self._resolve_type(node.args[1])
+        if value_type is None or not isinstance(position_type, ast.IntegerType):
+            self._invalid_function_arguments(
+                node, f"{node.name} requires a resolved value and an integer position in Trino mode."
+            )
+        predicates = [self._visit_predicate(node.args[2])] if filtered else []
+        if node.filter_expr is not None:
+            predicates.append(self._visit_predicate(node.filter_expr))
+        predicate_sql = " AND ".join(f"({predicate})" for predicate in predicates)
+        value = self.visit(node.args[0])
+        position = f"CAST({self.visit(node.args[1])} AS BIGINT)"
+        row = f"ROW({value}, {position})"
+        aggregate_filter = f" FILTER (WHERE {predicate_sql})" if predicates and not over else ""
+        if predicates and over:
+            row = f"IF({predicate_sql}, {row}, NULL)"
+        rows = f"coalesce(array_agg({row}){aggregate_filter}{over}, ARRAY[])"
+        rows = f"filter({rows}, __hogql_row -> __hogql_row[1] IS NOT NULL AND __hogql_row[2] IS NOT NULL)"
+        maximum = "coalesce(array_max(transform(__hogql_insert_rows, __hogql_row -> __hogql_row[2])), -1)"
+        positions = f"filter(sequence(0, greatest(__hogql_maximum, 0)), __hogql_position -> __hogql_position <= __hogql_maximum)"
+        selected = (
+            "element_at(transform(filter(__hogql_insert_rows, __hogql_row -> "
+            "__hogql_row[2] = __hogql_position), __hogql_row -> __hogql_row[1]), 1)"
+        )
+        default = self._default_value(replace(value_type, nullable=False), node)
+        result = f"transform({positions}, __hogql_position -> coalesce({selected}, {default}))"
+        result = (
+            f"IF(__hogql_maximum <= 2147483647, {result}, "
+            "fail('groupArrayInsertAt position exceeds the Trino array limit'))"
+        )
+        result = f"element_at(transform(ARRAY[{maximum}], __hogql_maximum -> {result}), 1)"
+        return f"element_at(transform(ARRAY[{rows}], __hogql_insert_rows -> {result}), 1)"
+
+    @staticmethod
+    def _linear_regression_from_array() -> str:
+        state_type = "ROW(n DOUBLE, sx DOUBLE, sy DOUBLE, sxx DOUBLE, sxy DOUBLE)"
+        state = (
+            f"reduce(__hogql_stat_rows, CAST(ROW(0e0, 0e0, 0e0, 0e0, 0e0) AS {state_type}), "
+            "(__hogql_state, __hogql_value) -> CAST(ROW("
+            "__hogql_state[1] + 1e0, "
+            "__hogql_state[2] + __hogql_value[1], "
+            "__hogql_state[3] + __hogql_value[2], "
+            "__hogql_state[4] + __hogql_value[1] * __hogql_value[1], "
+            "__hogql_state[5] + __hogql_value[1] * __hogql_value[2]"
+            f") AS {state_type}), __hogql_state -> __hogql_state)"
+        )
+        divisor = "__hogql_state[4] * __hogql_state[1] - __hogql_state[2] * __hogql_state[2]"
+        slope = (
+            f"IF({divisor} = 0, nan(), "
+            "(__hogql_state[5] * __hogql_state[1] - __hogql_state[2] * __hogql_state[3]) / "
+            f"({divisor}))"
+        )
+        intercept = (
+            f"IF(__hogql_state[1] = 0, nan(), (__hogql_state[3] - __hogql_slope * __hogql_state[2]) / __hogql_state[1])"
+        )
+        return (
+            f"element_at(transform(ARRAY[{state}], __hogql_state -> "
+            f"element_at(transform(ARRAY[{slope}], __hogql_slope -> ROW(__hogql_slope, {intercept})), 1)), 1)"
+        )
+
+    @staticmethod
+    def _moment_statistic_from_array(name: str) -> str:
+        state_type = "ROW(n DOUBLE, s1 DOUBLE, s2 DOUBLE, s3 DOUBLE, s4 DOUBLE)"
+        state = (
+            f"reduce(__hogql_stat_rows, CAST(ROW(0e0, 0e0, 0e0, 0e0, 0e0) AS {state_type}), "
+            "(__hogql_state, __hogql_value) -> CAST(ROW("
+            "__hogql_state[1] + 1e0, "
+            "__hogql_state[2] + __hogql_value, "
+            "__hogql_state[3] + power(__hogql_value, 2), "
+            "__hogql_state[4] + power(__hogql_value, 3), "
+            "__hogql_state[5] + power(__hogql_value, 4)"
+            f") AS {state_type}), __hogql_state -> __hogql_state)"
+        )
+        population = name.startswith("skewpop") or name.startswith("kurtpop")
+        variance_denominator = "__hogql_state[1]" if population else "__hogql_state[1] - 1e0"
+        variance = (
+            "greatest(0e0, (__hogql_state[3] - __hogql_state[2] * __hogql_state[2] / "
+            f"__hogql_state[1]) / ({variance_denominator}))"
+        )
+        moment3 = (
+            "(__hogql_state[4] - (3e0 * __hogql_state[3] - "
+            "2e0 * __hogql_state[2] * __hogql_state[2] / __hogql_state[1]) * "
+            "__hogql_state[2] / __hogql_state[1]) / __hogql_state[1]"
+        )
+        moment4 = (
+            "(__hogql_state[5] - (4e0 * __hogql_state[4] - "
+            "(6e0 * __hogql_state[3] - 3e0 * __hogql_state[2] * __hogql_state[2] / "
+            "__hogql_state[1]) * __hogql_state[2] / __hogql_state[1]) * "
+            "__hogql_state[2] / __hogql_state[1]) / __hogql_state[1]"
+        )
+        moment = moment3 if name.startswith("skew") else moment4
+        exponent = "1.5" if name.startswith("skew") else "2e0"
+        statistic = f"IF(__hogql_variance > 0, ({moment}) / power(__hogql_variance, {exponent}), nan())"
+        minimum_count = 0 if population else 1
+        return (
+            f"element_at(transform(ARRAY[{state}], __hogql_state -> "
+            f"IF(__hogql_state[1] <= {minimum_count}, nan(), "
+            f"element_at(transform(ARRAY[{variance}], __hogql_variance -> {statistic}), 1))), 1)"
+        )
+
+    def _visit_exact_quantile(self, node: ast.Call, *, filtered: bool, over: str = "") -> str:
         expected_arguments = 2 if filtered else 1
-        if len(node.args) != expected_arguments or node.params is None or len(node.params) != 1:
+        median = node.name.lower().startswith("median")
+        if node.distinct or node.order_by or node.within_group:
+            self._invalid_function_arguments(
+                node, f"{node.name} does not support these aggregate modifiers in Trino mode."
+            )
+        if len(node.args) != expected_arguments or (
+            bool(node.params) if median else node.params is None or len(node.params) != 1
+        ):
             self._invalid_function_arguments(node, f"{node.name} expects one percentile parameter in Trino mode.")
-        percentile = node.params[0]
+        percentile = ast.Constant(value=0.5) if median else (node.params or [])[0]
         if (
             not isinstance(percentile, ast.Constant)
             or isinstance(percentile.value, bool)
@@ -2155,37 +3502,129 @@ class TrinoPrinter(PostgresPrinter):
                 node,
             )
         value = self.visit(node.args[0])
+        predicates = []
         if filtered:
-            value = f"IF({self._visit_predicate(node.args[1])}, {value}, NULL)"
-        return self._exact_quantile_from_array(f"array_agg({value})", str(percentile.value))
+            predicates.append(self._visit_predicate(node.args[1]))
+        if node.filter_expr is not None:
+            predicates.append(self._visit_predicate(node.filter_expr))
+        if predicates:
+            value = f"IF({' AND '.join(f'({predicate})' for predicate in predicates)}, {value}, NULL)"
+        return self._exact_quantile_from_array(f"array_agg({value}){over}", str(percentile.value), node)
 
-    @staticmethod
-    def _exact_quantile_from_array(values: str, percentile: str) -> str:
-        sorted_values = f"array_sort(filter({values}, __hogql_quantile_value -> __hogql_quantile_value IS NOT NULL))"
-        return (
-            f"element_at(transform(ARRAY[{sorted_values}], __hogql_quantile_values -> "
-            "IF(cardinality(__hogql_quantile_values) = 0, NULL, "
-            f"element_at(__hogql_quantile_values, least(CAST(floor({percentile} * cardinality(__hogql_quantile_values)) "
-            "AS BIGINT) + 1, cardinality(__hogql_quantile_values))))), 1)"
+    def _visit_exact_weighted_median(self, node: ast.Call, *, over: str = "") -> str:
+        filtered = node.name.lower().endswith("if")
+        if (
+            len(node.args) != (3 if filtered else 2)
+            or node.params
+            or node.distinct
+            or node.order_by
+            or node.within_group
+        ):
+            self._invalid_function_arguments(node, f"{node.name} has unsupported arguments in Trino mode.")
+        value_type = self._resolve_type(node.args[0])
+        weight_type = self._resolve_type(node.args[1])
+        if not isinstance(
+            value_type, (ast.IntegerType, ast.FloatType, ast.DateType, ast.DateTimeType)
+        ) or not isinstance(weight_type, ast.IntegerType):
+            self._invalid_function_arguments(
+                node, f"{node.name} requires a numeric or date value and an integer weight in Trino mode."
+            )
+        predicates = [self._visit_predicate(node.args[2])] if filtered else []
+        if node.filter_expr is not None:
+            predicates.append(self._visit_predicate(node.filter_expr))
+        predicate_sql = " AND ".join(f"({predicate})" for predicate in predicates)
+        row = f"ROW({self.visit(node.args[0])}, CAST({self.visit(node.args[1])} AS BIGINT))"
+        aggregate_filter = f" FILTER (WHERE {predicate_sql})" if predicates and not over else ""
+        if predicates and over:
+            row = f"IF({predicate_sql}, {row}, NULL)"
+        rows = f"coalesce(array_agg({row}){aggregate_filter}{over}, ARRAY[])"
+        rows = f"filter({rows}, __hogql_row -> __hogql_row[1] IS NOT NULL AND __hogql_row[2] IS NOT NULL)"
+        if isinstance(value_type, ast.FloatType):
+            rows = f"filter({rows}, __hogql_row -> NOT is_nan(__hogql_row[1]))"
+        ordered = (
+            "array_sort(__hogql_weighted_rows, (__hogql_left, __hogql_right) -> "
+            "CASE WHEN __hogql_left[1] < __hogql_right[1] THEN -1 "
+            "WHEN __hogql_left[1] > __hogql_right[1] THEN 1 ELSE 0 END)"
         )
+        weight_state = "ROW(total BIGINT, cumulative ARRAY(BIGINT))"
+        cumulative = (
+            f"reduce(__hogql_ordered, CAST(ROW(0, ARRAY[]) AS {weight_state}), "
+            "(__hogql_state, __hogql_row) -> CAST(ROW("
+            "__hogql_state[1] + __hogql_row[2], "
+            "concat(__hogql_state[2], ARRAY[__hogql_state[1] + __hogql_row[2]])"
+            f") AS {weight_state}), __hogql_state -> __hogql_state)"
+        )
+        position = (
+            "array_position(transform(__hogql_weights[2], __hogql_weight -> "
+            "CAST(__hogql_weight AS DOUBLE) >= CAST(__hogql_weights[1] AS DOUBLE) / 2e0), true)"
+        )
+        selected = f"element_at(__hogql_ordered, {position})[1]"
+        default = "nan()" if isinstance(value_type, ast.FloatType) else self._default_value(value_type, node)
+        empty = "NULL" if value_type.nullable else default
+        result = (
+            f"IF(cardinality(__hogql_ordered) = 0, {empty}, "
+            f"element_at(transform(ARRAY[{cumulative}], __hogql_weights -> {selected}), 1))"
+        )
+        result = f"element_at(transform(ARRAY[{ordered}], __hogql_ordered -> {result}), 1)"
+        result = (
+            "IF(any_match(__hogql_weighted_rows, __hogql_row -> __hogql_row[2] < 0), "
+            f"fail('medianExactWeighted requires non-negative weights'), {result})"
+        )
+        return f"element_at(transform(ARRAY[{rows}], __hogql_weighted_rows -> {result}), 1)"
 
-    def _visit_ngram_distance(self, node: ast.Call) -> str:
+    def _exact_quantile_from_array(self, values: str, percentile: str, node: ast.Call) -> str:
+        value_type = self._resolve_type(node.args[0])
+        if not isinstance(value_type, (ast.IntegerType, ast.FloatType, ast.DateType, ast.DateTimeType)):
+            self._invalid_function_arguments(node, f"{node.name} requires a numeric or date value in Trino mode.")
+        nonnull_values = (
+            f"filter(coalesce({values}, ARRAY[]), __hogql_quantile_value -> __hogql_quantile_value IS NOT NULL)"
+        )
+        sorted_values = "__hogql_quantile_input"
+        if isinstance(value_type, ast.FloatType):
+            sorted_values = f"filter({sorted_values}, __hogql_quantile_value -> NOT is_nan(__hogql_quantile_value))"
+        sorted_values = f"array_sort({sorted_values})"
+        default = "nan()" if isinstance(value_type, ast.FloatType) else self._default_value(value_type, node)
+        position = (
+            "CAST(ceil(0.5 * cardinality(__hogql_quantile_values)) AS BIGINT)"
+            if node.name.lower().startswith("medianexactlow")
+            else f"least(CAST(floor({percentile} * cardinality(__hogql_quantile_values)) AS BIGINT) + 1, cardinality(__hogql_quantile_values))"
+        )
+        result = (
+            f"element_at(transform(ARRAY[{sorted_values}], __hogql_quantile_values -> "
+            f"IF(cardinality(__hogql_quantile_values) = 0, {default}, "
+            f"element_at(__hogql_quantile_values, {position}))), 1)"
+        )
+        if value_type.nullable:
+            result = f"IF(cardinality(__hogql_quantile_input) = 0, NULL, {result})"
+        return f"element_at(transform(ARRAY[{nonnull_values}], __hogql_quantile_input -> {result}), 1)"
+
+    def _visit_ngram(self, node: ast.Call, *, utf8: bool, case_insensitive: bool, search: bool) -> str:
         binary_args = self._visit_binary_args(node)
+        gram_size = 3 if utf8 else 4
+        map_key_type = "VARCHAR" if utf8 else "VARBINARY"
 
         def grams(value: str, label: str) -> str:
             size = f"length({value})"
-            indexes = f"filter(sequence(1, greatest({size} - 3, 1)), {label}_index -> {label}_index <= {size} - 3)"
-            return f"transform({indexes}, {label}_index -> substr({value}, {label}_index, 4))"
+            count = f"{size} - {gram_size - 1}"
+            indexes = f"filter(sequence(1, greatest({count}, 1)), {label}_index -> {label}_index <= {count})"
+            return f"transform({indexes}, {label}_index -> substr({value}, {label}_index, {gram_size}))"
 
         def frequencies(values: str, label: str) -> str:
             return (
-                f"reduce({values}, CAST(map(ARRAY[], ARRAY[]) AS MAP(VARBINARY, BIGINT)), "
+                f"reduce({values}, CAST(map(ARRAY[], ARRAY[]) AS MAP({map_key_type}, BIGINT)), "
                 f"({label}_counts, {label}_gram) -> map_concat({label}_counts, map(ARRAY[{label}_gram], "
                 f"ARRAY[coalesce(element_at({label}_counts, {label}_gram), BIGINT '0') + 1])), {label}_counts -> {label}_counts)"
             )
 
-        left = f"to_utf8(CAST({binary_args.left} AS VARCHAR))"
-        right = f"to_utf8(CAST({binary_args.right} AS VARCHAR))"
+        left_value = f"CAST({binary_args.left} AS VARCHAR)"
+        right_value = f"CAST({binary_args.right} AS VARCHAR)"
+        if case_insensitive:
+            uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            lowercase = "abcdefghijklmnopqrstuvwxyz"
+            left_value = f"translate({left_value}, '{uppercase}', '{lowercase}')"
+            right_value = f"translate({right_value}, '{uppercase}', '{lowercase}')"
+        left = left_value if utf8 else f"to_utf8({left_value})"
+        right = right_value if utf8 else f"to_utf8({right_value})"
         left_counts = frequencies(grams("__hogql_ngram_args[1]", "__hogql_left"), "__hogql_left")
         right_counts = frequencies(grams("__hogql_ngram_args[2]", "__hogql_right"), "__hogql_right")
         keys = "array_distinct(concat(map_keys(__hogql_ngram_maps[1]), map_keys(__hogql_ngram_maps[2])))"
@@ -2199,11 +3638,22 @@ class TrinoPrinter(PostgresPrinter):
             f"reduce({keys}, DOUBLE '0', (__hogql_total, __hogql_ngram_key) -> "
             f"__hogql_total + {left_count} + {right_count}, __hogql_total -> __hogql_total)"
         )
-        distance = f"IF({total} = 0, DOUBLE '0', {difference} / {total})"
+        if search:
+            intersection = (
+                f"reduce({keys}, DOUBLE '0', (__hogql_overlap, __hogql_ngram_key) -> "
+                f"__hogql_overlap + least({left_count}, {right_count}), __hogql_overlap -> __hogql_overlap)"
+            )
+            right_total = (
+                f"reduce(map_values(__hogql_ngram_maps[2]), DOUBLE '0', "
+                "(__hogql_total, __hogql_count) -> __hogql_total + __hogql_count, __hogql_total -> __hogql_total)"
+            )
+            result = f"IF({right_total} = 0, DOUBLE '1', {intersection} / {right_total})"
+        else:
+            result = f"IF({total} = 0, DOUBLE '0', {difference} / {total})"
         return (
             f"IF({binary_args.left} IS NULL OR {binary_args.right} IS NULL, NULL, "
             f"element_at(transform(ARRAY[ROW({left}, {right})], __hogql_ngram_args -> "
-            f"element_at(transform(ARRAY[ROW({left_counts}, {right_counts})], __hogql_ngram_maps -> {distance}), 1)), 1))"
+            f"element_at(transform(ARRAY[ROW({left_counts}, {right_counts})], __hogql_ngram_maps -> {result}), 1)), 1))"
         )
 
     def _visit_format_readable_time_delta(self, node: ast.Call) -> str:
@@ -2355,39 +3805,59 @@ class TrinoPrinter(PostgresPrinter):
             return self._visit_window_count_distinct(node)
         if name in {"laginframe", "leadinframe"}:
             return self._visit_offset_in_frame_function(node)
-        if name in {"quantileexact", "quantileexactif"}:
-            filtered = name.endswith("if")
-            expected_args = 2 if filtered else 1
-            if node.args is None or len(node.args) != expected_args or node.exprs is None or len(node.exprs) != 1:
+        if (
+            name in TRINO_EXACT_QUANTILES
+            or name in TRINO_EXACT_WEIGHTED_MEDIANS
+            or name in TRINO_ARRAY_INSERT_AGGREGATES
+            or name in TRINO_DELTA_AGGREGATES
+            or name in TRINO_AGGREGATE_COMBINATORS
+            or name in TRINO_STATISTICAL_AGGREGATES
+            or name in TRINO_UNIQUE_ARRAY_AGGREGATES
+            or name in TRINO_MOVING_ARRAY_AGGREGATES
+            or name in TRINO_INTERSECTION_AGGREGATES
+            or name in TRINO_QUANTILES
+            or name in {"avgweighted", "avgweightedif"}
+        ):
+            parametric = name in {"quantileexact", "quantileexactif", "quantiles", "quantilesif"}
+            if not parametric and node.args is not None:
                 self._unsupported(
-                    "TRINO_WINDOW_FUNCTION_ARGUMENTS_UNSUPPORTED",
-                    f"Window function '{node.name}' has unsupported arguments in Trino mode.",
-                    node,
+                    "TRINO_WINDOW_FUNCTION_PARAMETERS_UNSUPPORTED", f"{node.name} does not accept parameters.", node
                 )
-            percentile = node.exprs[0]
-            if (
-                not isinstance(percentile, ast.Constant)
-                or isinstance(percentile.value, bool)
-                or not isinstance(percentile.value, (int, float))
-                or not 0 <= percentile.value <= 1
-            ):
-                self._unsupported(
-                    "TRINO_EXACT_QUANTILE_PERCENTILE_UNSUPPORTED",
-                    f"{node.name} requires a constant percentile between 0 and 1 in Trino mode.",
-                    node,
-                )
-            value = self.visit(node.args[0])
-            if filtered:
-                value = f"IF({self._visit_predicate(node.args[1])}, {value}, NULL)"
             if node.over_expr:
                 over = f"({self.visit(node.over_expr)})"
             elif node.over_identifier:
                 over = self._print_identifier(node.over_identifier)
             else:
                 over = "()"
-            return self._exact_quantile_from_array(
-                f"array_agg({value}) OVER {over}",
-                str(percentile.value),
+            aggregate_call = ast.Call(
+                name=node.name,
+                args=(node.args if parametric else node.exprs) or [],
+                params=node.exprs if parametric else None,
+            )
+            if name in TRINO_AGGREGATE_COMBINATORS:
+                return self._visit_aggregate_combinator(aggregate_call, over=f" OVER {over}")
+            if name in {"avgweighted", "avgweightedif"}:
+                return self._visit_weighted_average(aggregate_call, over=f" OVER {over}")
+            if name in TRINO_STATISTICAL_AGGREGATES:
+                return self._visit_statistical_aggregate(aggregate_call, over=f" OVER {over}")
+            if name in TRINO_UNIQUE_ARRAY_AGGREGATES:
+                return self._visit_unique_array_aggregate(aggregate_call, over=f" OVER {over}")
+            if name in TRINO_MOVING_ARRAY_AGGREGATES:
+                return self._visit_moving_array_aggregate(aggregate_call, over=f" OVER {over}")
+            if name in TRINO_INTERSECTION_AGGREGATES:
+                return self._visit_max_intersections(aggregate_call, over=f" OVER {over}")
+            if name in TRINO_DELTA_AGGREGATES:
+                return self._visit_delta_sum(aggregate_call, over=f" OVER {over}")
+            if name in TRINO_ARRAY_INSERT_AGGREGATES:
+                return self._visit_group_array_insert_at(aggregate_call, over=f" OVER {over}")
+            if name in TRINO_EXACT_WEIGHTED_MEDIANS:
+                return self._visit_exact_weighted_median(aggregate_call, over=f" OVER {over}")
+            if name in TRINO_QUANTILES:
+                return self._visit_quantiles(aggregate_call, over=f" OVER {over}")
+            return self._visit_exact_quantile(
+                aggregate_call,
+                filtered=name.endswith("if"),
+                over=f" OVER {over}",
             )
         exprs = [self.visit(expr) for expr in node.exprs or []]
         if name in {"quantile", "quantileif"}:
@@ -2615,15 +4085,17 @@ class TrinoPrinter(PostgresPrinter):
         return rendered
 
     def _render_start_of(self, unit: str, arg: str, week_mode: int = 3) -> str:
-        if unit == "week" and week_mode == 0:
+        if unit == "week" and week_mode in {0, 2, 4, 6, 8}:
             return f"date_add('day', -1, date_trunc('week', date_add('day', 1, {arg})))"
-        if unit == "week" and week_mode not in {1, 3}:
+        if unit == "week" and week_mode not in {1, 3, 5, 7, 9}:
             self._unsupported(
                 "TRINO_START_OF_WEEK_MODE_UNSUPPORTED",
                 f"Unsupported toStartOfWeek mode `{week_mode}` in Trino mode.",
             )
         if unit == "isoyear":
-            self._unsupported("TRINO_START_OF_ISO_YEAR_UNSUPPORTED", "toStartOfISOYear is not supported in Trino mode.")
+            date = f"CAST({arg} AS DATE)"
+            january_fourth = f"CAST(format('%04d-01-04', year_of_week({date})) AS DATE)"
+            return f"date_add('day', 1 - day_of_week({january_fourth}), {january_fourth})"
         return f"date_trunc('{unit}', {arg})"
 
     def _render_minute_bucket(self, arg: str, bucket_size: int) -> str:

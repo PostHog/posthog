@@ -166,13 +166,13 @@ registered function that has no Trino mapping. The snapshot separates scalar,
 aggregate, and PostHog functions. A new registry function must receive a mapping
 or appear in this explicit gap inventory.
 
-The registry has 1,180 names. Trino mode maps 441 of these names. The explicit
-gap inventory has 739 names: 283 scalar functions, 429 aggregate functions, and
-27 PostHog functions. Aliases count as separate names.
+The registry has 1,180 names. Trino mode maps 850 of these names. The explicit
+gap inventory has 330 names: 149 scalar functions, 155 aggregate functions, and
+26 PostHog functions. Aliases count as separate names.
 
 Some workarounds need additional rules. `arrayResize` supports an explicit fill
-value. Its two-argument form stays unsupported because the default fill value
-depends on the array item type. `generateSeries` stays unsupported because it is
+value. Its two-argument form uses the resolved array item type to supply the default value.
+Unknown item types keep an explicit error. `generateSeries` stays unsupported because it is
 a table function, while a scalar `sequence` result would change the row shape.
 Array index functions apply their predicate with `transform` because Trino does
 not have `find_first_index` or `find_last_index`. Bit shifts use Trino's two-
@@ -190,8 +190,8 @@ date/timestamp strings, day-abbreviated-month-two-digit-year strings, and 9–10
 controls interpretation of unzoned strings and the returned wall-clock timestamp.
 Other ClickHouse best-effort formats remain unsupported at execution; invalid
 strings raise an error rather than becoming NULL. `toStartOfInterval` supports
-positive constant second/minute intervals anchored at the Unix epoch. Other units,
-custom origins, and timezone arguments remain rejected.
+positive constant intervals from seconds through years. It also supports a custom
+origin. Hour intervals without an origin reset at the start of each day.
 
 Two-argument `floor`/`ceil` scale by a power of ten before rounding, using Trino
 floating-point arithmetic. `roundBankers` supports constant precision from -18 to
@@ -202,11 +202,15 @@ conversion. Non-integer operands remain rejected. `median` uses `approx_percenti
 at 0.5, following the existing approximate `quantile` translation; the algorithms
 do not guarantee identical estimates between engines.
 
-`extractURLParameter` preserves encoded values and returns the first matching
-parameter, or an empty string when absent. `arrayZip` supports two to five arrays.
+URL query, fragment, path, and parameter functions preserve percent-encoded text.
+`extractURLParameter` returns the first matching parameter, or an empty string when absent.
+The URL parameter array functions keep duplicates and parameters without values.
+`arrayZip` supports two to five arrays.
 Dynamic arrays receive an equal-length guard instead of Trino's NULL padding.
-`extractAllGroups` supports constant patterns with 1–5 capture groups,
-returning one array of captures per match. `replaceRegexpOne` supports constant
+The regex group functions support constant patterns with 1–20 capture groups.
+They support one-match, vertical, and horizontal result shapes.
+`regexpExtract` supports a constant pattern and an optional constant group index.
+`replaceRegexpOne` supports constant
 patterns and replacements, including numbered replacement captures. Lookarounds,
 inline flags, and pattern backreferences remain rejected for first-only replacement.
 These regex translations use Trino's regex engine, so engine-specific regex syntax
@@ -223,20 +227,62 @@ conversion, dynamic JSON paths, and scalar tuple membership. Numeric
 and UUID values are aligned with string branches in subqueries and set operations.
 Date/time inputs to `toFloat` and `_toUInt64` use Unix epoch conversion rather than
 casts that Trino rejects.
+String rewrites also cover byte-based `locate`, Unicode tokens, subsequences,
+ASCII case folding, form URL encoding, regex quoting, and `initcap`.
+The IPv4 rewrites cover validation, integer conversion, text conversion, CIDR membership, and CIDR ranges.
+IPv6 support currently covers validation and CIDR membership.
+Constant `defaultValueOfTypeName` calls support primitive, nullable, array, and string-keyed map types.
+The date rewrites now include `dateName`, slots, time extraction, integer Unix timestamps, and interval arithmetic.
+Token predicates use ClickHouse's ASCII token boundaries and ASCII-only case folding.
+`netloc` preserves user information, ports, and scheme-free authority strings.
+URL hierarchy functions preserve path, query, and fragment boundaries for absolute URLs.
+`cutURLParameter` removes the first matching key/value parameter and keeps URL delimiters.
+XML component functions support named entities and decimal or hexadecimal numeric entities.
+`JSONType` supports up to five constant or dynamic path items and returns ClickHouse type names.
+The readable size and quantity functions preserve source units, rounding, NaN, and infinity output.
+`roundToExp2` uses exact bit shifts for integers and signed powers for floats.
+`gcd` and `lcm` use a bounded Euclidean reduction and preserve zero-input errors.
+`date_bin` supports positive constant intervals from seconds through years with a custom origin.
+It rejects a timestamp before its origin, as the ClickHouse expansion does.
+`arrayAUC` uses a sorted linear scan with exact tie handling and nonzero positive labels.
+`UUIDv7ToDateTime` reads the 48-bit Unix millisecond prefix.
+The timestamp constructors truncate fractional seconds and preserve named timezone instants.
+`tupleToNameValuePairs` uses resolved tuple field names and evaluates its tuple once.
+`pointInEllipses` supports one or more inclusive ellipses.
+`ifNotFinite` now has its correct two-argument registry contract.
+`sortablesemver` returns three numeric parts or a nullable invalid sentinel.
+`ngrams` uses Unicode character positions. Token-array predicates require at least one valid token.
+Map-form `mapPopulateSeries` supports a source map and optional maximum key.
+IPv4 substring extraction preserves the source handling of invalid leading octets.
+The four `maxIntersections` forms use a half-open endpoint sweep.
+They return the first position that reaches the maximum and support window clauses.
 
 Select aliases used by generated `UNNEST` table arguments are expanded before the
 query is re-resolved. Dynamic `mapFromArrays` inputs retain their original keys and
-fail when Trino cannot represent duplicate or null keys. `quantileExact`,
-`cityHash64`, `ngramDistance`, and `aggregate_funnel_trends` remain unsupported
-because the available Trino functions do not preserve their semantics.
+fail when Trino cannot represent duplicate or null keys.
+The n-gram rewrites use byte four-grams or Unicode three-grams. Search divides
+the multiset intersection by the second argument's gram count. ASCII-insensitive
+forms use ASCII case folding. Unicode case-insensitive forms remain unsupported.
+`cityHash64` remains unsupported because Trino does not provide its exact algorithm.
+
+`accurateCast` and `accurateCastOrNull` reject fractional integer conversions and
+unsigned overflow. `base58Encode` uses an arbitrary-length digit array, so it does
+not lose large inputs. `format` supports constant templates with empty placeholders,
+escaped braces, and values that have the same text form in both engines. HogQL's
+`to_char` alias uses the existing `formatDateTime` handler. `bar` preserves the
+one-eighth horizontal block output.
+
+The week rewrites support all ten ClickHouse week modes. `toStartOfWeek` supports
+the related Sunday and Monday starts. `toStartOfISOYear` computes the Monday that
+starts the ISO year. `timeZoneOffset` uses the timestamp's stored zone offset.
 
 The remaining function gaps fall into these groups:
 
-- ClickHouse aggregate states, combinators, bitmap aggregates, and specialized
+- ClickHouse aggregate states, remaining combinators, bitmap aggregates, and specialized
   estimators have no portable Trino state format.
-- H3, bitmap, IP, and block-level functions need connector functions or target
+- H3, bitmap, remaining IP, and block-level functions need connector functions or target
   types that the compiler manifest does not guarantee.
-- Tuple, map, and array functions that depend on a dynamic return type need
+- Remaining tuple, map, and array functions that depend on a dynamic return type need
   type-aware AST lowering. A string-only function handler cannot preserve them.
 - Table functions, including `generateSeries`, need relational lowering. A
   scalar array workaround would change the number of result rows.
@@ -245,12 +291,156 @@ The remaining function gaps fall into these groups:
 - Exact hashes, quantiles, regex engines, and public-suffix functions stay blocked
   when a similar Trino function has different results.
 
-The remaining syntax gaps also keep explicit errors. `PIVOT`, `UNPIVOT`, `LIMIT
-PERCENT`, and set operations by name need new relational wrappers. ASOF, SEMI,
-ANTI, POSITIONAL, and unsupported ANY joins need deterministic row-selection
-rewrites. `WITH FILL`, `INTERPOLATE`, `FINAL`, nontrivial `SAMPLE`, and recursive
-`USING KEY` have no general Trino equivalent. The compiler does not remove these
-forms because a silent rewrite could change query results.
+### Aggregate and typed function rewrites
+
+`avg`, `sum`, `min`, `max`, `count`, `countDistinct`, and `median` support the registered `OrDefault`, `OrNull`, `Array`, `ForEach`, `Map`, `ArgMin`, and `ArgMax` combinations, including `If` suffixes.
+Standard `FILTER` predicates combine with `If` predicates.
+The compiler distinguishes an empty group from a group that contains an empty array.
+Nullable values keep their null defaults. `avgArray` keeps HogQL's `avgArrayOrNull` mapping.
+For window calls, HogQL prints the native `avgArray` name. Its empty non-null input result is NaN, not NULL.
+Array aggregates collect values within each group before reduction. Large groups can require substantial memory.
+Numeric array reductions require integer or float items. State and merge combinators remain separate gaps.
+These aggregate forms also support window clauses. Additional aggregate modifiers retain explicit errors.
+
+`ArgMin` and `ArgMax` aggregate every value tied at the extreme selection key.
+Null values and null keys do not select the extreme key. The one-argument `count` form counts keys alone.
+Selection keys can be integers, floats, strings, dates, timestamps, or booleans.
+NaN selection keys and NaN values for `min` and `max` retain runtime errors.
+UUID and container selection keys remain blocked because their ordering needs additional checks.
+
+`medianExact`, `medianExactLow`, and `medianExactHigh` support plain and `If` forms, including window clauses.
+Exact quantiles and medians exclude null and NaN input values.
+Empty integer and date inputs use their type defaults. Empty float inputs return NaN.
+Nullable inputs return NULL when no non-null value passes the filter. An input with only NaN values returns NaN.
+Low medians select the lower middle value. Exact and high medians select the upper middle value.
+
+The `median` combinator family uses exact interpolation between the two middle values.
+It supports aggregate and window forms. It also excludes null and NaN values.
+Empty Map and ForEach results remain non-null containers, including `OrNull` forms.
+ClickHouse uses a reservoir estimator for large inputs, so large-group estimates can differ.
+
+`medianExactWeighted` and `medianExactWeightedIf` support aggregate and window forms.
+They accept numeric or date values with non-negative integer weights.
+They exclude null values and NaN values. A negative weight raises an error.
+
+`quantiles` and `quantilesIf` accept one or more constant percentiles from zero through one.
+They return a Trino `approx_percentile` array and exclude null and NaN values.
+An empty result contains one NaN for each requested percentile.
+The two engines can produce different approximate estimates.
+
+`avgWeighted` and `avgWeightedIf` support aggregate and window forms.
+They exclude a row when its value or weight is null. Empty nullable inputs return NULL; other empty inputs return NaN.
+Float weights support negative values and weights. A zero weight sum can produce infinity or NaN.
+Integer weights require non-negative finite values and non-negative weights. Fractional values truncate before multiplication, as in ClickHouse.
+Integer sums and products must fit a signed 64-bit integer. Overflow fails instead of applying an uncertain unsigned wrap rule.
+
+`skewPop`, `skewSamp`, `kurtPop`, and `kurtSamp` use ClickHouse's raw-moment formulas.
+`simpleLinearRegression` uses the same five accumulated values as ClickHouse.
+These functions support `If`, aggregate filters, null values, empty groups, and window frames.
+
+`groupUniqArrayArray` flattens arrays, removes null values, and keeps distinct values.
+Its optional positive limit and its `If` form also work in window frames.
+`groupArrayInsertAt` creates typed defaults for missing positions and removes null inputs.
+Positions above Trino's array limit retain an explicit error.
+
+`groupArrayMovingSum`, `groupArrayMovingAvg`, and `deltaSum` retain input-order semantics.
+Their `If` forms and window forms are supported.
+Plain aggregate calls can differ when the two engines process unordered rows differently.
+Use a window with an `ORDER BY` clause when the result requires a stable order.
+
+`ForEach` aggregates each array position across the group. Shorter arrays do not supply a value for a missing position.
+`Map` aggregates each key across the group and sorts the output keys.
+These two families return empty containers for empty groups, including `OrNull` forms.
+Map inputs must already have a Trino-compatible map type. Legacy map forms with separate key/value arrays remain blocked.
+`arrayReduce` supports constant `count`, `sum`, `min`, `max`, and `avg` names, and their `Map` variants.
+Other aggregate names and aggregate states retain explicit errors.
+
+`arrayCumSum` and `arrayCumSumNonNegative` support one array and an optional single-argument lambda.
+Cumulative values require non-null integer or float types. Fractional lambda results use floating-point accumulation.
+`arrayFill`, `arrayReverseFill`, `arraySplit`, and `arrayReverseSplit` support one array and one predicate lambda.
+The rewrites preserve the first or last element, null values, empty arrays, and the direction of each split.
+Scans build intermediate arrays. Large arrays can require substantial copying and memory.
+
+`LpNorm` and `LpDistance` support non-null numeric arrays and tuples. Distance inputs must have equal lengths and the same container type.
+The four normalization functions support numeric tuples, matching the source functions' input contract.
+Their results contain floating-point values. Zero norms preserve NaN results.
+Lp exponents below one or infinite exponents raise an error. A NaN exponent keeps its NaN result.
+Floating-point results can differ at machine precision between engines.
+
+`factorial` accepts integers no greater than 20. Inputs at or below zero return one.
+`roundAge` and `roundDuration` use the source engine's fixed buckets.
+`roundDown` requires a non-empty boundary array and preserves a NaN input.
+These numeric functions preserve null inputs.
+
+Tuple addition, subtraction, multiplication, division, negation, and scalar multiplication/division use resolved tuple sizes.
+Arithmetic supports integer and float items. Division uses floating-point arithmetic.
+Tuple Hamming distance preserves null comparison results.
+`arrayLast` uses the resolved item type for the no-match default. `arrayFirst` also preserves nullable defaults.
+
+The `multiSearch` position, index, and predicate families have byte-position and UTF-8 rewrites.
+First index means the first matching needle in input order, not the earliest position in the text.
+Empty text, missing matches, and empty needle lists keep their separate results.
+Byte-based case-insensitive search folds ASCII letters only.
+UTF-8 case-insensitive search rejects text or needles whose lowercase conversion changes a character's byte length, because engine behavior differs for these characters.
+
+Trino set operations retain the types of unnamed branch expressions.
+This prevents a non-null UNION column from receiving a nullable aggregate default.
+Trino division also receives a floating-point result type, so cumulative lambdas do not use an integer accumulator for fractional values.
+
+### Relational compatibility rewrites
+
+The ASOF result test uses one DuckDB thread.
+Repeated parallel execution on DuckDB 1.5.2 dropped duplicate rows and crashed for the generated nested-window query.
+The same SQL passed repeated single-threaded DuckDB and Trino checks.
+This test setting does not change production SQL or Trino execution.
+
+The compiler rewrites these forms before it prints Trino SQL:
+
+- `QUALIFY` can contain inline window functions and unprojected predicate fields.
+  Helper columns stay inside the generated subqueries. The compiler preserves
+  the original output columns and applies `DISTINCT` after the predicate.
+- `QUALIFY` can precede `LIMIT BY`. Window expressions in `LIMIT BY` partitions
+  or ordering run in a separate input stage. The final limit runs last.
+- `UNION ... BY NAME` aligns resolved columns before type unification. Trino also
+  accepts uniform `INTERSECT` and `EXCEPT` chains by name. Every branch must have
+  the same unique column names. Mixed operator families require explicit
+  subqueries. The compiler preserves positional references when it reorders columns.
+- Equi-key `SEMI` joins use a distinct right-key relation. `ANTI` joins use a left
+  join to that relation and test an equality key for null. Both preserve duplicate
+  left rows. Right-side output references and computed right keys remain blocked.
+- Two-table `RIGHT ANY`, `RIGHT SEMI`, and `RIGHT ANTI` joins reverse their inputs
+  before the existing left-side rewrite. Longer right-join chains remain blocked.
+- Two-table `INNER ASOF` and `LEFT ASOF` forms use a join followed by ranking.
+  The constraint needs equality keys and exactly one field-to-field inequality.
+  Each left input row gets an internal identifier, so duplicate left rows survive.
+  Input columns must be complete. Subqueries outside the inputs and indirect
+  output properties remain blocked. Equal nearest timestamps have no specified
+  tie order. Candidate joins can be large; use selective keys and bounded inputs.
+- Static `PIVOT` uses filtered aggregates. This version accepts one key and one
+  `count`, `sum`, `avg`, `min`, or `max` aggregate. Pivot values must be string or
+  integer constants. Output aliases are supported; duplicate names are rejected.
+- `UNPIVOT` uses one input scan and an array of rows. It preserves the null mode.
+  This version accepts one scalar value/name pair and field inputs. Tuple outputs,
+  input aliases, multiple column groups, and incompatible value types remain blocked.
+- `LEFT ARRAY JOIN` inserts a typed default row when the input arrays are empty.
+  Supported defaults include strings, integers, floats, booleans, nullable items,
+  arrays, and supported tuples. Other item types keep explicit errors. Multiple
+  arrays still need equal lengths. Internal `ARRAY JOIN` ASTs can omit `FROM`,
+  although the source parser can reject that form.
+- A constant percentage limit uses counting and ranking after the input query.
+  It rounds up and calculates the row count before the offset. Percentages must
+  be between zero and 100. Percentage limits with ties remain blocked. This also
+  supports internal `limit_percent` ASTs when a parser does not accept `PERCENT`.
+- Integer addition, subtraction, and multiplication can supply `LIMIT`, `OFFSET`,
+  and `LIMIT BY` counts. Arithmetic must stay within the signed 64-bit range.
+
+The Trino printer preserves `FILTER` on the standard aggregates used by `PIVOT`
+and on `countDistinct`. Filter values use the existing predicate conversion.
+
+`WITH FILL`, `INTERPOLATE`, `FINAL`, nontrivial `SAMPLE`, `POSITIONAL JOIN`, and
+recursive `USING KEY` still have no general rewrite. Complex ASOF forms, full ANY
+joins, dynamic pivot schemas, and set-query limits with ties also retain explicit
+errors. The compiler does not remove clauses or switch execution engines silently.
 
 Run the Trino printer, semantic expansion, and parameter-helper tests. Run the existing printer/resolver and direct-adapter tests to check shared behavior, and the startup-import guards to check initialization. Do not regenerate existing dialect snapshots simply to make a regression pass.
 

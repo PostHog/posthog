@@ -416,6 +416,17 @@ class TestHogQLTypeSystem:
                 ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
             ),
             (
+                "L1Normalize",
+                [
+                    ast.TupleType(
+                        nullable=False, item_types=[ast.IntegerType(nullable=False), ast.IntegerType(nullable=False)]
+                    )
+                ],
+                ast.TupleType(
+                    nullable=False, item_types=[ast.FloatType(nullable=False), ast.FloatType(nullable=False)]
+                ),
+            ),
+            (
                 "arrayResize",
                 [
                     ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
@@ -772,8 +783,146 @@ class TestHogQLTypeSystem:
             ),
             # -OrNull makes the result nullable; -OrDefault forces it non-null.
             ("sumOrNull", [ast.IntegerType(nullable=False)], ast.IntegerType(nullable=True)),
+            ("medianExact", [ast.IntegerType(nullable=False)], ast.IntegerType(nullable=False)),
+            ("medianExactLow", [ast.DateType(nullable=True)], ast.DateType(nullable=True)),
+            (
+                "medianExactWeightedIf",
+                [
+                    ast.IntegerType(nullable=True),
+                    ast.IntegerType(nullable=False),
+                    ast.BooleanType(nullable=False),
+                ],
+                ast.IntegerType(nullable=True),
+            ),
+            ("quantileExact", [ast.FloatType(nullable=False)], ast.FloatType(nullable=False)),
+            (
+                "medianExactHighIf",
+                [ast.IntegerType(nullable=False), ast.BooleanType(nullable=True)],
+                ast.IntegerType(nullable=False),
+            ),
+            (
+                "avgWeightedIf",
+                [ast.IntegerType(nullable=False), ast.FloatType(nullable=True), ast.BooleanType(nullable=False)],
+                ast.FloatType(nullable=True),
+            ),
+            ("skewPop", [ast.IntegerType(nullable=False)], ast.FloatType(nullable=False)),
+            (
+                "kurtSampIf",
+                [ast.FloatType(nullable=True), ast.BooleanType(nullable=False)],
+                ast.FloatType(nullable=True),
+            ),
+            (
+                "simpleLinearRegressionIf",
+                [
+                    ast.IntegerType(nullable=False),
+                    ast.FloatType(nullable=True),
+                    ast.BooleanType(nullable=False),
+                ],
+                ast.TupleType(
+                    nullable=False,
+                    item_types=[ast.FloatType(nullable=False), ast.FloatType(nullable=False)],
+                    field_names=["k", "b"],
+                ),
+            ),
+            (
+                "maxIntersectionsPositionIf",
+                [
+                    ast.IntegerType(nullable=False),
+                    ast.IntegerType(nullable=True),
+                    ast.BooleanType(nullable=False),
+                ],
+                ast.IntegerType(nullable=True),
+            ),
+            (
+                "groupUniqArrayArrayIf",
+                [
+                    ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=True)),
+                    ast.BooleanType(nullable=False),
+                ],
+                ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+            ),
+            (
+                "groupArrayMovingSumIf",
+                [ast.FloatType(nullable=True), ast.BooleanType(nullable=False)],
+                ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False)),
+            ),
+            (
+                "groupArrayMovingAvg",
+                [ast.IntegerType(nullable=False)],
+                ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False)),
+            ),
+            (
+                "deltaSumIf",
+                [ast.IntegerType(nullable=True), ast.BooleanType(nullable=False)],
+                ast.IntegerType(nullable=False),
+            ),
+            (
+                "groupArrayInsertAtIf",
+                [
+                    ast.StringType(nullable=True),
+                    ast.IntegerType(nullable=False),
+                    ast.BooleanType(nullable=False),
+                ],
+                ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
+            ),
             ("avgOrNull", [ast.IntegerType(nullable=False)], ast.FloatType(nullable=True)),
             ("sumOrDefault", [ast.IntegerType(nullable=True)], ast.IntegerType(nullable=False)),
+            ("roundToExp2", [ast.IntegerType(nullable=True)], ast.IntegerType(nullable=True)),
+            (
+                "gcd",
+                [ast.IntegerType(nullable=False), ast.IntegerType(nullable=True)],
+                ast.IntegerType(nullable=True),
+            ),
+            (
+                "arrayAUC",
+                [
+                    ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False)),
+                    ast.ArrayType(nullable=True, item_type=ast.IntegerType(nullable=False)),
+                ],
+                ast.FloatType(nullable=True),
+            ),
+            ("UUIDv7ToDateTime", [ast.UUIDType(nullable=True)], ast.DateTimeType(nullable=True)),
+            (
+                "tupleToNameValuePairs",
+                [
+                    ast.TupleType(
+                        nullable=False,
+                        item_types=[ast.IntegerType(nullable=False), ast.FloatType(nullable=True)],
+                    )
+                ],
+                ast.ArrayType(
+                    nullable=False,
+                    item_type=ast.TupleType(
+                        nullable=False,
+                        item_types=[ast.StringType(nullable=False), ast.FloatType(nullable=True)],
+                    ),
+                ),
+            ),
+            (
+                "pointInEllipses",
+                [ast.FloatType(nullable=False), ast.FloatType(nullable=True)],
+                ast.BooleanType(nullable=True),
+            ),
+            (
+                "ifNotFinite",
+                [ast.FloatType(nullable=True), ast.IntegerType(nullable=False)],
+                ast.FloatType(nullable=True),
+            ),
+            (
+                "mapPopulateSeries",
+                [
+                    ast.MapType(
+                        nullable=True,
+                        key_type=ast.IntegerType(nullable=False),
+                        value_type=ast.StringType(nullable=False),
+                    )
+                ],
+                ast.MapType(
+                    nullable=True,
+                    key_type=ast.IntegerType(nullable=False),
+                    value_type=ast.StringType(nullable=False),
+                ),
+            ),
             (
                 "groupArrayIf",
                 [ast.StringType(nullable=False), ast.BooleanType(nullable=False)],
@@ -811,6 +960,55 @@ class TestHogQLTypeSystem:
         self, name: str, arg_types: list[ast.ConstantType], expected: ast.ConstantType
     ) -> None:
         assert infer_function_return_type(name, arg_types).return_type == expected
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "medianMap",
+            "medianMapIf",
+            "medianMapOrDefault",
+            "medianMapOrDefaultIf",
+            "medianMapOrNull",
+            "medianMapOrNullIf",
+        ],
+    )
+    def test_resolver_infers_median_map_combinator_types(self, name: str) -> None:
+        arg_types: list[ast.ConstantType] = [
+            ast.MapType(
+                nullable=False,
+                key_type=ast.StringType(nullable=False),
+                value_type=ast.IntegerType(nullable=True),
+            )
+        ]
+        if name.endswith("If"):
+            arg_types.append(ast.BooleanType(nullable=False))
+
+        assert infer_function_return_type(name, arg_types).return_type == ast.MapType(
+            nullable=False,
+            key_type=ast.StringType(nullable=False),
+            value_type=ast.FloatType(nullable=False),
+        )
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "medianForEach",
+            "medianForEachIf",
+            "medianForEachOrDefault",
+            "medianForEachOrDefaultIf",
+            "medianForEachOrNull",
+            "medianForEachOrNullIf",
+        ],
+    )
+    def test_resolver_infers_median_for_each_combinator_types(self, name: str) -> None:
+        arg_types: list[ast.ConstantType] = [ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=True))]
+        if name.endswith("If"):
+            arg_types.append(ast.BooleanType(nullable=False))
+
+        assert infer_function_return_type(name, arg_types).return_type == ast.ArrayType(
+            nullable=False,
+            item_type=ast.FloatType(nullable=False),
+        )
 
     @pytest.mark.parametrize(
         "name,arg_types,expected_nullable",
@@ -892,6 +1090,11 @@ class TestHogQLTypeSystem:
         # Predicates return a 0/1 flag, modeled as Boolean (consistent with like/ilike).
         self._assert_first_column_type("SELECT match('abc', 'a')", ast.BooleanType(nullable=False))
         self._assert_first_column_type("SELECT startsWith('abc', 'a')", ast.BooleanType(nullable=False))
+        self._assert_first_column_type("SELECT isIPv4String('1.2.3.4')", ast.BooleanType(nullable=False))
+        self._assert_first_column_type("SELECT isIPv6String(NULL)", ast.BooleanType(nullable=True))
+        self._assert_first_column_type("SELECT IPv4NumToString(1)", ast.StringType(nullable=False))
+        self._assert_first_column_type("SELECT IPv4StringToNum('1.2.3.4')", ast.IntegerType(nullable=False))
+        self._assert_first_column_type("SELECT IPv4StringToNumOrNull('bad')", ast.IntegerType(nullable=True))
         self._assert_first_column_type("SELECT endsWith('abc', 'c')", ast.BooleanType(nullable=False))
         self._assert_first_column_type("SELECT hasToken('a b c', 'b')", ast.BooleanType(nullable=False))
         self._assert_first_column_type("SELECT hasSubsequence('abc', 'ac')", ast.BooleanType(nullable=False))
