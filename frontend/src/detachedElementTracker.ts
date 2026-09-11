@@ -69,7 +69,6 @@ export function getDetachedElementTrackingContext(
     }
 }
 
-/** One entry of MemLens's detached-DOM report, narrowed to what persistence measurement reads. */
 export interface DetachedElementRef {
     element: { deref: () => Element | undefined }
     componentStack?: readonly string[] | null
@@ -82,8 +81,7 @@ export interface DetachedPersistence {
     seenNow: WeakSet<Element>
 }
 
-/** Count only the detached elements that outlived a scan interval. A page cannot force a collection, so a
- *  single scan cannot tell retained DOM apart from garbage the collector has not reached yet. */
+/** A page cannot force a collection, so one scan cannot tell retained DOM from garbage not yet collected. */
 export function measureDetachedPersistence(
     detached: readonly DetachedElementRef[],
     seenPreviously: WeakSet<Element>
@@ -127,8 +125,7 @@ export function shouldCaptureDetachedElements(
     return currentCount !== previousCount || persistedCount !== previousPersistedCount
 }
 
-/** MemLens's `stop()` discards its tracked elements, so a scanner restarted after the tab was hidden begins
- *  a new persistence series. The detached baseline survives: those totals come from a fresh walk each scan. */
+/** MemLens's `stop()` discards its tracked elements, restarting the series. Detached totals are unaffected. */
 export function restartPersistenceSeries(state: DetachedElementTrackingState): DetachedElementTrackingState {
     return {
         ...state,
