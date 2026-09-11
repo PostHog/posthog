@@ -27,7 +27,7 @@ from posthog.dags.person_overrides import (
 )
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.deletion_targets import EVENTS, EVENTS_JSON, FLAG_EVALUATIONS, TargetPlacement
+from posthog.models.deletion_targets import EVENTS, EVENTS_JSON, EVENTS_TARGETS, FLAG_EVALUATIONS, TargetPlacement
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE
 
@@ -284,7 +284,7 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
     calls = Mock()
 
     with (
-        patch("posthog.dags.person_overrides.resolve_placements", return_value=placements),
+        patch("posthog.dags.person_overrides.resolve_placements", return_value=placements) as resolve_placements,
         patch.object(
             AlterTableMutationRunner, "enqueue_on_shards", autospec=True, return_value={}
         ) as enqueue_on_shards,
@@ -294,6 +294,9 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
         calls.attach_mock(wait_for_mutations, "wait")
         run_person_id_update_mutations(cluster, dictionary)
 
+    # This assertion names the targets literally instead of reusing SQUASH_TARGETS.
+    # The constant would still match after someone drops FLAG_EVALUATIONS from its definition.
+    resolve_placements.assert_called_once_with(cluster, (*EVENTS_TARGETS, FLAG_EVALUATIONS))
     assert {call.args[0].table: call.args[1] for call in enqueue_on_shards.call_args_list} == {
         EVENTS_DATA_TABLE(): cluster,
         EVENTS_JSON_DATA_TABLE: sibling,
