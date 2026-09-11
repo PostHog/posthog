@@ -36,7 +36,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     postgres_column_to_dwh_column,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import DataWarehouseTableCreatedVia, ExternalDataSourceType
 
 
 class TestTable(BaseTest):
@@ -534,7 +534,23 @@ class TestTable(BaseTest):
 
         with patch("products.warehouse_sources.backend.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [[column_name, "String"]]
-            with pytest.raises(Exception, match="PostHog can't use the column name"):
+            with pytest.raises(Exception, match="Rename the column"):
+                table.get_columns()
+
+    def test_get_columns_rejection_points_materialized_view_at_aliasing(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_view",
+            url_pattern="",
+            credential=credential,
+            format="Parquet",
+            team=self.team,
+            created_via=DataWarehouseTableCreatedVia.MATERIALIZED_VIEW,
+        )
+
+        with patch("products.warehouse_sources.backend.models.table.sync_execute") as sync_execute_results:
+            sync_execute_results.return_value = [["COUNT(mvs.`*`)", "String"]]
+            with pytest.raises(Exception, match="Alias the matching select expression"):
                 table.get_columns()
 
     @parameterized.expand(

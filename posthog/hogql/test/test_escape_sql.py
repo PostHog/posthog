@@ -12,6 +12,7 @@ from posthog.hogql.escape_sql import (
     escape_hogql_identifier,
     escape_hogql_string,
     escape_postgres_identifier,
+    safe_identifier,
 )
 from posthog.hogql.parser import parse_expr
 
@@ -50,6 +51,23 @@ class TestPrintString(BaseTest):
             escape_hogql_identifier("other escapes: \b \f \n \t \0 \a \v \\"),
             "`other escapes: \\b \\f \\n \\t \\0 \\a \\v \\\\`",
         )
+
+    @parameterized.expand(
+        [
+            # A wildcard call prints back to HogQL with the `*` quoted, so the backticks leak into
+            # the generated alias. The warehouse column-name guard later rejects backticks, so the
+            # alias must arrive stripped or a materialization fails on a name PostHog itself made.
+            ("wildcard_call", "COUNT(mvs.`*`)", "COUNT(mvs.*)"),
+            ("percent", "id%foo", "idfoo"),
+            ("backslash", "a\\b", "ab"),
+            ("newline", "a\nb", "ab"),
+            ("carriage_return", "a\rb", "ab"),
+            ("null_byte", "a\0b", "ab"),
+            ("safe", "normal_name", "normal_name"),
+        ]
+    )
+    def test_safe_identifier_strips_unquotable_characters(self, _name, identifier, expected):
+        self.assertEqual(safe_identifier(identifier), expected)
 
     def test_sanitize_clickhouse_identifier(self):
         self.assertEqual(escape_clickhouse_identifier("a"), "a")
