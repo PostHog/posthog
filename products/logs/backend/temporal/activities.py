@@ -10,7 +10,7 @@ from collections import Counter, defaultdict
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from itertools import batched
-from uuid import UUID
+from uuid import UUID, uuid5
 
 from django.conf import settings
 from django.db import connection, transaction
@@ -1701,6 +1701,7 @@ def _build_notified_from_saved(saved: list[_DispatchedAlert]) -> list[NotifiedAl
                 result_count=d.evaluation.check_result.result_count,
                 consecutive_failures=d.evaluation.outcome.consecutive_failures,
                 filters={},
+                idempotency_key=str(uuid5(UUID(str(alert.id)), f"{action}:{d.evaluation.date_to.isoformat()}")),
             )
         )
     return notified
