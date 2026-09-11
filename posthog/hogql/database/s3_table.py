@@ -6,6 +6,8 @@ from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
 
+import re2
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable
 from posthog.hogql.errors import ExposedHogQLError
@@ -13,9 +15,10 @@ from posthog.hogql.escape_sql import escape_hogql_identifier
 
 from posthog.clickhouse.client.escape import substitute_params
 
-_AWS_S3_ENDPOINT_RE = re.compile(r"s3(?:[.-][a-z0-9-]+)*\.amazonaws\.com(?:\.cn)?")
-_AWS_S3_VIRTUAL_HOST_RE = re.compile(r"(?P<bucket>.+)\.(?P<endpoint>s3(?:[.-][a-z0-9-]+)*\.amazonaws\.com(?:\.cn)?)")
-_AWS_REGION_RE = re.compile(r"(?:^|[.-])(?P<region>[a-z]{2,4}(?:-[a-z0-9]+)+-\d)(?:\.|$)")
+# Source URLs are user supplied; ambiguous hyphen runs must not backtrack.
+_AWS_S3_ENDPOINT_RE = re2.compile(r"s3(?:[.-][a-z0-9-]+)*\.amazonaws\.com(?:\.cn)?")
+_AWS_S3_VIRTUAL_HOST_RE = re2.compile(r"(?P<bucket>.+)\.(?P<endpoint>s3(?:[.-][a-z0-9-]+)*\.amazonaws\.com(?:\.cn)?)")
+_AWS_REGION_RE = re2.compile(r"(?:^|[.-])(?P<region>[a-z]{2,4}(?:-[a-z0-9]+)+-\d)(?:\.|$)")
 _AZURE_BLOB_HOST_SUFFIX = ".blob.core.windows.net"
 _FORMAT_LABELS = {
     "CSV": "CSV",
@@ -77,9 +80,12 @@ def parse_duckdb_s3_source(url: str) -> DuckDBS3Source | None:
 
     endpoint = hostname if parsed.port is None else f"{hostname}:{parsed.port}"
     key = parsed.path.lstrip("/")
-    virtual_host_match = _AWS_S3_VIRTUAL_HOST_RE.fullmatch(hostname)
+    # Preserve even malformed Unicode bucket names: RE2 needs encodable text,
+    # but its match offsets can be used against the original hostname.
+    matching_hostname = hostname.encode("utf-8", errors="replace").decode("utf-8")
+    virtual_host_match = _AWS_S3_VIRTUAL_HOST_RE.fullmatch(matching_hostname)
     if virtual_host_match is not None:
-        bucket = virtual_host_match.group("bucket")
+        bucket = hostname[virtual_host_match.start(1) : virtual_host_match.end(1)]
         aws_endpoint = virtual_host_match.group("endpoint")
         endpoint = aws_endpoint if parsed.port is None else f"{aws_endpoint}:{parsed.port}"
         url_style: Literal["path", "vhost"] = "vhost"
@@ -90,7 +96,7 @@ def parse_duckdb_s3_source(url: str) -> DuckDBS3Source | None:
             return None
         bucket, key = location
         url_style = "path"
-        region = _region_for_aws_endpoint(hostname) if _AWS_S3_ENDPOINT_RE.fullmatch(hostname) else "us-east-1"
+        region = _region_for_aws_endpoint(hostname) if _AWS_S3_ENDPOINT_RE.fullmatch(matching_hostname) else "us-east-1"
 
     if not key:
         return None

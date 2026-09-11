@@ -6,8 +6,26 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.s3_table import DuckDBS3Source, S3Table, parse_duckdb_s3_source
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.test.regex_timeout import assert_regex_completes
+
 
 class TestParseDuckDBS3Source:
+    def test_preserves_unicode_bucket(self) -> None:
+        source = parse_duckdb_s3_source("https://bucket\ud800.s3.amazonaws.com/object")
+        assert source is not None
+        assert source.uri == "s3://bucket\ud800/object"
+
+    def test_non_aws_hostname_with_many_hyphens(self) -> None:
+        def check() -> None:
+            hostname = "s3" + "-" * 60 + ".example.com"
+            source = parse_duckdb_s3_source(f"https://{hostname}/bucket/object.parquet")
+            assert source is not None
+            assert source.endpoint == hostname
+            assert source.region == "us-east-1"
+            assert source.url_style == "path"
+
+        assert_regex_completes(check)
+
     @parameterized.expand(
         [
             (

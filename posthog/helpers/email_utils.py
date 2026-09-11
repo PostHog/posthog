@@ -7,10 +7,11 @@ import re
 import html
 import hashlib
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from enum import Enum
 from functools import partial
+from heapq import merge
 from typing import TYPE_CHECKING, Optional, cast, overload
 from urllib.parse import quote
 
@@ -37,6 +38,8 @@ _URL_SCHEME_RE = re.compile(
     r"|www\.",
     re.IGNORECASE,
 )
+_URL_SCHEME_RUN_RE = re.compile(r"[a-z][a-z0-9+.\-]*", re.IGNORECASE)
+_SPECIAL_URL_SCHEME_RE = re.compile(r"\b(?:javascript|data|vbscript|file|ftp|mailto|tel|sms):|www\.", re.IGNORECASE)
 _BARE_DOMAIN_RE = re.compile(
     r"\b(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}\b",
     re.IGNORECASE,
@@ -52,6 +55,23 @@ _BRACKET_ERROR = "Angle brackets are not allowed in this field."
 _INVISIBLE_ERROR = "Invisible or direction-override characters are not allowed in this field."
 
 
+def _url_scheme_matches(value: str) -> Iterator[re.Match[str]]:
+    # Scan each possible scheme run once instead of retrying every letter when
+    # :// is missing. Keep stdlib matching for its Unicode case/boundary rules.
+    def slash_schemes() -> Iterator[re.Match[str]]:
+        for run in _URL_SCHEME_RUN_RE.finditer(value):
+            if value.startswith("://", run.end()):
+                match = _URL_SCHEME_RE.match(value, run.start())
+                assert match is not None
+                yield match
+
+    end = 0
+    for match in merge(slash_schemes(), _SPECIAL_URL_SCHEME_RE.finditer(value), key=lambda match: match.start()):
+        if match.start() >= end:
+            yield match
+            end = match.end()
+
+
 def _check_shared(value: str) -> None:
     """
     Run the checks shared between display names and message bodies against an
@@ -63,7 +83,7 @@ def _check_shared(value: str) -> None:
         raise serializers.ValidationError(_INVISIBLE_ERROR, code="invalid_invisible_char")
     if _BRACKET_RE.search(normalized):
         raise serializers.ValidationError(_BRACKET_ERROR, code="invalid_bracket")
-    if _URL_SCHEME_RE.search(normalized):
+    if next(_url_scheme_matches(normalized), None) is not None:
         raise serializers.ValidationError(_URL_ERROR, code="invalid_url")
 
 
@@ -235,7 +255,14 @@ def sanitize_email_string(value: str) -> str:
     # No `.` or `:` means neither regex can match — skip the two passes.
     if "." not in escaped and ":" not in escaped:
         return escaped
-    defanged = _URL_SCHEME_RE.sub(_defang_match, escaped)
+    parts = []
+    end = 0
+    for match in _url_scheme_matches(escaped):
+        parts.append(escaped[end : match.start()])
+        parts.append(_defang_match(match))
+        end = match.end()
+    parts.append(escaped[end:])
+    defanged = "".join(parts)
     return _BARE_DOMAIN_RE.sub(_defang_match, defanged)
 
 

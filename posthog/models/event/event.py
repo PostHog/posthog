@@ -1,4 +1,3 @@
-import re
 import copy
 import datetime
 from collections import defaultdict
@@ -12,6 +11,47 @@ from dateutil.relativedelta import relativedelta
 from posthog.models.team import Team
 
 SELECTOR_ATTRIBUTE_REGEX = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
+
+
+def _selector_attribute(tag: str) -> tuple[str, str, str] | None:
+    # Preserve the legacy pattern's greedy captures and first matching line,
+    # including its acceptance of | as a quote, without retrying every opener.
+    for line in tag.split("\n"):
+        end = max(line.rfind(quote + "]") for quote in "'\"|")
+        if end < 0:
+            continue
+        separator = max(line.rfind("=" + quote, 0, end) for quote in "'\"|")
+        if separator < 0:
+            continue
+        opening = line.find("[", 0, separator)
+        if opening < 0:
+            continue
+        start = opening
+        while start > 0 and ("a" <= line[start - 1] <= "z" or "A" <= line[start - 1] <= "Z"):
+            start -= 1
+        return line[start:opening], line[opening + 1 : separator], line[separator + 2 : end]
+    return None
+
+
+def _split_selector_classes(tag: str) -> list[str]:
+    # A dot is excluded when a ] follows it before the next [. Scan once from
+    # the right to preserve that rule even for malformed/unbalanced brackets.
+    boundaries = []
+    closing_bracket = False
+    for index in range(len(tag) - 1, -1, -1):
+        if tag[index] == "]":
+            closing_bracket = True
+        elif tag[index] == "[":
+            closing_bracket = False
+        elif tag[index] == "." and not closing_bracket:
+            boundaries.append(index)
+    parts = []
+    start = 0
+    for index in reversed(boundaries):
+        parts.append(tag[start:index])
+        start = index + 1
+    parts.append(tag[start:])
+    return parts
 
 
 LAST_UPDATED_TEAM_ACTION: dict[int, datetime.datetime] = {}
@@ -30,29 +70,22 @@ class SelectorPart:
         self.data: dict[str, Union[str, list]] = {}
         self.ch_attributes: dict[str, Union[str, list]] = {}  # attributes for CH
 
-        result = re.search(SELECTOR_ATTRIBUTE_REGEX, tag)
+        result = _selector_attribute(tag)
         if result and "[id=" in tag:
-            self.data["attr_id"] = result[3]
-            self.ch_attributes["attr_id"] = result[3]
-            tag = result[1]
+            self.data["attr_id"] = result[2]
+            self.ch_attributes["attr_id"] = result[2]
+            tag = result[0]
         if result and "[" in tag:
-            self.data[f"attributes__attr__{result[2]}"] = result[3]
-            self.ch_attributes[result[2]] = result[3]
-            tag = result[1]
+            self.data[f"attributes__attr__{result[1]}"] = result[2]
+            self.ch_attributes[result[1]] = result[2]
+            tag = result[0]
         if ":nth-child(" in tag:
             parts = tag.split(":nth-child(")
             self.data["nth_child"] = parts[1].replace(")", "")
             self.ch_attributes["nth-child"] = self.data["nth_child"]
             tag = parts[0]
         if "." in tag:
-            # Regex pattern that matches dots that are NOT inside square brackets
-            # Uses negative lookahead to ensure the dot is not followed by content ending with ]
-            # without an opening [ in between
-            # Handles Tailwind arbitrary values with square brackets properly.
-            # Example: 'div.shadow-[0_4px_6px_rgba(0,0,0,0.1)].text-blue-500'
-            # Returns: ['div', 'shadow-[0_4px_6px_rgba(0,0,0,0.1)]', 'text-blue-500']
-            pattern = r"\.(?![^\[]*\])"
-            parts = re.split(pattern, tag)
+            parts = _split_selector_classes(tag)
             # Strip all slashes that are not followed by another slash
             self.data["attr_class__contains"] = [self._unescape_class(p) if escape_slashes else p for p in parts[1:]]
             tag = parts[0]

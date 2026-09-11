@@ -8,6 +8,8 @@ from dataclasses import dataclass, field, replace
 from typing import TypeVar
 from urllib.parse import quote
 
+import re2
+
 from products.logs.backend.vendor.drain3 import Drain, LogMasker, MaskingInstruction
 
 ERROR_SEVERITIES = {"error", "fatal"}
@@ -379,19 +381,24 @@ def compile_match_regex(
         truncated = any(example.truncated for example in examples)
     anchored = r"^\s*" + core + ("" if truncated else r"\s*$")
     try:
-        anchored_re = re.compile(anchored)
-        core_re = re.compile(core)
-    except re.error:
+        # Validate with the same non-backtracking engine as ClickHouse. Even a
+        # short mined template can contain many adjacent wildcard placeholders.
+        anchored_re = re2.compile(anchored)
+        core_re = re2.compile(core)
+    except (re2.error, UnicodeEncodeError):
         return None
-    if all(anchored_re.search(raw) for raw in raw_examples):
-        return anchored
-    # The unanchored form is only honest when every raw example is JSON, because the template is
-    # then a substring of each row by construction. A cluster mixing JSON and prose rows would
-    # otherwise get an unanchored predicate on the strength of one JSON row, and that predicate
-    # matches a prose line wherever the text appears, not just where the statement starts. When a
-    # mixed cluster cannot anchor, withholding is the correct outcome.
-    if mined_from_json and all(core_re.search(raw) for raw in raw_examples):
-        return core
+    try:
+        if all(anchored_re.search(raw) for raw in raw_examples):
+            return anchored
+        # The unanchored form is only honest when every raw example is JSON, because the template is
+        # then a substring of each row by construction. A cluster mixing JSON and prose rows would
+        # otherwise get an unanchored predicate on the strength of one JSON row, and that predicate
+        # matches a prose line wherever the text appears, not just where the statement starts. When a
+        # mixed cluster cannot anchor, withholding is the correct outcome.
+        if mined_from_json and all(core_re.search(raw) for raw in raw_examples):
+            return core
+    except UnicodeEncodeError:
+        return None
     return None
 
 

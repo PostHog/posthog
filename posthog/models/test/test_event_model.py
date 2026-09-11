@@ -1,7 +1,5 @@
 import re
 
-from posthog.test.base import BaseTest
-
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -12,7 +10,7 @@ from posthog.models.event import Selector
 from posthog.models.property.util import build_selector_regex
 
 
-class TestSelectors(BaseTest):
+class TestSelectors(SimpleTestCase):
     def test_selector_splitting(self):
         selector1 = Selector("div > span > a")
         selector2 = Selector("div span > a")

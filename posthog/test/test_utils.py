@@ -332,7 +332,7 @@ class TestGeneralUtils(TestCase):
             get_from_env("test_key", type_cast=float)
 
 
-class TestRelativeDateParse(TestCase):
+class TestRelativeDateParse(SimpleTestCase):
     @time_machine.travel("2020-01-31T12:22:23", tick=False)
     def test_hour(self):
         self.assertEqual(

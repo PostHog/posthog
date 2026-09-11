@@ -94,6 +94,9 @@ DATERANGE_MAP = {
 }
 ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
 UUID_REGEX = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+# Only attempt a number at the start of its digit run. Retrying every suffix
+# makes an unanchored search quadratic when a long number has no unit.
+_RELATIVE_DATE_RE = re.compile(r"\-?(?P<number>(?<![0-9])[0-9]+)?(?P<kind>[hdwmqysHDWMQY])(?P<position>Start|End)?")
 
 DEFAULT_DATE_FROM_DAYS = 7
 
@@ -232,8 +235,7 @@ def relative_date_parse_with_delta_mapping(
             parsed_dt = parsed_dt.astimezone(timezone_info)
         return parsed_dt, None, None
 
-    regex = r"\-?(?P<number>[0-9]+)?(?P<kind>[hdwmqysHDWMQY])(?P<position>Start|End)?"
-    match = re.search(regex, input)
+    match = _RELATIVE_DATE_RE.search(input)
     parsed_dt = (now or dt.datetime.now()).astimezone(timezone_info)
     delta_mapping: dict[str, int] = {}
     if not match:

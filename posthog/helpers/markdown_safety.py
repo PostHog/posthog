@@ -5,7 +5,11 @@ surface (e.g. Slack) that would auto-unfurl or linkify them; only PostHog hosts 
 """
 
 import re
+from collections.abc import Callable
+from typing import Any
 from urllib.parse import urlparse
+
+import re2
 
 from posthog.api.utils import hostname_in_allowed_url_list
 
@@ -20,11 +24,13 @@ _ALLOWED_LINK_URLS = ["https://posthog.com", "https://*.posthog.com"]
 _MARKDOWN_LINK_RE = re.compile(
     r"\[([^\[\]]*)\]\(((?:(?>[^()\s]+)|\([^)]*\))+)(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^)]*\)))?\s*\)"
 )
-_MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
+_MARKDOWN_IMAGE_RE = re2.compile(r"!\[([^\]]*)\]\([^)]*\)")
 # A malformed link the rule above can't span (e.g. `[x](url\nmore)`) leaves its URL after `](`, which
 # the bare-URL rule skips — defang it here as a safety net.
 _ORPHAN_DEST_RE = re.compile(r"\]\(((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)
-_AUTOLINK_RE = re.compile(r"<(https?://[^\s>]+)>", re.IGNORECASE)
+# Spell out Python's Unicode whitespace semantics for RE2.
+_PYTHON_WHITESPACE = r"\x09-\x0d\x1c-\x20\x85\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}"
+_AUTOLINK_RE = re2.compile(r"(?i)<(https?://[^" + _PYTHON_WHITESPACE + r">]+)>")
 _BARE_URL_RE = re.compile(r"(?<!\]\()(?<![<`@])((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)
 
 
@@ -50,9 +56,23 @@ def _neutralize_url(url: str, keep_as: str | None = None) -> str:
     return f"`{url}`"
 
 
+def _replace_simple_links(source: str, pattern: Any, replace: Callable[[str, str], str]) -> str:
+    # Unmatched openers must not rescan the suffix. Use RE2 offsets against the
+    # original text so even isolated surrogate code points survive unchanged.
+    matching_source = source.encode("utf-8", errors="replace").decode("utf-8")
+    parts = []
+    start = 0
+    for match in pattern.finditer(matching_source):
+        parts.append(source[start : match.start()])
+        parts.append(replace(source[match.start() : match.end()], source[match.start(1) : match.end(1)]))
+        start = match.end()
+    parts.append(source[start:])
+    return "".join(parts)
+
+
 def strip_external_links_markdown(markdown: str) -> str:
     """Drop images, keep only PostHog links, and defang every other URL to a code span."""
-    md = _MARKDOWN_IMAGE_RE.sub(lambda m: m.group(1) or "", markdown)
+    md = _replace_simple_links(markdown, _MARKDOWN_IMAGE_RE, lambda _whole, label: label)
     md = _MARKDOWN_LINK_RE.sub(
         lambda m: m.group(0) if _is_allowed_link_url(m.group(2)) else m.group(1),
         md,
@@ -60,6 +80,6 @@ def strip_external_links_markdown(markdown: str) -> str:
     # Backtick-wrap a non-PostHog orphan destination so the bare-URL rule's lookbehind keeps it inert.
     # Wrap only the URL, not the `](`/`)` — the source's own `)` balances it (appending one would dangle).
     md = _ORPHAN_DEST_RE.sub(lambda m: m.group(0) if _is_allowed_link_url(m.group(1)) else f"](`{m.group(1)}`", md)
-    md = _AUTOLINK_RE.sub(lambda m: _neutralize_url(m.group(1), keep_as=m.group(0)), md)
+    md = _replace_simple_links(md, _AUTOLINK_RE, lambda whole, url: _neutralize_url(url, keep_as=whole))
     md = _BARE_URL_RE.sub(lambda m: _neutralize_url(m.group(1)), md)
     return md

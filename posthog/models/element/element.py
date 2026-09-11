@@ -1,8 +1,9 @@
-import re
 from collections.abc import Callable
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+
+import re2
 
 
 class Element(models.Model):
@@ -20,14 +21,21 @@ class Element(models.Model):
     group = models.ForeignKey("ElementGroup", on_delete=models.CASCADE, null=True, blank=True)
 
 
-parse_attributes_regex = re.compile(r"(?P<attribute>(?P<key>.*?)\=\"(?P<value>.*?[^\\])\")", re.MULTILINE)
+parse_attributes_regex = re2.compile(r'(?P<attribute>(?P<key>.*?)="(?P<value>.*?[^\\])")')
 
 # Below splits all elements by ;, while ignoring escaped quotes and semicolons within quotes
-split_chain_regex = re.compile(r'(?:[^\s;"]|"(?:\\.|[^"])*")+')
+# RE2's \s is ASCII-only; element chains use Python's Unicode whitespace rules.
+_PYTHON_WHITESPACE = r"\x09-\x0d\x1c-\x20\x85\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}"
+split_chain_regex = re2.compile(r"(?:[^" + _PYTHON_WHITESPACE + r';"]|"(?:\\.|[^"])*")+')
 
 # Below splits the tag/classes from attributes
 # Needs a regex because classes can have : too
-split_class_attributes = re.compile(r"(.*?)($|:([a-zA-Z\-\_0-9]*=.*))")
+split_class_attributes = re2.compile(r"(.*?)($|:([a-zA-Z\-_0-9]*=.*))")
+
+
+def _regex_input(source: str) -> str:
+    # RE2 rejects lone surrogates. Match an equivalent character, then slice the original text.
+    return source.encode("utf-8", errors="replace").decode("utf-8")
 
 
 def _escape(input: str) -> str:
@@ -63,20 +71,27 @@ def chain_to_elements(chain: str) -> list[Element]:
     Converts an elements chain string into a list of Element objects.
     """
     elements = []
-    for idx, el_string in enumerate(re.findall(split_chain_regex, chain)):
-        el_string_split = re.findall(split_class_attributes, el_string)[0]
-        attributes = re.finditer(parse_attributes_regex, el_string_split[2]) if len(el_string_split) > 2 else []
+    for idx, chain_match in enumerate(split_chain_regex.finditer(_regex_input(chain))):
+        el_string = chain[chain_match.start() : chain_match.end()]
+        el_string_match = split_class_attributes.search(_regex_input(el_string))
+        assert el_string_match is not None
+        tag_part = el_string[el_string_match.start(1) : el_string_match.end(1)]
+        attrs_part = el_string[el_string_match.start(3) : el_string_match.end(3)]
+        attributes = parse_attributes_regex.finditer(_regex_input(attrs_part))
 
         element = Element(order=idx)
 
-        if el_string_split[0]:
-            tag_and_class = el_string_split[0].split(".", 1)
+        if tag_part:
+            tag_and_class = tag_part.split(".", 1)
             element.tag_name = tag_and_class[0]
             if len(tag_and_class) > 1:
                 element.attr_class = [cl for cl in tag_and_class[1].split(".") if cl != ""]
 
         for ii in attributes:
-            item = ii.groupdict()
+            item = {
+                name: attrs_part[ii.start(group) : ii.end(group)]
+                for name, group in parse_attributes_regex.groupindex.items()
+            }
             if item["key"] == "href":
                 element.href = item["value"]
             elif item["key"] == "nth-child":
@@ -155,10 +170,11 @@ def chain_to_element_dicts(chain: str, attributes_filter: Callable[[str], bool] 
     map to matching keys (see build_attributes_filter).
     """
     element_dicts: list[dict] = []
-    for idx, el_string in enumerate(split_chain_regex.findall(chain)):
-        el_string_match = split_class_attributes.search(el_string)
-        tag_part = el_string_match.group(1) if el_string_match else ""
-        attrs_part = el_string_match.group(3) if el_string_match else None
+    for idx, chain_match in enumerate(split_chain_regex.finditer(_regex_input(chain))):
+        el_string = chain[chain_match.start() : chain_match.end()]
+        el_string_match = split_class_attributes.search(_regex_input(el_string))
+        tag_part = el_string[el_string_match.start(1) : el_string_match.end(1)] if el_string_match else ""
+        attrs_part = el_string[el_string_match.start(3) : el_string_match.end(3)] if el_string_match else None
 
         element: dict = {
             "text": None,
@@ -179,9 +195,11 @@ def chain_to_element_dicts(chain: str, attributes_filter: Callable[[str], bool] 
                 element["attr_class"] = [cl for cl in tag_and_class[1].split(".") if cl != ""]
 
         if attrs_part:
-            for attribute_match in parse_attributes_regex.finditer(attrs_part):
-                key = attribute_match.group("key")
-                value = attribute_match.group("value")
+            for attribute_match in parse_attributes_regex.finditer(_regex_input(attrs_part)):
+                key_group = parse_attributes_regex.groupindex["key"]
+                value_group = parse_attributes_regex.groupindex["value"]
+                key = attrs_part[attribute_match.start(key_group) : attribute_match.end(key_group)]
+                value = attrs_part[attribute_match.start(value_group) : attribute_match.end(value_group)]
                 if key == "href":
                     element["href"] = value
                 elif key == "nth-child":

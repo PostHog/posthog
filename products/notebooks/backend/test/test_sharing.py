@@ -1,4 +1,6 @@
+import re
 import json
+import random
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -8,15 +10,57 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import SharingConfiguration
+from posthog.test.regex_timeout import assert_regex_completes
 
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.util import (
+    _extract_markdown_component_prop_source,
+    _parse_markdown_component_props,
     extract_inline_query_nodes,
     extract_referenced_insight_short_ids,
     filter_notebook_content_for_sharing,
     iter_prosemirror_nodes,
 )
 from products.product_analytics.backend.facade.models import Insight
+
+
+class TestMarkdownComponentParsingBoundaries(TestCase):
+    def test_component_terminators_match_python_regex_grammar(self) -> None:
+        legacy = re.compile(r"^<([A-Z][A-Za-z0-9]*)([\s\S]*?)(?:/>|>[\s\S]*</\1>)$")
+        rng = random.Random(42)
+        corpus = [
+            "<Query" + "".join(rng.choices('abAB09= "\\\n\r\t\u2003/>', k=rng.randrange(60))) + ending
+            for ending in ("", "/>", "</Query>", "/>\n", "</Query>\n")
+            for _ in range(200)
+        ]
+        corpus.extend(
+            [
+                "<QueryExtra title=x></Query>",
+                "<Query></Q>",
+                "<Query>text</Query></Query>",
+                '<Query title="unfinished />',
+                "<Query>text</Query>\n\n",
+            ]
+        )
+        for raw in corpus:
+            match = legacy.match(raw)
+            self.assertEqual(_extract_markdown_component_prop_source(raw), match.group(2) if match else None, repr(raw))
+
+    @parameterized.expand(
+        [
+            ("missing_terminator", "<Query " + ">" * 100_000 + "!", {}),
+            (
+                "many_props",
+                "<Query " + " ".join(f"prop{i}=value" for i in range(10_000)) + " />",
+                {f"prop{i}": "value" for i in range(10_000)},
+            ),
+        ]
+    )
+    def test_large_component_finishes(self, _name: str, raw: str, expected: dict[str, Any]) -> None:
+        def parse() -> None:
+            self.assertEqual(_parse_markdown_component_props(raw), expected)
+
+        assert_regex_completes(parse)
 
 
 def _saved_insight_query_node(short_id: str) -> dict[str, Any]:
