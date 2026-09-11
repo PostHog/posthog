@@ -302,6 +302,24 @@ describe('runInteractionLogic', () => {
         expect(logic.values.queuedMessages).toEqual([])
     })
 
+    it('drains a follow-up queued after a Stop that had nothing staged', async () => {
+        setThinking(true)
+        logic.actions.requestCancellation()
+        runCancellationLogic({ streamKey: RUN_ID }).actions.clearCancellation()
+        setThinking(false)
+        await expectLogic(logic, () => stream.actions.markTurnComplete()).toFinishAllListeners()
+
+        setThinking(true)
+        logic.actions.setComposerFormValues({ draft: 'follow-up after the stop' })
+        logic.actions.submitComposerForm()
+        expect(logic.values.queuedMessages[0].content).toBe('follow-up after the stop')
+
+        setThinking(false)
+        await expectLogic(logic, () => stream.actions.markTurnComplete()).toFinishAllListeners()
+        expect(logic.values.queuedMessages).toEqual([])
+        expect(tasksRunsCommandCreate).toHaveBeenCalledWith(...userMessageCommand('follow-up after the stop'))
+    })
+
     it('adopts the startup draft once and clears it after sending', async () => {
         const onDraftAdopted = jest.fn()
         const attached = runInteractionLogic({

@@ -293,6 +293,7 @@ export interface runInteractionLogicActions {
     }
     enqueueMessage: (content: string) => {
         content: string
+        wasEmpty: boolean
     }
     flushQueue: (steer?: boolean) => {
         steer: boolean
@@ -589,7 +590,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         // the staged buffer combined into this send).
         sendNow: (content: string, source: 'draft' | 'queue', steer: boolean = false) => ({ content, source, steer }),
         // Stage a follow-up, concatenating onto any message already queued so the buffer stays a single message.
-        enqueueMessage: (content: string) => ({ content }),
+        enqueueMessage: (content: string) => ({ content, wasEmpty: values.queuedMessages.length === 0 }),
         // Re-stage unsent content ahead of anything queued since — used to restore a failed queue flush.
         prependQueuedMessage: (content: string) => ({ content }),
         updateQueuedMessage: (id: string, content: string) => ({ id, content }),
@@ -624,6 +625,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 queueDeliveryFailed: () => true,
                 requestCancellation: () => true,
                 handleTerminalStatus: (state, { status }) => isTerminalRunStatus(status) || state,
+                // A Stop or a terminal run with nothing staged latches the hold against a message that does
+                // not exist. Whatever is staged next into an empty buffer is a fresh follow-up, not the held
+                // one, so it drains on turn end instead of waiting for a Steer click.
+                enqueueMessage: (state, { wasEmpty }) => (wasEmpty ? false : state),
                 clearQueue: () => false,
             },
         ],
