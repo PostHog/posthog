@@ -2933,14 +2933,16 @@ EVENTS_RETENTION_READ_ONLY_MESSAGES = {
         "This field is read-only. The retention window follows your organization's plan data retention "
         "entitlement and is re-synced automatically, so it cannot be set through the API or in the UI, and "
         "PostHog support cannot set it for you. A shorter window is available on the enterprise plan by request. "
-        "This field limits query access only. It never deletes events. To erase data, use the persons bulk "
-        "delete API. Self-serve retention limits are tracked in https://github.com/PostHog/posthog/issues/17031."
+        "This field limits query access only. It never deletes events. To erase events, use the persons bulk "
+        "delete API with delete_events set to true. Self-serve retention limits are tracked in "
+        "https://github.com/PostHog/posthog/issues/17031."
     ),
     "events_retention_enforced": (
         "This field is read-only. It reports whether retention enforcement is currently active for this project. "
         "It cannot be switched on or off through the API, in the UI, or by PostHog support. Enforcement limits "
-        "query access only. It never deletes events. To erase data, use the persons bulk delete API. Self-serve "
-        "retention limits are tracked in https://github.com/PostHog/posthog/issues/17031."
+        "query access only. It never deletes events. To erase events, use the persons bulk delete API with "
+        "delete_events set to true. Self-serve retention limits are tracked in "
+        "https://github.com/PostHog/posthog/issues/17031."
     ),
 }
 
