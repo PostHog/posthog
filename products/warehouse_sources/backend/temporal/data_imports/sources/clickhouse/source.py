@@ -111,6 +111,13 @@ ClickHouseErrors: dict[str, str] = {
     # host/port (wrong port, a proxy, or a native-protocol port). Same wording
     # as the sync-time non-retryable handling.
     "returned response code 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+    # clickhouse-connect's `_error_handler` only produces this wording ("returned response
+    # code" rather than "received ClickHouse error code") when the response carries no
+    # `X-ClickHouse-Exception-Code` header — a genuine ClickHouse query error always sets
+    # that header, so a bare 400 means something in front of ClickHouse (a proxy, WAF, or
+    # tunnel) rejected the request before it reached the server. Same cause as 404, different
+    # status code some proxies use instead.
+    "returned response code 400": "We reached your ClickHouse host but it returned a 400, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
     # `_get_client` raises this when the host answers 2xx with a body that isn't a
     # ClickHouse response (a proxy/LB page, or a different service on the host/port).
     "did not return a valid clickhouse response": NOT_A_CLICKHOUSE_HTTP_RESPONSE,
@@ -283,6 +290,12 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # answers queries with 404, so retrying can't recover. We match only
             # 404, not transient gateway codes (502/503/504), which stay retryable.
             "returned response code 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+            # Same cause as the 404 above: clickhouse-connect only wraps a response as "returned
+            # response code N" (rather than "received ClickHouse error code N") when it carries no
+            # `X-ClickHouse-Exception-Code` header, which a genuine ClickHouse query error always
+            # sets. A bare 400 means a proxy, WAF, or tunnel in front of ClickHouse rejected the
+            # request before it reached the server, so retrying replays the identical failure.
+            "returned response code 400": "We reached your ClickHouse host but it returned a 400, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
             # `_get_client` wraps the driver's construction-time probe failure ("too many
             # values to unpack") into this message when the host answers 2xx with a body that
             # isn't a ClickHouse response. The endpoint isn't serving the ClickHouse HTTP
