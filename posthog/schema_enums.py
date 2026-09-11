@@ -2668,6 +2668,8 @@ class ExternalDataSourceType(StrEnum):
     GOOGLE_AD_SENSE = "GoogleAdSense"
     SEQUENZY = "Sequenzy"
     SKIO = "Skio"
+    SMARTLEAD = "Smartlead"
+    SUBSTACK = "Substack"
 
 
 class ExternalQueryErrorCode(StrEnum):

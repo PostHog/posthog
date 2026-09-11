@@ -10240,7 +10240,6 @@ class AssistantStickinessQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
     compareFilter: CompareFilter | None = Field(
         default=None,
         description=("Compare to date range. When enabled, shows the current and previous period side by side."),
@@ -10262,7 +10261,7 @@ class AssistantStickinessQuery(BaseModel):
             " performed the event on exactly that many days."
         ),
     )
-    intervalCount: int | None = Field(
+    intervalCount: conint(ge=1) | None = Field(
         default=None,
         description=(
             "How many base intervals comprise one stickiness period. Defaults to 1. For"
@@ -12360,6 +12359,10 @@ class CachedMCPModelBreakdownQueryResponse(BaseModel):
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
+    )
+    hasMore: bool | None = Field(
+        default=None,
+        description=("Whether another page of individual model identifiers is available."),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
@@ -18186,6 +18189,10 @@ class MCPModelBreakdownQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    hasMore: bool | None = Field(
+        default=None,
+        description=("Whether another page of individual model identifiers is available."),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_scan: QueryScanSummary | None = None
@@ -23626,6 +23633,10 @@ class QueryResponseAlternative97(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    hasMore: bool | None = Field(
+        default=None,
+        description=("Whether another page of individual model identifiers is available."),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_scan: QueryScanSummary | None = None
@@ -25236,6 +25247,10 @@ class AccountsQuery(BaseModel):
     allRolesUnassigned: bool | None = Field(
         default=None,
         description="Match accounts with no active relationship of any definition.",
+    )
+    assignedOnly: bool | None = Field(
+        default=None,
+        description=("Match accounts with at least one active relationship of any definition."),
     )
     assignedToUserIds: list[int] | None = Field(
         default=None,
@@ -27190,8 +27205,17 @@ class MCPModelBreakdownQuery(BaseModel):
     )
     dateRange: DateRange | None = None
     filterTestAccounts: bool | None = None
+    includeAllModels: bool | None = Field(
+        default=None,
+        description=("Return individual reported models, excluding Unknown, instead of the top-six grouping."),
+    )
     kind: Literal["MCPModelBreakdownQuery"] = "MCPModelBreakdownQuery"
+    limit: int | None = Field(default=None, description="Page size when includeAllModels is enabled.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = Field(
+        default=None,
+        description=("Number of individual models to skip when includeAllModels is enabled."),
+    )
     properties: list[AnyPropertyFilterDiscriminated] | None = None
     response: MCPModelBreakdownQueryResponse | None = None
     tags: QueryLogTags | None = None

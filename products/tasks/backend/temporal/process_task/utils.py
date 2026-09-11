@@ -59,6 +59,9 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
     from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
+    from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
+        TaskProcessingContext,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -598,7 +601,9 @@ def get_user_mcp_server_configs(
         allowed_gateway_server_ids=allowed_gateway_server_ids,
     )
     api_base = get_sandbox_api_url().rstrip("/")
-    consumer = _resolve_mcp_consumer(interaction_origin, slack_reply_context=slack_reply_context)
+    consumer = _resolve_mcp_consumer(
+        interaction_origin, slack_reply_context=slack_reply_context, origin_product=origin_product
+    )
 
     configs: list[McpServerConfig] = []
     for installation in installations:
@@ -714,12 +719,16 @@ def get_imported_mcp_server_configs(task_run: TaskRun, existing_names: Iterable[
     return build_imported_mcp_server_configs(task_run.imported_mcp_servers, existing_names)
 
 
-def _resolve_mcp_consumer(interaction_origin: str | None, *, slack_reply_context: bool = False) -> str:
+def _resolve_mcp_consumer(
+    interaction_origin: str | None, *, slack_reply_context: bool = False, origin_product: str | None = None
+) -> str:
     """Map the task's reply context to the `x-posthog-mcp-consumer` value.
 
     Slack reply contexts send `"slack"`, posthog_ai (Max) runs send `"posthog_ai"`,
     and eval harness runs send `"eval"`; everything else (the PostHog Desktop UI,
-    API callers, missing origin) is treated as PostHog Desktop. Only `"posthog-code"` is a UI-apps host
+    API callers, missing origin) is treated as PostHog Desktop. Browser-created
+    PostHog AI runs can lack an interaction origin, so their task origin selects
+    the consumer that retains native widget data. Only `"posthog-code"` is a UI-apps host
     on the MCP server — it gates UI-apps payload emission, so `"posthog_ai"` and
     `"slack"` deliberately don't get UI apps. Keep the `"posthog-code"` literal
     in sync with `POSTHOG_CODE_CONSUMER` in
@@ -727,21 +736,21 @@ def _resolve_mcp_consumer(interaction_origin: str | None, *, slack_reply_context
     """
     if slack_reply_context or interaction_origin == "slack":
         return "slack"
-    if interaction_origin == "posthog_ai":
+    if interaction_origin == "posthog_ai" or (not interaction_origin and origin_product == "posthog_ai"):
         return "posthog_ai"
     if interaction_origin == EVAL_INTERACTION_ORIGIN:
         return EVAL_INTERACTION_ORIGIN
     return "posthog-code"
 
 
-def mcp_exec_skills_env_vars(ctx) -> dict[str, str]:
+def mcp_exec_skills_env_vars(ctx: TaskProcessingContext) -> dict[str, str]:
     """Env that launches the sandbox without bundled product skills when this run gets them
     through the MCP `learn` command instead.
 
     Desktop runs keep their bundled skills: the MCP server excludes the `posthog-code`
     consumer from `learn`, so stripping them there would leave the agent with no skills.
     """
-    if _resolve_mcp_consumer(ctx.interaction_origin) == "posthog-code":
+    if _resolve_mcp_consumer(ctx.interaction_origin, origin_product=ctx.origin_product) == "posthog-code":
         return {}
     if not is_mcp_exec_skills_enabled(ctx.organization_id, ctx.distinct_id):
         return {}
@@ -794,7 +803,9 @@ def get_sandbox_ph_mcp_configs(
         {"name": "x-posthog-read-only", "value": str(read_only).lower()},
         {
             "name": "x-posthog-mcp-consumer",
-            "value": _resolve_mcp_consumer(interaction_origin, slack_reply_context=slack_reply_context),
+            "value": _resolve_mcp_consumer(
+                interaction_origin, slack_reply_context=slack_reply_context, origin_product=origin_product
+            ),
         },
     ]
     if task_id:

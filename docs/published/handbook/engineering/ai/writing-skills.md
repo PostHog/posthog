@@ -39,6 +39,25 @@ hogli unsync:skill -- --name <skill-name>
 # 7. Merge to master – CI builds and distributes automatically
 ```
 
+## Where the skill lives
+
+Choose the location by the work the skill requires:
+
+- `products/<product>/skills/` contains skills that users can run through PostHog tools, APIs, or their own code. The build publishes these skills.
+- `.agents/skills/` contains skills that require a checkout of the PostHog repository to develop, test, or debug PostHog itself. These skills stay in the repository.
+
+Staff-only access does not determine placement.
+For example, `checking-deploy-timing` works through MCP without a checkout, so it stays in the published catalog.
+A skill that changes a customer's application also stays published; it does not require PostHog source code.
+
+If a skill mixes customer diagnosis with PostHog development, keep the diagnosis published and move the development guidance into an existing internal skill or reference.
+For example, `debugging-surveys` covers configuration and responses, while the internal `survey-sdk-audit` skill covers changes across the backend and SDKs.
+Published skills must not require internal skill files to complete their main workflow.
+
+`hogli init:skill` scaffolds published product skills.
+For internal guidance, extend an existing `.agents/skills/` entry where possible.
+Both locations use `SKILL.md` with `name` and `description` frontmatter, and `hogli lint:skills` checks both.
+
 ## Skills vs tools
 
 **Tools** are atomic capabilities – CRUD operations and simple actions exposed via the MCP server.
@@ -94,7 +113,7 @@ and helps agents resolve tool names unambiguously.
 
 ## Skill structure
 
-Skills live in `products/*/skills/` and come in two forms.
+Published skills live in `products/*/skills/` and come in two forms.
 If your product hasn't moved to the `products/` folder yet,
 create a product folder and add skills there –
 skills are designed to work from within the products folder structure.

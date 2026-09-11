@@ -265,7 +265,7 @@ export function InsightMeta({
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
     // Hoist the hooks out of the More overlay so kea logics they mount don't do so lazily inside a
     // portal, which cascades into closing the dropdown before the user can interact with it.
-    const { items: displayOptionItems } = useInsightDisplayOptions()
+    const { tabs: displayOptionTabs } = useInsightDisplayOptions()
     const dashboardVisualizationPersistence: DashboardVisualizationPersistence | undefined = persistDisplayOptions
         ? {
               saving: savingSqlVisualization,
@@ -283,7 +283,6 @@ export function InsightMeta({
         persistence: dashboardVisualizationPersistence,
         savingDisplayOptions,
     })
-    const displayMenuItems = [...visualizationItems, ...displayOptionItems]
 
     const hasTileStyleActions = !!(showCompactTile && toggleShowDescription && insight.description) || !!updateColor
     const canShowCopyToDashboardTile = showCompactTile && !!copyToDashboard && canViewInsight
@@ -563,7 +562,12 @@ export function InsightMeta({
                                 Alerts
                             </LemonButton>
                         ) : null}
-                        {showDisplayOptionsMenu && <DashboardInsightDisplayOptions items={displayMenuItems} />}
+                        {showDisplayOptionsMenu && (
+                            <DashboardInsightDisplayOptions
+                                visualizationItems={visualizationItems}
+                                tabs={displayOptionTabs}
+                            />
+                        )}
 
                         {canShowCopyToDashboardTile && !canEditDashboard && (
                             <>
@@ -870,7 +874,7 @@ export function InsightMetaContent({
     return (
         <>
             {titleEl}
-            {(!compact || showDescription) && !!description && (
+            {showDescription !== false && !!description && (
                 <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
                     {description}
                 </LemonMarkdown>

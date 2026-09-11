@@ -1050,6 +1050,7 @@ class TestBuildBillingToken(BaseTest):
         assert decoded["organization_name"] == self.organization.name
         assert decoded["aud"] == "posthog:license-key"
         assert "distinct_id" not in decoded
+        assert "email" not in decoded
         assert "organization_role" not in decoded
         assert "original_role" not in decoded
         # Only service-to-service tokens carry service_action; billing uses its absence
@@ -1063,6 +1064,7 @@ class TestBuildBillingToken(BaseTest):
 
         assert decoded["service_action"] == "signals_pr_dispute"
         assert "distinct_id" not in decoded
+        assert "email" not in decoded
         assert "organization_role" not in decoded
 
     def test_build_billing_token_with_user_who_is_member(self):
@@ -1074,6 +1076,7 @@ class TestBuildBillingToken(BaseTest):
         assert decoded["id"] == "license_id"
         assert decoded["organization_id"] == str(self.organization.id)
         assert decoded["distinct_id"] == str(self.user.distinct_id)
+        assert decoded["email"] == self.user.email
         # organization_role should be a level display string (e.g., "member", "administrator", "owner")
         assert decoded["organization_role"] in ["member", "administrator", "owner"]
         assert "original_role" not in decoded
