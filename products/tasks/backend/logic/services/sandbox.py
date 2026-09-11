@@ -286,6 +286,7 @@ def build_agent_runtime_env_prefix(
     provider: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    service_tier: str | None = None,
     context_window: str | None = None,
     fast_mode: bool | None = None,
     initial_permission_mode: str | None = None,
@@ -306,6 +307,9 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_CODE_PROVIDER": provider,
         "POSTHOG_CODE_MODEL": model,
         "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
+        # OpenAI service tier for codex runs ("default" | "priority" | "flex"); ignored by the
+        # claude adapter. Codex itself drops a tier the model catalogue doesn't advertise.
+        "POSTHOG_CODE_SERVICE_TIER": service_tier,
         "POSTHOG_CODE_CONTEXT_WINDOW": context_window,
         # Explicit false pins fast mode off even if a stale env value survives in a resumed sandbox.
         "POSTHOG_CODE_FAST_MODE": None if fast_mode is None else ("true" if fast_mode else "false"),
@@ -498,9 +502,9 @@ class SandboxBase(ABC):
         )
         return result.exit_code == 0
 
-    def agent_server_supports_prewarmed_resume_idle(self) -> bool:
+    def agent_server_supports_prewarmed_resume_message_driven(self) -> bool:
         result = self.execute(
-            "grep -q prewarmedResumeIdle /scripts/node_modules/.bin/agent-server",
+            "grep -q prewarmedResumeMessageDriven /scripts/node_modules/.bin/agent-server",
             timeout_seconds=10,
         )
         return result.exit_code == 0
@@ -584,6 +588,7 @@ class SandboxBase(ABC):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        service_tier: str | None = None,
         context_window: str | None = None,
         fast_mode: bool | None = None,
         initial_permission_mode: str | None = None,
@@ -799,6 +804,9 @@ def wait_for_health_check(
     return False
 
 
+HEALTH_CURL_MAX_TIME_SECONDS = 2
+
+
 def build_health_check_command(
     port: int, max_attempts: int = 60, poll_interval: float = 0.5, pid_file: str | None = None
 ) -> str:
@@ -807,10 +815,14 @@ def build_health_check_command(
         if pid_file is not None
         else ""
     )
+    # The attempt count assumes an instant poll. A poll that waits on curl or python startup
+    # would otherwise outrun the exec timeout, and the caller never sees the loop's result.
+    budget_seconds = health_check_budget_seconds(max_attempts, poll_interval)
     return (
-        f"for i in $(seq 1 {max_attempts}); do "
+        "SECONDS=0; i=0; while :; do "
+        "  i=$((i + 1)); "
         f"{process_check}"
-        f"  body=$(curl -s --max-time 2 http://localhost:{port}/health); "
+        f"  body=$(curl -s --max-time {HEALTH_CURL_MAX_TIME_SECONDS} http://localhost:{port}/health); "
         "  status=$?; "
         '  if [ "$status" = "0" ]; then '
         '    case "$body" in *claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; esac; '
@@ -820,14 +832,18 @@ def build_health_check_command(
         'sys.exit(0 if payload.get("status") == "ok" and payload.get("hasSession") is True else 1)'
         f'\' "$body" && echo "ok:$i" && exit 0; '
         "  fi; "
+        f'  if [ "$i" -ge {max_attempts} ] || [ "$SECONDS" -ge {budget_seconds} ]; then exit 1; fi; '
         f"  sleep {poll_interval}; "
-        f"done; "
-        f"exit 1"
+        "done"
     )
 
 
+def health_check_budget_seconds(max_attempts: int = 60, poll_interval: float = 0.5) -> int:
+    return int(max_attempts * poll_interval)
+
+
 def health_check_timeout_seconds(max_attempts: int = 60, poll_interval: float = 0.5) -> int:
-    return max(30, int(max_attempts * poll_interval) + 5)
+    return max(30, health_check_budget_seconds(max_attempts, poll_interval) + HEALTH_CURL_MAX_TIME_SECONDS + 5)
 
 
 SandboxClass = type[SandboxBase]

@@ -11,6 +11,7 @@ export default defineConfig({
     "src/domain-types.ts",
     "src/hoggies.ts",
     "src/mcp-sandbox-proxy.ts",
+    "src/model-catalog.ts",
     "src/posthog-property-headers.ts",
     "src/product-engineer-prompt.ts",
     "src/quick-ask-shortcuts.ts",

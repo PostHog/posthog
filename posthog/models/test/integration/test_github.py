@@ -1,11 +1,13 @@
 """Tests for the GitHub App integration."""
 
 import time
+import base64
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
 
@@ -36,6 +38,7 @@ from posthog.models.integration import (
     Integration,
     invalidate_github_repository_caches_for_installation,
 )
+from posthog.models.integration.github import _MAX_FILE_CONTENTS_BYTES
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
 
@@ -601,6 +604,57 @@ class TestGitHubIntegrationModel(BaseTest):
         assert result["diff"].startswith("x" * 100)
         assert "truncated" in result["diff"]
 
+    @parameterized.expand([("inline", False), ("over_contents_api_limit", True)])
+    def test_get_file_contents_returns_whole_file(self, _name: str, over_contents_api_limit: bool) -> None:
+        github = GitHubIntegration(self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"}))
+        text = b"version: 1\nsnapshots: {}\n"
+        contents = {
+            "sha": "abc123",
+            "size": len(text),
+            "encoding": "base64",
+            "content": base64.b64encode(text).decode(),
+        }
+        responses: dict[str, MagicMock] = {}
+        if over_contents_api_limit:
+            contents = {**contents, "encoding": "none", "content": ""}
+            responses["/repos/PostHog/posthog/git/blobs/abc123"] = MagicMock(
+                status_code=200, iter_content=MagicMock(return_value=[text[:8], text[8:]])
+            )
+        responses["/repos/PostHog/posthog/contents/snapshots.yml"] = MagicMock(
+            status_code=200, json=MagicMock(return_value=contents)
+        )
+
+        with patch.object(github, "api_request", side_effect=lambda method, path, **kwargs: responses[path]):
+            result = github.get_file_contents("PostHog/posthog", "snapshots.yml")
+        assert result == {"content": text.decode(), "sha": "abc123"}
+
+    @parameterized.expand(
+        [
+            ("over_size_limit", {"size": _MAX_FILE_CONTENTS_BYTES + 1, "encoding": "none", "content": ""}),
+            (
+                "inline_shorter_than_size",
+                {"size": 100, "encoding": "base64", "content": base64.b64encode(b"version: 1\n").decode()},
+            ),
+            ("blob_longer_than_size", {"size": 4, "encoding": "none", "content": ""}),
+        ]
+    )
+    def test_get_file_contents_rejects_file_it_cannot_return_whole(self, _name: str, contents: dict[str, Any]) -> None:
+        github = GitHubIntegration(self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"}))
+
+        def blob_chunks(chunk_size: int) -> Iterator[bytes]:
+            yield b"version: 1\n"
+            raise AssertionError("read past the declared size")
+
+        responses = {
+            "/repos/PostHog/posthog/contents/snapshots.yml": MagicMock(
+                status_code=200, json=MagicMock(return_value={"sha": "abc123", **contents})
+            ),
+            "/repos/PostHog/posthog/git/blobs/abc123": MagicMock(status_code=200, iter_content=blob_chunks),
+        }
+        with patch.object(github, "api_request", side_effect=lambda method, path, **kwargs: responses[path]):
+            with pytest.raises(GitHubIntegrationError):
+                github.get_file_contents("PostHog/posthog", "snapshots.yml")
+
     @parameterized.expand(
         [
             ("repo_traversal", {"repository": "../../other/repo"}),
@@ -948,7 +1002,7 @@ class TestGitHubIntegrationModel(BaseTest):
     def test_github_integration_refresh_token(self, mock_client_request):
         mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
 
-        with freeze_time("2024-01-01T12:00:00Z"):
+        with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
             integration = GitHubIntegration.integration_from_installation_id(
                 "INSTALLATION_ID",
                 self.team.id,
@@ -957,7 +1011,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
             assert GitHubIntegration(integration).access_token_expired() is False
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             assert GitHubIntegration(integration).access_token_expired() is True
 
             GitHubIntegration(integration).refresh_access_token()
@@ -1074,12 +1128,12 @@ class TestGitHubIntegrationModel(BaseTest):
             {"access_token": "ACCESS_TOKEN"},
         )
 
-        with freeze_time("2024-01-01T12:00:00Z"):
+        with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
             assert GitHubIntegration(integration).ensure_account_name() is False
             assert GitHubIntegration(integration).ensure_account_name() is False
         assert mock_client_request.call_count == 1
 
-        with freeze_time("2024-01-01T12:06:00Z"):
+        with time_machine.travel("2024-01-01T12:06:00Z", tick=False):
             GitHubIntegration(integration).ensure_account_name()
         assert mock_client_request.call_count == 2
         integration.refresh_from_db()
@@ -1146,7 +1200,7 @@ class TestGitHubIntegrationModel(BaseTest):
         integration = self.create_integration({"expires_at": 3600}, {"token": "REFRESH"})
         mock_client_request.side_effect = self.mock_github_client_request(status_code=400, error_text="error")
 
-        with freeze_time("2024-01-01T12:00:00Z"):
+        with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
             integration.errors = ""
             integration.save()
 
@@ -1163,7 +1217,7 @@ class TestGitHubIntegrationModel(BaseTest):
         """Test that errors field is reset to empty string after successful refresh_access_token"""
         mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
 
-        with freeze_time("2024-01-01T12:00:00Z"):
+        with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
             integration = GitHubIntegration.integration_from_installation_id(
                 "INSTALLATION_ID",
                 self.team.id,
@@ -1899,7 +1953,7 @@ class TestGitHubIntegrationModel(BaseTest):
         else:
             raise_if_github_rate_limited(response)  # must not raise
 
-    @freeze_time("2024-01-01 12:00:00")
+    @time_machine.travel("2024-01-01 12:00:00", tick=False)
     def test_raise_if_github_rate_limited_populates_fields(self):
         reset_timestamp = int(time.time()) + 60
         response = MagicMock()
@@ -1916,7 +1970,7 @@ class TestGitHubIntegrationModel(BaseTest):
         assert exc_info.value.reset_at == reset_timestamp
         assert exc_info.value.retry_after == 30
 
-    @freeze_time("2024-01-01 12:00:00")
+    @time_machine.travel("2024-01-01 12:00:00", tick=False)
     def test_raise_if_github_rate_limited_derives_retry_after_from_reset_at(self):
         reset_timestamp = int(time.time()) + 45
         response = MagicMock()
@@ -2179,7 +2233,14 @@ class TestGitHubIntegrationGraphQL(BaseTest):
 BABYSIT_PR_URL = "https://github.com/acme/widgets/pull/7"
 
 
-def _babysit_thread(thread_id: str, *, is_resolved: bool = False, author: str = "reviewer", body: str = "fix this"):
+def _babysit_thread(
+    thread_id: str,
+    *,
+    is_resolved: bool = False,
+    author: str = "reviewer",
+    body: str = "fix this",
+    is_bot: bool = False,
+):
     return {
         "id": thread_id,
         "isResolved": is_resolved,
@@ -2190,7 +2251,7 @@ def _babysit_thread(thread_id: str, *, is_resolved: bool = False, author: str = 
                     "id": f"{thread_id}-C1",
                     "url": f"{BABYSIT_PR_URL}#discussion_{thread_id}",
                     "body": body,
-                    "author": {"login": author},
+                    "author": {"login": author, "__typename": "Bot" if is_bot else "User"},
                     "authorAssociation": "MEMBER",
                 }
             ]
@@ -2198,12 +2259,12 @@ def _babysit_thread(thread_id: str, *, is_resolved: bool = False, author: str = 
     }
 
 
-def _babysit_feedback(node_id: str, *, author: str = "reviewer", body: str = "please rename"):
+def _babysit_feedback(node_id: str, *, author: str = "reviewer", body: str = "please rename", is_bot: bool = False):
     return {
         "id": node_id,
         "url": f"{BABYSIT_PR_URL}#issuecomment-{node_id}",
         "body": body,
-        "author": {"login": author},
+        "author": {"login": author, "__typename": "Bot" if is_bot else "User"},
         "authorAssociation": "MEMBER",
     }
 
@@ -2255,6 +2316,34 @@ class TestGitHubIntegrationPullRequestBabysitSnapshot(BaseTest):
 
         assert [thread["id"] for thread in result["unresolved_threads"]] == ["T2"]
         assert [comment["id"] for comment in result["comments"]] == ["M3", "R2"]
+
+    def test_bot_comments_are_dropped_and_bot_reviews_are_kept(self):
+        """A merge-queue bot comments once per submission, each with a fresh id, so every one
+        wakes the loop. A review bot writes the feedback the loop exists to act on."""
+        payload = self._payload(
+            comments={
+                "nodes": [
+                    _babysit_feedback("M1", author="talyn-app", body="/trunk merge", is_bot=True),
+                    _babysit_feedback("M2", author="github-actions", body="CI report", is_bot=True),
+                    _babysit_feedback("M3"),
+                ]
+            },
+            reviews={"nodes": [_babysit_feedback("R1", author="review-hog", body="rename this", is_bot=True)]},
+        )
+
+        with patch.object(GitHubIntegration, "_gh_graphql", return_value=payload):
+            result = self._github().get_pull_request_babysit_snapshot(BABYSIT_PR_URL)
+
+        assert [comment["id"] for comment in result["comments"]] == ["M3", "R1"]
+
+    def test_a_bot_review_thread_is_kept(self):
+        """An unresolved inline thread is work somebody waits on, whoever opened it."""
+        payload = self._payload(reviewThreads={"nodes": [_babysit_thread("T1", author="review-hog", is_bot=True)]})
+
+        with patch.object(GitHubIntegration, "_gh_graphql", return_value=payload):
+            result = self._github().get_pull_request_babysit_snapshot(BABYSIT_PR_URL)
+
+        assert [thread["id"] for thread in result["unresolved_threads"]] == ["T1"]
 
     @parameterized.expand(
         [

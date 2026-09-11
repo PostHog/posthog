@@ -1,7 +1,16 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconRocket, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCollapse,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonSkeleton,
+    LemonSwitch,
+    Link,
+} from '@posthog/lemon-ui'
 import {
     Button,
     ButtonGroup,
@@ -21,6 +30,11 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { JiraProjectPicker } from 'lib/integrations/JiraIntegrationHelpers'
+import { LinearTeamPicker } from 'lib/integrations/LinearIntegrationHelpers'
+import { urls } from 'scenes/urls'
+
+import { IntegrationType } from '~/types'
 
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
@@ -222,6 +236,186 @@ function BaseBranchOverrides(): JSX.Element {
                 )}
             </CollapsibleContent>
         </Collapsible>
+    )
+}
+
+/** Providers that can hold a tracker issue, with the label the picker shows for each. */
+const ISSUE_TRACKER_LABELS: Partial<Record<IntegrationType['kind'], string>> = {
+    github: 'GitHub issues',
+    linear: 'Linear',
+    jira: 'Jira',
+    gitlab: 'GitLab issues',
+}
+
+/** LemonSelect has no null option value, so "off" needs a sentinel that no integration id can take. */
+const ISSUE_TRACKER_OFF = -1
+
+/**
+ * Where inside the chosen tracker the issues land. The shape follows the provider, so this renders
+ * one picker per provider. GitLab needs no pick at all: its integration is already bound to one
+ * project.
+ */
+function IssueTrackerTarget({
+    integration,
+    target,
+    disabled,
+    onSave,
+}: {
+    integration: IntegrationType
+    target: Record<string, string>
+    disabled: boolean
+    onSave: (config: Record<string, string>) => void
+}): JSX.Element | null {
+    if (integration.kind === 'github') {
+        return (
+            <GitHubRepositoryCombobox
+                integrationId={integration.id}
+                // Stored bare so the issue link can re-prefix the account that owns it, while the
+                // picker works in the `owner/repo` form it shows.
+                value={target.repository ? `${integration.display_name}/${target.repository}` : ''}
+                disabled={disabled}
+                placeholder="Repository"
+                onChange={(repo) => repo && onSave({ ...target, repository: repo.split('/')[1] })}
+            />
+        )
+    }
+    if (integration.kind === 'linear') {
+        return (
+            <LinearTeamPicker
+                integration={integration}
+                value={target.team_id}
+                disabled={disabled}
+                onChange={(teamId) => teamId && onSave({ team_id: teamId })}
+            />
+        )
+    }
+    if (integration.kind === 'jira') {
+        return (
+            <JiraProjectPicker
+                integrationId={integration.id}
+                value={target.project_key ?? ''}
+                disabled={disabled}
+                onChange={(projectKey) => projectKey && onSave({ project_key: projectKey })}
+            />
+        )
+    }
+    return <p className="text-[11px] text-tertiary leading-snug mb-0">Issues go to {integration.display_name}.</p>
+}
+
+/**
+ * Per-project switch for the change-management control some teams work under: a pull request can
+ * only merge when a tracked work item points at it. Off unless a tracker is picked, so one field is
+ * both the switch and the target and the two can never disagree.
+ */
+function IssueTracker(): JSX.Element {
+    const { issueTrackerConfig, issueTrackerIntegrationId, selectedIssueTrackerIntegrationId, teamConfigUpdating } =
+        useValues(signalTeamConfigLogic)
+    const { patchTeamConfig, setDraftIssueTrackerIntegrationId } = useActions(signalTeamConfigLogic)
+    const { integrations, integrationsLoading } = useValues(integrationsLogic)
+    const { loadIntegrations } = useActions(integrationsLogic)
+
+    const trackers = (integrations ?? []).filter((integration) => integration.kind in ISSUE_TRACKER_LABELS)
+    const selected = trackers.find((integration) => integration.id === selectedIssueTrackerIntegrationId) ?? null
+    // A freshly picked provider has no target yet, so the stored one belongs to the old provider.
+    const target = selectedIssueTrackerIntegrationId === issueTrackerIntegrationId ? issueTrackerConfig : {}
+    const saved = trackers.find((integration) => integration.id === issueTrackerIntegrationId) ?? null
+    const summary =
+        integrations === null ? 'Loading…' : saved ? (ISSUE_TRACKER_LABELS[saved.kind] ?? saved.kind) : 'Off'
+
+    const saveTarget = (config: Record<string, string>): void => {
+        if (selected) {
+            patchTeamConfig({
+                issue_tracking_integration: selected.id,
+                issue_tracking_config: { ...target, ...config },
+            })
+        }
+    }
+
+    const chooseTracker = (next: number): void => {
+        if (next === ISSUE_TRACKER_OFF) {
+            setDraftIssueTrackerIntegrationId(null)
+            patchTeamConfig({ issue_tracking_integration: null, issue_tracking_config: {} })
+            return
+        }
+
+        setDraftIssueTrackerIntegrationId(next)
+        if (trackers.find((integration) => integration.id === next)?.kind === 'gitlab') {
+            patchTeamConfig({ issue_tracking_integration: next, issue_tracking_config: {} })
+        }
+    }
+
+    const content = (
+        <div className="flex flex-col gap-1.5">
+            <p className="text-[11px] text-tertiary leading-snug mb-0">
+                Open an issue for every PR agents make, and link the two. Use this when a PR can only merge with a
+                tracked work item behind it.
+            </p>
+            {integrations === null ? (
+                integrationsLoading ? (
+                    <LemonSkeleton className="h-7 max-w-xs" />
+                ) : (
+                    <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-tertiary">Could not load integrations.</span>
+                        <LemonButton size="xsmall" type="secondary" onClick={() => loadIntegrations()}>
+                            Retry
+                        </LemonButton>
+                    </div>
+                )
+            ) : trackers.length > 0 ? (
+                <>
+                    <LemonSelect
+                        size="xsmall"
+                        fullWidth
+                        className="max-w-xs"
+                        value={selectedIssueTrackerIntegrationId ?? ISSUE_TRACKER_OFF}
+                        options={[
+                            { value: ISSUE_TRACKER_OFF, label: 'Off' },
+                            ...trackers.map((integration) => ({
+                                value: integration.id,
+                                label: `${ISSUE_TRACKER_LABELS[integration.kind]} · ${integration.display_name}`,
+                            })),
+                        ]}
+                        disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
+                        onChange={chooseTracker}
+                    />
+                    {selected && (
+                        <IssueTrackerTarget
+                            integration={selected}
+                            target={target}
+                            disabled={teamConfigUpdating}
+                            onSave={saveTarget}
+                        />
+                    )}
+                    <p className="text-[11px] text-tertiary leading-snug mb-0">
+                        If the tracker fails, the PR still opens and the report shows that the issue is missing.
+                    </p>
+                </>
+            ) : (
+                <p className="text-[11px] text-tertiary leading-snug mb-0">
+                    <Link to={urls.settings('project-integrations')}>Connect GitHub, GitLab, Linear, or Jira</Link> to
+                    track issues.
+                </p>
+            )}
+        </div>
+    )
+
+    return (
+        <LemonCollapse
+            embedded
+            size="small"
+            panels={[
+                {
+                    key: 'issue-tracker',
+                    header: (
+                        <div className="flex flex-1 items-center justify-between gap-2">
+                            <span className="text-xs text-secondary">Issue tracker</span>
+                            <span className="text-xs text-tertiary">{summary}</span>
+                        </div>
+                    ),
+                    content,
+                },
+            ]}
+        />
     )
 }
 
@@ -432,6 +626,9 @@ export function SelfDrivingSection(): JSX.Element {
                 )}
                 <div className="border-t border-primary">
                     <GitHubAssignmentRow />
+                </div>
+                <div className="border-t border-primary">
+                    <IssueTracker />
                 </div>
                 <div className="border-t border-primary">
                     <DailyReportLimit />
