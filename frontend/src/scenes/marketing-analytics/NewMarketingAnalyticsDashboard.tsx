@@ -1,4 +1,9 @@
+import { useValues } from 'kea'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
+import { AttributionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTab'
 import { MarketingAnalyticsCell } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/shared'
 import { webAnalyticsDataTableQueryContext } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 
@@ -67,8 +72,16 @@ const QUERY_CONTEXT: QueryContext = {
 // Scaffold for the redesigned marketing analytics dashboard, gated behind the
 // `new-marketing-analytics-dashboard` feature flag.
 export function NewMarketingAnalyticsDashboard(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
     return (
-        <div className="mt-4">
+        <div className="mt-4 flex flex-col gap-4">
+            {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION] && (
+                <section aria-label="Conversion" className="flex flex-col gap-2">
+                    <h2 className="mb-0">Conversion</h2>
+                    <AttributionTab />
+                </section>
+            )}
             <Query query={CHANNEL_SOURCE_BREAKDOWN} context={QUERY_CONTEXT} readOnly />
         </div>
     )

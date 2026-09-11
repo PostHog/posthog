@@ -13,3 +13,5 @@ Suggestion review, dismissal, restoration, batch review, capability filters, res
 `marketing analytics setup change submitted`, `change completed` and `change failed` share the same prefix and report operation types, counts, source and whether the change is an undo. Completed reports the server's applied count, which may be zero.
 `marketing analytics setup sync retry completed` reports requested and failed counts; it measures scheduling retries, not completed syncs.
 Payloads exclude suggestion IDs, titles, evidence, goal names and UTM values. Source navigation measures entry into connection flows; existing warehouse connection events measure their completion.
+
+The new dashboard embeds the existing Attribution explorer as Conversion when `marketing-analytics-attribution` is enabled. It keeps goal selection, attribution models, conversion paths and the explorer’s date and test-account filters.
