@@ -3506,6 +3506,41 @@ export interface SystemStatusQueriesResult {
     clickhouse_slow_log?: QuerySummary[]
 }
 
+export interface MetricsMigrationSummary {
+    grafana_metric_names: number
+    posthog_ingested_names: number
+    covered: number
+    uncovered: number
+    coverage_pct: number
+    dashboards_total: number
+    dashboards_fully_covered: number
+}
+
+export type MetricsMigrationDashboardStatus = 'covered' | 'partial' | 'missing'
+
+export interface MetricsMigrationDashboard {
+    title: string
+    file: string
+    metric_count: number
+    covered_metrics: number
+    uncovered_metrics: number
+    coverage_pct: number
+    status: MetricsMigrationDashboardStatus
+}
+
+export interface MetricsMigrationUncoveredMetric {
+    name: string
+    dashboards: string[]
+}
+
+export interface MetricsMigrationReport {
+    generated_at?: string
+    live?: boolean
+    summary: MetricsMigrationSummary
+    dashboards: MetricsMigrationDashboard[]
+    uncovered: MetricsMigrationUncoveredMetric[]
+}
+
 export interface SystemStatusAnalyzeResult {
     query: string
     timing: {

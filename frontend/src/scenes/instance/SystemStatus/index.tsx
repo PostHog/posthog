@@ -8,6 +8,7 @@ import { LemonBanner, Link } from '@posthog/lemon-ui'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { InternalMetricsTab } from 'scenes/instance/SystemStatus/InternalMetricsTab'
+import { MetricsMigrationTab } from 'scenes/instance/SystemStatus/MetricsMigrationTab'
 import { OverviewTab } from 'scenes/instance/SystemStatus/OverviewTab'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -52,6 +53,11 @@ export function SystemStatus(): JSX.Element {
                 key: 'metrics',
                 label: 'Internal metrics',
                 content: <InternalMetricsTab />,
+            },
+            {
+                key: 'metrics_migration',
+                label: 'Metrics migration',
+                content: <MetricsMigrationTab />,
             },
             {
                 key: 'settings',

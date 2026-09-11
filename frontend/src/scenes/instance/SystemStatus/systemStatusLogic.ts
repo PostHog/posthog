@@ -17,7 +17,7 @@ export enum ConfigMode {
     Saving = 'saving',
 }
 
-export type InstanceStatusTabName = 'overview' | 'metrics' | 'settings' | 'staff_users'
+export type InstanceStatusTabName = 'overview' | 'metrics' | 'metrics_migration' | 'settings' | 'staff_users'
 
 /**
  * We allow the specific instance settings that can be edited via the /instance/status page.
@@ -321,7 +321,8 @@ export const systemStatusLogic = kea<systemStatusLogicType>([
     })),
     urlToAction(({ actions, values }) => ({
         '/instance(/:tab)': ({ tab }: { tab?: InstanceStatusTabName }) => {
-            const currentTab = tab && ['metrics', 'settings', 'staff_users'].includes(tab) ? tab : 'overview'
+            const currentTab =
+                tab && ['metrics', 'metrics_migration', 'settings', 'staff_users'].includes(tab) ? tab : 'overview'
             if (currentTab !== values.tab) {
                 actions.setTab(currentTab)
             }

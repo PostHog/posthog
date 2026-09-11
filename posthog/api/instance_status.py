@@ -227,6 +227,29 @@ class InstanceStatusViewSet(viewsets.ViewSet):
 
         return Response({"results": queries})
 
+    # Tracks the move of internal observability off VictoriaMetrics/Grafana onto our own
+    # metrics product: which dashboard-referenced metric names already flow into
+    # `posthog.metric_series`. Snapshot is committed from the grafana-dashboards repo.
+    @action(methods=["GET"], detail=False, permission_classes=[IsAuthenticated, IsStaffUser])
+    def metrics_migration(self, request: Request) -> Response:
+        from posthog import metrics_migration_report
+
+        snapshot = metrics_migration_report.load_snapshot()
+        if snapshot is None:
+            return Response(
+                {"detail": "No Grafana coverage snapshot is deployed on this instance."},
+                status=404,
+            )
+
+        report = metrics_migration_report.report_from_snapshot(snapshot)
+        if request.GET.get("live"):
+            team = getattr(request.user, "team", None)
+            if team is not None:
+                ingested = metrics_migration_report.ingested_metric_names(team)
+                report = metrics_migration_report.merge_live_ingested(report, ingested)
+
+        return Response({"results": report})
+
     def get_postgres_running_queries(self):
         from django.db import connection
 
