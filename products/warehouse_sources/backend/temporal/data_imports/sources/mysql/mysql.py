@@ -16,7 +16,6 @@ module-scope primitives.
 
 from __future__ import annotations
 
-import ssl
 import time
 import socket
 import datetime
@@ -32,7 +31,7 @@ import pyarrow as pa
 import pymysql
 import structlog
 import pymysql.converters
-from pymysql.constants import CR, FIELD_TYPE
+from pymysql.constants import CLIENT, CR, FIELD_TYPE
 from pymysql.cursors import Cursor, SSCursor
 from structlog.types import FilteringBoundLogger
 
@@ -689,36 +688,45 @@ def _reconnect_pinned(connection: pymysql.Connection, team_id: int | None) -> No
     connection.connect(sock=_pinned_socket(connection.host, connection.port, connection.connect_timeout, team_id))
 
 
+class _TLSRequiredConnection(pymysql.Connection):
+    """A connection that refuses to authenticate when the server offers no TLS.
+
+    pymysql wraps the socket only when the server advertises the TLS capability, and that check
+    has no else branch, so a missing or stripped flag is served in plaintext and raises nothing.
+    Refusing here stops the credentials before they cross that connection, and covers every
+    reconnect as well: `Connection.connect()` runs this method each time it reopens the socket.
+    """
+
+    def _request_authentication(self) -> None:
+        # The stubs declare neither the handshake hook nor the capability flags it reads.
+        offers_tls = bool(self.server_capabilities & CLIENT.SSL)  # type: ignore[attr-defined]
+        if self.ssl and not offers_tls:
+            raise pymysql.err.OperationalError(
+                CR.CR_SSL_CONNECTION_ERROR,
+                "The MySQL server did not offer a TLS connection. Turn off certificate "
+                "verification for this source, or enable TLS on the server.",
+            )
+        super()._request_authentication()  # type: ignore[misc]
+
+
+def _new_connection(kwargs: dict[str, Any], **extra: Any) -> pymysql.Connection:
+    """Build the connection, refusing plaintext when this source verifies the certificate."""
+    if kwargs.get("ssl_verify_cert"):
+        return _TLSRequiredConnection(**kwargs, **extra)
+    return pymysql.connect(**kwargs, **extra)
+
+
 def _open_pymysql_connection(kwargs: dict[str, Any], team_id: int | None) -> pymysql.Connection:
     sock = _pinned_socket(kwargs["host"], kwargs["port"], kwargs["connect_timeout"], team_id)
     if sock is None:
-        return pymysql.connect(**kwargs)
+        return _new_connection(kwargs)
 
     # `host` stays the hostname so pymysql sends it as the TLS server name, and PlanetScale, which
     # turns on `ssl_verify_identity`, verifies the certificate against it. Python sends no SNI for
     # an IP literal. Only the TCP connect goes to the pinned address.
-    connection = pymysql.connect(**kwargs, defer_connect=True)
+    connection = _new_connection(kwargs, defer_connect=True)
     connection.connect(sock=sock)
     return connection
-
-
-def _require_negotiated_tls(connection: pymysql.Connection) -> None:
-    """Fail a connection that asked for a verified certificate and did not get TLS at all.
-
-    pymysql wraps the socket only when the server advertises the TLS capability, and the check has
-    no else branch, so a server that offers no TLS is served in plaintext and raises nothing. The
-    handshake has already sent the credentials by the time we can see this, so the check stops us
-    reading data over an unverified connection rather than protecting that first exchange.
-    """
-    # `_sock` is private, so it is not in the stubs. Reading it defensively also fails closed if a
-    # later pymysql renames it: no socket to inspect is treated as no TLS.
-    if isinstance(getattr(connection, "_sock", None), ssl.SSLSocket):
-        return
-    raise pymysql.err.OperationalError(
-        CR.CR_SSL_CONNECTION_ERROR,
-        "The MySQL server did not offer a TLS connection. Turn off certificate verification for "
-        "this source, or enable TLS on the server.",
-    )
 
 
 def _connect_with_transient_retry(kwargs: dict[str, Any], team_id: int | None) -> pymysql.Connection:
@@ -1105,8 +1113,6 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             if read_timeout is not None:
                 kwargs["read_timeout"] = read_timeout
             with _connect_with_transient_retry(kwargs, team_id) as conn:
-                if verify_certificate:
-                    _require_negotiated_tls(conn)
                 yield conn
 
     @contextmanager

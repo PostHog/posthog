@@ -1,4 +1,3 @@
-import ssl
 import socket
 import datetime
 from collections.abc import Generator, Iterator
@@ -11,6 +10,7 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 import pymysql
+from pymysql.constants import CLIENT
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.dataclasses import frozen
@@ -54,6 +54,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _safe_convert_date,
     _safe_convert_datetime,
     _sanitize_identifier,
+    _TLSRequiredConnection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import (
     _INVALID_CREDENTIALS_ERROR,
@@ -2808,10 +2809,10 @@ def _loopback_tunnel() -> Iterator[tuple[str, int]]:
 
 class TestConnectCertificateVerification:
     @staticmethod
-    def _connect_kwargs(mocker, *, using_ssl: str, verify: str, tunneled: bool) -> dict:
+    def _connect(mocker, *, using_ssl: str, verify: str, tunneled: bool) -> tuple[dict, bool]:
         connection = MagicMock()
-        connection.__enter__.return_value._sock = MagicMock(spec=ssl.SSLSocket)
-        mock_connect = mocker.patch(f"{_MYSQL_MODULE}.pymysql.connect", return_value=connection)
+        plain = mocker.patch(f"{_MYSQL_MODULE}.pymysql.connect", return_value=connection)
+        refusing = mocker.patch(f"{_MYSQL_MODULE}._TLSRequiredConnection", return_value=connection)
         overrides: dict = {"using_ssl": using_ssl, "verify_server_certificate": verify}
         if tunneled:
             overrides["ssh_tunnel"] = {"enabled": "true", "host": "bastion.example.com", "port": "22"}
@@ -2820,7 +2821,8 @@ class TestConnectCertificateVerification:
         with MySQLImplementation().connect(_make_config(**overrides)):
             pass
 
-        return mock_connect.call_args.kwargs
+        used = refusing if refusing.called else plain
+        return used.call_args.kwargs, refusing.called
 
     @pytest.mark.parametrize(
         "using_ssl,verify,tunneled,expected_ca,expected_cert,expected_identity",
@@ -2835,31 +2837,30 @@ class TestConnectCertificateVerification:
     def test_verification_kwargs(
         self, mocker, using_ssl, verify, tunneled, expected_ca, expected_cert, expected_identity
     ):
-        # pymysql resolves `ssl_ca` on its own to `verify_mode=CERT_NONE`, so these three kwargs
-        # decide whether TLS is verified. A default that stopped being None would start verifying
-        # every existing source, and a private CA or self-signed certificate fails that check.
-        # `ssl_verify_identity` through the tunnel would check the certificate against the
-        # loopback address the forwarder binds, which no certificate carries.
-        kwargs = self._connect_kwargs(mocker, using_ssl=using_ssl, verify=verify, tunneled=tunneled)
+        # pymysql resolves `ssl_ca` on its own to `verify_mode=CERT_NONE`, so a default that stopped
+        # being None would start verifying every existing source. `ssl_verify_identity` through the
+        # tunnel would check the certificate against the loopback address the forwarder binds.
+        kwargs, refuses_plaintext = self._connect(mocker, using_ssl=using_ssl, verify=verify, tunneled=tunneled)
 
         assert (kwargs["ssl_ca"] is not None) is expected_ca
         assert kwargs["ssl_verify_cert"] is expected_cert
         assert kwargs["ssl_verify_identity"] is expected_identity
+        assert refuses_plaintext is (expected_cert is True)
 
-    @pytest.mark.parametrize("verify,expected_error", [("true", True), ("false", False)])
-    def test_a_server_that_offers_no_tls(self, mocker, verify, expected_error):
-        # pymysql wraps the socket only when the server advertises the TLS capability and has no
-        # else branch, so an unverified source keeps reading data over a plaintext connection.
-        connection = MagicMock()
-        connection.__enter__.return_value._sock = MagicMock(spec=socket.socket)
-        mocker.patch(f"{_MYSQL_MODULE}.pymysql.connect", return_value=connection)
-        config = _make_config(using_ssl="true", verify_server_certificate=verify)
+    @pytest.mark.parametrize("capabilities,refused", [(0, True), (CLIENT.SSL, False)])
+    def test_authentication_against_a_server_that_advertises_tls_or_not(self, mocker, capabilities, refused):
+        # The credentials go out during `_request_authentication`, and every reconnect runs it
+        # again, so refusing here is what keeps both off a plaintext connection.
+        connection = _TLSRequiredConnection(
+            host="db.example.com", user="u", password="p", ssl_ca="/etc/ssl/cert.pem", defer_connect=True
+        )
+        connection.server_capabilities = capabilities  # type: ignore[attr-defined]
+        delegate = mocker.patch.object(pymysql.connections.Connection, "_request_authentication")
 
-        if not expected_error:
-            with MySQLImplementation().connect(config):
-                pass
-            return
-
-        with pytest.raises(pymysql.err.OperationalError, match="did not offer a TLS connection"):
-            with MySQLImplementation().connect(config):
-                pass
+        if refused:
+            with pytest.raises(pymysql.err.OperationalError, match="did not offer a TLS connection"):
+                connection._request_authentication()
+            delegate.assert_not_called()
+        else:
+            connection._request_authentication()
+            delegate.assert_called_once()
