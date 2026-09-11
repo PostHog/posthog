@@ -184,22 +184,19 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
                     {/* Two tab bars for the same state: below the breakpoint the rail's panes have
                         nowhere to sit, so they join this bar rather than stacking under the run
                         list where nobody scrolls to them. */}
-                    <div className="@4xl:hidden">
+                    <div className="flex flex-col gap-1 @4xl:hidden">
                         <LemonTabs
                             activeKey={tab}
                             onChange={switchTab}
                             size="small"
                             tabs={[...mainTabs, ...railTabs]}
-                            rightSlot={
-                                tab === 'runs' ? (
-                                    <ScoutRunFilterPills
-                                        skillName={skillName}
-                                        filter={runFilter}
-                                        onChange={setRunFilter}
-                                    />
-                                ) : undefined
-                            }
                         />
+                        {/* The filters get their own row here rather than the bar's right slot.
+                            This bar carries five tabs, and the slot does not shrink: it pins over
+                            the tab strip and hides the rail tabs behind it. */}
+                        {tab === 'runs' && (
+                            <ScoutRunFilterPills skillName={skillName} filter={runFilter} onChange={setRunFilter} />
+                        )}
                     </div>
                     <div className="hidden @4xl:block">
                         <LemonTabs
