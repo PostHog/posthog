@@ -58,7 +58,13 @@ Replace only the values in angle brackets. Leave out the `notify` step and its e
 
 ## The task step
 
-`prompt` is required. It runs unattended, so write it as a complete brief: what to do, what "done" looks like, and what to report. Trigger event properties are available as `{event.properties.<name>}` inside the prompt, for example `{event.properties.text}` for a Slack message.
+`prompt` is required. It runs unattended, so write it as a complete brief: what to do, what "done" looks like, and what to report.
+
+Never put event text in the prompt with a `{event.properties.<name>}` template. Every run already receives the whole triggering event as a separate `<triggering_event>` block, labelled as data and with its angle brackets escaped so nothing inside it can forge a tag. Name the property instead and let the run read it there:
+
+> Read the message from the `text` property of the triggering event, then...
+
+A template renders the raw value into the instruction part of the prompt, before that block and with no escaping. A Slack poster, an issue author, or a customer's own end user writes that value, so a crafted one reads as instructions to an agent that may hold repository credentials.
 
 Include the other inputs only when the loop needs them:
 
