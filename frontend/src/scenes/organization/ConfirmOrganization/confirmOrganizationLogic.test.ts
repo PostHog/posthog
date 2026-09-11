@@ -58,5 +58,19 @@ describe('confirmOrganizationLogic', () => {
                 },
             })
         })
+
+        it('shows an inline error only after a field is touched, and clears it once fixed', async () => {
+            // The form starts invalid (empty defaults) but hides inline errors until interaction.
+            expect(logic.values.isConfirmOrganizationValid).toBe(false)
+            expect(logic.values.confirmOrganizationErrors).toEqual({})
+
+            logic.actions.touchConfirmOrganizationField('organization_name')
+            expect(logic.values.confirmOrganizationErrors).toEqual({
+                organization_name: 'Please enter your organization name',
+            })
+
+            logic.actions.setConfirmOrganizationValue('organization_name', 'Spikes Inc')
+            expect(logic.values.confirmOrganizationErrors).toEqual({})
+        })
     })
 })
