@@ -1,7 +1,8 @@
 import { useValues } from 'kea'
 
-import { RelatedGroups, RelatedGroupsProps } from 'scenes/groups/RelatedGroups'
 import { urls } from 'scenes/urls'
+
+import { RelatedGroups, RelatedGroupsProps } from 'products/groups/frontend/components/RelatedGroups'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { createPostHogWidgetNode } from './NodeWrapper'
