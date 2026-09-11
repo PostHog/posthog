@@ -375,6 +375,12 @@ async fn resolve_issue(
                 .await?;
 
         let processed_properties = event_properties.processed_properties(&issue);
+
+        txn.commit().await?;
+        drop(conn);
+
+        // Produce to Kafka only after the transaction commits, so no row lock spans the
+        // network round trip.
         send_fingerprint_issue_state(
             context,
             &issue,
@@ -383,9 +389,6 @@ async fn resolve_issue(
             event_timestamp,
         )
         .await?;
-
-        txn.commit().await?;
-        drop(conn);
 
         send_issue_created_notification(
             context,
