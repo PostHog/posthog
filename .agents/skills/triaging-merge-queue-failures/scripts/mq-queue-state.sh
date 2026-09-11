@@ -290,7 +290,9 @@ main() {
     local cmd pr head_oid pages body state digest retained check job_url testing_pr
     cmd=${1:-}
     repo=${2:-}
-    [ -n "$cmd" ] && [ -n "$repo" ] || usage
+    if [ -z "$cmd" ] || [ -z "$repo" ]; then
+        usage
+    fi
     case "$repo" in
         */*) ;;
         *) usage ;;

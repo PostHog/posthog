@@ -75,15 +75,22 @@ check "fingerprint carries no words from the wording" \
     "absent" \
     "$(case "$digest" in *requeue* | *instructions* | *pull*) echo present ;; *) echo absent ;; esac)"
 check "fingerprint is stable for the same wording" "$digest" "$(fingerprint "$noisy")"
-check "fingerprint separates different wordings" \
-    "differ" \
-    "$([ "$digest" = "$(fingerprint 'Some entirely different wording')" ] && echo same || echo differ)"
+
+if [ "$digest" = "$(fingerprint 'Some entirely different wording')" ]; then
+    collision=same
+else
+    collision=differ
+fi
+check "fingerprint separates different wordings" "differ" "$collision"
 
 # The wording is retained only for a caller that opts in. The unattended sweep leaves the variable
 # unset, so these cases fail if a later edit writes it unconditionally or prints it to stdout.
-check "wording is not retained without an opt-in" \
-    "declined" \
-    "$(MQ_FINGERPRINT_DIR='' retain_wording "$digest" "$noisy" >/dev/null 2>&1 && echo wrote || echo declined)"
+if MQ_FINGERPRINT_DIR='' retain_wording "$digest" "$noisy" >/dev/null 2>&1; then
+    without_optin=wrote
+else
+    without_optin=declined
+fi
+check "wording is not retained without an opt-in" "declined" "$without_optin"
 
 retained="$(MQ_FINGERPRINT_DIR="$workdir/kept" retain_wording "$digest" "$noisy")"
 check "opting in retains the wording" \
