@@ -13,6 +13,8 @@ from collections.abc import Mapping
 from datetime import date, timedelta
 from typing import Protocol
 
+from django.conf import settings
+
 import structlog
 
 from posthog.clickhouse.client import sync_execute
@@ -88,7 +90,7 @@ class ClickHouseStatisticsProvider:
                 rows = sync_execute(
                     f"""
                     SELECT date, event, sumMerge(event_count) AS event_count
-                    FROM {USAGE_REPORT_EVENTS_PREAGG_TABLE}
+                    FROM {settings.CLICKHOUSE_DATABASE}.{USAGE_REPORT_EVENTS_PREAGG_TABLE}
                     WHERE team_id = %(team_id)s AND date >= %(since)s AND date < %(today)s
                     GROUP BY date, event
                     """,
