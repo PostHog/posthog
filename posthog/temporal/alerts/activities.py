@@ -15,6 +15,7 @@ from posthog.schema import AlertState
 from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.email import is_email_available
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
@@ -72,13 +73,20 @@ logger = structlog.get_logger(__name__)
 _NOTIFICATION_DELIVERY_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="insight-alert-delivery")
 
 
+@frozen
+class _FetchedDueAlerts:
+    alerts: list[AlertInfo]
+    oldest_due_at: datetime | None
+    has_more: bool
+
+
 @temporalio.activity.defn
 async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | None = None) -> list[AlertInfo]:
     if inputs is None:
         inputs = ScheduleDueAlertChecksWorkflowInputs()
 
     @database_sync_to_async(thread_sensitive=False)
-    def get_alerts() -> tuple[list[AlertInfo], datetime | None, bool]:
+    def get_alerts() -> _FetchedDueAlerts:
         now = datetime.now(UTC)
 
         calculation_interval_order = Case(
@@ -136,19 +144,19 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             )
             for a in selected_alerts
         ]
-        return alerts, oldest_due_at, has_more
+        return _FetchedDueAlerts(alerts=alerts, oldest_due_at=oldest_due_at, has_more=has_more)
 
     async with Heartbeater():
-        alerts, oldest_due_at, has_more = await get_alerts()
+        fetched = await get_alerts()
 
     record_scheduler_fetch(
-        selected_count=len(alerts),
+        selected_count=len(fetched.alerts),
         max_alerts_per_run=inputs.max_alerts_per_run,
-        oldest_due_at=oldest_due_at,
+        oldest_due_at=fetched.oldest_due_at,
         now=datetime.now(UTC),
-        has_more=has_more,
+        has_more=fetched.has_more,
     )
-    return alerts
+    return fetched.alerts
 
 
 def _has_active_destinations(alert: AlertConfiguration) -> bool:
