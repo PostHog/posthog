@@ -23,8 +23,10 @@ import pandas as pd
 def main() -> int:
     score_features_path, model_path, scores_out = sys.argv[1], sys.argv[2], sys.argv[3]
 
+    # The pickle was written by train.py in this same sandbox from bytes the framework
+    # persisted and read back as opaque; nothing outside the sandbox unpickles it.
     with open(model_path, "rb") as f:
-        bundle = pickle.load(f)
+        bundle = pickle.load(f)  # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle
     model = bundle["model"]
     feature_cols = bundle["feature_cols"]
 

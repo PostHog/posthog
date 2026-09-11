@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 from uuid import uuid4
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -16,6 +17,7 @@ from products.autoresearch.backend.inference.sandbox import _MATERIALIZE_ROW_LIM
 from products.autoresearch.backend.inference.scoring import (
     InferenceRunError,
     ScoredPopulation,
+    ScoringWindow,
     _estimator_for,
     _fetch_inference_rows,
     _fetch_population_distinct_ids,
@@ -222,6 +224,7 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
         hogql.assert_not_called()
 
 
+@time_machine.travel("2026-09-11T12:00:00Z", tick=False)
 class TestPredictionDateGuards(TeamScopedTestMixin, BaseTest):
     def _pipeline_and_model(self, **pipeline_kwargs) -> tuple[AutoresearchPipeline, AutoresearchModel]:
         pipeline = AutoresearchPipeline.objects.create(
@@ -293,8 +296,6 @@ class TestPredictionDateGuards(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand([("stub", _STUB_RECIPE), ("anchors", _ANCHORS_RECIPE)])
     def test_backfilling_a_recipe_only_champion_is_refused(self, _name, recipe):
-        # A recipe-only champion fits at scoring time on labels decided as of now(), so a fit
-        # for a past date would learn from outcomes after it.
         pipeline, model = self._pipeline_and_model()
         model.model_recipe = recipe
         model.save(update_fields=["model_recipe"])
@@ -310,6 +311,7 @@ class TestPredictionDateGuards(TeamScopedTestMixin, BaseTest):
         anchors.assert_not_called()
 
 
+@time_machine.travel("2026-09-11T12:00:00Z", tick=False)
 class TestRecipeRouting(TeamScopedTestMixin, BaseTest):
     def _pipeline_and_model(self, recipe: dict) -> tuple[AutoresearchPipeline, AutoresearchModel]:
         pipeline = AutoresearchPipeline.objects.create(
@@ -337,7 +339,7 @@ class TestRecipeRouting(TeamScopedTestMixin, BaseTest):
         with patch.object(scoring, "_score_via_anchors") as anchored, patch.object(scoring, "run_hogql") as hogql:
             with self.assertRaises(InferenceRunError):
                 score_population(
-                    team=self.team, pipeline=pipeline, model=model, prediction_date=date.today(), user=self.user
+                    team=self.team, pipeline=pipeline, model=model, window=ScoringWindow.for_date(), user=self.user
                 )
         anchored.assert_not_called()
         hogql.assert_not_called()
@@ -347,7 +349,7 @@ class TestRecipeRouting(TeamScopedTestMixin, BaseTest):
         scored = ScoredPopulation(rows=[{"distinct_id": "p1", "p_y": 0.5}], holdout_auc=0.66)
         with patch.object(scoring, "_score_via_anchors", return_value=scored) as anchored:
             result = score_population(
-                team=self.team, pipeline=pipeline, model=model, prediction_date=date.today(), user=self.user
+                team=self.team, pipeline=pipeline, model=model, window=ScoringWindow.for_date(), user=self.user
             )
         assert result == scored
         anchored.assert_called_once()
@@ -362,7 +364,7 @@ class TestRecipeRouting(TeamScopedTestMixin, BaseTest):
             model.save(update_fields=["artifact_prefix"])
         with patch.object(scoring, scorer) as mocked:
             score_population(
-                team=self.team, pipeline=pipeline, model=model, prediction_date=date.today(), user=self.user
+                team=self.team, pipeline=pipeline, model=model, window=ScoringWindow.for_date(), user=self.user
             )
         cutoff = mocked.call_args.kwargs["cutoff_ts"]
         assert isinstance(cutoff, int)
@@ -662,8 +664,6 @@ class TestAnchorsRecipeQueries(TeamScopedTestMixin, BaseTest):
         ]
     )
     def test_training_rows_that_do_not_key_one_labeled_person_fail_the_run(self, _name, rows):
-        # A duplicated person weights the fit twice and distorts the holdout AUC; a row that
-        # matched no anchor would be filed as a negative holdout example.
         pipeline = self._make_pipeline()
         result = HogQLResult(columns=["distinct_id", "events_total", "__label", "__fold"], rows=rows)
         with patch.object(scoring, "run_hogql", return_value=result):
@@ -673,8 +673,6 @@ class TestAnchorsRecipeQueries(TeamScopedTestMixin, BaseTest):
                 )
 
     def test_duplicate_output_columns_fail_the_run(self):
-        # as_dicts() keeps only the last value of a repeated name, so the matrix would hold
-        # fewer features than the SQL declares while the sandbox path refuses the same result.
         pipeline = self._make_pipeline()
         result = HogQLResult(columns=["distinct_id", "n", "n"], rows=[["p1", 1, 2]])
         with (
@@ -714,8 +712,12 @@ class TestRecipeFit(SimpleTestCase):
         recipe = {"model_class": "sklearn.ensemble.RandomForestClassifier", "model_params": params}
         assert _estimator_for(recipe, seed=1234).random_state == expected
 
+    def test_estimator_never_takes_every_core(self):
+        # The fit runs in the worker process, so an agent's n_jobs=-1 would starve everything else on it.
+        recipe = {"model_class": "sklearn.ensemble.RandomForestClassifier", "model_params": {"n_jobs": -1}}
+        assert _estimator_for(recipe, seed=1).n_jobs == 1
+
     def test_too_many_feature_columns_fail_before_any_matrix_is_built(self):
-        # The row bound does not bound the matrix; the agent's SQL chooses the column count.
         rows = [{"distinct_id": f"p{i}", "a": 1, "b": 2, "c": 3, "__label": i % 2, "__fold": i % 5} for i in range(10)]
         with patch.object(scoring, "_MAX_FEATURE_COLS", 2):
             with self.assertRaises(InferenceRunError):

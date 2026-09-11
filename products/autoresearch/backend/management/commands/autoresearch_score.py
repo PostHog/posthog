@@ -27,6 +27,7 @@ from posthog.models.user import User
 from products.autoresearch.backend.inference.sandbox import fit_champion_model
 from products.autoresearch.backend.inference.scoring import (
     ScoredPopulation,
+    ScoringWindow,
     _summarize_scores,
     run_inference_for_pipeline,
     score_population,
@@ -129,7 +130,11 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("Dry run: scoring through the champion's path, not emitting.\n"))
             for prediction_date in prediction_dates:
                 scored = score_population(
-                    team=pipeline.team, pipeline=pipeline, model=champion, prediction_date=prediction_date, user=user
+                    team=pipeline.team,
+                    pipeline=pipeline,
+                    model=champion,
+                    window=ScoringWindow.for_date(prediction_date),
+                    user=user,
                 )
                 self._print_scores(scored, label=f"[{prediction_date}] " if labelled else "")
             return

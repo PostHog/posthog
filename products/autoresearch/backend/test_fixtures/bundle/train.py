@@ -25,6 +25,7 @@ import sys
 import json
 import pickle
 import argparse
+from dataclasses import dataclass
 
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
@@ -33,14 +34,21 @@ from sklearn.metrics import roc_auc_score
 MIN_PER_CLASS = 5
 
 
-def _load_xy(features_path: str, labels_path: str) -> tuple[pd.DataFrame, pd.Series, list[str]]:
+@dataclass(frozen=True)
+class _LabeledMatrix:
+    x: pd.DataFrame
+    y: pd.Series
+    feature_cols: list[str]
+
+
+def _load_xy(features_path: str, labels_path: str) -> _LabeledMatrix:
     features = pd.read_parquet(features_path)
     labels = pd.read_parquet(labels_path)
     merged = features.merge(labels[["distinct_id", "__label"]], on="distinct_id", how="inner")
     feature_cols = [c for c in features.columns if c != "distinct_id"]
     x = pd.DataFrame(merged[feature_cols]).fillna(0).astype(float)
     y = pd.Series(merged["__label"]).fillna(0).astype(int)
-    return x, y, feature_cols
+    return _LabeledMatrix(x=x, y=y, feature_cols=feature_cols)
 
 
 def main() -> int:
@@ -54,7 +62,8 @@ def main() -> int:
     parser.add_argument("--random-state", type=int, default=42)
     args = parser.parse_args()
 
-    x_train, y_train, feature_cols = _load_xy(args.train_features, args.train_labels)
+    train = _load_xy(args.train_features, args.train_labels)
+    x_train, y_train, feature_cols = train.x, train.y, train.feature_cols
 
     n_pos = int(y_train.sum())
     n_neg = int(len(y_train) - n_pos)
@@ -65,12 +74,17 @@ def main() -> int:
     model = LogisticRegression(C=1.0, max_iter=200, random_state=args.random_state)
     model.fit(x_train.to_numpy(), y_train.to_numpy())
 
+    # This script runs inside the sandbox and only predict.py, in the same sandbox, reads the
+    # pickle back; the framework treats model.pkl as opaque bytes and never unpickles it.
     with open(args.model_out, "wb") as f:
-        pickle.dump({"model": model, "feature_cols": feature_cols}, f)
+        pickle.dump(
+            {"model": model, "feature_cols": feature_cols}, f
+        )  # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle
 
     holdout_auc: float | None = None
     if args.holdout_features and args.holdout_labels:
-        x_hold, y_hold, _ = _load_xy(args.holdout_features, args.holdout_labels)
+        holdout = _load_xy(args.holdout_features, args.holdout_labels)
+        x_hold, y_hold = holdout.x, holdout.y
         if len(x_hold) and y_hold.nunique() >= 2:
             x_hold = x_hold.reindex(columns=feature_cols, fill_value=0)
             p_hold = model.predict_proba(x_hold.to_numpy())[:, 1]

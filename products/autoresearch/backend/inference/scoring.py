@@ -116,6 +116,45 @@ class ScoredPopulation:
 
 
 @frozen
+class ScoringWindow:
+    """
+    The dates one run scores against, decided once at the entry point. A live run that
+    started before midnight and finished after it would otherwise flip to a backfill halfway:
+    person-less events at noon, no output property, and no cadence watermark.
+    """
+
+    prediction_date: date
+    today: date
+    now: datetime
+    # The instant every query in the run binds to, so the feature query and the anchor count
+    # cannot disagree because someone became eligible between them.
+    cutoff_ts: int
+
+    @classmethod
+    def for_date(cls, prediction_date: date | None = None) -> "ScoringWindow":
+        now = django_timezone.now()
+        today = date.today()
+        prediction_date = prediction_date or today
+        if prediction_date < today:
+            cutoff = datetime(prediction_date.year, prediction_date.month, prediction_date.day, tzinfo=UTC)
+        else:
+            cutoff = now
+        return cls(prediction_date=prediction_date, today=today, now=now, cutoff_ts=int(cutoff.timestamp()))
+
+    @property
+    def is_backfill(self) -> bool:
+        return self.prediction_date < self.today
+
+    @property
+    def is_future(self) -> bool:
+        return self.prediction_date > self.today
+
+    @property
+    def emit_timestamp(self) -> datetime:
+        return _backfill_timestamp(self.prediction_date) if self.is_backfill else self.now
+
+
+@frozen
 class _EmitResult:
     rows_emitted: int
     score_distribution: dict[str, Any]
@@ -139,7 +178,7 @@ def run_inference_for_pipeline(
     ``user`` is who HogQL applies access control for; it defaults to the
     pipeline's creator.
     """
-    prediction_date = prediction_date or date.today()
+    window = ScoringWindow.for_date(prediction_date)
     run = AutoresearchRun.objects.create(
         pipeline=pipeline,
         model=model,
@@ -150,13 +189,11 @@ def run_inference_for_pipeline(
 
     try:
         team = pipeline.team
-        _check_prediction_date(team=team, pipeline=pipeline, prediction_date=prediction_date)
+        _check_prediction_date(team=team, pipeline=pipeline, window=window)
         acting_user = _acting_user(team=team, pipeline=pipeline, user=user)
-        scored = score_population(
-            team=team, pipeline=pipeline, model=model, prediction_date=prediction_date, user=acting_user
-        )
+        scored = score_population(team=team, pipeline=pipeline, model=model, window=window, user=acting_user)
         emitted = _emit_predictions(
-            team=team, pipeline=pipeline, model=model, scored=scored, prediction_date=prediction_date, user=acting_user
+            team=team, pipeline=pipeline, model=model, scored=scored, window=window, user=acting_user
         )
 
         run.status = AutoresearchRun.Status.COMPLETED
@@ -172,7 +209,7 @@ def run_inference_for_pipeline(
 
         # Only a live run moves the cadence watermark. Backfilling a past date must not
         # make the coordinator think today's scoring already happened.
-        if prediction_date >= date.today():
+        if not window.is_backfill:
             pipeline.last_scored_at = run.completed_at
             pipeline.save(update_fields=["last_scored_at", "updated_at"])
 
@@ -200,7 +237,7 @@ def _acting_user(*, team: Team, pipeline: AutoresearchPipeline, user: User | Non
         raise InferenceRunError(str(exc)) from exc
 
 
-def _check_prediction_date(*, team: Team, pipeline: AutoresearchPipeline, prediction_date: date) -> None:
+def _check_prediction_date(*, team: Team, pipeline: AutoresearchPipeline, window: ScoringWindow) -> None:
     """
     Refuse the dates that would complete a run with events nobody can use.
 
@@ -211,13 +248,13 @@ def _check_prediction_date(*, team: Team, pipeline: AutoresearchPipeline, predic
     person properties evaluates those properties as they are today, not as they were on
     that date, so the historical membership it claims is fiction.
     """
-    today = date.today()
-    if prediction_date > today:
+    prediction_date = window.prediction_date
+    if window.is_future:
         raise InferenceRunError(f"Cannot score a future prediction date ({prediction_date.isoformat()})")
-    if prediction_date >= today:
+    if not window.is_backfill:
         return
     threshold = team.drop_events_older_than
-    if threshold is not None and django_timezone.now() - _backfill_timestamp(prediction_date) > threshold:
+    if threshold is not None and window.now - window.emit_timestamp > threshold:
         raise InferenceRunError(
             f"Cannot backfill {prediction_date.isoformat()}: ingestion drops this team's events older than "
             f"{threshold}, so the predictions would never be stored"
@@ -240,7 +277,7 @@ def score_population(
     team: Team,
     pipeline: AutoresearchPipeline,
     model: AutoresearchModel,
-    prediction_date: date,
+    window: ScoringWindow,
     user: User | None = None,
 ) -> ScoredPopulation:
     """
@@ -255,20 +292,13 @@ def score_population(
     instead of producing a query that runs without a cutoff.
     """
     acting_user = _acting_user(team=team, pipeline=pipeline, user=user)
-    is_backfill = prediction_date < date.today()
-    # One instant for every query in the run. A live run that let each query evaluate its own
-    # now() could count more anchors than it materialized when someone became eligible in between.
-    cutoff_ts = int(
-        datetime(prediction_date.year, prediction_date.month, prediction_date.day, tzinfo=UTC).timestamp()
-        if is_backfill
-        else django_timezone.now().timestamp()
-    )
+    cutoff_ts = window.cutoff_ts
 
     if model.artifact_prefix:
         result = score_via_sandbox(team=team, pipeline=pipeline, model=model, cutoff_ts=cutoff_ts, user=acting_user)
         return ScoredPopulation(rows=result.scored_rows, holdout_auc=result.holdout_auc)
 
-    if is_backfill:
+    if window.is_backfill:
         # A recipe-only champion fits at scoring time, and its training labels are decided as of
         # now(), so a fit for a past date would learn from outcomes after that date and hand
         # online validation a lookahead score. Only a persisted model can be re-scored in the past.
@@ -295,7 +325,7 @@ def _emit_predictions(
     pipeline: AutoresearchPipeline,
     model: AutoresearchModel,
     scored: ScoredPopulation,
-    prediction_date: date,
+    window: ScoringWindow,
     user: User,
 ) -> _EmitResult:
     """
@@ -308,9 +338,9 @@ def _emit_predictions(
         logger.warning("autoresearch_no_scored_rows", pipeline_id=str(pipeline.pk), team_id=team.pk)
         return _EmitResult(rows_emitted=0, score_distribution={})
 
-    is_backfill = prediction_date < date.today()
-    prediction_date_str = prediction_date.isoformat()
-    emit_timestamp = _backfill_timestamp(prediction_date) if is_backfill else django_timezone.now()
+    is_backfill = window.is_backfill
+    prediction_date_str = window.prediction_date.isoformat()
+    emit_timestamp = window.emit_timestamp
 
     _require_still_champion(model)
     # Live runs attach each prediction to the real person: a real distinct_id, a processed
@@ -748,7 +778,9 @@ def _fit_on_training_predict_on_inference(
         n_features=len(feature_cols),
         holdout_auc=holdout_auc,
     )
-    scored = [{**row, "p_y": round(float(p), 4)} for row, p in zip(inference_rows, proba)]
+    # Full precision, as _join_scores keeps for a bundle: rounding would tie predictions that
+    # online validation ranks against each other.
+    scored = [{**row, "p_y": float(p)} for row, p in zip(inference_rows, proba)]
     return ScoredPopulation(rows=scored, holdout_auc=holdout_auc)
 
 
@@ -771,8 +803,12 @@ def _estimator_for(recipe: dict[str, Any], *, seed: int) -> Any:
     module_path, class_name = model_class_path.rsplit(".", 1)
     model_class = getattr(importlib.import_module(module_path), class_name)
     params = dict(recipe.get("model_params") or {})
-    if "random_state" in inspect.signature(model_class.__init__).parameters:
+    accepted = inspect.signature(model_class.__init__).parameters
+    if "random_state" in accepted:
         params.setdefault("random_state", seed)
+    if "n_jobs" in accepted:
+        # The fit runs in the worker process; an agent's n_jobs=-1 would take every core it has.
+        params["n_jobs"] = 1
     return model_class(**params)
 
 

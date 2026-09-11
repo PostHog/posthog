@@ -704,33 +704,6 @@ def build_inference_anchors_sql(
     return sql, values
 
 
-def build_inference_anchor_count_sql(
-    *,
-    lookback_days: int,
-    inference_population: dict[str, Any] | None,
-    cutoff_ts: int | None = None,
-    target_event: str = "",
-    target_definition: dict[str, Any] | None = None,
-    team: "Team | None" = None,
-) -> tuple[str, dict[str, Any]]:
-    """
-    Count the rows ``build_inference_anchors_sql`` would produce for the same arguments.
-
-    The scorer compares it against the materialized feature rows: feature SQL that inner
-    joins or filters a joined table in WHERE drops anchors without any row looking wrong,
-    and a dropped person is never scored again once the cadence advances past them.
-    """
-    anchors_sql, values = build_inference_anchors_sql(
-        lookback_days=lookback_days,
-        inference_population=inference_population,
-        cutoff_ts=cutoff_ts,
-        target_event=target_event,
-        target_definition=target_definition,
-        team=team,
-    )
-    return f"SELECT count() FROM ({anchors_sql.strip()})", values
-
-
 _LINE_COMMENT_STARTS = ("--", "//")
 _ANCHORS_PLACEHOLDER = "{anchors}"
 

@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -16,12 +17,13 @@ from products.autoresearch.backend.models import AutoresearchModel, Autoresearch
 from products.autoresearch.backend.testing import TeamScopedTestMixin
 
 
+@time_machine.travel("2026-09-11T12:00:00Z", tick=False)
 class TestResolvePredictionDates(SimpleTestCase):
     @parameterized.expand(
         [
             ("zero_backfill_days_ran_live", {"backfill_days": 0}),
             ("negative_backfill_days_scored_nothing", {"backfill_days": -3}),
-            ("future_date_read_as_live", {"prediction_date": (date.today() + timedelta(days=1)).isoformat()}),
+            ("future_date_read_as_live", {"prediction_date": "2026-09-12"}),
             ("unparseable_date", {"prediction_date": "yesterday"}),
         ]
     )
@@ -52,8 +54,6 @@ class TestSeedFixtureBundle(TeamScopedTestMixin, BaseTest):
         ]
     )
     def test_a_failed_step_leaves_the_current_champion_in_place(self, _name, step, error):
-        # Scoring loads the persisted model.pkl and never fits, so a promoted bundle with no
-        # fit would fail every cadence while the working champion sat archived behind it.
         pipeline, champion = self._pipeline_with_champion()
         with (
             patch.object(autoresearch_score, "write_bundle"),

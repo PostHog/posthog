@@ -63,7 +63,7 @@ from posthog.models.user import User
 
 from products.autoresearch.backend.dataset.labeling import (
     LABELER_QUERY_MODIFIERS,
-    build_inference_anchor_count_sql,
+    build_inference_anchors_sql,
     build_inference_features_sql,
     build_training_features_sql,
 )
@@ -422,8 +422,12 @@ def _materialize_score_data(
 def count_inference_anchors(
     *, team: Team, pipeline: AutoresearchPipeline, cutoff_ts: int | None = None, user: User | None = None
 ) -> int:
-    """How many people the inference anchors hold, so a feature query that drops some of them fails."""
-    sql, values = build_inference_anchor_count_sql(
+    """
+    How many people the inference anchors hold, so a feature query that drops some of them
+    fails: an inner join or a WHERE on the joined table loses anchors without any row looking
+    wrong, and a lost person is never scored again once the cadence advances past them.
+    """
+    anchors_sql, values = build_inference_anchors_sql(
         lookback_days=_feature_lookback_days(pipeline),
         inference_population=pipeline.inference_population,
         cutoff_ts=cutoff_ts,
@@ -431,6 +435,7 @@ def count_inference_anchors(
         target_definition=pipeline.target_definition,
         team=team,
     )
+    sql = f"SELECT count() FROM ({anchors_sql.strip()})"
     try:
         tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
         result = run_hogql(
