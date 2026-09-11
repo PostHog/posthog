@@ -535,14 +535,6 @@ the run's saved `pending_user_message` when logs do not yet contain it. This is 
 display fallback: it strips context wrappers, gives way to the selected run's log
 or stream echo, and never submits the message again.
 
-### Recovering approval responses
-
-If an approval reply fails without confirming its outcome, the web client checks the run's saved permission resolutions before showing a retry prompt.
-It retries log reads for up to ten seconds because the agent buffers log writes.
-Only a resolution for the same request and run clears the approval; an unknown request error alone does not confirm it.
-If the outcome remains unknown, the approval becomes retryable.
-Leaving or ending the run cancels the check.
-
 ## Local development
 
 To set up sandboxed agents for local development:
