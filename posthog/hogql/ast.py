@@ -743,9 +743,7 @@ class UnresolvedFieldType(Type):
     name: str
 
     def get_child(self, name: str | int, context: HogQLContext) -> Type:
-        # Stay unresolved so a multi-segment chain fails the same way a single field does: a soft
-        # error in the `hogql` dialect, and a hard error when a printer needs a real column
-        return UnresolvedFieldType(name=f"{self.name}.{name}")
+        raise QueryError(f"Unable to resolve field: {self.name}")
 
     def has_child(self, name: str | int, context: HogQLContext) -> bool:
         return False
