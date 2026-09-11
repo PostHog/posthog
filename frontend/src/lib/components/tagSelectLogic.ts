@@ -33,7 +33,7 @@ export interface tagSelectLogicActions {
 export interface tagSelectLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        sourceTags: (tags: string[], availableTags: any) => string[]
+        sourceTags: (tags: string[], availableTags: string[] | undefined) => string[]
         filteredTags: (sourceTags: string[], search: string) => string[]
     }
 }
