@@ -163,8 +163,16 @@ export function NavTabChat({
         isPhaiSandboxFlagOn,
         effectivePhaiView,
     } = useValues(maxGlobalLogic)
-    const { tasks, tasksLoading, tasksError, tasksNext, tasksLoadingMore, searchQuery, taskListParams } =
-        useValues(tasksLogic)
+    const {
+        tasks,
+        tasksLoading,
+        tasksError,
+        tasksNext,
+        tasksLoadingMore,
+        tasksSearchPending,
+        searchQuery,
+        taskListParams,
+    } = useValues(tasksLogic)
     const { loadTasks, loadMoreTasks, setSearchQuery } = useActions(tasksLogic)
     const { location } = useValues(router)
     const tasksEnabled = useFeatureFlag('TASKS') || isPhaiSandboxFlagOn
@@ -177,6 +185,9 @@ export function NavTabChat({
         [conversationHistory, tasks, tasksEnabled]
     )
     const initialLoading = historyGroups.length === 0 && (conversationHistoryLoading || (tasksEnabled && tasksLoading))
+    // Typing moves the client-side filter at once, but the matching tasks are a debounce plus a round
+    // trip behind it. Until they land, an empty filtered list means "still loading", not "none found".
+    const taskResultsPending = tasksEnabled && (tasksSearchPending || tasksLoading)
 
     const setInputValue = (value: string): void => {
         if (tasksEnabled) {
@@ -384,9 +395,16 @@ export function NavTabChat({
                                 <div className="p-2 empty:hidden">
                                     <Combobox.Empty className="empty:hidden">
                                         <div className="flex flex-col items-center justify-center text-center py-8 text-muted border border-dashed rounded-md">
-                                            <p className="text-xs mb-0">
-                                                {tasksEnabled ? 'No chats or tasks found' : 'No chats found'}
-                                            </p>
+                                            {taskResultsPending ? (
+                                                <span className="flex items-center gap-2 text-xs">
+                                                    <Spinner className="size-3" />
+                                                    Loading tasks…
+                                                </span>
+                                            ) : (
+                                                <p className="text-xs mb-0">
+                                                    {tasksEnabled ? 'No chats or tasks found' : 'No chats found'}
+                                                </p>
+                                            )}
                                         </div>
                                     </Combobox.Empty>
                                 </div>

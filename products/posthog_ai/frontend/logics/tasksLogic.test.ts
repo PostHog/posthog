@@ -160,6 +160,24 @@ describe('tasksLogic', () => {
         })
     })
 
+    describe('setSearchQuery', () => {
+        // Regression coverage: the request sits behind a 300ms debounce, so `tasksLoading` is still
+        // false while a consumer filters the cached rows against the new query. Without a pending
+        // flag the nav reports "nothing found" for a search whose matches are still on the server.
+        it('stays pending across the debounce until the matching page lands', async () => {
+            logic.actions.loadTasksSuccess([createMockTask('task-1')])
+
+            logic.actions.setSearchQuery('checkout bug')
+
+            expect(logic.values.tasksSearchPending).toBe(true)
+            expect(logic.values.tasksLoading).toBe(false)
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.tasksSearchPending).toBe(false)
+        })
+    })
+
     describe('loadMoreTasks', () => {
         // Regression coverage: `loadMoreTasks` reads `tasksNext` again after its `await`, so a
         // `loadTasks` dispatched while a page is in flight (e.g. a filter change) must not have its
