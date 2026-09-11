@@ -20,6 +20,7 @@
 
 import { STRUCTURED_CONTENT_ONLY_TEXT, estimateResponseTokens, type ToolResultPayload } from '@/lib/build-tool-result'
 import { CHARS_PER_TOKEN } from '@/lib/estimate-tokens'
+import { splitInformationalResponse } from '@/tools/tool-utils'
 
 /** Key the projection records its own shortening under, mirroring trace compaction. */
 export const RESPONSE_TRUNCATION_KEY = '_truncated'
@@ -206,9 +207,16 @@ export function capResponseToClientBudget(response: ToolResultPayload, maxTokens
             : projectRecordWithNotice(jsonValue, maxChars, notice)
         capped = { ...response, content: [{ type: 'text', text: JSON.stringify(projected) }] }
     } else {
-        // The notice, plus the blank line separating it from the kept text.
-        const budget = Math.max(MIN_PROJECTION_CHARS, maxChars - notice.length - 2)
-        capped = { ...response, content: [{ type: 'text', text: `${clipText(text, budget)}\n\n${notice}` }] }
+        // An informational wrapper quarantines workspace data the agent must not act on.
+        // The shortened payload stays inside the tags, and the notice stays outside them.
+        const wrapper = splitInformationalResponse(text)
+        const [open, body, close] = wrapper ? [wrapper.open, wrapper.body, wrapper.close] : ['', text, '']
+        // The notice, the blank line separating it from the kept text, and the tags.
+        const budget = Math.max(MIN_PROJECTION_CHARS, maxChars - notice.length - 2 - open.length - close.length)
+        capped = {
+            ...response,
+            content: [{ type: 'text', text: `${open}${clipText(body, budget)}${close}\n\n${notice}` }],
+        }
     }
 
     return { response: capped, outputTokens: estimateResponseTokens(capped), overflowTokens: tokens }

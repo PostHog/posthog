@@ -8,6 +8,7 @@ import {
 } from '@/lib/build-tool-result'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { RESPONSE_TRUNCATION_KEY, capResponseToClientBudget } from '@/lib/response-budget'
+import { withInformationalResponse } from '@/tools/tool-utils'
 import { POSTHOG_META_KEY } from '@/tools/types'
 
 const CODEX_BUDGET = 9_000
@@ -99,6 +100,23 @@ describe('capResponseToClientBudget', () => {
         for (const row of keptText(capped.response).split('\n')) {
             expect(sourceLines.has(row)).toBe(true)
         }
+    })
+
+    // An informational result quarantines workspace data in a tag pair the agent must not
+    // act on. Clipping the text dropped the closing tag and left the cap's own instruction
+    // inside the block that tells the agent to ignore instructions.
+    it('keeps a shortened informational result inside a balanced tag pair, with the notice outside', () => {
+        const wrapped = withInformationalResponse({ results: blobRows(20_000) }, 'notebook-content')
+        const built = buildToolResultPayload({ handlerResult: wrapped, toolName: 'notebooks-get', params: {} })
+
+        const capped = capResponseToClientBudget(built, CODEX_BUDGET)
+
+        const text = capped.response.content[0]!.text
+        expect(estimateResponseTokens(capped.response)).toBeLessThanOrEqual(CODEX_BUDGET)
+        expect(text.match(/<notebook-content /g)).toHaveLength(1)
+        expect(text.match(/<\/notebook-content>/g)).toHaveLength(1)
+        expect(text.indexOf('Result shortened')).toBeGreaterThan(text.indexOf('</notebook-content>'))
+        expect(text).toContain('"id":0')
     })
 
     // Text with no line to cut at is prose, where dropping the prefix would leave the
