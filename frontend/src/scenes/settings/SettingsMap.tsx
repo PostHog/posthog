@@ -25,7 +25,7 @@ import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
-import { CustomBotDefinitions } from 'scenes/settings/environment/CustomBotDefinitions'
+import { CustomBotRules } from 'scenes/settings/environment/CustomBotRules'
 import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
 import { MaxChangelogSettings } from 'scenes/settings/environment/MaxChangelogSettings'
@@ -52,6 +52,7 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm } from '~/types'
 
+import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
@@ -328,7 +329,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Add your own crawlers and scripts to the bots PostHog already detects, so you can tell them apart from real visitors.',
                 docsUrl: 'https://posthog.com/docs/web-analytics/bot-detection',
-                component: <CustomBotDefinitions />,
+                component: <CustomBotRules />,
                 keywords: ['bot', 'crawler', 'spider', 'scraper', 'user agent', 'ai'],
             },
             {
@@ -1314,6 +1315,24 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: 'PRODUCT_SUPPORT_AI_SUGGESTION',
                 allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: ['ai', 'agent', 'suggestion', 'auto', 'reply', 'support', 'conversation', 'beta'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-business-knowledge',
+        title: 'Business knowledge',
+        group: 'Products',
+        flag: 'PRODUCT_BUSINESS_KNOWLEDGE',
+        settings: [
+            {
+                id: 'business-knowledge-learn-from-support',
+                title: 'Learn from support',
+                description:
+                    'When on, PostHog learns reusable answers from public human replies on resolved support tickets.',
+                component: <LearnFromSupportSetting />,
+                docsUrl: 'https://posthog.com/docs/business-knowledge/learn-from-support',
+                keywords: ['business', 'knowledge', 'support', 'learn', 'ticket', 'resolved'],
             },
         ],
     },

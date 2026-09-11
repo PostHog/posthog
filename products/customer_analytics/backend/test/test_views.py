@@ -2,7 +2,7 @@ from datetime import timedelta
 from uuid import uuid4
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +10,7 @@ from django.apps import apps
 from django.utils import timezone
 
 from parameterized import parameterized
+from redis.exceptions import RedisError
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -550,6 +551,56 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(data["external_id"], "ext-1")
         self.assertEqual(data["properties"]["stripe_customer_id"], "cus_123")
         self.assertEqual(data["ignored_at"], ignored_at.isoformat().replace("+00:00", "Z"))
+
+    def test_presence_returns_other_viewers_once_and_excludes_the_caller(self) -> None:
+        account = self._create_account()
+        teammate = User.objects.create_and_join(self.organization, "presence@posthog.com", "testtest")
+        teammate.first_name = "Alex"
+        teammate.last_name = "Rivera"
+        teammate.save(update_fields=["first_name", "last_name"])
+        presence_url = f"{self.endpoint_base}{account.id}/presence/"
+
+        self.client.force_login(teammate)
+        self.assertEqual(self.client.post(presence_url, format="json").json(), [])
+        self.assertEqual(self.client.post(presence_url, format="json").json(), [])
+
+        self.client.force_login(self.user)
+        response = self.client.post(presence_url, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json(), [{"user_id": teammate.id, "display_name": "Alex Rivera"}])
+
+    @patch("products.customer_analytics.backend.logic.account_presence.time")
+    def test_presence_removes_expired_viewers(self, mock_time: MagicMock) -> None:
+        account = self._create_account()
+        teammate = User.objects.create_and_join(self.organization, "presence@posthog.com", "testtest")
+        presence_url = f"{self.endpoint_base}{account.id}/presence/"
+        mock_time.time.side_effect = [100.0, 191.0]
+
+        self.client.force_login(teammate)
+        self.assertEqual(self.client.post(presence_url, format="json").json(), [])
+
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.post(presence_url, format="json").json(), [])
+
+    def test_presence_does_not_leak_accounts_from_other_teams(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        other_account = Account.objects.unscoped().create(team=other_team, name="Other")
+
+        response = self.client.post(f"{self.endpoint_base}{other_account.id}/presence/", format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch(
+        "products.customer_analytics.backend.logic.account_presence.get_client", side_effect=RedisError("unavailable")
+    )
+    def test_presence_redis_failure_returns_an_empty_roster(self, _get_client: MagicMock) -> None:
+        account = self._create_account()
+
+        response = self.client.post(f"{self.endpoint_base}{account.id}/presence/", format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json(), [])
 
     def test_retrieve_hides_retired_role_keys_in_stored_rows(self):
         # Rows not yet cleaned by backfill_account_relationships must not leak role keys:
@@ -1126,9 +1177,9 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertEqual(short_ids, {by_title.short_id, by_content.short_id})
 
     def test_list_orders_by_created_at(self):
-        with freeze_time("2024-01-01"):
+        with time_machine.travel("2024-01-01", tick=False):
             older = self._link_internal_notebook(title="Older", content={})
-        with freeze_time("2024-01-02"):
+        with time_machine.travel("2024-01-02", tick=False):
             newer = self._link_internal_notebook(title="Newer", content={})
 
         default_order = [n["short_id"] for n in self.client.get(self.endpoint_base).json()["results"]]
@@ -1598,6 +1649,23 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
 
         create_response = self.client.post(url, {"title": "x"}, format="json")
         self.assertEqual(create_response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_account_presence_404_when_object_access_denied(self) -> None:
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(self.account.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(
+                user=self.viewer_user, organization=self.organization
+            ),
+        )
+        self._set_access_level(self.viewer_user, resource="account", access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.post(f"{self.accounts_url}{self.account.id}/presence/", format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
 class TestCustomPropertyDefinitionViewSet(APIBaseTest):
@@ -2670,9 +2738,9 @@ class TestAccountNotesViewSet(APIBaseTest):
         self.assertEqual(titles, ["Mine"])
 
     def test_list_orders_by_last_modified_desc_and_paginates(self):
-        with freeze_time("2024-01-01"):
+        with time_machine.travel("2024-01-01", tick=False):
             older = self._link_note(title="Older")
-        with freeze_time("2024-01-02"):
+        with time_machine.travel("2024-01-02", tick=False):
             newer = self._link_note(title="Newer")
 
         first_page = self.client.get(f"{self.endpoint_base}?limit=1").json()
@@ -3297,7 +3365,7 @@ class TestCalendarSyncViewSet(APIBaseTest):
         workflow_kwargs = mock_connect.return_value.start_workflow.call_args.kwargs
         self.assertEqual(workflow_kwargs["id"], f"google-calendar-sync-{integration.id}")
 
-    @freeze_time("2026-04-10T12:00:00Z")
+    @time_machine.travel("2026-04-10T12:00:00Z", tick=False)
     def test_backfill_starts_both_sources_for_an_inclusive_date_range(self) -> None:
         self._become_admin()
         integration = self._create_syncable_integration()
@@ -3336,7 +3404,7 @@ class TestCalendarSyncViewSet(APIBaseTest):
             ("reversed", "2026-04-10", "2026-04-09"),
         ]
     )
-    @freeze_time("2026-04-10T12:00:00Z")
+    @time_machine.travel("2026-04-10T12:00:00Z", tick=False)
     def test_backfill_rejects_dates_outside_the_allowed_range(self, _name: str, start_date: str, end_date: str) -> None:
         self._become_admin()
         integration = self._create_syncable_integration()

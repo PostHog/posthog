@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
@@ -271,7 +271,7 @@ def team_api_test_factory():
             response = self.client.get(f"/api/environments/{other_team.pk}/event_ingestion_restrictions/")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-        @freeze_time("2022-02-08")
+        @time_machine.travel("2022-02-08", tick=False)
         def test_update_team_timezone(self):
             self._assert_activity_log_is_empty()
 
@@ -504,7 +504,7 @@ def team_api_test_factory():
             mock_start_workflow.assert_not_called()
             self.assertTrue(Team.objects.filter(pk=team.pk).exists())
 
-        @freeze_time("2022-02-08")
+        @time_machine.travel("2022-02-08", tick=False)
         def test_reset_token(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
@@ -562,7 +562,7 @@ def team_api_test_factory():
             response = self.client.patch(f"/api/environments/{self.team.id}/reset_token/")
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-        @freeze_time("2022-02-08")
+        @time_machine.travel("2022-02-08", tick=False)
         def test_generate_secret_token(self):
             from posthog.models.utils import mask_key_value
 
@@ -617,7 +617,7 @@ def team_api_test_factory():
                 ]
             )
 
-        @freeze_time("2022-02-08")
+        @time_machine.travel("2022-02-08", tick=False)
         def test_rotate_secret_token(self):
             from posthog.models.utils import mask_key_value
 
@@ -679,7 +679,7 @@ def team_api_test_factory():
                 ]
             )
 
-        @freeze_time("2022-02-08")
+        @time_machine.travel("2022-02-08", tick=False)
         def test_rotate_secret_token_overwrites_backup_token(self):
             from posthog.models.utils import mask_key_value
 
@@ -772,7 +772,7 @@ def team_api_test_factory():
                 self.assertTrue((self.team.secret_api_token or "").startswith("phs_"))
                 self.assertEqual(self.team.secret_api_token_backup, existing_token)
 
-        @freeze_time("2022-02-08")
+        @time_machine.travel("2022-02-08", tick=False)
         def test_delete_secret_backup_token(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
@@ -884,7 +884,7 @@ def team_api_test_factory():
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.json(), {"is_generating_demo_data": False})
 
-        @freeze_time("2022-02-08")
+        @time_machine.travel("2022-02-08", tick=False)
         def test_team_float_config_can_be_serialized_to_activity_log(self):
             # regression test since this isn't true by default
             response = self.client.patch(f"/api/environments/@current/", {"session_recording_sample_rate": 0.4})
@@ -1215,49 +1215,76 @@ def team_api_test_factory():
 
         @parameterized.expand(
             [
-                ("substring", {"key": "$raw_user_agent", "pattern": "AcmeBot", "matcher": "contains"}, True),
-                ("regex", {"key": "$raw_user_agent", "pattern": "AcmeBot/[0-9]+", "matcher": "regex"}, True),
-                ("ip range", {"key": "$ip", "pattern": "192.0.2.0/24", "matcher": "cidr"}, True),
-                ("another property", {"key": "$lib", "pattern": "posthog-python", "matcher": "contains"}, True),
-                ("empty pattern", {"key": "$raw_user_agent", "pattern": "", "matcher": "contains"}, False),
-                ("lookahead", {"key": "$raw_user_agent", "pattern": "Acme(?=Bot)", "matcher": "regex"}, False),
-                ("unparsable regex", {"key": "$raw_user_agent", "pattern": "Acme(", "matcher": "regex"}, False),
-                ("unusable ip range", {"key": "$ip", "pattern": "not-an-ip", "matcher": "cidr"}, False),
+                ("substring", [{"key": "$raw_user_agent", "pattern": "AcmeBot", "matcher": "contains"}], True),
+                ("regex", [{"key": "$raw_user_agent", "pattern": "AcmeBot/[0-9]+", "matcher": "regex"}], True),
+                ("ip range", [{"key": "$ip", "pattern": "192.0.2.0/24", "matcher": "cidr"}], True),
+                ("another property", [{"key": "$lib", "pattern": "posthog-python", "matcher": "contains"}], True),
+                ("exact matcher", [{"key": "$screen_width", "pattern": "800", "matcher": "exact"}], True),
+                (
+                    "multi-condition rule",
+                    [
+                        {"key": "$screen_width", "pattern": "800", "matcher": "exact"},
+                        {"key": "$screen_height", "pattern": "600", "matcher": "exact"},
+                    ],
+                    True,
+                ),
+                ("empty pattern", [{"key": "$raw_user_agent", "pattern": "", "matcher": "contains"}], False),
+                ("lookahead", [{"key": "$raw_user_agent", "pattern": "Acme(?=Bot)", "matcher": "regex"}], False),
+                ("unparsable regex", [{"key": "$raw_user_agent", "pattern": "Acme(", "matcher": "regex"}], False),
+                ("unusable ip range", [{"key": "$ip", "pattern": "not-an-ip", "matcher": "cidr"}], False),
                 # A range can only ever match an IP, so pairing it with a user agent is a mistake.
                 (
                     "range on a user agent",
-                    {"key": "$raw_user_agent", "pattern": "192.0.2.0/24", "matcher": "cidr"},
+                    [{"key": "$raw_user_agent", "pattern": "192.0.2.0/24", "matcher": "cidr"}],
                     False,
                 ),
                 (
                     "unsupported property",
-                    {"key": "$some_other_property", "pattern": "acme", "matcher": "contains"},
+                    [{"key": "$some_other_property", "pattern": "acme", "matcher": "contains"}],
+                    False,
+                ),
+                (
+                    "one unusable condition fails the rule",
+                    [
+                        {"key": "$screen_width", "pattern": "800", "matcher": "exact"},
+                        {"key": "$screen_height", "pattern": "Acme(", "matcher": "regex"},
+                    ],
                     False,
                 ),
             ]
         )
         def test_modifiers_customBotDefinitions_validation(
-            self, _name: str, definition: dict, should_succeed: bool
+            self, _name: str, conditions: list[dict], should_succeed: bool
         ) -> None:
             # A rule that cannot run would break every query that reads $virt_is_bot for this
-            # project, so it has to be rejected on save rather than dropped at query time.
+            # project, so it has to be rejected on save rather than dropped silently at query time.
             response = self.client.patch(
                 f"/api/environments/{self.team.id}",
                 {
                     "modifiers": {
-                        "customBotDefinitions": [{"id": "1", "name": "Acme scraper", **definition}],
+                        "customBotDefinitions": [
+                            {
+                                "id": "1",
+                                "name": "Acme scraper",
+                                "combiner": "AND",
+                                "items": [
+                                    {"id": f"c{index}", **condition} for index, condition in enumerate(conditions)
+                                ],
+                            }
+                        ],
                     }
                 },
             )
 
             if should_succeed:
                 assert response.status_code == status.HTTP_200_OK, response.json()
-                assert response.json()["modifiers"]["customBotDefinitions"][0]["pattern"] == definition["pattern"]
+                stored = response.json()["modifiers"]["customBotDefinitions"][0]
+                assert stored["items"][0]["pattern"] == conditions[0]["pattern"]
             else:
                 assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
         @patch("posthog.event_usage.report_user_action")
-        @freeze_time("2024-01-01T00:00:00Z")
+        @time_machine.travel("2024-01-01T00:00:00Z", tick=False)
         def test_can_add_product_intent(self, mock_report_user_action: MagicMock) -> None:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/add_product_intent/",
@@ -1288,7 +1315,7 @@ def team_api_test_factory():
         @patch("posthog.api.team.enqueue_product_activation_calc_debounced", MagicMock())
         @patch("posthog.models.product_intent.ProductIntent.check_and_update_activation", return_value=False)
         @patch("posthog.event_usage.report_user_action")
-        @freeze_time("2024-01-01T00:00:00Z")
+        @time_machine.travel("2024-01-01T00:00:00Z", tick=False)
         def test_can_update_product_intent_if_already_exists(
             self,
             mock_report_user_action: MagicMock,
@@ -1302,7 +1329,7 @@ def team_api_test_factory():
             original_created_at = intent.created_at
             assert original_created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
             # change the time of the existing intent
-            with freeze_time("2024-01-02T00:00:00Z"):
+            with time_machine.travel("2024-01-02T00:00:00Z", tick=False):
                 response = self.client.patch(
                     f"/api/environments/{self.team.id}/add_product_intent/",
                     {"product_type": "product_analytics"},
@@ -1362,11 +1389,11 @@ def team_api_test_factory():
             # The /api/environments/ request is rewritten to /api/projects/ for every client, so the project
             # viewset's report_user_action fires (not the team module's).
             mock_report_user_action = mock_report_user_action_legacy_endpoint
-            with freeze_time("2024-01-01T00:00:00Z"):
+            with time_machine.travel("2024-01-01T00:00:00Z", tick=False):
                 product_intent = ProductIntent.objects.create(team=self.team, product_type="product_analytics")
             assert product_intent.created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
             assert product_intent.onboarding_completed_at is None
-            with freeze_time("2024-01-05T00:00:00Z"):
+            with time_machine.travel("2024-01-05T00:00:00Z", tick=False):
                 response = self.client.patch(
                     f"/api/environments/{self.team.id}/complete_product_onboarding/",
                     {"product_type": "product_analytics"},
@@ -1418,11 +1445,11 @@ def team_api_test_factory():
             # The /api/environments/ request is rewritten to /api/projects/ for every client, so the project
             # viewset's report_user_action fires (not the team module's).
             mock_report_user_action = mock_report_user_action_legacy_endpoint
-            with freeze_time("2024-01-01T00:00:00Z"):
+            with time_machine.travel("2024-01-01T00:00:00Z", tick=False):
                 product_intent = ProductIntent.objects.create(team=self.team, product_type="product_analytics")
             assert product_intent.created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
             assert product_intent.onboarding_completed_at is None
-            with freeze_time("2024-01-05T00:00:00Z"):
+            with time_machine.travel("2024-01-05T00:00:00Z", tick=False):
                 response = self.client.patch(
                     f"/api/environments/{self.team.id}/complete_product_onboarding/",
                     {"product_type": "product_analytics"},
@@ -1829,7 +1856,7 @@ def team_api_test_factory():
             self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
 
             # Set initial retention - first update doesn't set retention_last_updated
-            with freeze_time("2025-01-01T00:00:00Z"):
+            with time_machine.travel("2025-01-01T00:00:00Z", tick=False):
                 response = self.client.patch(
                     "/api/environments/@current/",
                     {"logs_settings": {"retention_days": 30}},
@@ -1838,7 +1865,7 @@ def team_api_test_factory():
                 assert not hasattr(response.json()["logs_settings"], "retention_last_updated")
 
             # update retention, should set retention_last_updated
-            with freeze_time("2025-01-01T00:00:00Z"):
+            with time_machine.travel("2025-01-01T00:00:00Z", tick=False):
                 response = self.client.patch(
                     "/api/environments/@current/",
                     {"logs_settings": {"retention_days": 14}},
@@ -1847,7 +1874,7 @@ def team_api_test_factory():
                 assert response.json()["logs_settings"]["retention_last_updated"] is not None
 
             # Try to update retention within 24 hours - should fail
-            with freeze_time("2025-01-01T12:00:00Z"):
+            with time_machine.travel("2025-01-01T12:00:00Z", tick=False):
                 response = self.client.patch(
                     "/api/environments/@current/",
                     {"logs_settings": {"retention_days": 30}},
@@ -1856,7 +1883,7 @@ def team_api_test_factory():
                 assert "24 hours" in response.json()["detail"]
 
             # Try to update retention after 24 hours - should succeed
-            with freeze_time("2025-01-02T00:00:01Z"):
+            with time_machine.travel("2025-01-02T00:00:01Z", tick=False):
                 response = self.client.patch(
                     "/api/environments/@current/",
                     {"logs_settings": {"retention_days": 30}},
@@ -1909,14 +1936,14 @@ def team_api_test_factory():
             self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
 
             # Set initial retention
-            with freeze_time("2025-01-01T00:00:00Z"):
+            with time_machine.travel("2025-01-01T00:00:00Z", tick=False):
                 response = self.client.patch(
                     "/api/environments/@current/",
                     {"logs_settings": {"retention_days": 30}},
                 )
                 assert response.status_code == status.HTTP_200_OK
 
-            with freeze_time("2025-01-01T00:00:00Z"):
+            with time_machine.travel("2025-01-01T00:00:00Z", tick=False):
                 response = self.client.patch(
                     "/api/environments/@current/",
                     {"logs_settings": {"retention_days": 14}},
@@ -1924,7 +1951,7 @@ def team_api_test_factory():
                 assert response.status_code == status.HTTP_200_OK
 
             # Change other settings within 24 hours - should succeed
-            with freeze_time("2025-01-01T12:00:00Z"):
+            with time_machine.travel("2025-01-01T12:00:00Z", tick=False):
                 response = self.client.patch(
                     "/api/environments/@current/",
                     {
@@ -1937,7 +1964,7 @@ def team_api_test_factory():
                 assert response.status_code == status.HTTP_200_OK
 
             # Change retention after 24 hours - should succeed
-            with freeze_time("2025-01-02T00:00:01Z"):
+            with time_machine.travel("2025-01-02T00:00:01Z", tick=False):
                 response = self.client.patch(
                     "/api/environments/@current/",
                     {
@@ -2949,7 +2976,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(self.team.session_recording_opt_in, True)
         self.assertEqual(self.team.surveys_opt_in, True)
 
-    @freeze_time("2025-01-01T00:00:00Z")
+    @time_machine.travel("2025-01-01T00:00:00Z", tick=False)
     def test_settings_as_of_requires_at_param(self):
         response = self.client.get("/api/environments/@current/settings_as_of/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -2959,12 +2986,12 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
     def test_settings_as_of_returns_snapshot_with_scope(self):
         # Initial state at T0 is UTC (default)
-        with freeze_time("2025-01-01T00:00:00Z"):
+        with time_machine.travel("2025-01-01T00:00:00Z", tick=False):
             # no change, timezone remains "UTC"
             pass
 
         # Change timezone at T1
-        with freeze_time("2025-01-02T00:00:00Z"):
+        with time_machine.travel("2025-01-02T00:00:00Z", tick=False):
             patch_response = self.client.patch("/api/environments/@current/", {"timezone": "Europe/Lisbon"})
             assert patch_response.status_code == status.HTTP_200_OK, patch_response.json()
 
@@ -2982,12 +3009,12 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
     def test_settings_as_of_full_snapshot_and_filtering(self):
         # Set some configs over time to create activity
-        with freeze_time("2025-02-01T00:00:00Z"):
+        with time_machine.travel("2025-02-01T00:00:00Z", tick=False):
             # Set opt_in true
             r1 = self.client.patch("/api/environments/@current/", {"session_recording_opt_in": True})
             assert r1.status_code == status.HTTP_200_OK
 
-        with freeze_time("2025-02-02T00:00:00Z"):
+        with time_machine.travel("2025-02-02T00:00:00Z", tick=False):
             # Set sample rate and masking config
             r2 = self.client.patch(
                 "/api/environments/@current/",
@@ -3012,7 +3039,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         assert data["session_recording_masking_config"] is None
 
     def test_settings_as_of_scope_only_includes_requested_keys(self):
-        with freeze_time("2025-03-01T00:00:00Z"):
+        with time_machine.travel("2025-03-01T00:00:00Z", tick=False):
             r = self.client.patch(
                 "/api/environments/@current/",
                 {"timezone": "Europe/London", "session_recording_opt_in": False},

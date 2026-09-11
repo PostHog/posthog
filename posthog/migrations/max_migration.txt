@@ -1,1 +1,1 @@
-1347_drop_activitylog_detail_jsonb_ops_gin
+1352_email_lookup_indexes

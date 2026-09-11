@@ -18,6 +18,7 @@ const reportOnly = process.argv.includes('--report-only')
 // recorded violations as warnings (GitHub Actions annotations) without failing CI — the
 // bundle-size Signals scout tracks regressions from the PR comment, so the check informs.
 const assertReportIndex = process.argv.indexOf('--assert-report')
+const failForbiddenHits = process.argv.includes('--fail-forbidden-hits')
 
 // The eager graph is everything a root actually SHIPS on the critical path — the bytes a
 // browser downloads and parses before that surface is interactive. It is measured from the
@@ -124,10 +125,11 @@ function warnViolation(message) {
 function assertReport(reportFilePath) {
     if (!fs.existsSync(reportFilePath)) {
         warnViolation(`Report not found at ${reportFilePath} — did the build run the check?`)
-        return 1
+        return { violations: 1, forbiddenHits: 0, analysisErrors: 1 }
     }
     const reportToAssert = JSON.parse(fs.readFileSync(reportFilePath, 'utf-8'))
     let violations = 0
+    let forbiddenHits = 0
     for (const message of reportToAssert.warnings ?? []) {
         warnViolation(message)
     }
@@ -137,6 +139,7 @@ function assertReport(reportFilePath) {
         violations++
     }
     for (const r of reportToAssert.roots) {
+        const rootForbiddenHits = r.forbiddenHits ?? []
         if (r.overBudget) {
             warnViolation(
                 `Eager graph for '${r.root}' ships ${formatMiB(r.bytes)}, over the ${formatMiB(r.budgetBytes)} budget.\n` +
@@ -147,22 +150,23 @@ function assertReport(reportFilePath) {
             )
             violations++
         }
-        for (const hit of r.forbiddenHits) {
+        for (const hit of rootForbiddenHits) {
             warnViolation(
                 `'${hit.module}' ships eagerly from '${r.root}' — it must stay behind a dynamic import.\n` +
                     `Import chain:\n   ${hit.chain.join('\n   -> ')}`
             )
             violations++
+            forbiddenHits++
         }
-        if (topLevelErrors.length === 0 && !r.overBudget && r.forbiddenHits.length === 0) {
+        if (topLevelErrors.length === 0 && !r.overBudget && rootForbiddenHits.length === 0) {
             console.info(`🟢 ${r.label}: ${formatMiB(r.bytes)} within ${formatMiB(r.budgetBytes)}`)
         }
     }
-    return violations
+    return { violations, forbiddenHits, analysisErrors: topLevelErrors.length }
 }
 
 if (assertReportIndex !== -1) {
-    const violations = assertReport(process.argv[assertReportIndex + 1])
+    const { violations, forbiddenHits, analysisErrors } = assertReport(process.argv[assertReportIndex + 1])
     if (violations) {
         console.warn(
             `\n⚠️ Eager graph check — ${violations} issue(s) above. Not failing CI: the bundle-size ` +
@@ -172,6 +176,12 @@ if (assertReportIndex !== -1) {
         // Neutral wording: warnings (e.g. a stale forbidden pattern) may have printed above
         // without counting as violations, so don't declare an unqualified all-clear.
         console.info('\nNo eager graph budget violations.')
+    }
+    if (failForbiddenHits && (forbiddenHits > 0 || analysisErrors > 0)) {
+        console.error(
+            `\n❌ Eager graph check found ${forbiddenHits} forbidden eager import(s) and ${analysisErrors} analysis error(s).`
+        )
+        process.exit(1)
     }
     process.exit(0)
 }

@@ -446,6 +446,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             row_count=row_count,
             queryable_folder=queryable_folder,
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            published_file_count=len(new_file_uris),
         )
 
     async def _post_run_operations(self, row_count: int) -> str | None:
