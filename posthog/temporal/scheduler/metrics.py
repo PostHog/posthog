@@ -19,7 +19,7 @@ LOGGER = get_write_only_logger(__name__)
 
 
 class SchedulerMetrics:
-    def __init__(self, *, registry: CollectorRegistry = REGISTRY):
+    def __init__(self, *, registry: CollectorRegistry):
         self._payload_bytes = Histogram(
             "posthog_temporal_scheduler_payload_bytes",
             "Encoded Temporal scheduler payload size in bytes.",
@@ -60,6 +60,20 @@ class SchedulerMetrics:
             multiprocess_mode="mostrecent",
             registry=registry,
         )
+        self._active_claim_oldest_age_seconds = Gauge(
+            "posthog_temporal_scheduler_active_claim_oldest_age_seconds",
+            "Age in seconds of the oldest admitted but unfinished scheduler occurrence.",
+            ["scheduler", "region"],
+            multiprocess_mode="mostrecent",
+            registry=registry,
+        )
+        self._quarantined_items = Gauge(
+            "posthog_temporal_scheduler_quarantined_items",
+            "Scheduler occurrences currently held in terminal quarantine.",
+            ["scheduler", "region"],
+            multiprocess_mode="mostrecent",
+            registry=registry,
+        )
         self._permits_snapshot_unixtime = Gauge(
             "posthog_temporal_scheduler_permits_snapshot_unixtime",
             "Unix time when this worker last sampled the durable scheduler permit pool.",
@@ -70,6 +84,13 @@ class SchedulerMetrics:
         self._backlog_snapshot_unixtime = Gauge(
             "posthog_temporal_scheduler_backlog_snapshot_unixtime",
             "Unix time when this worker last sampled scheduler backlog state.",
+            ["scheduler", "region"],
+            multiprocess_mode="mostrecent",
+            registry=registry,
+        )
+        self._claim_snapshot_unixtime = Gauge(
+            "posthog_temporal_scheduler_claim_snapshot_unixtime",
+            "Unix time when this worker last sampled active and quarantined scheduler claims.",
             ["scheduler", "region"],
             multiprocess_mode="mostrecent",
             registry=registry,
@@ -126,6 +147,23 @@ class SchedulerMetrics:
         self._permits_in_flight.labels(scheduler=scheduler, region=region).set(count)
         self._permits_snapshot_unixtime.labels(scheduler=scheduler, region=region).set(time.time())
 
+    def set_claim_state(
+        self,
+        scheduler: str,
+        region: str,
+        *,
+        oldest_active_age_seconds: float,
+        quarantined_items: int,
+    ) -> None:
+        self._validate_scope(scheduler, region)
+        if oldest_active_age_seconds < 0:
+            raise ValueError("oldest_active_age_seconds must not be negative")
+        if quarantined_items < 0:
+            raise ValueError("quarantined_items must not be negative")
+        self._active_claim_oldest_age_seconds.labels(scheduler=scheduler, region=region).set(oldest_active_age_seconds)
+        self._quarantined_items.labels(scheduler=scheduler, region=region).set(quarantined_items)
+        self._claim_snapshot_unixtime.labels(scheduler=scheduler, region=region).set(time.time())
+
     def set_backlog(
         self,
         scheduler: str,
@@ -143,7 +181,8 @@ class SchedulerMetrics:
         self._backlog_snapshot_unixtime.labels(scheduler=scheduler, region=region).set(time.time())
 
 
-DEFAULT_SCHEDULER_METRICS = SchedulerMetrics()
+# Reuse this instance process-wide: a second one on the same registry fails duplicate registration.
+DEFAULT_SCHEDULER_METRICS = SchedulerMetrics(registry=REGISTRY)
 
 
 def _should_record() -> bool:
