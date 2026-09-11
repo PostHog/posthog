@@ -51,10 +51,7 @@ def widen(band: Band, factor: float) -> Band:
 
 
 def _trimmed(samples: np.ndarray) -> np.ndarray:
-    if samples.size < 3:
-        return samples
-    cut = int(TRIM_FRACTION * samples.size)
-    return np.sort(samples)[cut : samples.size - cut] if cut else samples
+    return stats.trimboth(samples, TRIM_FRACTION) if samples.size else samples
 
 
 def _robust_rate(samples: np.ndarray) -> float:
@@ -91,12 +88,12 @@ class NegativeBinomialBandModel:
         self.dispersion_floor = dispersion_floor
 
     def compute(self, samples: np.ndarray, observed: float, alpha: float) -> Band:
-        mu = _robust_rate(samples)
-        mu_eff = max(mu, self.rate_floor)
-        # The variance has to come from the same trimmed set as the rate. One
-        # outlier left in the variance drives r towards zero, which puts all of
-        # the negative binomial's mass at zero and collapses the band to [0, 0].
+        # Rate and variance come from the same trimmed set. One outlier left in
+        # the variance drives r towards zero, which puts all of the negative
+        # binomial's mass at zero and collapses the band to [0, 0].
         trimmed = _trimmed(samples)
+        mu = float(np.mean(trimmed))
+        mu_eff = max(mu, self.rate_floor)
         var = float(np.var(trimmed, ddof=1)) if trimmed.size >= 2 else mu_eff
         var = max(var, mu_eff * self.dispersion_floor)
         if var <= mu_eff * OVERDISPERSION_TOLERANCE:

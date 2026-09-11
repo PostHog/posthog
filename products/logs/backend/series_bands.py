@@ -2,12 +2,19 @@
 
 The observed line is the caller's window of volume per (namespace, environment,
 severity) series, at most MAX_WINDOW_DAYS wide. The expected band is the APM
-detector's count band over time-of-week aligned samples from the BASELINE_WEEKS
-weeks before the window: each display slot pools the same weekly slot, and its
-neighbours within the detector's pool width, from prior weeks. ClickHouse folds
-the baseline weeks onto the display window; Python finishes the band (zero-fill,
-maturity gating, pooling, level adjustment, the band model) where the arithmetic
-is cheap and unit-testable.
+detector's negative binomial count band over time-of-week aligned samples from
+the BASELINE_WEEKS weeks before the window: each display slot pools the same
+weekly slot, and its neighbours within the detector's developing-stage pool
+width, from prior weeks, scaled by the detector's level component. ClickHouse
+folds the baseline weeks onto the display window; Python finishes the band
+(zero-fill, maturity gating, pooling, level adjustment, the band model) where
+the arithmetic is cheap and unit-testable.
+
+The band model and its dials are the detector's, but the chart is not a
+detector run. It folds on a UTC week with no DST widening, applies no traffic
+tiers or exclusion feedback, and stays at the developing pool width however old
+the series is. A bucket outside its band here is evidence to read, not a
+verdict.
 """
 
 import os
@@ -69,15 +76,8 @@ ALIVE_SLOT_FRACTION = float(os.environ.get("LOGS_SERIES_BANDS_ALIVE_SLOT_FRACTIO
 # average at least this many records. Below that the line is a scatter of single
 # records under a band held open by the detector's rate floor, and reads as nothing.
 MIN_MEAN_PER_ALIVE_BUCKET = float(os.environ.get("LOGS_SERIES_BANDS_MIN_MEAN_PER_ALIVE_BUCKET", "5"))
-# The band is the APM detector's, with its dials, so a chart bucket outside its
-# band and a detector verdict on the same rollup agree. Rates in the config are
-# per 5 minute detector bucket and scale to the display grain where used.
+# Its rates and bucket counts are per 5 minute detector bucket; scale them to the display grain where used.
 DETECTION = DetectionConfig.from_env()
-MINUTES_PER_DAY = 24 * 60
-# Pool half-width around each display slot. The detector pools this far around
-# a scored slot in its developing stage, which is the stage two to five weeks of
-# history put a series in.
-POOL_HALF_WIDTH_MINUTES = DETECTION.developing_pool_buckets * BUCKET_MINUTES
 
 # ClickHouse time one request may spend, shared across its passes. The
 # coarsening walk costs one pass per rung, so a per-pass cap would let a
@@ -157,9 +157,8 @@ class _SeriesKey:
 class _SlotRow:
     target_time: dt.datetime
     observed: int
-    # (baseline bucket time, count) for every baseline bucket inside the series'
-    # lifetime that folds onto target_time.
-    baseline: list[tuple[dt.datetime, int]]
+    # (unix seconds, count) per lifetime baseline bucket that folds onto target_time.
+    baseline: list[tuple[int, int]]
 
 
 @frozen
@@ -330,7 +329,7 @@ def fetch_series_slot_rows(
             _SlotRow(
                 target_time=ensure_utc(row[3]),
                 observed=int(row[4]),
-                baseline=[(dt.datetime.fromtimestamp(int(ts), tz=dt.UTC), int(count)) for ts, count in row[5]],
+                baseline=[(int(ts), int(count)) for ts, count in row[5]],
             )
         )
     return rows
@@ -344,8 +343,11 @@ def _baseline_weeks_available(later: dt.datetime, lifetime_start: dt.datetime) -
     whose sample slot predates the lifetime says nothing; a week inside the
     lifetime with no row was a real zero.
     """
-    weeks = int((later - lifetime_start).total_seconds()) // SECONDS_PER_WEEK
-    return min(BASELINE_WEEKS, max(0, weeks))
+    return _weeks_between(int(later.timestamp()), int(lifetime_start.timestamp()))
+
+
+def _weeks_between(later_ts: int, lifetime_ts: int) -> int:
+    return min(BASELINE_WEEKS, max(0, (later_ts - lifetime_ts) // SECONDS_PER_WEEK))
 
 
 def _band_gate(
@@ -365,73 +367,87 @@ def _band_gate(
     return baseline_weeks, threshold + (window_end - window_start)
 
 
-class _SeriesHistory:
-    """One series' counts on a dense grid from the baseline start to the window
-    end, zero where the rollup has no row, plus the folded rows by display slot.
+class _FoldedHistory:
+    """One series' counts on a dense grid at the display grain, from the baseline
+    start to the window end, zero where the rollup has no row, plus each folded
+    slot's weekly samples padded to the weeks the slot has existed.
 
-    Baseline buckets come from the folded rows' sample lists, observed buckets
-    from the rows' observed counts, so the grid is contiguous across the window
-    start and the level component can read a trailing day from either side.
+    Baseline buckets come from the folded rows' sample lists and observed
+    buckets from the rows' observed counts, so the grid is contiguous across the
+    window start and the level component can read a trailing day from either
+    side. Times are unix seconds; the display grain divides an hour, so every
+    bucket edge is a whole multiple of the step from the grid start.
     """
 
     def __init__(
-        self, series_rows: _SeriesRows, window_start: dt.datetime, window_end: dt.datetime, step: dt.timedelta
+        self,
+        series_rows: _SeriesRows,
+        window_start: dt.datetime,
+        window_end: dt.datetime,
+        interval_minutes: int,
+        detection: DetectionConfig,
     ):
-        self.by_time = {row.target_time: row for row in series_rows.slots}
-        self.lifetime_start = series_rows.lifetime_start
-        self.window_start = window_start
-        self.step = step
-        self.grid_start = window_start - dt.timedelta(weeks=BASELINE_WEEKS)
-        self.counts = np.zeros(self._index(window_end), dtype=np.float64)
+        self.detection = detection
+        self.step_seconds = interval_minutes * 60
+        self.window_start_ts = int(window_start.timestamp())
+        self.grid_start_ts = self.window_start_ts - BASELINE_WEEKS * SECONDS_PER_WEEK
+        self.lifetime_ts = int(series_rows.lifetime_start.timestamp())
+        window_end_ts = int(window_end.timestamp())
+        self.counts = np.zeros(self._index(window_end_ts), dtype=np.float64)
+        self.samples: dict[int, np.ndarray] = {}
         for row in series_rows.slots:
-            if window_start <= row.target_time < window_end:
-                self.counts[self._index(row.target_time)] = row.observed
-            for bucket_time, count in row.baseline:
-                self.counts[self._index(bucket_time)] = count
+            target_ts = int(row.target_time.timestamp())
+            if self.window_start_ts <= target_ts < window_end_ts:
+                self.counts[self._index(target_ts)] = row.observed
+            for bucket_ts, count in row.baseline:
+                self.counts[self._index(bucket_ts)] = count
+            values = [float(count) for _, count in row.baseline]
+            values.extend([0.0] * max(0, _weeks_between(target_ts, self.lifetime_ts) - len(values)))
+            self.samples[target_ts] = np.array(values, dtype=np.float64)
         self.cumulative = np.concatenate(([0.0], np.cumsum(self.counts)))
 
-    def _index(self, at: dt.datetime) -> int:
-        return int((at - self.grid_start) / self.step)
+    def _index(self, at_ts: int) -> int:
+        return (at_ts - self.grid_start_ts) // self.step_seconds
 
-    def mean(self, start: dt.datetime, end: dt.datetime) -> float | None:
-        first = max(self._index(start), 0)
-        last = min(self._index(end), self.counts.size)
+    def observed(self, slot_ts: int) -> int:
+        return int(self.counts[self._index(slot_ts)])
+
+    def mean(self, start_ts: int, end_ts: int) -> float | None:
+        first = max(self._index(start_ts), 0)
+        last = min(self._index(end_ts), self.counts.size)
         if last <= first:
             return None
         return float(self.cumulative[last] - self.cumulative[first]) / (last - first)
 
-    def pooled_samples(self, slot: dt.datetime, half_width: int) -> np.ndarray:
-        """Baseline samples for slot and its neighbours within half_width slots.
+    def pooled_samples(self, slot_ts: int, half_width: int) -> np.ndarray:
+        """Weekly samples for slot and its neighbours within half_width slots.
 
         A neighbour outside the display window still folds onto a row of the
-        same week, so the fold rather than the window bounds the lookup. A
-        lifetime week with no row at a pooled slot was a real zero, so the
-        samples pad with zeros to the weeks that slot has existed.
+        same week, so the fold rather than the window bounds the lookup.
         """
-        samples: list[float] = []
+        parts = []
         for offset in range(-half_width, half_width + 1):
-            folded = self.window_start + (slot + offset * self.step - self.window_start) % dt.timedelta(weeks=1)
-            row = self.by_time.get(folded)
-            values = [float(count) for _, count in row.baseline] if row else []
-            expected = _baseline_weeks_available(folded, self.lifetime_start)
-            samples.extend(values)
-            samples.extend([0.0] * max(0, expected - len(values)))
-        return np.array(samples, dtype=np.float64)
+            folded = (
+                self.window_start_ts + (slot_ts + offset * self.step_seconds - self.window_start_ts) % SECONDS_PER_WEEK
+            )
+            part = self.samples.get(folded)
+            parts.append(part if part is not None else np.zeros(_weeks_between(folded, self.lifetime_ts)))
+        return np.concatenate(parts)
 
-    def level_factor(self, slot: dt.datetime) -> float:
+    def level_factor(self, slot_ts: int) -> float:
         """The detector's slow level component: the mean of a trailing day,
         lagged by the baseline guard so an ongoing anomaly cannot re-level
         itself, over the mean of the whole history before that guard."""
-        if not DETECTION.level_adjustment_enabled:
+        detection = self.detection
+        if not detection.level_adjustment_enabled:
             return 1.0
-        reference_end = slot - dt.timedelta(minutes=DETECTION.baseline_guard_buckets * BUCKET_MINUTES)
-        recent_start = reference_end - dt.timedelta(minutes=DETECTION.level_window_buckets * BUCKET_MINUTES)
-        history_start = max(self.lifetime_start, self.grid_start)
-        recent = self.mean(max(recent_start, history_start), reference_end)
-        reference = self.mean(history_start, reference_end)
+        reference_end = slot_ts - detection.baseline_guard_buckets * BUCKET_MINUTES * 60
+        recent_start = reference_end - detection.level_window_buckets * BUCKET_MINUTES * 60
+        recent = self.mean(max(recent_start, self.lifetime_ts), reference_end)
+        reference = self.mean(self.lifetime_ts, reference_end)
         if recent is None or reference is None or reference <= 0.0:
             return 1.0
-        return float(np.clip(recent / reference, 1.0 / DETECTION.level_factor_clamp, DETECTION.level_factor_clamp))
+        return min(max(recent / reference, 1.0 / detection.level_factor_clamp), detection.level_factor_clamp)
 
 
 def _build_series(
@@ -440,35 +456,36 @@ def _build_series(
     window_start: dt.datetime,
     window_end: dt.datetime,
     interval_minutes: int,
+    detection: DetectionConfig,
 ) -> BandSeries:
-    step = dt.timedelta(minutes=interval_minutes)
-    history = _SeriesHistory(series_rows, window_start, window_end, step)
+    history = _FoldedHistory(series_rows, window_start, window_end, interval_minutes, detection)
     lifetime_start = series_rows.lifetime_start
     baseline_weeks, band_ready_at = _band_gate(window_start, window_end, lifetime_start)
     banded = band_ready_at is None
 
     grain = interval_minutes / BUCKET_MINUTES
     band_model = NegativeBinomialBandModel(
-        rate_floor=DETECTION.band_rate_floor * grain, dispersion_floor=DETECTION.dispersion_floor
+        rate_floor=detection.band_rate_floor * grain, dispersion_floor=detection.dispersion_floor
     )
-    alpha = DETECTION.false_flag_budget_per_day / (MINUTES_PER_DAY / interval_minutes)
-    pool_half_width = POOL_HALF_WIDTH_MINUTES // interval_minutes
-    # Below this expected count the detector never calls a zero bucket silence,
-    # so the band's lower edge sits at zero rather than at the rate floor's
-    # quantile, which would mark every quiet hour of a quiet series as a drop.
-    silence_min_expected = DETECTION.silence_min_expected * grain
+    alpha = detection.alpha_per_bucket * grain
+    pool_half_width = detection.developing_pool_buckets * BUCKET_MINUTES // interval_minutes
+    # The detector only calls a zero bucket silence above this expected count. The
+    # chart draws the lower edge at zero for the whole slot below it, so a quiet
+    # series never marks a drop where the detector would still flag a low count.
+    silence_min_expected = detection.silence_min_expected * grain
 
     buckets: list[BandBucket] = []
     total_count = 0
+    step = dt.timedelta(minutes=interval_minutes)
     slot = window_start
     while slot < window_end:
-        row = history.by_time.get(slot)
-        observed = row.observed if row else 0
+        slot_ts = int(slot.timestamp())
+        observed = history.observed(slot_ts)
         total_count += observed
         lower: float | None = None
         upper: float | None = None
         if banded:
-            samples = history.pooled_samples(slot, pool_half_width) * history.level_factor(slot)
+            samples = history.pooled_samples(slot_ts, pool_half_width) * history.level_factor(slot_ts)
             band = band_model.compute(samples, float(observed), alpha)
             lower = band.lower if band.expected >= silence_min_expected else 0.0
             upper = band.upper
@@ -516,6 +533,7 @@ def _coarsen_sparse_series(
     window_end: dt.datetime,
     interval_minutes: int,
     deadline: float,
+    detection: DetectionConfig,
 ) -> list[BandSeries]:
     """Move each series that is too sparse at the requested grain up the ladder
     to the first rung where it is dense enough, or to the top rung.
@@ -561,7 +579,8 @@ def _coarsen_sparse_series(
                 settled.append(fallback)
                 continue
             candidate = replace(
-                _build_series(key, rows[key], rung_start, rung_end, rung), coarsened_reason=fallback.coarsened_reason
+                _build_series(key, rows[key], rung_start, rung_end, rung, detection),
+                coarsened_reason=fallback.coarsened_reason,
             )
             if _density_shortfall(candidate) is None:
                 settled.append(candidate)
@@ -665,17 +684,21 @@ def run_series_bands(
     window_start: dt.datetime,
     window_end: dt.datetime,
     interval_minutes: int = 60,
+    detection: DetectionConfig = DETECTION,
 ) -> SeriesBandsResult:
     window_start = floor_to_interval(window_start, interval_minutes)
     window_end = floor_to_interval(window_end, interval_minutes)
 
     deadline = time.monotonic() + MAX_EXECUTION_SECONDS
     slot_rows = fetch_series_slot_rows(team, service_name, window_start, window_end, interval_minutes)
-    series = [_build_series(key, rows, window_start, window_end, interval_minutes) for key, rows in slot_rows.items()]
+    series = [
+        _build_series(key, rows, window_start, window_end, interval_minutes, detection)
+        for key, rows in slot_rows.items()
+    ]
     series.sort(key=lambda s: (-s.total_count, s.namespace, s.environment, s.severity))
     series_truncated = len(series) > MAX_SERIES
     series = _coarsen_sparse_series(
-        team, service_name, series[:MAX_SERIES], window_start, window_end, interval_minutes, deadline
+        team, service_name, series[:MAX_SERIES], window_start, window_end, interval_minutes, deadline, detection
     )
     series.sort(key=lambda s: (-s.total_count, s.namespace, s.environment, s.severity))
 

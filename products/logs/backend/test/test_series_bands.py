@@ -37,13 +37,13 @@ NEARBY_STRAY = WINDOW_START - dt.timedelta(weeks=1, days=5)
 ALIVE_HOURS = 48
 
 
-def _plain_band():
+def _detection(*, pooling: bool, level: bool) -> series_bands.DetectionConfig:
     # Pooling and level adjustment each need their own fixture shape; with both
     # off a slot's band is a function of that slot's weekly samples alone.
-    return patch.multiple(
-        series_bands,
-        POOL_HALF_WIDTH_MINUTES=0,
-        DETECTION=replace(series_bands.DETECTION, level_adjustment_enabled=False),
+    return replace(
+        series_bands.DETECTION,
+        developing_pool_buckets=series_bands.DETECTION.developing_pool_buckets if pooling else 0,
+        level_adjustment_enabled=level,
     )
 
 
@@ -130,10 +130,14 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         rows.append((self.team.pk + 1, slot, service, "ns", "prod", "error", 999))
         self._insert(rows)
 
-        with _plain_band():
-            result = run_series_bands(
-                self.team, service, window_start=window_start, window_end=WINDOW_END, interval_minutes=interval_minutes
-            )
+        result = run_series_bands(
+            self.team,
+            service,
+            window_start=window_start,
+            window_end=WINDOW_END,
+            interval_minutes=interval_minutes,
+            detection=_detection(pooling=False, level=False),
+        )
 
         assert result.window_start == window_start
         assert result.window_end == WINDOW_END
@@ -361,8 +365,13 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         rows.append((self.team.pk, SLOT, service, "ns", "prod", "error", 400))
         self._insert(rows)
 
-        with patch.object(series_bands, "DETECTION", replace(series_bands.DETECTION, level_adjustment_enabled=False)):
-            result = run_series_bands(self.team, service, window_start=WINDOW_START, window_end=WINDOW_END)
+        result = run_series_bands(
+            self.team,
+            service,
+            window_start=WINDOW_START,
+            window_end=WINDOW_END,
+            detection=_detection(pooling=True, level=False),
+        )
 
         bucket = {b.time: b for b in result.series[0].buckets}[SLOT]
         # The slot's own five samples of 100 would band at [73, 130] and read
@@ -410,8 +419,13 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
             rows.append((self.team.pk, SLOT - dt.timedelta(weeks=week), service, "ns", "prod", "warn", value))
         self._insert(rows)
 
-        with _plain_band():
-            result = run_series_bands(self.team, service, window_start=WINDOW_START, window_end=WINDOW_END)
+        result = run_series_bands(
+            self.team,
+            service,
+            window_start=WINDOW_START,
+            window_end=WINDOW_END,
+            detection=_detection(pooling=False, level=False),
+        )
 
         bucket = {b.time: b for b in result.series[0].buckets}[SLOT]
         # Two lifetime weeks with no row at this slot are two samples of zero, so
