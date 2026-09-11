@@ -18,9 +18,8 @@ pub struct PgFallback {
     pub table: String,
 }
 
-/// Take a fallback-pool connection, recording the wait. The pool is small
-/// and shared by cache-miss loads and the sagas' mark checks, so a burst
-/// of releases can queue here while every query stays fast.
+/// Take a fallback-pool connection, recording the wait: the pool is small
+/// and shared by cache-miss loads and the sagas' mark checks.
 pub async fn acquire_timed(
     pool: &PgPool,
     caller: &'static str,
@@ -72,6 +71,8 @@ pub async fn load_person_from_pg(
     .bind(key.person_id)
     .fetch_optional(&mut *conn)
     .await?;
+    // The row is owned; parsing its properties must not hold the pool slot.
+    drop(conn);
 
     histogram!("personhog_leader_pg_fallback_duration_ms")
         .record(start.elapsed().as_secs_f64() * 1000.0);

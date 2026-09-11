@@ -887,10 +887,8 @@ fn partition_from_metadata<T>(request: &Request<T>) -> Result<u32, Status> {
         .map_err(|_| Status::invalid_argument("x-partition metadata is not a valid u32"))
 }
 
-/// Wall time of one committed-release phase. The release is the slowest
-/// leader RPC, and its end-to-end histogram cannot say whether the time
-/// is the per-person lock, the person load, the mark-row check on the
-/// fallback pool, or the changelog produce.
+/// Per-phase wall time of a committed release; the RPC histogram alone
+/// cannot separate the lock, the load, the mark check, and the produce.
 fn record_release_phase(phase: &'static str, started: Instant) {
     histogram!("personhog_leader_release_phase_ms", "phase" => phase)
         .record(started.elapsed().as_secs_f64() * 1000.0);
@@ -1760,7 +1758,6 @@ impl PersonHogLeader for PersonHogLeaderService {
             .clone();
         let lock_started = Instant::now();
         let _guard = mutex.lock().await;
-        record_release_phase("lock_wait", lock_started);
 
         // Releasing another op's fence would break that op's seal.
         if let Some(entry) = self.fences.get(&cache_key) {
@@ -1771,6 +1768,7 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         match outcome {
             ReleaseOutcome::Committed => {
+                record_release_phase("lock_wait", lock_started);
                 // 0 is a legitimate sealed version (a fresh stub's),
                 // which is why the field is explicitly optional in the proto.
                 let Some(sealed_version) = req.sealed_version else {
