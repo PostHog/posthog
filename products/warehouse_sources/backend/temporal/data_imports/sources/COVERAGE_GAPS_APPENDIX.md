@@ -238,7 +238,7 @@ Note: Verified against the published OpenAPI spec linked from https://alguna.com
 
 ## AlphaVantage — **thin**
 
-Today (13): `balance_sheet`, `cash_flow`, `company_overview`, `dividends`, `earnings`, `global_quote`, `income_statement`, `listing_status`, `splits`, `time_series_daily`, `time_series_daily_adjusted`, `time_series_monthly`, `time_series_weekly`
+Today (17): `balance_sheet`, `cash_flow`, `company_overview`, `dividends`, `earnings`, `earnings_calendar`, `global_quote`, `income_statement`, `insider_transactions`, `institutional_holdings`, `listing_status`, `news_sentiment`, `splits`, `time_series_daily`, `time_series_daily_adjusted`, `time_series_monthly`, `time_series_weekly`
 
 Diffed against: <https://www.alphavantage.co/documentation/>
 
@@ -246,20 +246,20 @@ Diffed against: <https://www.alphavantage.co/documentation/>
 - [x] `TIME_SERIES_DAILY_ADJUSTED` — split/dividend-adjusted closes, required for any correct return or backtest calculation (high)
 - [x] `DIVIDENDS` — corporate action history per symbol (high)
 - [x] `SPLITS` — split history needed to reconcile the unadjusted price series already synced (high)
-- [ ] `NEWS_SENTIMENT` — news and sentiment feed - the vendor's headline alternative-data product (high)
-- [ ] `EARNINGS_CALENDAR` — upcoming earnings dates to join against the earnings table already synced (medium)
-- [ ] `INSIDER_TRANSACTIONS` — insider buy/sell transaction rows per symbol (medium)
-- [ ] `INSTITUTIONAL_HOLDINGS` — institutional holder positions per symbol (medium)
+- [x] `NEWS_SENTIMENT` — news and sentiment feed - the vendor's headline alternative-data product (high)
+- [x] `EARNINGS_CALENDAR` — upcoming earnings dates to join against the earnings table already synced (medium)
+- [x] `INSIDER_TRANSACTIONS` — insider buy/sell transaction rows per symbol (medium)
+- [x] `INSTITUTIONAL_HOLDINGS` — institutional holder positions per symbol (medium)
 - [ ] `SHARES_OUTSTANDING` — share count history, needed for per-share and market-cap metrics (medium)
 - [ ] `EARNINGS_ESTIMATES` — analyst estimates to compare against reported earnings (medium)
 - [ ] `ETF_PROFILE` — ETF holdings and sector breakdown, the ETF counterpart to company_overview (medium)
 - [ ] `REAL_GDP, CPI, TREASURY_YIELD, FEDERAL_FUNDS_RATE, UNEMPLOYMENT` — macro indicator series commonly joined against equity data (medium)
 
-Note: Single /query endpoint parameterized by `function=`; the docs page exposes ~140 anchored functions and PostHog surfaces 9. Beyond the listed gaps, TIME_SERIES_INTRADAY, TIME_SERIES_WEEKLY_ADJUSTED/MONTHLY_ADJUSTED, the FX and digital-currency series, the commodities family and ~60 technical indicators are also absent, though indicators are cheaply derivable in the warehouse.
+Note: Single /query endpoint parameterized by `function=`; the docs page exposes ~140 anchored functions and PostHog surfaces 17. Beyond the listed gaps, TIME_SERIES_INTRADAY, TIME_SERIES_WEEKLY_ADJUSTED/MONTHLY_ADJUSTED, the FX and digital-currency series, the commodities family and ~60 technical indicators are also absent, though indicators are cheaply derivable in the warehouse.
 
 ## AmazonAds — **thin**
 
-Today (7): `profiles`, `sp_ad_groups`, `sp_campaign_reports`, `sp_campaigns`, `sp_keywords`, `sp_product_ads`, `sp_targets`
+Today (18): `portfolios`, `profiles`, `sb_ad_groups`, `sb_ads`, `sb_campaigns`, `sb_targets`, `sd_ad_groups`, `sd_ads`, `sd_campaigns`, `sd_targets`, `sp_ad_groups`, `sp_campaign_negative_keywords`, `sp_campaign_reports`, `sp_campaigns`, `sp_keywords`, `sp_negative_keywords`, `sp_product_ads`, `sp_targets`
 
 Diffed against: <https://d1y2lf8k3vrkfu.cloudfront.net/openapi/en-us/dest/SponsoredProducts_prod_3p.json>
 
@@ -267,14 +267,16 @@ Diffed against: <https://d1y2lf8k3vrkfu.cloudfront.net/openapi/en-us/dest/Sponso
 - [x] `POST /sp/productAds/list` — the ad (ASIN) level under the ad groups already synced (high)
 - [x] `POST /sp/keywords/list` — keyword-level bids and state, the main optimization object (high)
 - [x] `POST /sp/targets/list` — product and category targeting expressions with bids (high)
-- [ ] `POST /portfolios/list` — lookup resolving the portfolioId carried on the campaigns already synced (high)
-- [ ] `POST /sb/... campaigns, ad groups, ads and targets (AmazonAdsAPISBMerged_prod_3p.json)` — Sponsored Brands entities are entirely absent, so spend coverage is partial (high)
-- [ ] `POST /sd/... campaigns, ad groups, product ads and targets (AmazonAdsAPISDMerged_prod_3p.json)` — Sponsored Display entities are entirely absent (high)
-- [ ] `POST /sp/negativeKeywords/list and /sp/campaignNegativeKeywords/list` — negative keyword coverage, needed to explain traffic exclusions (medium)
+- [x] `POST /portfolios/list` — lookup resolving the portfolioId carried on the campaigns already synced (high)
+- [x] `POST /adsApi/v1/query/... campaigns, adGroups, ads and targets, filtered to SPONSORED_BRANDS (AmazonAdsAPISBMerged_prod_3p.json)` — Sponsored Brands entities, so spend coverage is no longer partial (high)
+- [x] `POST /adsApi/v1/query/... campaigns, adGroups, ads and targets, filtered to SPONSORED_DISPLAY (AmazonAdsAPISDMerged_prod_3p.json)` — Sponsored Display entities (high)
+- [x] `POST /sp/negativeKeywords/list and /sp/campaignNegativeKeywords/list` — negative keyword coverage, needed to explain traffic exclusions (medium)
 - [ ] `POST /sp/negativeTargets/list and /sp/campaignNegativeTargets/list` — negative product/category targets alongside the positive targets (medium)
 - [ ] `POST /history (Change History API)` — state-transition history of bids, budgets and status changes (medium)
 - [ ] `POST /adsAccounts/list` — advertising account lookup above profiles, for multi-account rollups (medium)
 - [ ] `GET /invoices and POST /invoiceSummaries/list (Advertising Billing API)` — billed spend reconciliation against reported spend (medium)
+
+Note: the Sponsored Brands and Sponsored Display rows above were audited as `POST /sb/...` and `POST /sd/...`, but neither merged spec serves those paths. Both products' campaigns, ad groups, ads and targets are served by the unified Ads API at `POST /adsApi/v1/query/{entity}`, which selects between them with a required `adProductFilter`. That is the surface implemented. The per-product alternatives are worse: Sponsored Brands v4 has no targets list endpoint at all, and Sponsored Display v3 is a separate offset-paginated GET surface.
 
 Note: Static schema list. The Amazon Ads docs site is a Redocly SPA; the real spec index is https://d3a0d0y2hgofx6.cloudfront.net/en-us/toc2.json, which links ~130 OpenAPI documents. I also read OfflineReport_prod_3p.json, Portfolios_prod_3p.json, AmazonAdsAPIExports_prod_3p.json, Changehistory_prod_3p.json, AdvertisingBilling_prod_3p.json and AdvertisingAccounts_prod_3p.json. Nearly all list endpoints are POST /.../list rather than GET.
 
@@ -362,7 +364,7 @@ Note: Reference index (96 slugs) read from the docs nav; each path below confirm
 
 ## Appdynamics — gaps
 
-Today (10): `applications`, `business_transactions`, `events`, `health_rule_violations`, `health_rules`, `metric_data`, `metrics`, `nodes`, `request_snapshots`, `tiers`
+Today (13): `anomalies`, `applications`, `backends`, `business_transactions`, `database_servers`, `events`, `health_rule_violations`, `health_rules`, `metric_data`, `metrics`, `nodes`, `request_snapshots`, `tiers`
 
 Diffed against: <https://help.splunk.com/en/appdynamics-saas/extend-splunk-appdynamics/26.4.0/extend-splunk-appdynamics/splunk-appdynamics-apis>
 
@@ -370,19 +372,26 @@ Diffed against: <https://help.splunk.com/en/appdynamics-saas/extend-splunk-appdy
 - [x] `/controller/alerting/rest/v1/applications/{id}/health-rules` — lookup resolving the health rule IDs/names carried on the health_rule_violations we already sync (high)
 - [x] `/controller/rest/applications/{app}/request-snapshots` — individual slow/error transaction snapshots, the drill-down layer under business_transactions (high)
 - [x] `/controller/rest/applications/{app}/metrics (metric tree browse)` — lookup of available metric paths — without it metric_data has to be hand-configured (high)
-- [ ] `/controller/rest/applications/{app}/backends` — lookup for remote services/databases referenced by tiers and business transactions (high)
-- [ ] `/controller/anomaly/rest/api/v1/applications/{id}/anomalies` — anomaly-detection violations, the ML counterpart to health rule violations (medium)
+- [x] `/controller/rest/applications/{app}/backends` — lookup for remote services/databases referenced by tiers and business transactions (high)
+- [x] `/controller/anomaly/rest/api/v1/applications/{id}/anomalies` — anomaly-detection violations, the ML counterpart to health rule violations (medium)
 - [ ] `/events/query (Analytics Events API, ADQL)` — transaction/log/browser analytics records not exposed by the controller REST API (medium)
-- [ ] `/controller/rest/databases/servers` — database visibility inventory joinable to backends and tiers (medium)
+- [x] `/controller/rest/databases/servers` — database visibility inventory joinable to backends and tiers (medium)
 - [ ] `/controller/rest/databases/servers/healthrule-violations` — database-side violations alongside the APM ones already synced (medium)
 - [ ] `/controller/rest/applications/{app}/metric-data-v2` — v2 metric retrieval with richer rollup semantics than the v1 metric_data we sync (low)
 - [ ] `/controller/ControllerAuditHistory` — who changed what in the controller, for correlating config changes to incidents (low)
+
+Note: `/events/query` is left unticked on purpose. The Analytics Events API is not served by
+the controller: it addresses the Events Service host with its own `X-Events-API-AccountName` /
+`X-Events-API-Key` credentials, and the rows it returns are whatever a user-written ADQL query
+selects, so there is no fixed schema or primary key to sync as a table. Exposing it means new
+credential fields, a query input, and scroll pagination, which is source-shaped work rather than
+one more endpoint in this catalog.
 
 Note: docs.appdynamics.com now serves an SPA shell and presents a broken TLS chain, so the canonical reference is the Splunk help portal; individual API pages (application-model, metric-and-snapshot, alert-and-respond/\*, anomaly-violation, analytics-events, database-visibility, rbac) were fetched and their /controller/... paths extracted.
 
 ## Appfigures — gaps
 
-Today (10): `categories`, `countries`, `products`, `ranks`, `ratings_report`, `revenue_report`, `reviews`, `sales_report`, `stores`, `subscriptions_report`
+Today (15): `ads_report`, `adspend_report`, `aso_keywords`, `aso_stats`, `categories`, `countries`, `payments_report`, `products`, `ranks`, `ratings_report`, `revenue_report`, `reviews`, `sales_report`, `stores`, `subscriptions_report`
 
 Diffed against: <https://docs.appfigures.com/api/reference/v2>
 
@@ -390,10 +399,10 @@ Diffed against: <https://docs.appfigures.com/api/reference/v2>
 - [x] `/reports/subscriptions` — subscription metrics (new, renewals, churn) that sales/revenue reports do not break out (high)
 - [x] `/reports/ratings` — rating counts and averages over time, the current supported replacement for /ratings (high)
 - [x] `/data/stores, /data/categories, /data/countries` — lookup tables resolving the store, category and country codes on every synced report row (high)
-- [ ] `/aso (keyword ranks and stats)` — tracked keyword positions, the other half of the ASO story with /ranks (high)
-- [ ] `/reports/adspend` — campaign spend by network, needed for ROAS against revenue_report (medium)
-- [ ] `/reports/ads` — ad publishing revenue by network, a revenue stream missing from sales_report (medium)
-- [ ] `/reports/payments` — expected payouts, reconciles revenue to cash (medium)
+- [x] `/aso (keyword ranks and stats)` — tracked keyword positions, the other half of the ASO story with /ranks (high) — synced as `aso_keywords` and `aso_stats`. /aso takes one product and one country per request and returns each keyword's latest position rather than a dated series, so both are daily snapshots fanned out over the account's products and the countries set on the source.
+- [x] `/reports/adspend` — campaign spend by network, needed for ROAS against revenue_report (medium) — synced as `adspend_report`, incremental on `date`.
+- [x] `/reports/ads` — ad publishing revenue by network, a revenue stream missing from sales_report (medium) — synced as `ads_report`, incremental on `date`.
+- [x] `/reports/payments` — expected payouts, reconciles revenue to cash (medium) — synced as `payments_report`, incremental on `date`.
 - [ ] `/reports/usage` — in-app usage metrics (DAU, sessions, crashes) per product (medium)
 - [ ] `/reports/estimates` — download/revenue estimates for competitor apps (medium)
 - [ ] `/featured` — when and where apps were featured, a step-change driver for downloads (medium)
