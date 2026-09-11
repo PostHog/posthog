@@ -5,10 +5,6 @@ import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { pluralize } from 'lib/utils/strings'
-import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
-import { FunnelsAdvanced } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
-import { FunnelsQuerySteps } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
-import { FunnelStepConfiguration } from 'scenes/insights/EditorFilters/FunnelStepConfiguration'
 import { GoalLines } from 'scenes/insights/EditorFilters/GoalLines'
 import { PathsAdvanced } from 'scenes/insights/EditorFilters/PathsAdvanced'
 import { PathsEventsTypes } from 'scenes/insights/EditorFilters/PathsEventTypes'
@@ -23,7 +19,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { StickinessCriteria } from '~/queries/nodes/InsightViz/StickinessCriteria'
 import { FunnelsQuery, InsightQueryNode, WebOverviewQuery, WebStatsTableQuery } from '~/queries/schema/schema-general'
 import { isWebAnalyticsInsightQuery } from '~/queries/utils'
 import {
@@ -35,6 +30,10 @@ import {
     PathType,
 } from '~/types'
 
+import { FunnelAttribution } from 'products/product_analytics/frontend/insights/funnels/editor/FunnelAttributionFilter'
+import { FunnelsAdvanced } from 'products/product_analytics/frontend/insights/funnels/editor/FunnelsAdvanced'
+import { FunnelsQuerySteps } from 'products/product_analytics/frontend/insights/funnels/editor/FunnelsQuerySteps'
+import { FunnelStepConfiguration } from 'products/product_analytics/frontend/insights/funnels/editor/FunnelStepConfiguration'
 import { FunnelVizType } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelVizType'
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 import { JourneysExclusions } from 'products/product_analytics/frontend/insights/journeys/JourneysExclusions'
@@ -42,9 +41,10 @@ import { JourneysSettings } from 'products/product_analytics/frontend/insights/j
 import { JourneysStepSourcePicker } from 'products/product_analytics/frontend/insights/journeys/JourneysStepSourcePicker'
 import { RetentionCondition } from 'products/product_analytics/frontend/insights/retention/editor/RetentionCondition'
 import { RetentionOptions } from 'products/product_analytics/frontend/insights/retention/editor/RetentionOptions'
+import { CumulativeStickinessFilter } from 'products/product_analytics/frontend/insights/stickiness/editor/CumulativeStickinessFilter'
+import { StickinessCriteria } from 'products/product_analytics/frontend/insights/stickiness/editor/StickinessCriteria'
 
 import { Breakdown } from './Breakdown'
-import { CumulativeStickinessFilter } from './CumulativeStickinessFilter'
 import { EditorFilterGroup } from './EditorFilterGroup'
 import { EditorFiltersShell } from './EditorFiltersShell'
 import { getBreakdownSummary, getFiltersSummary, getSeriesSummary, visibleFilters } from './editorFilterUtils'
@@ -357,7 +357,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                             </Tooltip>
                         </div>
                     ),
-                    component: Attribution,
+                    component: FunnelAttribution,
                     show: hasAttribution,
                 },
             ]),
