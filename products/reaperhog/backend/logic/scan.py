@@ -54,9 +54,12 @@ def run_scan(request: ScanRequest, *, scouts: tuple[Scout, ...] = SCOUTS) -> Sca
     now = datetime.now(UTC)
     repo = RepoIndex(request.repo_path)
     # The checkout and the repository name arrive as independent inputs, and harvest opens its pull
-    # request against the name. Scanning one repository and deleting from another is not recoverable.
+    # request against the name. Scanning one repository and deleting from another is not recoverable,
+    # so a checkout whose GitHub origin cannot be read is refused rather than assumed to match.
     remote = repo.remote_repository()
-    if remote is not None and remote.lower() != request.repository.lower():
+    if remote is None:
+        raise RuntimeError(f"Checkout at {request.repo_path} has no GitHub origin to match {request.repository}")
+    if remote.lower() != request.repository.lower():
         raise RuntimeError(f"Checkout at {request.repo_path} is {remote}, not {request.repository}")
     head_sha = repo.head_sha()
     context = ScoutContext(team_id=request.team_id, repo=repo, scope=request.scope, now=now)

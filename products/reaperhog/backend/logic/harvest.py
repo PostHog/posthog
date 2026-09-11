@@ -169,7 +169,7 @@ def render_pr_body(candidate: HarvestCandidate) -> str:
         "",
         "## Evidence",
         "",
-        f"Verified at `{candidate.verified_sha[:12]}`, confidence `{verdict.confidence.value}`.",
+        f"Verified against scan `{candidate.verified_sha[:12]}`, confidence `{verdict.confidence.value}`.",
         "",
     ]
     lines.append(sanitize_prose(verdict.argumentation))
@@ -334,6 +334,9 @@ def dispatch_harvest(request: HarvestRequest) -> HarvestResult:
             create_pr=True,
             interaction_origin="reaperhog",
             ai_stage="harvest",
+            # The agent deletes code, runs the checks and opens a pull request. It reads nothing from
+            # PostHog, so it takes the narrowest preset rather than the default full grant.
+            posthog_mcp_scopes="read_only",
         )
         _mark_harvesting(request.team_id, candidate.view.id, created.task_id)
         result.dispatched += 1
