@@ -6,11 +6,9 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from django.utils import timezone
 
-from posthog.clickhouse.client import sync_execute
-
 from products.metrics.backend.facade.api import investigate, investigate_incident
 from products.metrics.backend.facade.contracts import CompanionMetric, CompanionVerdict, IncidentContext
-from products.metrics.backend.tests._seeder import seed_metric, seed_metric_event
+from products.metrics.backend.tests._seeder import seed_metric, seed_metric_event, truncate_metrics_tables
 
 
 def _trace_hex(i: int) -> str:
@@ -26,9 +24,7 @@ class TestInvestigate(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
-        sync_execute("TRUNCATE TABLE IF EXISTS metric_samples1")
-        sync_execute("TRUNCATE TABLE IF EXISTS metric_series1")
+        truncate_metrics_tables()
         # 20-minute window: minutes 0-9 baseline, 10-19 anomaly (spike from 12).
         self.start = (timezone.now() - dt.timedelta(hours=1)).replace(second=0, microsecond=0)
         self.anomaly_from = self.start + dt.timedelta(minutes=10)

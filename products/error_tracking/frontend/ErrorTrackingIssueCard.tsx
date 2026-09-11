@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { MaxErrorTrackingIssuePreview } from '~/queries/schema/schema-assistant-error-tracking'
 
-import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
+import { RuntimeIcon } from './components/RuntimeIcon'
 
 interface ErrorTrackingIssueCardProps {
     issue: MaxErrorTrackingIssuePreview
