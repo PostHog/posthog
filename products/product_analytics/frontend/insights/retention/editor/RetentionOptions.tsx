@@ -7,14 +7,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils/strings'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { retentionLogic } from 'products/product_analytics/frontend/insights/retention/retentionLogic'
-
-import { MinimumOccurrencesInput } from '../filters/MinimumOccurrencesInput'
 import { RetentionAggregationSelector } from '../filters/RetentionAggregationSelector'
 import { RetentionCumulativeButton } from '../filters/RetentionCumulativeButton'
 import { RetentionMeanDropdown } from '../filters/RetentionMeanDropdown'
+import { RetentionMinimumOccurrencesInput } from '../filters/RetentionMinimumOccurrencesInput'
 import { RetentionReferencePicker } from '../filters/RetentionReferencePicker'
 import { RetentionTimeWindowModePicker } from '../filters/RetentionTimeWindowModePicker'
+import { retentionLogic } from '../retentionLogic'
 
 export function RetentionOptions(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -43,7 +42,7 @@ export function RetentionOptions(): JSX.Element {
                     </div>
                     <div className="flex items-center gap-2">
                         <div>When users return at least</div>
-                        <MinimumOccurrencesInput />
+                        <RetentionMinimumOccurrencesInput />
                         <div>{pluralize(minimumOccurrences, 'time', 'times', false)} in an interval</div>
                     </div>
                     <div className="flex items-center gap-2">

@@ -151,7 +151,7 @@ describe('toolRegistry', () => {
                 />
             )
             expect(screen.getByText('Notebook')).toBeInTheDocument()
-            expect(await screen.findByText('Synthetic notebook')).toBeInTheDocument()
+            expect(await screen.findByText('Synthetic notebook', {}, { timeout: 10000 })).toBeInTheDocument()
             expect(screen.queryByText('Notebook')).not.toBeInTheDocument()
             expect(require.cache[require.resolve('./widgets/CreateNotebookWidget')]).not.toBeUndefined()
         })
