@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
     """Validate the team FK separately so creating the context table stays non-blocking."""
 
     dependencies = [
-        ("exports", "0012_subscription_context"),
+        ("exports", "0013_subscription_context"),
     ]
 
     operations = [
