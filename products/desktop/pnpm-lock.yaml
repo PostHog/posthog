@@ -572,8 +572,8 @@ importers:
         specifier: ^3.0.2
         version: 3.0.3(react-native-svg@15.15.5(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6))(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6)
       posthog-react-native:
-        specifier: ^4.70.0
-        version: 4.70.0(81a697ea0d61589c68ef8590dfa0945e)
+        specifier: ^4.71.0
+        version: 4.71.0(81a697ea0d61589c68ef8590dfa0945e)
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -13970,8 +13970,8 @@ packages:
       rxjs:
         optional: true
 
-  posthog-react-native@4.70.0:
-    resolution: {integrity: sha512-igzsdWOJvifhzdeqiLzwU+niUD7DK5wIbMTq2BjZv0TLv4iVh97YLquMFbUehEo/yLjKMDcd0jI8LxfCw16eVg==}
+  posthog-react-native@4.71.0:
+    resolution: {integrity: sha512-ldw7rXHA8bnE6Gyih9NufltiC/YKyHVgLOpocpzf7t2a/HPMiUmRfKOmYaILwJVrO4UltNh9mrHweyIzgClQ1g==}
     hasBin: true
     peerDependencies:
       '@posthog/react-native-plugin': '>= 2.4.3'
@@ -20983,8 +20983,8 @@ snapshots:
 
   '@posthog/browser-common@0.8.2':
     dependencies:
-      '@posthog/core': 1.52.1
-      '@posthog/types': 1.410.0
+      '@posthog/core': 1.53.2
+      '@posthog/types': 1.411.1
 
   '@posthog/cli@0.16.2':
     dependencies:
@@ -20996,7 +20996,7 @@ snapshots:
 
   '@posthog/core@1.52.1':
     dependencies:
-      '@posthog/types': 1.410.0
+      '@posthog/types': 1.411.1
 
   '@posthog/core@1.53.2':
     dependencies:
@@ -30091,7 +30091,7 @@ snapshots:
     optionalDependencies:
       rxjs: 7.8.2
 
-  posthog-react-native@4.70.0(81a697ea0d61589c68ef8590dfa0945e):
+  posthog-react-native@4.71.0(81a697ea0d61589c68ef8590dfa0945e):
     dependencies:
       '@posthog/core': 1.53.2
       '@posthog/types': 1.411.1
