@@ -8,7 +8,7 @@ from django.core.cache import cache
 from django.db.models import QuerySet
 from django.utils import timezone
 
-from posthog.schema import DateRange
+from posthog.schema import AnyPropertyFilterDiscriminated, DateRange
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -30,6 +30,7 @@ from products.mcp_analytics.backend.constants import (
     MCP_TOOL_CALL_EVENT,
 )
 from products.mcp_analytics.backend.facade import contracts, enums
+from products.mcp_analytics.backend.hogql_queries.base import shared_filter_exprs
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 
 # How long a snapshot may sit in COMPUTING before we assume the run died and
@@ -52,6 +53,7 @@ FROM events
 WHERE event = {event}
     AND timestamp >= {date_from}
     AND $session_id = {session_id}
+    AND {shared_filters}
 ORDER BY timestamp ASC, event_id ASC
 LIMIT {limit}
 OFFSET {offset}
@@ -60,6 +62,25 @@ OFFSET {offset}
 
 def list_submissions(team: Team, kind: enums.SubmissionKind) -> QuerySet[MCPAnalyticsSubmission]:
     return MCPAnalyticsSubmission.objects.filter(team=team, kind=kind).order_by("-created_at")
+
+
+def shared_filters_expr(
+    team: Team,
+    properties: list[AnyPropertyFilterDiscriminated] | None,
+    filter_test_accounts: bool,
+) -> ast.Expr:
+    """The MCP analytics tabs' shared property filters as one event-level HogQL expression.
+
+    The raw SQL here ANDs a single placeholder into its WHERE, so the runners' list form is folded
+    into one expression, with ``true`` when nothing is selected.
+    """
+    exprs = shared_filter_exprs(team, properties, filter_test_accounts)
+    return ast.And(exprs=exprs) if exprs else ast.Constant(value=True)
+
+
+def _filters_cache_fragment(properties: list[AnyPropertyFilterDiscriminated] | None, filter_test_accounts: bool) -> str:
+    dumped = [prop.model_dump(mode="json", exclude_none=True) for prop in (properties or [])]
+    return f"{json.dumps(dumped, sort_keys=True)}_{filter_test_accounts}"
 
 
 SESSION_SORT_FIELDS: frozenset[str] = frozenset(
@@ -106,6 +127,13 @@ SESSIONS_CACHE_TTL_SECONDS = 30
 # why a session straddling the window boundary reports full (not clipped) start/end/
 # duration/count, and why its detail view (bounded by session_start) shows every event.
 #
+# The shared filters are a per-event `matches` flag rather than a WHERE clause, so they
+# narrow *what the session did* (tool_call_count, tools_used, and which client and user
+# the row names) without moving *when it ran*. session_start has to stay the session's
+# real first event: it bounds the detail scan and the intent generation, both of which
+# describe the whole session and must not shrink to the first matching call. A session
+# with no matching event at all is dropped by the HAVING.
+#
 # NB: the session id reads from the `$session_id` field, NOT `properties.$session_id`.
 # `$session_id` is a materialised events column; the `properties.` accessor renders it
 # null-wrapped in SELECT but the raw column in HAVING/ORDER, so the search HAVING would
@@ -113,26 +141,35 @@ SESSIONS_CACHE_TTL_SECONDS = 30
 # column consistently across SELECT/GROUP/HAVING/ORDER.
 _MCP_SESSIONS_SQL = """
 SELECT
-    $session_id AS session_id,
+    session_id,
     min(timestamp) AS session_start,
     max(timestamp) AS session_end,
     dateDiff('second', min(timestamp), max(timestamp)) AS duration_seconds,
-    count() AS tool_call_count,
-    groupUniqArray(properties.$mcp_tool_name) AS tools_used,
-    argMax(distinct_id, timestamp) AS distinct_id,
-    argMax(properties.$mcp_client_name, timestamp) AS mcp_client_name
-FROM events
-WHERE event = {event}
-    -- Buffered range so an overlapping session's events outside the window still
-    -- aggregate into its full stats; the timestamp bounds keep the sort key pruning.
-    AND timestamp >= {scan_from}
-    AND timestamp <= {scan_to}
-    -- $session_id is a materialised String column — '' (not NULL) for sessionless
-    -- events — so a bare `!= ''` drops them without a coalesce.
-    AND $session_id != ''
+    countIf(matches) AS tool_call_count,
+    groupUniqArrayIf(tool_name, matches) AS tools_used,
+    argMaxIf(event_distinct_id, timestamp, matches) AS distinct_id,
+    argMaxIf(client_name, timestamp, matches) AS mcp_client_name
+FROM (
+    SELECT
+        $session_id AS session_id,
+        timestamp,
+        distinct_id AS event_distinct_id,
+        properties.$mcp_tool_name AS tool_name,
+        properties.$mcp_client_name AS client_name,
+        {shared_filters} AS matches
+    FROM events
+    WHERE event = {event}
+        -- Buffered range so an overlapping session's events outside the window still
+        -- aggregate into its full stats; the timestamp bounds keep the sort key pruning.
+        AND timestamp >= {scan_from}
+        AND timestamp <= {scan_to}
+        -- $session_id is a materialised String column — '' (not NULL) for sessionless
+        -- events — so a bare `!= ''` drops them without a coalesce.
+        AND $session_id != ''
+)
 GROUP BY session_id
--- Session-level inclusion: at least one event inside the requested window.
-HAVING countIf(timestamp >= {window_from} AND timestamp <= {window_to}) > 0
+-- Session-level inclusion: at least one *matching* event inside the requested window.
+HAVING countIf(matches AND timestamp >= {window_from} AND timestamp <= {window_to}) > 0
     __SEARCH__
 ORDER BY __ORDER__
 LIMIT {limit}
@@ -168,9 +205,17 @@ def _normalise_order_by(order_by: str) -> tuple[str, bool]:
 
 
 def _sessions_cache_key(
-    team_id: int, limit: int, offset: int, search: str, order_by: str, date_from: str, date_to: str
+    team_id: int,
+    limit: int,
+    offset: int,
+    search: str,
+    order_by: str,
+    date_from: str,
+    date_to: str,
+    filters: str,
+    user_id: int | None,
 ) -> str:
-    payload = f"mcp_sessions_{date_from}_{date_to}_{limit}_{offset}_{search}_{order_by}"
+    payload = f"mcp_sessions_{date_from}_{date_to}_{limit}_{offset}_{search}_{order_by}_{filters}_{user_id}"
     return generate_cache_key(team_id, payload)
 
 
@@ -182,6 +227,9 @@ def list_mcp_sessions(
     order_by: str = "",
     date_from: str | None = None,
     date_to: str | None = None,
+    properties: list[AnyPropertyFilterDiscriminated] | None = None,
+    filter_test_accounts: bool = False,
+    user: User | None = None,
 ) -> contracts.MCPSessionsPage:
     """List a page of MCP sessions for a team, aggregated on the fly from $mcp_tool_call events.
 
@@ -200,11 +248,32 @@ def list_mcp_sessions(
     distinct_id, mcp_client_name, and any element of tools_used. ``order_by`` is a
     whitelisted column name; prefix with '-' for descending.
 
+    ``properties`` and ``filter_test_accounts`` are the tabs' shared filters. A session with no
+    matching event is dropped; a session that keeps some reports how many of *its* calls matched
+    (``tool_call_count``, ``tools_used``) while ``session_start`` / ``session_end`` still describe
+    when the whole session ran, because those bound the detail and intent scans.
+
+    ``user`` is the caller. It carries through to ``execute_hogql_query`` so property-level access
+    control is evaluated for that member, not with the project defaults, because ``properties`` is
+    caller-supplied and would otherwise read restricted properties.
+
     Person email/name are resolved from distinct_id via personhog. ``intent`` is
     empty until the ad-hoc summary endpoint (separate PR) fills the intent seam.
     """
     effective_date_from = date_from or DEFAULT_SESSIONS_DATE_FROM
-    cache_key = _sessions_cache_key(team.id, limit, offset, search, order_by, effective_date_from, date_to or "")
+    cache_key = _sessions_cache_key(
+        team.id,
+        limit,
+        offset,
+        search,
+        order_by,
+        effective_date_from,
+        date_to or "",
+        _filters_cache_fragment(properties, filter_test_accounts),
+        # Property-level access control is evaluated per member, so two members can get different
+        # rows from the same filters. Key the cache by the caller to keep them apart.
+        user.pk if user is not None else None,
+    )
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -217,6 +286,9 @@ def list_mcp_sessions(
         order_by=order_by,
         date_from=effective_date_from,
         date_to=date_to,
+        properties=properties,
+        filter_test_accounts=filter_test_accounts,
+        user=user,
     )
     # Don't cache empty results: a newly set-up team's first sessions would
     # otherwise stay hidden for the full TTL.
@@ -233,6 +305,9 @@ def _query_mcp_sessions(
     order_by: str,
     date_from: str,
     date_to: str | None,
+    properties: list[AnyPropertyFilterDiscriminated] | None,
+    filter_test_accounts: bool,
+    user: User | None,
 ) -> contracts.MCPSessionsPage:
     column, descending = _normalise_order_by(order_by)
     # Append the unique session_id as a tiebreaker so the sort is a *total* order.
@@ -262,6 +337,7 @@ def _query_mcp_sessions(
         "window_to": ast.Constant(value=window_to),
         "limit": ast.Constant(value=limit + 1),
         "offset": ast.Constant(value=offset),
+        "shared_filters": shared_filters_expr(team, properties, filter_test_accounts),
     }
 
     search_text = ""
@@ -278,7 +354,7 @@ def _query_mcp_sessions(
     with tags_context(
         product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.id, name="mcp_analytics_sessions_list"
     ):
-        response = execute_hogql_query(query=query, team=team)
+        response = execute_hogql_query(query=query, team=team, user=user)
 
     rows = [_row_to_session_dict(row) for row in (response.results or [])]
     has_next = len(rows) > limit
@@ -447,6 +523,7 @@ FROM (
         {mcp_harness.HARNESS_DISPLAY_NAME_SQL} AS client_display
     FROM events
     WHERE event IN ({{tool_call_event}}, {{missing_capability_event}}) AND timestamp >= {{date_from}}
+        AND {{shared_filters}}
 )
 """
 
@@ -457,6 +534,7 @@ SELECT
     countIf(toString(properties.$mcp_is_error) IN ('true', '1')) AS errors
 FROM events
 WHERE event = {tool_call_event} AND properties.$mcp_tool_name IS NOT NULL AND timestamp >= {date_from}
+    AND {shared_filters}
 GROUP BY tool
 ORDER BY calls DESC
 LIMIT {limit}
@@ -480,6 +558,7 @@ FROM (
         {mcp_harness.HARNESS_DISPLAY_NAME_SQL} AS client_display
     FROM events
     WHERE event = {{tool_call_event}} AND timestamp >= {{date_from}}
+        AND {{shared_filters}}
 )
 GROUP BY client
 ORDER BY calls DESC
@@ -510,6 +589,7 @@ FROM (
         {mcp_harness.HARNESS_DISPLAY_NAME_SQL} AS client_display
     FROM events
     WHERE event = {{tool_call_event}} AND timestamp >= {{date_from}}
+        AND {{shared_filters}}
     ORDER BY timestamp DESC
     LIMIT {{limit}}
 )
@@ -547,21 +627,36 @@ def _extract_error_message(raw: Any) -> str | None:
     return value
 
 
-def _run_activity_query(team: Team, sql: str, name: str, placeholders: dict[str, ast.Constant]) -> list[Any]:
+def _run_activity_query(
+    team: Team, sql: str, name: str, placeholders: dict[str, ast.Expr], user: User | None
+) -> list[Any]:
     query = parse_select(sql, placeholders={**placeholders})
     with tags_context(product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.id, name=name):
-        response = execute_hogql_query(query=query, team=team)
+        response = execute_hogql_query(query=query, team=team, user=user)
     return response.results or []
 
 
-def get_activity_overview(team: Team) -> contracts.ActivityOverview:
+def get_activity_overview(
+    team: Team,
+    properties: list[AnyPropertyFilterDiscriminated] | None = None,
+    filter_test_accounts: bool = False,
+    user: User | None = None,
+) -> contracts.ActivityOverview:
     """Compute everything the activity view renders, bounded to ``ACTIVITY_WINDOW``.
 
     Always computed fresh: the view's whole point is watching data arrive, so callers
     poll this endpoint rather than a stale cache.
+
+    ``properties`` and ``filter_test_accounts`` are the tabs' shared filters, applied to every
+    section so the counters, top tools, clients, and feed all describe the same slice.
+
+    ``user`` is the caller. It carries through to ``execute_hogql_query`` so property-level access
+    control is evaluated for that member, not with the project defaults, because ``properties`` is
+    caller-supplied and would otherwise read restricted properties.
     """
     date_from = ast.Constant(value=timezone.now() - ACTIVITY_WINDOW)
     tool_call_event = ast.Constant(value=MCP_TOOL_CALL_EVENT)
+    shared_filters = shared_filters_expr(team, properties, filter_test_accounts)
 
     stats_rows = _run_activity_query(
         team,
@@ -571,7 +666,9 @@ def get_activity_overview(team: Team) -> contracts.ActivityOverview:
             "tool_call_event": tool_call_event,
             "missing_capability_event": ast.Constant(value=MCP_MISSING_CAPABILITY_EVENT),
             "date_from": date_from,
+            "shared_filters": shared_filters,
         },
+        user,
     )
     stats_row = stats_rows[0] if stats_rows else [0] * 7
     stats = contracts.ActivityStats(
@@ -594,7 +691,9 @@ def get_activity_overview(team: Team) -> contracts.ActivityOverview:
                 "tool_call_event": tool_call_event,
                 "date_from": date_from,
                 "limit": ast.Constant(value=ACTIVITY_TOP_TOOLS_LIMIT),
+                "shared_filters": shared_filters,
             },
+            user,
         )
     ]
 
@@ -608,7 +707,9 @@ def get_activity_overview(team: Team) -> contracts.ActivityOverview:
                 "tool_call_event": tool_call_event,
                 "date_from": date_from,
                 "limit": ast.Constant(value=ACTIVITY_CLIENTS_LIMIT),
+                "shared_filters": shared_filters,
             },
+            user,
         )
     ]
 
@@ -630,7 +731,9 @@ def get_activity_overview(team: Team) -> contracts.ActivityOverview:
                 "tool_call_event": tool_call_event,
                 "date_from": date_from,
                 "limit": ast.Constant(value=ACTIVITY_RECENT_CALLS_LIMIT),
+                "shared_filters": shared_filters,
             },
+            user,
         )
     ]
 
@@ -682,6 +785,9 @@ def list_mcp_tool_calls(
     limit: int,
     offset: int,
     date_from: datetime | None = None,
+    properties: list[AnyPropertyFilterDiscriminated] | None = None,
+    filter_test_accounts: bool = False,
+    user: User | None = None,
 ) -> contracts.MCPToolCallsPage:
     """List a page of a session's $mcp_tool_call events in chronological order.
 
@@ -692,6 +798,13 @@ def list_mcp_tool_calls(
 
     ``limit`` / ``offset`` page through the session's calls; over-fetch one row to report
     ``has_next`` without a separate count query.
+
+    ``properties`` and ``filter_test_accounts`` are the tabs' shared filters, so the detail view
+    shows the same calls the session list counted.
+
+    ``user`` is the caller. It carries through to ``execute_hogql_query`` so property-level access
+    control is evaluated for that member, not with the project defaults, because ``properties`` is
+    caller-supplied and would otherwise read restricted properties.
     """
     query = parse_select(
         _MCP_TOOL_CALLS_SQL,
@@ -701,12 +814,13 @@ def list_mcp_tool_calls(
             "session_id": ast.Constant(value=session_id),
             "limit": ast.Constant(value=limit + 1),
             "offset": ast.Constant(value=offset),
+            "shared_filters": shared_filters_expr(team, properties, filter_test_accounts),
         },
     )
     with tags_context(
         product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.id, name="mcp_analytics_sessions_tool_calls"
     ):
-        response = execute_hogql_query(query=query, team=team)
+        response = execute_hogql_query(query=query, team=team, user=user)
     rows = response.results or []
     has_next = len(rows) > limit
     results = [

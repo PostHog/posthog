@@ -1,6 +1,10 @@
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+
+import type { MCPSharedQueryFilters } from '../mcpAnalyticsFiltersLogic'
 import { buildActivitySummary } from './activitySummary'
 import { buildChecklist, EarlyStats } from './earlyDataChecklist'
 import {
+    buildActivityQuery,
     DEFAULT_MCP_ACTIVITY_QUERY,
     MCP_ACTIVITY_COLUMNS,
     MCP_ACTIVITY_MAX_ROWS,
@@ -25,18 +29,50 @@ describe('early data derivations', () => {
             expandable: true,
             showCount: true,
             showDateRange: true,
-            showPropertyFilter: expect.any(Array),
-            showTestAccountFilters: true,
             source: {
                 events: ['$mcp_tool_call'],
                 limit: 100,
                 orderBy: ['timestamp DESC'],
             },
         })
+        // The property filter and test-account switch come from the tab header, shared with the
+        // other tabs, so the table must not offer a second, unsynced pair of its own.
+        expect(DEFAULT_MCP_ACTIVITY_QUERY.showPropertyFilter).toBeUndefined()
+        expect(DEFAULT_MCP_ACTIVITY_QUERY.showTestAccountFilters).toBeUndefined()
         expect(MCP_ACTIVITY_PAGE_SIZE).toBe(100)
         expect(MCP_ACTIVITY_MAX_ROWS).toBeGreaterThan(MCP_ACTIVITY_PAGE_SIZE)
         expect(MCP_ACTIVITY_COLUMNS).toContain('*')
         expect(MCP_ACTIVITY_COLUMNS.find((column) => column.endsWith('-- Tool'))).toContain('$mcp_exec_tool_call_name')
+    })
+
+    describe('buildActivityQuery', () => {
+        const TOOL_FILTER: AnyPropertyFilter = {
+            key: '$mcp_tool_name',
+            value: ['create_insight'],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        }
+        const FILTERS: MCPSharedQueryFilters = { filterTestAccounts: true, properties: [TOOL_FILTER] }
+
+        it.each([
+            ['no column edits yet', null],
+            // A user who has edited the table's columns keeps those edits and still gets the
+            // filters. Returning the override untouched would leave the feed unfiltered.
+            [
+                'a saved column edit',
+                {
+                    ...DEFAULT_MCP_ACTIVITY_QUERY,
+                    source: { ...DEFAULT_MCP_ACTIVITY_QUERY.source, select: ['timestamp'] },
+                },
+            ],
+        ])('carries the shared filters into the source with %s', (_label, override) => {
+            const query = buildActivityQuery(override as any, FILTERS)
+
+            expect(query.source).toMatchObject({ filterTestAccounts: true, properties: [TOOL_FILTER] })
+            expect((query.source as any).select).toEqual(
+                override ? ['timestamp'] : (DEFAULT_MCP_ACTIVITY_QUERY.source as any).select
+            )
+        })
     })
 
     it.each([

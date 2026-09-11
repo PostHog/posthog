@@ -1,7 +1,8 @@
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { MCP_TOOL_CALL_EVENT } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
 
 import { DataTableNode, EventsQuery, NodeKind } from '~/queries/schema/schema-general'
+
+import type { MCPSharedQueryFilters } from '../mcpAnalyticsFiltersLogic'
 
 export const MCP_ACTIVITY_DATA_COLLECTION_ID = 'mcp-analytics-activity'
 export const MCP_ACTIVITY_PAGE_SIZE = 100
@@ -27,6 +28,8 @@ const DEFAULT_MCP_ACTIVITY_SOURCE: EventsQuery = {
     limit: MCP_ACTIVITY_PAGE_SIZE,
 }
 
+// The property filter and test-account switch live in the tab header, shared with every other MCP
+// analytics tab, so the table doesn't offer its own. Its date range stays here: that one is per tab.
 export const DEFAULT_MCP_ACTIVITY_QUERY: DataTableNode = {
     kind: NodeKind.DataTableNode,
     source: DEFAULT_MCP_ACTIVITY_SOURCE,
@@ -35,14 +38,14 @@ export const DEFAULT_MCP_ACTIVITY_QUERY: DataTableNode = {
     showActions: true,
     showCount: true,
     showDateRange: true,
-    showPropertyFilter: [TaxonomicFilterGroupType.MCPProperties, TaxonomicFilterGroupType.EventProperties],
-    showTestAccountFilters: true,
     showReload: true,
 }
 
-export function buildDefaultActivityQuery(filterTestAccounts: boolean): DataTableNode {
-    return {
-        ...DEFAULT_MCP_ACTIVITY_QUERY,
-        source: { ...DEFAULT_MCP_ACTIVITY_SOURCE, filterTestAccounts },
+/** The feed's query: the user's own column edits when they have made any, always carrying the shared filters. */
+export function buildActivityQuery(override: DataTableNode | null, filters: MCPSharedQueryFilters): DataTableNode {
+    const query = override ?? DEFAULT_MCP_ACTIVITY_QUERY
+    if (query.source.kind !== NodeKind.EventsQuery) {
+        return query
     }
+    return { ...query, source: { ...query.source, ...filters } }
 }

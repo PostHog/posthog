@@ -35,11 +35,12 @@ function KPITile({
     incompleteTail: boolean
 }): JSX.Element {
     const { metric } = tile
+    const { searchParams } = useValues(router)
     // Tiles whose metric carries no sparkline (Users, Intent clusters) have no segment to dash.
     const dashedFromIndex = incompleteTail && metric.sparkline.length >= 2 ? metric.sparkline.length - 1 : undefined
 
     return (
-        <Link to={tile.href} subtle className="group/tile flex h-full">
+        <Link to={combineUrl(tile.href, searchParams).url} subtle className="group/tile flex h-full">
             <MetricTile
                 className="transition-transform group-hover/tile:-translate-y-0.5"
                 label={tile.label}
@@ -179,3 +180,5 @@ export function KpiTiles({
         </div>
     )
 }
+import { useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'

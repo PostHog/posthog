@@ -231,6 +231,7 @@ export const McpAnalyticsSessionsListParams = () => zod.object({
         ),
 })
 
+export const mcpAnalyticsSessionsListQueryFilterTestAccountsDefault = false
 export const mcpAnalyticsSessionsListQueryLimitDefault = 100
 export const mcpAnalyticsSessionsListQueryLimitMax = 500
 
@@ -238,6 +239,7 @@ export const mcpAnalyticsSessionsListQueryOffsetDefault = 0
 export const mcpAnalyticsSessionsListQueryOffsetMin = 0
 
 export const mcpAnalyticsSessionsListQueryOrderByDefault = ``
+export const mcpAnalyticsSessionsListQueryPropertiesDefault = ``
 export const mcpAnalyticsSessionsListQuerySearchDefault = ``
 
 export const McpAnalyticsSessionsListQueryParams = () => zod.object({
@@ -251,6 +253,12 @@ export const McpAnalyticsSessionsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.'),
+    filter_test_accounts: zod
+        .boolean()
+        .default(mcpAnalyticsSessionsListQueryFilterTestAccountsDefault)
+        .describe(
+            "Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`."
+        ),
     limit: zod
         .number()
         .min(1)
@@ -269,6 +277,12 @@ export const McpAnalyticsSessionsListQueryParams = () => zod.object({
         .default(mcpAnalyticsSessionsListQueryOrderByDefault)
         .describe(
             "Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first)."
+        ),
+    properties: zod
+        .string()
+        .default(mcpAnalyticsSessionsListQueryPropertiesDefault)
+        .describe(
+            'Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of PostHog property filters, each with key, value, operator and type - the same shape the \/query\/ endpoint takes. Example: [{\"key\": \"$mcp_tool_name\", \"value\": [\"query_run\"], \"operator\": \"exact\", \"type\": \"event\"}]'
         ),
     search: zod
         .string()
@@ -311,11 +325,14 @@ export const McpAnalyticsSessionsToolCallsParams = () => zod.object({
         ),
 })
 
+export const mcpAnalyticsSessionsToolCallsQueryFilterTestAccountsDefault = false
 export const mcpAnalyticsSessionsToolCallsQueryLimitDefault = 500
 export const mcpAnalyticsSessionsToolCallsQueryLimitMax = 500
 
 export const mcpAnalyticsSessionsToolCallsQueryOffsetDefault = 0
 export const mcpAnalyticsSessionsToolCallsQueryOffsetMin = 0
+
+export const mcpAnalyticsSessionsToolCallsQueryPropertiesDefault = ``
 
 export const McpAnalyticsSessionsToolCallsQueryParams = () => zod.object({
     date_from: zod.iso
@@ -323,6 +340,12 @@ export const McpAnalyticsSessionsToolCallsQueryParams = () => zod.object({
         .optional()
         .describe(
             "Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable."
+        ),
+    filter_test_accounts: zod
+        .boolean()
+        .default(mcpAnalyticsSessionsToolCallsQueryFilterTestAccountsDefault)
+        .describe(
+            "Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`."
         ),
     limit: zod
         .number()
@@ -338,5 +361,11 @@ export const McpAnalyticsSessionsToolCallsQueryParams = () => zod.object({
         .default(mcpAnalyticsSessionsToolCallsQueryOffsetDefault)
         .describe(
             "Number of tool calls to skip before returning results. Combine with limit to page through a session's calls; the response's has_next flag indicates whether more remain."
+        ),
+    properties: zod
+        .string()
+        .default(mcpAnalyticsSessionsToolCallsQueryPropertiesDefault)
+        .describe(
+            'Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of PostHog property filters, each with key, value, operator and type - the same shape the \/query\/ endpoint takes. Example: [{\"key\": \"$mcp_tool_name\", \"value\": [\"query_run\"], \"operator\": \"exact\", \"type\": \"event\"}]'
         ),
 })
