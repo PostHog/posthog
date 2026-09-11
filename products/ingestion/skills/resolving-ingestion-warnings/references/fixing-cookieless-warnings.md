@@ -7,9 +7,9 @@ Category `event`, severity `error` for all six types: without the setting or the
 
 In cookieless mode the client stores nothing — events arrive with the sentinel distinct ID `$posthog_cookieless`, and PostHog computes a rotating anonymous ID server-side by hashing **calendar day + user agent + IP + host**. One warning in this family means the project setting is off; the rest are one missing ingredient each:
 
-| Type                                | Cause                                                                                                      |
+| Type                                | Cause                                                                                                       |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `cookieless_team_disabled`          | Cookieless tracking is not enabled on the project, so no hash is computed at all                           |
+| `cookieless_team_disabled`          | Cookieless tracking is not enabled on the project, so no hash is computed at all                            |
 | `cookieless_missing_timestamp`      | No usable timestamp (event `timestamp`, `sent_at`, or arrival time)                                         |
 | `cookieless_timestamp_out_of_range` | Timestamp's calendar day isn't plausibly current — in the future, or further past than ingestion lag allows |
 | `cookieless_missing_user_agent`     | No `$raw_user_agent` property                                                                               |
