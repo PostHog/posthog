@@ -122,6 +122,7 @@ import {
     LogsRetentionSettings,
 } from './environment/LogsCaptureSettings'
 import { LogsDistinctIdAttributeKeys } from './environment/LogsDistinctIdAttributeKeys'
+import { LogsPatternMessageKeys } from './environment/LogsPatternMessageKeys'
 import { LogsSessionIdAttributeKeys } from './environment/LogsSessionIdAttributeKeys'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
@@ -914,6 +915,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                     "The log attributes PostHog reads to identify which person a log belongs to. A log is linked when any of these attributes matches one of the person's distinct IDs. Defaults to posthogDistinctId, the key the JavaScript and React Native SDKs auto-attach. Add keys only if your backend pipeline emits the person identifier under different attributes.",
                 component: <LogsDistinctIdAttributeKeys />,
                 keywords: ['log', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
+            },
+            {
+                id: 'logs-pattern-message-keys',
+                title: 'Pattern message extraction',
+                description:
+                    'Choose which JSON keys provide the message used to group logs into patterns. Keys are matched literally at the top level, in order. This does not change the stored log body.',
+                component: <LogsPatternMessageKeys />,
+                keywords: ['log', 'pattern', 'message', 'extract', 'json', 'group'],
             },
             {
                 id: 'logs-session-id-attribute-keys',

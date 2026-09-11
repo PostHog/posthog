@@ -2514,6 +2514,19 @@ export interface PatchedSignalScoutConfigUpdateApi {
 }
 
 /**
+ * Request body for an on-demand (`run now`) scout dispatch.
+ *
+ * Every field is optional: a plain trigger sends no body at all.
+ */
+export interface SignalScoutManualRunRequestApi {
+    /**
+     * Optional steering for this run only, such as 'focus on the checkout regression' or 'skip the staging traffic today'. The agent reads it alongside the scout's durable notes and weighs it the same way: it directs attention, it never forces a finding. Use it instead of leaving a scout note that would also steer every later scheduled run. The note is kept on the run for history and is never read by another run. Because the agent reads it verbatim while holding privileged tools, a run that carries one needs `llm_skill:write` on top of `signal_scout:write`, plus editor access to skills, the same bar as leaving a note.
+     * @maxLength 1000
+     */
+    note?: string
+}
+
+/**
  * Response for an on-demand (`run now`) scout dispatch.
  *
  * The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
@@ -3329,6 +3342,7 @@ export type SignalScoutRunSummaryApiMetadata = {
     network_access?: string
     write_scopes?: string[]
     triggered_by?: string
+    run_note?: string
     derived?: SignalScoutRunSummaryApiMetadataDerived
     [key: string]: unknown
 }
@@ -3446,6 +3460,7 @@ export type SignalScoutRunDetailApiMetadata = {
     network_access?: string
     write_scopes?: string[]
     triggered_by?: string
+    run_note?: string
     derived?: SignalScoutRunDetailApiMetadataDerived
     [key: string]: unknown
 }
