@@ -32,6 +32,12 @@ const schema12 = {
 const schema39 = {
     additionalProperties: false,
     properties: {
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         key: { description: 'The key should be the flag ID', type: 'string' },
         label: { type: 'string' },
         operator: {
@@ -54,6 +60,12 @@ const schema13 = {
     additionalProperties: false,
     description: 'Sync with nodejs/src/types.ts',
     properties: {
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         key: { type: 'string' },
         label: { type: 'string' },
         operator: { $ref: '#/definitions/PropertyOperator', default: 'exact' },
@@ -265,6 +277,7 @@ function validate12(data, { instancePath = '', parentData, parentDataProperty, r
                 for (const key0 in data) {
                     if (
                         !(
+                            key0 === 'group_key_names' ||
                             key0 === 'key' ||
                             key0 === 'label' ||
                             key0 === 'operator' ||
@@ -286,125 +299,21 @@ function validate12(data, { instancePath = '', parentData, parentDataProperty, r
                     }
                 }
                 if (_errs1 === errors) {
-                    if (data.key !== undefined) {
+                    if (data.group_key_names !== undefined) {
+                        let data0 = data.group_key_names
                         const _errs2 = errors
-                        if (typeof data.key !== 'string') {
-                            validate12.errors = [
-                                {
-                                    instancePath: instancePath + '/key',
-                                    schemaPath: '#/properties/key/type',
-                                    keyword: 'type',
-                                    params: { type: 'string' },
-                                    message: 'must be string',
-                                },
-                            ]
-                            return false
-                        }
-                        var valid0 = _errs2 === errors
-                    } else {
-                        var valid0 = true
-                    }
-                    if (valid0) {
-                        if (data.label !== undefined) {
-                            const _errs4 = errors
-                            if (typeof data.label !== 'string') {
-                                validate12.errors = [
-                                    {
-                                        instancePath: instancePath + '/label',
-                                        schemaPath: '#/properties/label/type',
-                                        keyword: 'type',
-                                        params: { type: 'string' },
-                                        message: 'must be string',
-                                    },
-                                ]
-                                return false
-                            }
-                            var valid0 = _errs4 === errors
-                        } else {
-                            var valid0 = true
-                        }
-                        if (valid0) {
-                            if (data.operator !== undefined) {
-                                let data2 = data.operator
-                                const _errs6 = errors
-                                if (typeof data2 !== 'string') {
-                                    validate12.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/type',
-                                            keyword: 'type',
-                                            params: { type: 'string' },
-                                            message: 'must be string',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                if (
-                                    !(
-                                        data2 === 'exact' ||
-                                        data2 === 'is_not' ||
-                                        data2 === 'icontains' ||
-                                        data2 === 'not_icontains' ||
-                                        data2 === 'starts_with' ||
-                                        data2 === 'not_starts_with' ||
-                                        data2 === 'ends_with' ||
-                                        data2 === 'not_ends_with' ||
-                                        data2 === 'regex' ||
-                                        data2 === 'not_regex' ||
-                                        data2 === 'gt' ||
-                                        data2 === 'gte' ||
-                                        data2 === 'lt' ||
-                                        data2 === 'lte' ||
-                                        data2 === 'is_set' ||
-                                        data2 === 'is_not_set' ||
-                                        data2 === 'is_date_exact' ||
-                                        data2 === 'is_date_before' ||
-                                        data2 === 'is_date_after' ||
-                                        data2 === 'between' ||
-                                        data2 === 'not_between' ||
-                                        data2 === 'min' ||
-                                        data2 === 'max' ||
-                                        data2 === 'in' ||
-                                        data2 === 'not_in' ||
-                                        data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to' ||
-                                        data2 === 'semver_eq' ||
-                                        data2 === 'semver_neq' ||
-                                        data2 === 'semver_gt' ||
-                                        data2 === 'semver_gte' ||
-                                        data2 === 'semver_lt' ||
-                                        data2 === 'semver_lte' ||
-                                        data2 === 'semver_tilde' ||
-                                        data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard' ||
-                                        data2 === 'icontains_multi' ||
-                                        data2 === 'not_icontains_multi'
-                                    )
-                                ) {
-                                    validate12.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/enum',
-                                            keyword: 'enum',
-                                            params: { allowedValues: schema14.enum },
-                                            message: 'must be equal to one of the allowed values',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                var valid0 = _errs6 === errors
-                            } else {
-                                var valid0 = true
-                            }
-                            if (valid0) {
-                                if (data.type !== undefined) {
-                                    let data3 = data.type
-                                    const _errs9 = errors
-                                    if (typeof data3 !== 'string') {
+                        if (errors === _errs2) {
+                            if (data0 && typeof data0 == 'object' && !Array.isArray(data0)) {
+                                for (const key1 in data0) {
+                                    const _errs5 = errors
+                                    if (typeof data0[key1] !== 'string') {
                                         validate12.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/type',
+                                                instancePath:
+                                                    instancePath +
+                                                    '/group_key_names/' +
+                                                    key1.replace(/~/g, '~0').replace(/\//g, '~1'),
+                                                schemaPath: '#/properties/group_key_names/additionalProperties/type',
                                                 keyword: 'type',
                                                 params: { type: 'string' },
                                                 message: 'must be string',
@@ -412,40 +321,192 @@ function validate12(data, { instancePath = '', parentData, parentDataProperty, r
                                         ]
                                         return false
                                     }
-                                    if ('event' !== data3) {
+                                    var valid1 = _errs5 === errors
+                                    if (!valid1) {
+                                        break
+                                    }
+                                }
+                            } else {
+                                validate12.errors = [
+                                    {
+                                        instancePath: instancePath + '/group_key_names',
+                                        schemaPath: '#/properties/group_key_names/type',
+                                        keyword: 'type',
+                                        params: { type: 'object' },
+                                        message: 'must be object',
+                                    },
+                                ]
+                                return false
+                            }
+                        }
+                        var valid0 = _errs2 === errors
+                    } else {
+                        var valid0 = true
+                    }
+                    if (valid0) {
+                        if (data.key !== undefined) {
+                            const _errs7 = errors
+                            if (typeof data.key !== 'string') {
+                                validate12.errors = [
+                                    {
+                                        instancePath: instancePath + '/key',
+                                        schemaPath: '#/properties/key/type',
+                                        keyword: 'type',
+                                        params: { type: 'string' },
+                                        message: 'must be string',
+                                    },
+                                ]
+                                return false
+                            }
+                            var valid0 = _errs7 === errors
+                        } else {
+                            var valid0 = true
+                        }
+                        if (valid0) {
+                            if (data.label !== undefined) {
+                                const _errs9 = errors
+                                if (typeof data.label !== 'string') {
+                                    validate12.errors = [
+                                        {
+                                            instancePath: instancePath + '/label',
+                                            schemaPath: '#/properties/label/type',
+                                            keyword: 'type',
+                                            params: { type: 'string' },
+                                            message: 'must be string',
+                                        },
+                                    ]
+                                    return false
+                                }
+                                var valid0 = _errs9 === errors
+                            } else {
+                                var valid0 = true
+                            }
+                            if (valid0) {
+                                if (data.operator !== undefined) {
+                                    let data4 = data.operator
+                                    const _errs11 = errors
+                                    if (typeof data4 !== 'string') {
                                         validate12.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/const',
-                                                keyword: 'const',
-                                                params: { allowedValue: 'event' },
-                                                message: 'must be equal to constant',
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
                                             },
                                         ]
                                         return false
                                     }
-                                    var valid0 = _errs9 === errors
+                                    if (
+                                        !(
+                                            data4 === 'exact' ||
+                                            data4 === 'is_not' ||
+                                            data4 === 'icontains' ||
+                                            data4 === 'not_icontains' ||
+                                            data4 === 'starts_with' ||
+                                            data4 === 'not_starts_with' ||
+                                            data4 === 'ends_with' ||
+                                            data4 === 'not_ends_with' ||
+                                            data4 === 'regex' ||
+                                            data4 === 'not_regex' ||
+                                            data4 === 'gt' ||
+                                            data4 === 'gte' ||
+                                            data4 === 'lt' ||
+                                            data4 === 'lte' ||
+                                            data4 === 'is_set' ||
+                                            data4 === 'is_not_set' ||
+                                            data4 === 'is_date_exact' ||
+                                            data4 === 'is_date_before' ||
+                                            data4 === 'is_date_after' ||
+                                            data4 === 'between' ||
+                                            data4 === 'not_between' ||
+                                            data4 === 'min' ||
+                                            data4 === 'max' ||
+                                            data4 === 'in' ||
+                                            data4 === 'not_in' ||
+                                            data4 === 'is_cleaned_path_exact' ||
+                                            data4 === 'flag_evaluates_to' ||
+                                            data4 === 'semver_eq' ||
+                                            data4 === 'semver_neq' ||
+                                            data4 === 'semver_gt' ||
+                                            data4 === 'semver_gte' ||
+                                            data4 === 'semver_lt' ||
+                                            data4 === 'semver_lte' ||
+                                            data4 === 'semver_tilde' ||
+                                            data4 === 'semver_caret' ||
+                                            data4 === 'semver_wildcard' ||
+                                            data4 === 'icontains_multi' ||
+                                            data4 === 'not_icontains_multi'
+                                        )
+                                    ) {
+                                        validate12.errors = [
+                                            {
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/enum',
+                                                keyword: 'enum',
+                                                params: { allowedValues: schema14.enum },
+                                                message: 'must be equal to one of the allowed values',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid0 = _errs11 === errors
                                 } else {
                                     var valid0 = true
                                 }
                                 if (valid0) {
-                                    if (data.value !== undefined) {
-                                        const _errs11 = errors
-                                        if (
-                                            !validate13(data.value, {
-                                                instancePath: instancePath + '/value',
-                                                parentData: data,
-                                                parentDataProperty: 'value',
-                                                rootData,
-                                            })
-                                        ) {
-                                            vErrors =
-                                                vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
-                                            errors = vErrors.length
+                                    if (data.type !== undefined) {
+                                        let data5 = data.type
+                                        const _errs14 = errors
+                                        if (typeof data5 !== 'string') {
+                                            validate12.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/type',
+                                                    keyword: 'type',
+                                                    params: { type: 'string' },
+                                                    message: 'must be string',
+                                                },
+                                            ]
+                                            return false
                                         }
-                                        var valid0 = _errs11 === errors
+                                        if ('event' !== data5) {
+                                            validate12.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/const',
+                                                    keyword: 'const',
+                                                    params: { allowedValue: 'event' },
+                                                    message: 'must be equal to constant',
+                                                },
+                                            ]
+                                            return false
+                                        }
+                                        var valid0 = _errs14 === errors
                                     } else {
                                         var valid0 = true
+                                    }
+                                    if (valid0) {
+                                        if (data.value !== undefined) {
+                                            const _errs16 = errors
+                                            if (
+                                                !validate13(data.value, {
+                                                    instancePath: instancePath + '/value',
+                                                    parentData: data,
+                                                    parentDataProperty: 'value',
+                                                    rootData,
+                                                })
+                                            ) {
+                                                vErrors =
+                                                    vErrors === null
+                                                        ? validate13.errors
+                                                        : vErrors.concat(validate13.errors)
+                                                errors = vErrors.length
+                                            }
+                                            var valid0 = _errs16 === errors
+                                        } else {
+                                            var valid0 = true
+                                        }
                                     }
                                 }
                             }
@@ -473,6 +534,12 @@ const schema18 = {
     additionalProperties: false,
     description: 'Sync with nodejs/src/types.ts',
     properties: {
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         key: { type: 'string' },
         label: { type: 'string' },
         operator: { $ref: '#/definitions/PropertyOperator' },
@@ -508,6 +575,7 @@ function validate16(data, { instancePath = '', parentData, parentDataProperty, r
                 for (const key0 in data) {
                     if (
                         !(
+                            key0 === 'group_key_names' ||
                             key0 === 'key' ||
                             key0 === 'label' ||
                             key0 === 'operator' ||
@@ -529,125 +597,21 @@ function validate16(data, { instancePath = '', parentData, parentDataProperty, r
                     }
                 }
                 if (_errs1 === errors) {
-                    if (data.key !== undefined) {
+                    if (data.group_key_names !== undefined) {
+                        let data0 = data.group_key_names
                         const _errs2 = errors
-                        if (typeof data.key !== 'string') {
-                            validate16.errors = [
-                                {
-                                    instancePath: instancePath + '/key',
-                                    schemaPath: '#/properties/key/type',
-                                    keyword: 'type',
-                                    params: { type: 'string' },
-                                    message: 'must be string',
-                                },
-                            ]
-                            return false
-                        }
-                        var valid0 = _errs2 === errors
-                    } else {
-                        var valid0 = true
-                    }
-                    if (valid0) {
-                        if (data.label !== undefined) {
-                            const _errs4 = errors
-                            if (typeof data.label !== 'string') {
-                                validate16.errors = [
-                                    {
-                                        instancePath: instancePath + '/label',
-                                        schemaPath: '#/properties/label/type',
-                                        keyword: 'type',
-                                        params: { type: 'string' },
-                                        message: 'must be string',
-                                    },
-                                ]
-                                return false
-                            }
-                            var valid0 = _errs4 === errors
-                        } else {
-                            var valid0 = true
-                        }
-                        if (valid0) {
-                            if (data.operator !== undefined) {
-                                let data2 = data.operator
-                                const _errs6 = errors
-                                if (typeof data2 !== 'string') {
-                                    validate16.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/type',
-                                            keyword: 'type',
-                                            params: { type: 'string' },
-                                            message: 'must be string',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                if (
-                                    !(
-                                        data2 === 'exact' ||
-                                        data2 === 'is_not' ||
-                                        data2 === 'icontains' ||
-                                        data2 === 'not_icontains' ||
-                                        data2 === 'starts_with' ||
-                                        data2 === 'not_starts_with' ||
-                                        data2 === 'ends_with' ||
-                                        data2 === 'not_ends_with' ||
-                                        data2 === 'regex' ||
-                                        data2 === 'not_regex' ||
-                                        data2 === 'gt' ||
-                                        data2 === 'gte' ||
-                                        data2 === 'lt' ||
-                                        data2 === 'lte' ||
-                                        data2 === 'is_set' ||
-                                        data2 === 'is_not_set' ||
-                                        data2 === 'is_date_exact' ||
-                                        data2 === 'is_date_before' ||
-                                        data2 === 'is_date_after' ||
-                                        data2 === 'between' ||
-                                        data2 === 'not_between' ||
-                                        data2 === 'min' ||
-                                        data2 === 'max' ||
-                                        data2 === 'in' ||
-                                        data2 === 'not_in' ||
-                                        data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to' ||
-                                        data2 === 'semver_eq' ||
-                                        data2 === 'semver_neq' ||
-                                        data2 === 'semver_gt' ||
-                                        data2 === 'semver_gte' ||
-                                        data2 === 'semver_lt' ||
-                                        data2 === 'semver_lte' ||
-                                        data2 === 'semver_tilde' ||
-                                        data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard' ||
-                                        data2 === 'icontains_multi' ||
-                                        data2 === 'not_icontains_multi'
-                                    )
-                                ) {
-                                    validate16.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/enum',
-                                            keyword: 'enum',
-                                            params: { allowedValues: schema14.enum },
-                                            message: 'must be equal to one of the allowed values',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                var valid0 = _errs6 === errors
-                            } else {
-                                var valid0 = true
-                            }
-                            if (valid0) {
-                                if (data.type !== undefined) {
-                                    let data3 = data.type
-                                    const _errs9 = errors
-                                    if (typeof data3 !== 'string') {
+                        if (errors === _errs2) {
+                            if (data0 && typeof data0 == 'object' && !Array.isArray(data0)) {
+                                for (const key1 in data0) {
+                                    const _errs5 = errors
+                                    if (typeof data0[key1] !== 'string') {
                                         validate16.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/type',
+                                                instancePath:
+                                                    instancePath +
+                                                    '/group_key_names/' +
+                                                    key1.replace(/~/g, '~0').replace(/\//g, '~1'),
+                                                schemaPath: '#/properties/group_key_names/additionalProperties/type',
                                                 keyword: 'type',
                                                 params: { type: 'string' },
                                                 message: 'must be string',
@@ -655,40 +619,192 @@ function validate16(data, { instancePath = '', parentData, parentDataProperty, r
                                         ]
                                         return false
                                     }
-                                    if ('person' !== data3) {
+                                    var valid1 = _errs5 === errors
+                                    if (!valid1) {
+                                        break
+                                    }
+                                }
+                            } else {
+                                validate16.errors = [
+                                    {
+                                        instancePath: instancePath + '/group_key_names',
+                                        schemaPath: '#/properties/group_key_names/type',
+                                        keyword: 'type',
+                                        params: { type: 'object' },
+                                        message: 'must be object',
+                                    },
+                                ]
+                                return false
+                            }
+                        }
+                        var valid0 = _errs2 === errors
+                    } else {
+                        var valid0 = true
+                    }
+                    if (valid0) {
+                        if (data.key !== undefined) {
+                            const _errs7 = errors
+                            if (typeof data.key !== 'string') {
+                                validate16.errors = [
+                                    {
+                                        instancePath: instancePath + '/key',
+                                        schemaPath: '#/properties/key/type',
+                                        keyword: 'type',
+                                        params: { type: 'string' },
+                                        message: 'must be string',
+                                    },
+                                ]
+                                return false
+                            }
+                            var valid0 = _errs7 === errors
+                        } else {
+                            var valid0 = true
+                        }
+                        if (valid0) {
+                            if (data.label !== undefined) {
+                                const _errs9 = errors
+                                if (typeof data.label !== 'string') {
+                                    validate16.errors = [
+                                        {
+                                            instancePath: instancePath + '/label',
+                                            schemaPath: '#/properties/label/type',
+                                            keyword: 'type',
+                                            params: { type: 'string' },
+                                            message: 'must be string',
+                                        },
+                                    ]
+                                    return false
+                                }
+                                var valid0 = _errs9 === errors
+                            } else {
+                                var valid0 = true
+                            }
+                            if (valid0) {
+                                if (data.operator !== undefined) {
+                                    let data4 = data.operator
+                                    const _errs11 = errors
+                                    if (typeof data4 !== 'string') {
                                         validate16.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/const',
-                                                keyword: 'const',
-                                                params: { allowedValue: 'person' },
-                                                message: 'must be equal to constant',
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
                                             },
                                         ]
                                         return false
                                     }
-                                    var valid0 = _errs9 === errors
+                                    if (
+                                        !(
+                                            data4 === 'exact' ||
+                                            data4 === 'is_not' ||
+                                            data4 === 'icontains' ||
+                                            data4 === 'not_icontains' ||
+                                            data4 === 'starts_with' ||
+                                            data4 === 'not_starts_with' ||
+                                            data4 === 'ends_with' ||
+                                            data4 === 'not_ends_with' ||
+                                            data4 === 'regex' ||
+                                            data4 === 'not_regex' ||
+                                            data4 === 'gt' ||
+                                            data4 === 'gte' ||
+                                            data4 === 'lt' ||
+                                            data4 === 'lte' ||
+                                            data4 === 'is_set' ||
+                                            data4 === 'is_not_set' ||
+                                            data4 === 'is_date_exact' ||
+                                            data4 === 'is_date_before' ||
+                                            data4 === 'is_date_after' ||
+                                            data4 === 'between' ||
+                                            data4 === 'not_between' ||
+                                            data4 === 'min' ||
+                                            data4 === 'max' ||
+                                            data4 === 'in' ||
+                                            data4 === 'not_in' ||
+                                            data4 === 'is_cleaned_path_exact' ||
+                                            data4 === 'flag_evaluates_to' ||
+                                            data4 === 'semver_eq' ||
+                                            data4 === 'semver_neq' ||
+                                            data4 === 'semver_gt' ||
+                                            data4 === 'semver_gte' ||
+                                            data4 === 'semver_lt' ||
+                                            data4 === 'semver_lte' ||
+                                            data4 === 'semver_tilde' ||
+                                            data4 === 'semver_caret' ||
+                                            data4 === 'semver_wildcard' ||
+                                            data4 === 'icontains_multi' ||
+                                            data4 === 'not_icontains_multi'
+                                        )
+                                    ) {
+                                        validate16.errors = [
+                                            {
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/enum',
+                                                keyword: 'enum',
+                                                params: { allowedValues: schema14.enum },
+                                                message: 'must be equal to one of the allowed values',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid0 = _errs11 === errors
                                 } else {
                                     var valid0 = true
                                 }
                                 if (valid0) {
-                                    if (data.value !== undefined) {
-                                        const _errs11 = errors
-                                        if (
-                                            !validate13(data.value, {
-                                                instancePath: instancePath + '/value',
-                                                parentData: data,
-                                                parentDataProperty: 'value',
-                                                rootData,
-                                            })
-                                        ) {
-                                            vErrors =
-                                                vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
-                                            errors = vErrors.length
+                                    if (data.type !== undefined) {
+                                        let data5 = data.type
+                                        const _errs14 = errors
+                                        if (typeof data5 !== 'string') {
+                                            validate16.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/type',
+                                                    keyword: 'type',
+                                                    params: { type: 'string' },
+                                                    message: 'must be string',
+                                                },
+                                            ]
+                                            return false
                                         }
-                                        var valid0 = _errs11 === errors
+                                        if ('person' !== data5) {
+                                            validate16.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/const',
+                                                    keyword: 'const',
+                                                    params: { allowedValue: 'person' },
+                                                    message: 'must be equal to constant',
+                                                },
+                                            ]
+                                            return false
+                                        }
+                                        var valid0 = _errs14 === errors
                                     } else {
                                         var valid0 = true
+                                    }
+                                    if (valid0) {
+                                        if (data.value !== undefined) {
+                                            const _errs16 = errors
+                                            if (
+                                                !validate13(data.value, {
+                                                    instancePath: instancePath + '/value',
+                                                    parentData: data,
+                                                    parentDataProperty: 'value',
+                                                    rootData,
+                                                })
+                                            ) {
+                                                vErrors =
+                                                    vErrors === null
+                                                        ? validate13.errors
+                                                        : vErrors.concat(validate13.errors)
+                                                errors = vErrors.length
+                                            }
+                                            var valid0 = _errs16 === errors
+                                        } else {
+                                            var valid0 = true
+                                        }
                                     }
                                 }
                             }
@@ -715,6 +831,12 @@ function validate16(data, { instancePath = '', parentData, parentDataProperty, r
 const schema20 = {
     additionalProperties: false,
     properties: {
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         key: { type: 'string' },
         label: { type: 'string' },
         operator: { $ref: '#/definitions/PropertyOperator' },
@@ -754,6 +876,7 @@ function validate19(data, { instancePath = '', parentData, parentDataProperty, r
                 for (const key0 in data) {
                     if (
                         !(
+                            key0 === 'group_key_names' ||
                             key0 === 'key' ||
                             key0 === 'label' ||
                             key0 === 'operator' ||
@@ -775,125 +898,21 @@ function validate19(data, { instancePath = '', parentData, parentDataProperty, r
                     }
                 }
                 if (_errs1 === errors) {
-                    if (data.key !== undefined) {
+                    if (data.group_key_names !== undefined) {
+                        let data0 = data.group_key_names
                         const _errs2 = errors
-                        if (typeof data.key !== 'string') {
-                            validate19.errors = [
-                                {
-                                    instancePath: instancePath + '/key',
-                                    schemaPath: '#/properties/key/type',
-                                    keyword: 'type',
-                                    params: { type: 'string' },
-                                    message: 'must be string',
-                                },
-                            ]
-                            return false
-                        }
-                        var valid0 = _errs2 === errors
-                    } else {
-                        var valid0 = true
-                    }
-                    if (valid0) {
-                        if (data.label !== undefined) {
-                            const _errs4 = errors
-                            if (typeof data.label !== 'string') {
-                                validate19.errors = [
-                                    {
-                                        instancePath: instancePath + '/label',
-                                        schemaPath: '#/properties/label/type',
-                                        keyword: 'type',
-                                        params: { type: 'string' },
-                                        message: 'must be string',
-                                    },
-                                ]
-                                return false
-                            }
-                            var valid0 = _errs4 === errors
-                        } else {
-                            var valid0 = true
-                        }
-                        if (valid0) {
-                            if (data.operator !== undefined) {
-                                let data2 = data.operator
-                                const _errs6 = errors
-                                if (typeof data2 !== 'string') {
-                                    validate19.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/type',
-                                            keyword: 'type',
-                                            params: { type: 'string' },
-                                            message: 'must be string',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                if (
-                                    !(
-                                        data2 === 'exact' ||
-                                        data2 === 'is_not' ||
-                                        data2 === 'icontains' ||
-                                        data2 === 'not_icontains' ||
-                                        data2 === 'starts_with' ||
-                                        data2 === 'not_starts_with' ||
-                                        data2 === 'ends_with' ||
-                                        data2 === 'not_ends_with' ||
-                                        data2 === 'regex' ||
-                                        data2 === 'not_regex' ||
-                                        data2 === 'gt' ||
-                                        data2 === 'gte' ||
-                                        data2 === 'lt' ||
-                                        data2 === 'lte' ||
-                                        data2 === 'is_set' ||
-                                        data2 === 'is_not_set' ||
-                                        data2 === 'is_date_exact' ||
-                                        data2 === 'is_date_before' ||
-                                        data2 === 'is_date_after' ||
-                                        data2 === 'between' ||
-                                        data2 === 'not_between' ||
-                                        data2 === 'min' ||
-                                        data2 === 'max' ||
-                                        data2 === 'in' ||
-                                        data2 === 'not_in' ||
-                                        data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to' ||
-                                        data2 === 'semver_eq' ||
-                                        data2 === 'semver_neq' ||
-                                        data2 === 'semver_gt' ||
-                                        data2 === 'semver_gte' ||
-                                        data2 === 'semver_lt' ||
-                                        data2 === 'semver_lte' ||
-                                        data2 === 'semver_tilde' ||
-                                        data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard' ||
-                                        data2 === 'icontains_multi' ||
-                                        data2 === 'not_icontains_multi'
-                                    )
-                                ) {
-                                    validate19.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/enum',
-                                            keyword: 'enum',
-                                            params: { allowedValues: schema14.enum },
-                                            message: 'must be equal to one of the allowed values',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                var valid0 = _errs6 === errors
-                            } else {
-                                var valid0 = true
-                            }
-                            if (valid0) {
-                                if (data.type !== undefined) {
-                                    let data3 = data.type
-                                    const _errs9 = errors
-                                    if (typeof data3 !== 'string') {
+                        if (errors === _errs2) {
+                            if (data0 && typeof data0 == 'object' && !Array.isArray(data0)) {
+                                for (const key1 in data0) {
+                                    const _errs5 = errors
+                                    if (typeof data0[key1] !== 'string') {
                                         validate19.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/type',
+                                                instancePath:
+                                                    instancePath +
+                                                    '/group_key_names/' +
+                                                    key1.replace(/~/g, '~0').replace(/\//g, '~1'),
+                                                schemaPath: '#/properties/group_key_names/additionalProperties/type',
                                                 keyword: 'type',
                                                 params: { type: 'string' },
                                                 message: 'must be string',
@@ -901,40 +920,192 @@ function validate19(data, { instancePath = '', parentData, parentDataProperty, r
                                         ]
                                         return false
                                     }
-                                    if ('person_metadata' !== data3) {
+                                    var valid1 = _errs5 === errors
+                                    if (!valid1) {
+                                        break
+                                    }
+                                }
+                            } else {
+                                validate19.errors = [
+                                    {
+                                        instancePath: instancePath + '/group_key_names',
+                                        schemaPath: '#/properties/group_key_names/type',
+                                        keyword: 'type',
+                                        params: { type: 'object' },
+                                        message: 'must be object',
+                                    },
+                                ]
+                                return false
+                            }
+                        }
+                        var valid0 = _errs2 === errors
+                    } else {
+                        var valid0 = true
+                    }
+                    if (valid0) {
+                        if (data.key !== undefined) {
+                            const _errs7 = errors
+                            if (typeof data.key !== 'string') {
+                                validate19.errors = [
+                                    {
+                                        instancePath: instancePath + '/key',
+                                        schemaPath: '#/properties/key/type',
+                                        keyword: 'type',
+                                        params: { type: 'string' },
+                                        message: 'must be string',
+                                    },
+                                ]
+                                return false
+                            }
+                            var valid0 = _errs7 === errors
+                        } else {
+                            var valid0 = true
+                        }
+                        if (valid0) {
+                            if (data.label !== undefined) {
+                                const _errs9 = errors
+                                if (typeof data.label !== 'string') {
+                                    validate19.errors = [
+                                        {
+                                            instancePath: instancePath + '/label',
+                                            schemaPath: '#/properties/label/type',
+                                            keyword: 'type',
+                                            params: { type: 'string' },
+                                            message: 'must be string',
+                                        },
+                                    ]
+                                    return false
+                                }
+                                var valid0 = _errs9 === errors
+                            } else {
+                                var valid0 = true
+                            }
+                            if (valid0) {
+                                if (data.operator !== undefined) {
+                                    let data4 = data.operator
+                                    const _errs11 = errors
+                                    if (typeof data4 !== 'string') {
                                         validate19.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/const',
-                                                keyword: 'const',
-                                                params: { allowedValue: 'person_metadata' },
-                                                message: 'must be equal to constant',
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
                                             },
                                         ]
                                         return false
                                     }
-                                    var valid0 = _errs9 === errors
+                                    if (
+                                        !(
+                                            data4 === 'exact' ||
+                                            data4 === 'is_not' ||
+                                            data4 === 'icontains' ||
+                                            data4 === 'not_icontains' ||
+                                            data4 === 'starts_with' ||
+                                            data4 === 'not_starts_with' ||
+                                            data4 === 'ends_with' ||
+                                            data4 === 'not_ends_with' ||
+                                            data4 === 'regex' ||
+                                            data4 === 'not_regex' ||
+                                            data4 === 'gt' ||
+                                            data4 === 'gte' ||
+                                            data4 === 'lt' ||
+                                            data4 === 'lte' ||
+                                            data4 === 'is_set' ||
+                                            data4 === 'is_not_set' ||
+                                            data4 === 'is_date_exact' ||
+                                            data4 === 'is_date_before' ||
+                                            data4 === 'is_date_after' ||
+                                            data4 === 'between' ||
+                                            data4 === 'not_between' ||
+                                            data4 === 'min' ||
+                                            data4 === 'max' ||
+                                            data4 === 'in' ||
+                                            data4 === 'not_in' ||
+                                            data4 === 'is_cleaned_path_exact' ||
+                                            data4 === 'flag_evaluates_to' ||
+                                            data4 === 'semver_eq' ||
+                                            data4 === 'semver_neq' ||
+                                            data4 === 'semver_gt' ||
+                                            data4 === 'semver_gte' ||
+                                            data4 === 'semver_lt' ||
+                                            data4 === 'semver_lte' ||
+                                            data4 === 'semver_tilde' ||
+                                            data4 === 'semver_caret' ||
+                                            data4 === 'semver_wildcard' ||
+                                            data4 === 'icontains_multi' ||
+                                            data4 === 'not_icontains_multi'
+                                        )
+                                    ) {
+                                        validate19.errors = [
+                                            {
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/enum',
+                                                keyword: 'enum',
+                                                params: { allowedValues: schema14.enum },
+                                                message: 'must be equal to one of the allowed values',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid0 = _errs11 === errors
                                 } else {
                                     var valid0 = true
                                 }
                                 if (valid0) {
-                                    if (data.value !== undefined) {
-                                        const _errs11 = errors
-                                        if (
-                                            !validate13(data.value, {
-                                                instancePath: instancePath + '/value',
-                                                parentData: data,
-                                                parentDataProperty: 'value',
-                                                rootData,
-                                            })
-                                        ) {
-                                            vErrors =
-                                                vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
-                                            errors = vErrors.length
+                                    if (data.type !== undefined) {
+                                        let data5 = data.type
+                                        const _errs14 = errors
+                                        if (typeof data5 !== 'string') {
+                                            validate19.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/type',
+                                                    keyword: 'type',
+                                                    params: { type: 'string' },
+                                                    message: 'must be string',
+                                                },
+                                            ]
+                                            return false
                                         }
-                                        var valid0 = _errs11 === errors
+                                        if ('person_metadata' !== data5) {
+                                            validate19.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/const',
+                                                    keyword: 'const',
+                                                    params: { allowedValue: 'person_metadata' },
+                                                    message: 'must be equal to constant',
+                                                },
+                                            ]
+                                            return false
+                                        }
+                                        var valid0 = _errs14 === errors
                                     } else {
                                         var valid0 = true
+                                    }
+                                    if (valid0) {
+                                        if (data.value !== undefined) {
+                                            const _errs16 = errors
+                                            if (
+                                                !validate13(data.value, {
+                                                    instancePath: instancePath + '/value',
+                                                    parentData: data,
+                                                    parentDataProperty: 'value',
+                                                    rootData,
+                                                })
+                                            ) {
+                                                vErrors =
+                                                    vErrors === null
+                                                        ? validate13.errors
+                                                        : vErrors.concat(validate13.errors)
+                                                errors = vErrors.length
+                                            }
+                                            var valid0 = _errs16 === errors
+                                        } else {
+                                            var valid0 = true
+                                        }
                                     }
                                 }
                             }
@@ -962,6 +1133,12 @@ const schema22 = {
     additionalProperties: false,
     description: 'Sync with nodejs/src/types.ts',
     properties: {
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         key: { enum: ['tag_name', 'text', 'href', 'selector'], type: 'string' },
         label: { type: 'string' },
         operator: { $ref: '#/definitions/PropertyOperator' },
@@ -997,6 +1174,7 @@ function validate22(data, { instancePath = '', parentData, parentDataProperty, r
                 for (const key0 in data) {
                     if (
                         !(
+                            key0 === 'group_key_names' ||
                             key0 === 'key' ||
                             key0 === 'label' ||
                             key0 === 'operator' ||
@@ -1018,138 +1196,21 @@ function validate22(data, { instancePath = '', parentData, parentDataProperty, r
                     }
                 }
                 if (_errs1 === errors) {
-                    if (data.key !== undefined) {
-                        let data0 = data.key
+                    if (data.group_key_names !== undefined) {
+                        let data0 = data.group_key_names
                         const _errs2 = errors
-                        if (typeof data0 !== 'string') {
-                            validate22.errors = [
-                                {
-                                    instancePath: instancePath + '/key',
-                                    schemaPath: '#/properties/key/type',
-                                    keyword: 'type',
-                                    params: { type: 'string' },
-                                    message: 'must be string',
-                                },
-                            ]
-                            return false
-                        }
-                        if (!(data0 === 'tag_name' || data0 === 'text' || data0 === 'href' || data0 === 'selector')) {
-                            validate22.errors = [
-                                {
-                                    instancePath: instancePath + '/key',
-                                    schemaPath: '#/properties/key/enum',
-                                    keyword: 'enum',
-                                    params: { allowedValues: schema22.properties.key.enum },
-                                    message: 'must be equal to one of the allowed values',
-                                },
-                            ]
-                            return false
-                        }
-                        var valid0 = _errs2 === errors
-                    } else {
-                        var valid0 = true
-                    }
-                    if (valid0) {
-                        if (data.label !== undefined) {
-                            const _errs4 = errors
-                            if (typeof data.label !== 'string') {
-                                validate22.errors = [
-                                    {
-                                        instancePath: instancePath + '/label',
-                                        schemaPath: '#/properties/label/type',
-                                        keyword: 'type',
-                                        params: { type: 'string' },
-                                        message: 'must be string',
-                                    },
-                                ]
-                                return false
-                            }
-                            var valid0 = _errs4 === errors
-                        } else {
-                            var valid0 = true
-                        }
-                        if (valid0) {
-                            if (data.operator !== undefined) {
-                                let data2 = data.operator
-                                const _errs6 = errors
-                                if (typeof data2 !== 'string') {
-                                    validate22.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/type',
-                                            keyword: 'type',
-                                            params: { type: 'string' },
-                                            message: 'must be string',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                if (
-                                    !(
-                                        data2 === 'exact' ||
-                                        data2 === 'is_not' ||
-                                        data2 === 'icontains' ||
-                                        data2 === 'not_icontains' ||
-                                        data2 === 'starts_with' ||
-                                        data2 === 'not_starts_with' ||
-                                        data2 === 'ends_with' ||
-                                        data2 === 'not_ends_with' ||
-                                        data2 === 'regex' ||
-                                        data2 === 'not_regex' ||
-                                        data2 === 'gt' ||
-                                        data2 === 'gte' ||
-                                        data2 === 'lt' ||
-                                        data2 === 'lte' ||
-                                        data2 === 'is_set' ||
-                                        data2 === 'is_not_set' ||
-                                        data2 === 'is_date_exact' ||
-                                        data2 === 'is_date_before' ||
-                                        data2 === 'is_date_after' ||
-                                        data2 === 'between' ||
-                                        data2 === 'not_between' ||
-                                        data2 === 'min' ||
-                                        data2 === 'max' ||
-                                        data2 === 'in' ||
-                                        data2 === 'not_in' ||
-                                        data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to' ||
-                                        data2 === 'semver_eq' ||
-                                        data2 === 'semver_neq' ||
-                                        data2 === 'semver_gt' ||
-                                        data2 === 'semver_gte' ||
-                                        data2 === 'semver_lt' ||
-                                        data2 === 'semver_lte' ||
-                                        data2 === 'semver_tilde' ||
-                                        data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard' ||
-                                        data2 === 'icontains_multi' ||
-                                        data2 === 'not_icontains_multi'
-                                    )
-                                ) {
-                                    validate22.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/enum',
-                                            keyword: 'enum',
-                                            params: { allowedValues: schema14.enum },
-                                            message: 'must be equal to one of the allowed values',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                var valid0 = _errs6 === errors
-                            } else {
-                                var valid0 = true
-                            }
-                            if (valid0) {
-                                if (data.type !== undefined) {
-                                    let data3 = data.type
-                                    const _errs9 = errors
-                                    if (typeof data3 !== 'string') {
+                        if (errors === _errs2) {
+                            if (data0 && typeof data0 == 'object' && !Array.isArray(data0)) {
+                                for (const key1 in data0) {
+                                    const _errs5 = errors
+                                    if (typeof data0[key1] !== 'string') {
                                         validate22.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/type',
+                                                instancePath:
+                                                    instancePath +
+                                                    '/group_key_names/' +
+                                                    key1.replace(/~/g, '~0').replace(/\//g, '~1'),
+                                                schemaPath: '#/properties/group_key_names/additionalProperties/type',
                                                 keyword: 'type',
                                                 params: { type: 'string' },
                                                 message: 'must be string',
@@ -1157,40 +1218,207 @@ function validate22(data, { instancePath = '', parentData, parentDataProperty, r
                                         ]
                                         return false
                                     }
-                                    if ('element' !== data3) {
+                                    var valid1 = _errs5 === errors
+                                    if (!valid1) {
+                                        break
+                                    }
+                                }
+                            } else {
+                                validate22.errors = [
+                                    {
+                                        instancePath: instancePath + '/group_key_names',
+                                        schemaPath: '#/properties/group_key_names/type',
+                                        keyword: 'type',
+                                        params: { type: 'object' },
+                                        message: 'must be object',
+                                    },
+                                ]
+                                return false
+                            }
+                        }
+                        var valid0 = _errs2 === errors
+                    } else {
+                        var valid0 = true
+                    }
+                    if (valid0) {
+                        if (data.key !== undefined) {
+                            let data2 = data.key
+                            const _errs7 = errors
+                            if (typeof data2 !== 'string') {
+                                validate22.errors = [
+                                    {
+                                        instancePath: instancePath + '/key',
+                                        schemaPath: '#/properties/key/type',
+                                        keyword: 'type',
+                                        params: { type: 'string' },
+                                        message: 'must be string',
+                                    },
+                                ]
+                                return false
+                            }
+                            if (
+                                !(data2 === 'tag_name' || data2 === 'text' || data2 === 'href' || data2 === 'selector')
+                            ) {
+                                validate22.errors = [
+                                    {
+                                        instancePath: instancePath + '/key',
+                                        schemaPath: '#/properties/key/enum',
+                                        keyword: 'enum',
+                                        params: { allowedValues: schema22.properties.key.enum },
+                                        message: 'must be equal to one of the allowed values',
+                                    },
+                                ]
+                                return false
+                            }
+                            var valid0 = _errs7 === errors
+                        } else {
+                            var valid0 = true
+                        }
+                        if (valid0) {
+                            if (data.label !== undefined) {
+                                const _errs9 = errors
+                                if (typeof data.label !== 'string') {
+                                    validate22.errors = [
+                                        {
+                                            instancePath: instancePath + '/label',
+                                            schemaPath: '#/properties/label/type',
+                                            keyword: 'type',
+                                            params: { type: 'string' },
+                                            message: 'must be string',
+                                        },
+                                    ]
+                                    return false
+                                }
+                                var valid0 = _errs9 === errors
+                            } else {
+                                var valid0 = true
+                            }
+                            if (valid0) {
+                                if (data.operator !== undefined) {
+                                    let data4 = data.operator
+                                    const _errs11 = errors
+                                    if (typeof data4 !== 'string') {
                                         validate22.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/const',
-                                                keyword: 'const',
-                                                params: { allowedValue: 'element' },
-                                                message: 'must be equal to constant',
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
                                             },
                                         ]
                                         return false
                                     }
-                                    var valid0 = _errs9 === errors
+                                    if (
+                                        !(
+                                            data4 === 'exact' ||
+                                            data4 === 'is_not' ||
+                                            data4 === 'icontains' ||
+                                            data4 === 'not_icontains' ||
+                                            data4 === 'starts_with' ||
+                                            data4 === 'not_starts_with' ||
+                                            data4 === 'ends_with' ||
+                                            data4 === 'not_ends_with' ||
+                                            data4 === 'regex' ||
+                                            data4 === 'not_regex' ||
+                                            data4 === 'gt' ||
+                                            data4 === 'gte' ||
+                                            data4 === 'lt' ||
+                                            data4 === 'lte' ||
+                                            data4 === 'is_set' ||
+                                            data4 === 'is_not_set' ||
+                                            data4 === 'is_date_exact' ||
+                                            data4 === 'is_date_before' ||
+                                            data4 === 'is_date_after' ||
+                                            data4 === 'between' ||
+                                            data4 === 'not_between' ||
+                                            data4 === 'min' ||
+                                            data4 === 'max' ||
+                                            data4 === 'in' ||
+                                            data4 === 'not_in' ||
+                                            data4 === 'is_cleaned_path_exact' ||
+                                            data4 === 'flag_evaluates_to' ||
+                                            data4 === 'semver_eq' ||
+                                            data4 === 'semver_neq' ||
+                                            data4 === 'semver_gt' ||
+                                            data4 === 'semver_gte' ||
+                                            data4 === 'semver_lt' ||
+                                            data4 === 'semver_lte' ||
+                                            data4 === 'semver_tilde' ||
+                                            data4 === 'semver_caret' ||
+                                            data4 === 'semver_wildcard' ||
+                                            data4 === 'icontains_multi' ||
+                                            data4 === 'not_icontains_multi'
+                                        )
+                                    ) {
+                                        validate22.errors = [
+                                            {
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/enum',
+                                                keyword: 'enum',
+                                                params: { allowedValues: schema14.enum },
+                                                message: 'must be equal to one of the allowed values',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid0 = _errs11 === errors
                                 } else {
                                     var valid0 = true
                                 }
                                 if (valid0) {
-                                    if (data.value !== undefined) {
-                                        const _errs11 = errors
-                                        if (
-                                            !validate13(data.value, {
-                                                instancePath: instancePath + '/value',
-                                                parentData: data,
-                                                parentDataProperty: 'value',
-                                                rootData,
-                                            })
-                                        ) {
-                                            vErrors =
-                                                vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
-                                            errors = vErrors.length
+                                    if (data.type !== undefined) {
+                                        let data5 = data.type
+                                        const _errs14 = errors
+                                        if (typeof data5 !== 'string') {
+                                            validate22.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/type',
+                                                    keyword: 'type',
+                                                    params: { type: 'string' },
+                                                    message: 'must be string',
+                                                },
+                                            ]
+                                            return false
                                         }
-                                        var valid0 = _errs11 === errors
+                                        if ('element' !== data5) {
+                                            validate22.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/const',
+                                                    keyword: 'const',
+                                                    params: { allowedValue: 'element' },
+                                                    message: 'must be equal to constant',
+                                                },
+                                            ]
+                                            return false
+                                        }
+                                        var valid0 = _errs14 === errors
                                     } else {
                                         var valid0 = true
+                                    }
+                                    if (valid0) {
+                                        if (data.value !== undefined) {
+                                            const _errs16 = errors
+                                            if (
+                                                !validate13(data.value, {
+                                                    instancePath: instancePath + '/value',
+                                                    parentData: data,
+                                                    parentDataProperty: 'value',
+                                                    rootData,
+                                                })
+                                            ) {
+                                                vErrors =
+                                                    vErrors === null
+                                                        ? validate13.errors
+                                                        : vErrors.concat(validate13.errors)
+                                                errors = vErrors.length
+                                            }
+                                            var valid0 = _errs16 === errors
+                                        } else {
+                                            var valid0 = true
+                                        }
                                     }
                                 }
                             }
@@ -1217,6 +1445,12 @@ function validate22(data, { instancePath = '', parentData, parentDataProperty, r
 const schema24 = {
     additionalProperties: false,
     properties: {
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         key: { type: 'string' },
         label: { type: 'string' },
         operator: { $ref: '#/definitions/PropertyOperator' },
@@ -1252,6 +1486,7 @@ function validate25(data, { instancePath = '', parentData, parentDataProperty, r
                 for (const key0 in data) {
                     if (
                         !(
+                            key0 === 'group_key_names' ||
                             key0 === 'key' ||
                             key0 === 'label' ||
                             key0 === 'operator' ||
@@ -1273,125 +1508,21 @@ function validate25(data, { instancePath = '', parentData, parentDataProperty, r
                     }
                 }
                 if (_errs1 === errors) {
-                    if (data.key !== undefined) {
+                    if (data.group_key_names !== undefined) {
+                        let data0 = data.group_key_names
                         const _errs2 = errors
-                        if (typeof data.key !== 'string') {
-                            validate25.errors = [
-                                {
-                                    instancePath: instancePath + '/key',
-                                    schemaPath: '#/properties/key/type',
-                                    keyword: 'type',
-                                    params: { type: 'string' },
-                                    message: 'must be string',
-                                },
-                            ]
-                            return false
-                        }
-                        var valid0 = _errs2 === errors
-                    } else {
-                        var valid0 = true
-                    }
-                    if (valid0) {
-                        if (data.label !== undefined) {
-                            const _errs4 = errors
-                            if (typeof data.label !== 'string') {
-                                validate25.errors = [
-                                    {
-                                        instancePath: instancePath + '/label',
-                                        schemaPath: '#/properties/label/type',
-                                        keyword: 'type',
-                                        params: { type: 'string' },
-                                        message: 'must be string',
-                                    },
-                                ]
-                                return false
-                            }
-                            var valid0 = _errs4 === errors
-                        } else {
-                            var valid0 = true
-                        }
-                        if (valid0) {
-                            if (data.operator !== undefined) {
-                                let data2 = data.operator
-                                const _errs6 = errors
-                                if (typeof data2 !== 'string') {
-                                    validate25.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/type',
-                                            keyword: 'type',
-                                            params: { type: 'string' },
-                                            message: 'must be string',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                if (
-                                    !(
-                                        data2 === 'exact' ||
-                                        data2 === 'is_not' ||
-                                        data2 === 'icontains' ||
-                                        data2 === 'not_icontains' ||
-                                        data2 === 'starts_with' ||
-                                        data2 === 'not_starts_with' ||
-                                        data2 === 'ends_with' ||
-                                        data2 === 'not_ends_with' ||
-                                        data2 === 'regex' ||
-                                        data2 === 'not_regex' ||
-                                        data2 === 'gt' ||
-                                        data2 === 'gte' ||
-                                        data2 === 'lt' ||
-                                        data2 === 'lte' ||
-                                        data2 === 'is_set' ||
-                                        data2 === 'is_not_set' ||
-                                        data2 === 'is_date_exact' ||
-                                        data2 === 'is_date_before' ||
-                                        data2 === 'is_date_after' ||
-                                        data2 === 'between' ||
-                                        data2 === 'not_between' ||
-                                        data2 === 'min' ||
-                                        data2 === 'max' ||
-                                        data2 === 'in' ||
-                                        data2 === 'not_in' ||
-                                        data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to' ||
-                                        data2 === 'semver_eq' ||
-                                        data2 === 'semver_neq' ||
-                                        data2 === 'semver_gt' ||
-                                        data2 === 'semver_gte' ||
-                                        data2 === 'semver_lt' ||
-                                        data2 === 'semver_lte' ||
-                                        data2 === 'semver_tilde' ||
-                                        data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard' ||
-                                        data2 === 'icontains_multi' ||
-                                        data2 === 'not_icontains_multi'
-                                    )
-                                ) {
-                                    validate25.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/enum',
-                                            keyword: 'enum',
-                                            params: { allowedValues: schema14.enum },
-                                            message: 'must be equal to one of the allowed values',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                var valid0 = _errs6 === errors
-                            } else {
-                                var valid0 = true
-                            }
-                            if (valid0) {
-                                if (data.type !== undefined) {
-                                    let data3 = data.type
-                                    const _errs9 = errors
-                                    if (typeof data3 !== 'string') {
+                        if (errors === _errs2) {
+                            if (data0 && typeof data0 == 'object' && !Array.isArray(data0)) {
+                                for (const key1 in data0) {
+                                    const _errs5 = errors
+                                    if (typeof data0[key1] !== 'string') {
                                         validate25.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/type',
+                                                instancePath:
+                                                    instancePath +
+                                                    '/group_key_names/' +
+                                                    key1.replace(/~/g, '~0').replace(/\//g, '~1'),
+                                                schemaPath: '#/properties/group_key_names/additionalProperties/type',
                                                 keyword: 'type',
                                                 params: { type: 'string' },
                                                 message: 'must be string',
@@ -1399,40 +1530,192 @@ function validate25(data, { instancePath = '', parentData, parentDataProperty, r
                                         ]
                                         return false
                                     }
-                                    if ('event_metadata' !== data3) {
+                                    var valid1 = _errs5 === errors
+                                    if (!valid1) {
+                                        break
+                                    }
+                                }
+                            } else {
+                                validate25.errors = [
+                                    {
+                                        instancePath: instancePath + '/group_key_names',
+                                        schemaPath: '#/properties/group_key_names/type',
+                                        keyword: 'type',
+                                        params: { type: 'object' },
+                                        message: 'must be object',
+                                    },
+                                ]
+                                return false
+                            }
+                        }
+                        var valid0 = _errs2 === errors
+                    } else {
+                        var valid0 = true
+                    }
+                    if (valid0) {
+                        if (data.key !== undefined) {
+                            const _errs7 = errors
+                            if (typeof data.key !== 'string') {
+                                validate25.errors = [
+                                    {
+                                        instancePath: instancePath + '/key',
+                                        schemaPath: '#/properties/key/type',
+                                        keyword: 'type',
+                                        params: { type: 'string' },
+                                        message: 'must be string',
+                                    },
+                                ]
+                                return false
+                            }
+                            var valid0 = _errs7 === errors
+                        } else {
+                            var valid0 = true
+                        }
+                        if (valid0) {
+                            if (data.label !== undefined) {
+                                const _errs9 = errors
+                                if (typeof data.label !== 'string') {
+                                    validate25.errors = [
+                                        {
+                                            instancePath: instancePath + '/label',
+                                            schemaPath: '#/properties/label/type',
+                                            keyword: 'type',
+                                            params: { type: 'string' },
+                                            message: 'must be string',
+                                        },
+                                    ]
+                                    return false
+                                }
+                                var valid0 = _errs9 === errors
+                            } else {
+                                var valid0 = true
+                            }
+                            if (valid0) {
+                                if (data.operator !== undefined) {
+                                    let data4 = data.operator
+                                    const _errs11 = errors
+                                    if (typeof data4 !== 'string') {
                                         validate25.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/const',
-                                                keyword: 'const',
-                                                params: { allowedValue: 'event_metadata' },
-                                                message: 'must be equal to constant',
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
                                             },
                                         ]
                                         return false
                                     }
-                                    var valid0 = _errs9 === errors
+                                    if (
+                                        !(
+                                            data4 === 'exact' ||
+                                            data4 === 'is_not' ||
+                                            data4 === 'icontains' ||
+                                            data4 === 'not_icontains' ||
+                                            data4 === 'starts_with' ||
+                                            data4 === 'not_starts_with' ||
+                                            data4 === 'ends_with' ||
+                                            data4 === 'not_ends_with' ||
+                                            data4 === 'regex' ||
+                                            data4 === 'not_regex' ||
+                                            data4 === 'gt' ||
+                                            data4 === 'gte' ||
+                                            data4 === 'lt' ||
+                                            data4 === 'lte' ||
+                                            data4 === 'is_set' ||
+                                            data4 === 'is_not_set' ||
+                                            data4 === 'is_date_exact' ||
+                                            data4 === 'is_date_before' ||
+                                            data4 === 'is_date_after' ||
+                                            data4 === 'between' ||
+                                            data4 === 'not_between' ||
+                                            data4 === 'min' ||
+                                            data4 === 'max' ||
+                                            data4 === 'in' ||
+                                            data4 === 'not_in' ||
+                                            data4 === 'is_cleaned_path_exact' ||
+                                            data4 === 'flag_evaluates_to' ||
+                                            data4 === 'semver_eq' ||
+                                            data4 === 'semver_neq' ||
+                                            data4 === 'semver_gt' ||
+                                            data4 === 'semver_gte' ||
+                                            data4 === 'semver_lt' ||
+                                            data4 === 'semver_lte' ||
+                                            data4 === 'semver_tilde' ||
+                                            data4 === 'semver_caret' ||
+                                            data4 === 'semver_wildcard' ||
+                                            data4 === 'icontains_multi' ||
+                                            data4 === 'not_icontains_multi'
+                                        )
+                                    ) {
+                                        validate25.errors = [
+                                            {
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/enum',
+                                                keyword: 'enum',
+                                                params: { allowedValues: schema14.enum },
+                                                message: 'must be equal to one of the allowed values',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid0 = _errs11 === errors
                                 } else {
                                     var valid0 = true
                                 }
                                 if (valid0) {
-                                    if (data.value !== undefined) {
-                                        const _errs11 = errors
-                                        if (
-                                            !validate13(data.value, {
-                                                instancePath: instancePath + '/value',
-                                                parentData: data,
-                                                parentDataProperty: 'value',
-                                                rootData,
-                                            })
-                                        ) {
-                                            vErrors =
-                                                vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
-                                            errors = vErrors.length
+                                    if (data.type !== undefined) {
+                                        let data5 = data.type
+                                        const _errs14 = errors
+                                        if (typeof data5 !== 'string') {
+                                            validate25.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/type',
+                                                    keyword: 'type',
+                                                    params: { type: 'string' },
+                                                    message: 'must be string',
+                                                },
+                                            ]
+                                            return false
                                         }
-                                        var valid0 = _errs11 === errors
+                                        if ('event_metadata' !== data5) {
+                                            validate25.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/const',
+                                                    keyword: 'const',
+                                                    params: { allowedValue: 'event_metadata' },
+                                                    message: 'must be equal to constant',
+                                                },
+                                            ]
+                                            return false
+                                        }
+                                        var valid0 = _errs14 === errors
                                     } else {
                                         var valid0 = true
+                                    }
+                                    if (valid0) {
+                                        if (data.value !== undefined) {
+                                            const _errs16 = errors
+                                            if (
+                                                !validate13(data.value, {
+                                                    instancePath: instancePath + '/value',
+                                                    parentData: data,
+                                                    parentDataProperty: 'value',
+                                                    rootData,
+                                                })
+                                            ) {
+                                                vErrors =
+                                                    vErrors === null
+                                                        ? validate13.errors
+                                                        : vErrors.concat(validate13.errors)
+                                                errors = vErrors.length
+                                            }
+                                            var valid0 = _errs16 === errors
+                                        } else {
+                                            var valid0 = true
+                                        }
                                     }
                                 }
                             }
@@ -1459,6 +1742,12 @@ function validate25(data, { instancePath = '', parentData, parentDataProperty, r
 const schema26 = {
     additionalProperties: false,
     properties: {
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         key: { type: 'string' },
         label: { type: 'string' },
         operator: { $ref: '#/definitions/PropertyOperator' },
@@ -1494,6 +1783,7 @@ function validate28(data, { instancePath = '', parentData, parentDataProperty, r
                 for (const key0 in data) {
                     if (
                         !(
+                            key0 === 'group_key_names' ||
                             key0 === 'key' ||
                             key0 === 'label' ||
                             key0 === 'operator' ||
@@ -1515,125 +1805,21 @@ function validate28(data, { instancePath = '', parentData, parentDataProperty, r
                     }
                 }
                 if (_errs1 === errors) {
-                    if (data.key !== undefined) {
+                    if (data.group_key_names !== undefined) {
+                        let data0 = data.group_key_names
                         const _errs2 = errors
-                        if (typeof data.key !== 'string') {
-                            validate28.errors = [
-                                {
-                                    instancePath: instancePath + '/key',
-                                    schemaPath: '#/properties/key/type',
-                                    keyword: 'type',
-                                    params: { type: 'string' },
-                                    message: 'must be string',
-                                },
-                            ]
-                            return false
-                        }
-                        var valid0 = _errs2 === errors
-                    } else {
-                        var valid0 = true
-                    }
-                    if (valid0) {
-                        if (data.label !== undefined) {
-                            const _errs4 = errors
-                            if (typeof data.label !== 'string') {
-                                validate28.errors = [
-                                    {
-                                        instancePath: instancePath + '/label',
-                                        schemaPath: '#/properties/label/type',
-                                        keyword: 'type',
-                                        params: { type: 'string' },
-                                        message: 'must be string',
-                                    },
-                                ]
-                                return false
-                            }
-                            var valid0 = _errs4 === errors
-                        } else {
-                            var valid0 = true
-                        }
-                        if (valid0) {
-                            if (data.operator !== undefined) {
-                                let data2 = data.operator
-                                const _errs6 = errors
-                                if (typeof data2 !== 'string') {
-                                    validate28.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/type',
-                                            keyword: 'type',
-                                            params: { type: 'string' },
-                                            message: 'must be string',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                if (
-                                    !(
-                                        data2 === 'exact' ||
-                                        data2 === 'is_not' ||
-                                        data2 === 'icontains' ||
-                                        data2 === 'not_icontains' ||
-                                        data2 === 'starts_with' ||
-                                        data2 === 'not_starts_with' ||
-                                        data2 === 'ends_with' ||
-                                        data2 === 'not_ends_with' ||
-                                        data2 === 'regex' ||
-                                        data2 === 'not_regex' ||
-                                        data2 === 'gt' ||
-                                        data2 === 'gte' ||
-                                        data2 === 'lt' ||
-                                        data2 === 'lte' ||
-                                        data2 === 'is_set' ||
-                                        data2 === 'is_not_set' ||
-                                        data2 === 'is_date_exact' ||
-                                        data2 === 'is_date_before' ||
-                                        data2 === 'is_date_after' ||
-                                        data2 === 'between' ||
-                                        data2 === 'not_between' ||
-                                        data2 === 'min' ||
-                                        data2 === 'max' ||
-                                        data2 === 'in' ||
-                                        data2 === 'not_in' ||
-                                        data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to' ||
-                                        data2 === 'semver_eq' ||
-                                        data2 === 'semver_neq' ||
-                                        data2 === 'semver_gt' ||
-                                        data2 === 'semver_gte' ||
-                                        data2 === 'semver_lt' ||
-                                        data2 === 'semver_lte' ||
-                                        data2 === 'semver_tilde' ||
-                                        data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard' ||
-                                        data2 === 'icontains_multi' ||
-                                        data2 === 'not_icontains_multi'
-                                    )
-                                ) {
-                                    validate28.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/enum',
-                                            keyword: 'enum',
-                                            params: { allowedValues: schema14.enum },
-                                            message: 'must be equal to one of the allowed values',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                var valid0 = _errs6 === errors
-                            } else {
-                                var valid0 = true
-                            }
-                            if (valid0) {
-                                if (data.type !== undefined) {
-                                    let data3 = data.type
-                                    const _errs9 = errors
-                                    if (typeof data3 !== 'string') {
+                        if (errors === _errs2) {
+                            if (data0 && typeof data0 == 'object' && !Array.isArray(data0)) {
+                                for (const key1 in data0) {
+                                    const _errs5 = errors
+                                    if (typeof data0[key1] !== 'string') {
                                         validate28.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/type',
+                                                instancePath:
+                                                    instancePath +
+                                                    '/group_key_names/' +
+                                                    key1.replace(/~/g, '~0').replace(/\//g, '~1'),
+                                                schemaPath: '#/properties/group_key_names/additionalProperties/type',
                                                 keyword: 'type',
                                                 params: { type: 'string' },
                                                 message: 'must be string',
@@ -1641,40 +1827,192 @@ function validate28(data, { instancePath = '', parentData, parentDataProperty, r
                                         ]
                                         return false
                                     }
-                                    if ('session' !== data3) {
+                                    var valid1 = _errs5 === errors
+                                    if (!valid1) {
+                                        break
+                                    }
+                                }
+                            } else {
+                                validate28.errors = [
+                                    {
+                                        instancePath: instancePath + '/group_key_names',
+                                        schemaPath: '#/properties/group_key_names/type',
+                                        keyword: 'type',
+                                        params: { type: 'object' },
+                                        message: 'must be object',
+                                    },
+                                ]
+                                return false
+                            }
+                        }
+                        var valid0 = _errs2 === errors
+                    } else {
+                        var valid0 = true
+                    }
+                    if (valid0) {
+                        if (data.key !== undefined) {
+                            const _errs7 = errors
+                            if (typeof data.key !== 'string') {
+                                validate28.errors = [
+                                    {
+                                        instancePath: instancePath + '/key',
+                                        schemaPath: '#/properties/key/type',
+                                        keyword: 'type',
+                                        params: { type: 'string' },
+                                        message: 'must be string',
+                                    },
+                                ]
+                                return false
+                            }
+                            var valid0 = _errs7 === errors
+                        } else {
+                            var valid0 = true
+                        }
+                        if (valid0) {
+                            if (data.label !== undefined) {
+                                const _errs9 = errors
+                                if (typeof data.label !== 'string') {
+                                    validate28.errors = [
+                                        {
+                                            instancePath: instancePath + '/label',
+                                            schemaPath: '#/properties/label/type',
+                                            keyword: 'type',
+                                            params: { type: 'string' },
+                                            message: 'must be string',
+                                        },
+                                    ]
+                                    return false
+                                }
+                                var valid0 = _errs9 === errors
+                            } else {
+                                var valid0 = true
+                            }
+                            if (valid0) {
+                                if (data.operator !== undefined) {
+                                    let data4 = data.operator
+                                    const _errs11 = errors
+                                    if (typeof data4 !== 'string') {
                                         validate28.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/const',
-                                                keyword: 'const',
-                                                params: { allowedValue: 'session' },
-                                                message: 'must be equal to constant',
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
                                             },
                                         ]
                                         return false
                                     }
-                                    var valid0 = _errs9 === errors
+                                    if (
+                                        !(
+                                            data4 === 'exact' ||
+                                            data4 === 'is_not' ||
+                                            data4 === 'icontains' ||
+                                            data4 === 'not_icontains' ||
+                                            data4 === 'starts_with' ||
+                                            data4 === 'not_starts_with' ||
+                                            data4 === 'ends_with' ||
+                                            data4 === 'not_ends_with' ||
+                                            data4 === 'regex' ||
+                                            data4 === 'not_regex' ||
+                                            data4 === 'gt' ||
+                                            data4 === 'gte' ||
+                                            data4 === 'lt' ||
+                                            data4 === 'lte' ||
+                                            data4 === 'is_set' ||
+                                            data4 === 'is_not_set' ||
+                                            data4 === 'is_date_exact' ||
+                                            data4 === 'is_date_before' ||
+                                            data4 === 'is_date_after' ||
+                                            data4 === 'between' ||
+                                            data4 === 'not_between' ||
+                                            data4 === 'min' ||
+                                            data4 === 'max' ||
+                                            data4 === 'in' ||
+                                            data4 === 'not_in' ||
+                                            data4 === 'is_cleaned_path_exact' ||
+                                            data4 === 'flag_evaluates_to' ||
+                                            data4 === 'semver_eq' ||
+                                            data4 === 'semver_neq' ||
+                                            data4 === 'semver_gt' ||
+                                            data4 === 'semver_gte' ||
+                                            data4 === 'semver_lt' ||
+                                            data4 === 'semver_lte' ||
+                                            data4 === 'semver_tilde' ||
+                                            data4 === 'semver_caret' ||
+                                            data4 === 'semver_wildcard' ||
+                                            data4 === 'icontains_multi' ||
+                                            data4 === 'not_icontains_multi'
+                                        )
+                                    ) {
+                                        validate28.errors = [
+                                            {
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/enum',
+                                                keyword: 'enum',
+                                                params: { allowedValues: schema14.enum },
+                                                message: 'must be equal to one of the allowed values',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid0 = _errs11 === errors
                                 } else {
                                     var valid0 = true
                                 }
                                 if (valid0) {
-                                    if (data.value !== undefined) {
-                                        const _errs11 = errors
-                                        if (
-                                            !validate13(data.value, {
-                                                instancePath: instancePath + '/value',
-                                                parentData: data,
-                                                parentDataProperty: 'value',
-                                                rootData,
-                                            })
-                                        ) {
-                                            vErrors =
-                                                vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
-                                            errors = vErrors.length
+                                    if (data.type !== undefined) {
+                                        let data5 = data.type
+                                        const _errs14 = errors
+                                        if (typeof data5 !== 'string') {
+                                            validate28.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/type',
+                                                    keyword: 'type',
+                                                    params: { type: 'string' },
+                                                    message: 'must be string',
+                                                },
+                                            ]
+                                            return false
                                         }
-                                        var valid0 = _errs11 === errors
+                                        if ('session' !== data5) {
+                                            validate28.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/const',
+                                                    keyword: 'const',
+                                                    params: { allowedValue: 'session' },
+                                                    message: 'must be equal to constant',
+                                                },
+                                            ]
+                                            return false
+                                        }
+                                        var valid0 = _errs14 === errors
                                     } else {
                                         var valid0 = true
+                                    }
+                                    if (valid0) {
+                                        if (data.value !== undefined) {
+                                            const _errs16 = errors
+                                            if (
+                                                !validate13(data.value, {
+                                                    instancePath: instancePath + '/value',
+                                                    parentData: data,
+                                                    parentDataProperty: 'value',
+                                                    rootData,
+                                                })
+                                            ) {
+                                                vErrors =
+                                                    vErrors === null
+                                                        ? validate13.errors
+                                                        : vErrors.concat(validate13.errors)
+                                                errors = vErrors.length
+                                            }
+                                            var valid0 = _errs16 === errors
+                                        } else {
+                                            var valid0 = true
+                                        }
                                     }
                                 }
                             }
@@ -1703,6 +2041,12 @@ const schema28 = {
     description: 'Sync with nodejs/src/types.ts',
     properties: {
         cohort_name: { type: 'string' },
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         key: { const: 'id', type: 'string' },
         label: { type: 'string' },
         operator: { $ref: '#/definitions/PropertyOperator', default: 'in' },
@@ -1740,6 +2084,7 @@ function validate31(data, { instancePath = '', parentData, parentDataProperty, r
                     if (
                         !(
                             key0 === 'cohort_name' ||
+                            key0 === 'group_key_names' ||
                             key0 === 'key' ||
                             key0 === 'label' ||
                             key0 === 'operator' ||
@@ -1780,138 +2125,22 @@ function validate31(data, { instancePath = '', parentData, parentDataProperty, r
                         var valid0 = true
                     }
                     if (valid0) {
-                        if (data.key !== undefined) {
-                            let data1 = data.key
+                        if (data.group_key_names !== undefined) {
+                            let data1 = data.group_key_names
                             const _errs4 = errors
-                            if (typeof data1 !== 'string') {
-                                validate31.errors = [
-                                    {
-                                        instancePath: instancePath + '/key',
-                                        schemaPath: '#/properties/key/type',
-                                        keyword: 'type',
-                                        params: { type: 'string' },
-                                        message: 'must be string',
-                                    },
-                                ]
-                                return false
-                            }
-                            if ('id' !== data1) {
-                                validate31.errors = [
-                                    {
-                                        instancePath: instancePath + '/key',
-                                        schemaPath: '#/properties/key/const',
-                                        keyword: 'const',
-                                        params: { allowedValue: 'id' },
-                                        message: 'must be equal to constant',
-                                    },
-                                ]
-                                return false
-                            }
-                            var valid0 = _errs4 === errors
-                        } else {
-                            var valid0 = true
-                        }
-                        if (valid0) {
-                            if (data.label !== undefined) {
-                                const _errs6 = errors
-                                if (typeof data.label !== 'string') {
-                                    validate31.errors = [
-                                        {
-                                            instancePath: instancePath + '/label',
-                                            schemaPath: '#/properties/label/type',
-                                            keyword: 'type',
-                                            params: { type: 'string' },
-                                            message: 'must be string',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                var valid0 = _errs6 === errors
-                            } else {
-                                var valid0 = true
-                            }
-                            if (valid0) {
-                                if (data.operator !== undefined) {
-                                    let data3 = data.operator
-                                    const _errs8 = errors
-                                    if (typeof data3 !== 'string') {
-                                        validate31.errors = [
-                                            {
-                                                instancePath: instancePath + '/operator',
-                                                schemaPath: '#/definitions/PropertyOperator/type',
-                                                keyword: 'type',
-                                                params: { type: 'string' },
-                                                message: 'must be string',
-                                            },
-                                        ]
-                                        return false
-                                    }
-                                    if (
-                                        !(
-                                            data3 === 'exact' ||
-                                            data3 === 'is_not' ||
-                                            data3 === 'icontains' ||
-                                            data3 === 'not_icontains' ||
-                                            data3 === 'starts_with' ||
-                                            data3 === 'not_starts_with' ||
-                                            data3 === 'ends_with' ||
-                                            data3 === 'not_ends_with' ||
-                                            data3 === 'regex' ||
-                                            data3 === 'not_regex' ||
-                                            data3 === 'gt' ||
-                                            data3 === 'gte' ||
-                                            data3 === 'lt' ||
-                                            data3 === 'lte' ||
-                                            data3 === 'is_set' ||
-                                            data3 === 'is_not_set' ||
-                                            data3 === 'is_date_exact' ||
-                                            data3 === 'is_date_before' ||
-                                            data3 === 'is_date_after' ||
-                                            data3 === 'between' ||
-                                            data3 === 'not_between' ||
-                                            data3 === 'min' ||
-                                            data3 === 'max' ||
-                                            data3 === 'in' ||
-                                            data3 === 'not_in' ||
-                                            data3 === 'is_cleaned_path_exact' ||
-                                            data3 === 'flag_evaluates_to' ||
-                                            data3 === 'semver_eq' ||
-                                            data3 === 'semver_neq' ||
-                                            data3 === 'semver_gt' ||
-                                            data3 === 'semver_gte' ||
-                                            data3 === 'semver_lt' ||
-                                            data3 === 'semver_lte' ||
-                                            data3 === 'semver_tilde' ||
-                                            data3 === 'semver_caret' ||
-                                            data3 === 'semver_wildcard' ||
-                                            data3 === 'icontains_multi' ||
-                                            data3 === 'not_icontains_multi'
-                                        )
-                                    ) {
-                                        validate31.errors = [
-                                            {
-                                                instancePath: instancePath + '/operator',
-                                                schemaPath: '#/definitions/PropertyOperator/enum',
-                                                keyword: 'enum',
-                                                params: { allowedValues: schema14.enum },
-                                                message: 'must be equal to one of the allowed values',
-                                            },
-                                        ]
-                                        return false
-                                    }
-                                    var valid0 = _errs8 === errors
-                                } else {
-                                    var valid0 = true
-                                }
-                                if (valid0) {
-                                    if (data.type !== undefined) {
-                                        let data4 = data.type
-                                        const _errs11 = errors
-                                        if (typeof data4 !== 'string') {
+                            if (errors === _errs4) {
+                                if (data1 && typeof data1 == 'object' && !Array.isArray(data1)) {
+                                    for (const key1 in data1) {
+                                        const _errs7 = errors
+                                        if (typeof data1[key1] !== 'string') {
                                             validate31.errors = [
                                                 {
-                                                    instancePath: instancePath + '/type',
-                                                    schemaPath: '#/properties/type/type',
+                                                    instancePath:
+                                                        instancePath +
+                                                        '/group_key_names/' +
+                                                        key1.replace(/~/g, '~0').replace(/\//g, '~1'),
+                                                    schemaPath:
+                                                        '#/properties/group_key_names/additionalProperties/type',
                                                     keyword: 'type',
                                                     params: { type: 'string' },
                                                     message: 'must be string',
@@ -1919,48 +2148,211 @@ function validate31(data, { instancePath = '', parentData, parentDataProperty, r
                                             ]
                                             return false
                                         }
-                                        if ('cohort' !== data4) {
+                                        var valid1 = _errs7 === errors
+                                        if (!valid1) {
+                                            break
+                                        }
+                                    }
+                                } else {
+                                    validate31.errors = [
+                                        {
+                                            instancePath: instancePath + '/group_key_names',
+                                            schemaPath: '#/properties/group_key_names/type',
+                                            keyword: 'type',
+                                            params: { type: 'object' },
+                                            message: 'must be object',
+                                        },
+                                    ]
+                                    return false
+                                }
+                            }
+                            var valid0 = _errs4 === errors
+                        } else {
+                            var valid0 = true
+                        }
+                        if (valid0) {
+                            if (data.key !== undefined) {
+                                let data3 = data.key
+                                const _errs9 = errors
+                                if (typeof data3 !== 'string') {
+                                    validate31.errors = [
+                                        {
+                                            instancePath: instancePath + '/key',
+                                            schemaPath: '#/properties/key/type',
+                                            keyword: 'type',
+                                            params: { type: 'string' },
+                                            message: 'must be string',
+                                        },
+                                    ]
+                                    return false
+                                }
+                                if ('id' !== data3) {
+                                    validate31.errors = [
+                                        {
+                                            instancePath: instancePath + '/key',
+                                            schemaPath: '#/properties/key/const',
+                                            keyword: 'const',
+                                            params: { allowedValue: 'id' },
+                                            message: 'must be equal to constant',
+                                        },
+                                    ]
+                                    return false
+                                }
+                                var valid0 = _errs9 === errors
+                            } else {
+                                var valid0 = true
+                            }
+                            if (valid0) {
+                                if (data.label !== undefined) {
+                                    const _errs11 = errors
+                                    if (typeof data.label !== 'string') {
+                                        validate31.errors = [
+                                            {
+                                                instancePath: instancePath + '/label',
+                                                schemaPath: '#/properties/label/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid0 = _errs11 === errors
+                                } else {
+                                    var valid0 = true
+                                }
+                                if (valid0) {
+                                    if (data.operator !== undefined) {
+                                        let data5 = data.operator
+                                        const _errs13 = errors
+                                        if (typeof data5 !== 'string') {
                                             validate31.errors = [
                                                 {
-                                                    instancePath: instancePath + '/type',
-                                                    schemaPath: '#/properties/type/const',
-                                                    keyword: 'const',
-                                                    params: { allowedValue: 'cohort' },
-                                                    message: 'must be equal to constant',
+                                                    instancePath: instancePath + '/operator',
+                                                    schemaPath: '#/definitions/PropertyOperator/type',
+                                                    keyword: 'type',
+                                                    params: { type: 'string' },
+                                                    message: 'must be string',
                                                 },
                                             ]
                                             return false
                                         }
-                                        var valid0 = _errs11 === errors
+                                        if (
+                                            !(
+                                                data5 === 'exact' ||
+                                                data5 === 'is_not' ||
+                                                data5 === 'icontains' ||
+                                                data5 === 'not_icontains' ||
+                                                data5 === 'starts_with' ||
+                                                data5 === 'not_starts_with' ||
+                                                data5 === 'ends_with' ||
+                                                data5 === 'not_ends_with' ||
+                                                data5 === 'regex' ||
+                                                data5 === 'not_regex' ||
+                                                data5 === 'gt' ||
+                                                data5 === 'gte' ||
+                                                data5 === 'lt' ||
+                                                data5 === 'lte' ||
+                                                data5 === 'is_set' ||
+                                                data5 === 'is_not_set' ||
+                                                data5 === 'is_date_exact' ||
+                                                data5 === 'is_date_before' ||
+                                                data5 === 'is_date_after' ||
+                                                data5 === 'between' ||
+                                                data5 === 'not_between' ||
+                                                data5 === 'min' ||
+                                                data5 === 'max' ||
+                                                data5 === 'in' ||
+                                                data5 === 'not_in' ||
+                                                data5 === 'is_cleaned_path_exact' ||
+                                                data5 === 'flag_evaluates_to' ||
+                                                data5 === 'semver_eq' ||
+                                                data5 === 'semver_neq' ||
+                                                data5 === 'semver_gt' ||
+                                                data5 === 'semver_gte' ||
+                                                data5 === 'semver_lt' ||
+                                                data5 === 'semver_lte' ||
+                                                data5 === 'semver_tilde' ||
+                                                data5 === 'semver_caret' ||
+                                                data5 === 'semver_wildcard' ||
+                                                data5 === 'icontains_multi' ||
+                                                data5 === 'not_icontains_multi'
+                                            )
+                                        ) {
+                                            validate31.errors = [
+                                                {
+                                                    instancePath: instancePath + '/operator',
+                                                    schemaPath: '#/definitions/PropertyOperator/enum',
+                                                    keyword: 'enum',
+                                                    params: { allowedValues: schema14.enum },
+                                                    message: 'must be equal to one of the allowed values',
+                                                },
+                                            ]
+                                            return false
+                                        }
+                                        var valid0 = _errs13 === errors
                                     } else {
                                         var valid0 = true
                                     }
                                     if (valid0) {
-                                        if (data.value !== undefined) {
-                                            let data5 = data.value
-                                            const _errs13 = errors
-                                            if (
-                                                !(
-                                                    typeof data5 == 'number' &&
-                                                    !(data5 % 1) &&
-                                                    !isNaN(data5) &&
-                                                    isFinite(data5)
-                                                )
-                                            ) {
+                                        if (data.type !== undefined) {
+                                            let data6 = data.type
+                                            const _errs16 = errors
+                                            if (typeof data6 !== 'string') {
                                                 validate31.errors = [
                                                     {
-                                                        instancePath: instancePath + '/value',
-                                                        schemaPath: '#/properties/value/type',
+                                                        instancePath: instancePath + '/type',
+                                                        schemaPath: '#/properties/type/type',
                                                         keyword: 'type',
-                                                        params: { type: 'integer' },
-                                                        message: 'must be integer',
+                                                        params: { type: 'string' },
+                                                        message: 'must be string',
                                                     },
                                                 ]
                                                 return false
                                             }
-                                            var valid0 = _errs13 === errors
+                                            if ('cohort' !== data6) {
+                                                validate31.errors = [
+                                                    {
+                                                        instancePath: instancePath + '/type',
+                                                        schemaPath: '#/properties/type/const',
+                                                        keyword: 'const',
+                                                        params: { allowedValue: 'cohort' },
+                                                        message: 'must be equal to constant',
+                                                    },
+                                                ]
+                                                return false
+                                            }
+                                            var valid0 = _errs16 === errors
                                         } else {
                                             var valid0 = true
+                                        }
+                                        if (valid0) {
+                                            if (data.value !== undefined) {
+                                                let data7 = data.value
+                                                const _errs18 = errors
+                                                if (
+                                                    !(
+                                                        typeof data7 == 'number' &&
+                                                        !(data7 % 1) &&
+                                                        !isNaN(data7) &&
+                                                        isFinite(data7)
+                                                    )
+                                                ) {
+                                                    validate31.errors = [
+                                                        {
+                                                            instancePath: instancePath + '/value',
+                                                            schemaPath: '#/properties/value/type',
+                                                            keyword: 'type',
+                                                            params: { type: 'integer' },
+                                                            message: 'must be integer',
+                                                        },
+                                                    ]
+                                                    return false
+                                                }
+                                                var valid0 = _errs18 === errors
+                                            } else {
+                                                var valid0 = true
+                                            }
                                         }
                                     }
                                 }
@@ -1988,6 +2380,12 @@ function validate31(data, { instancePath = '', parentData, parentDataProperty, r
 const schema30 = {
     additionalProperties: false,
     properties: {
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         key: {
             anyOf: [
                 { $ref: '#/definitions/DurationType' },
@@ -2034,6 +2432,7 @@ function validate33(data, { instancePath = '', parentData, parentDataProperty, r
                 for (const key0 in data) {
                     if (
                         !(
+                            key0 === 'group_key_names' ||
                             key0 === 'key' ||
                             key0 === 'label' ||
                             key0 === 'operator' ||
@@ -2055,278 +2454,44 @@ function validate33(data, { instancePath = '', parentData, parentDataProperty, r
                     }
                 }
                 if (_errs1 === errors) {
-                    if (data.key !== undefined) {
-                        let data0 = data.key
+                    if (data.group_key_names !== undefined) {
+                        let data0 = data.group_key_names
                         const _errs2 = errors
-                        const _errs3 = errors
-                        let valid1 = false
-                        const _errs4 = errors
-                        if (typeof data0 !== 'string') {
-                            const err0 = {
-                                instancePath: instancePath + '/key',
-                                schemaPath: '#/definitions/DurationType/type',
-                                keyword: 'type',
-                                params: { type: 'string' },
-                                message: 'must be string',
-                            }
-                            if (vErrors === null) {
-                                vErrors = [err0]
-                            } else {
-                                vErrors.push(err0)
-                            }
-                            errors++
-                        }
-                        if (!(data0 === 'duration' || data0 === 'active_seconds' || data0 === 'inactive_seconds')) {
-                            const err1 = {
-                                instancePath: instancePath + '/key',
-                                schemaPath: '#/definitions/DurationType/enum',
-                                keyword: 'enum',
-                                params: { allowedValues: schema31.enum },
-                                message: 'must be equal to one of the allowed values',
-                            }
-                            if (vErrors === null) {
-                                vErrors = [err1]
-                            } else {
-                                vErrors.push(err1)
-                            }
-                            errors++
-                        }
-                        var _valid0 = _errs4 === errors
-                        valid1 = valid1 || _valid0
-                        if (!valid1) {
-                            const _errs7 = errors
-                            if (typeof data0 !== 'string') {
-                                const err2 = {
-                                    instancePath: instancePath + '/key',
-                                    schemaPath: '#/properties/key/anyOf/1/type',
-                                    keyword: 'type',
-                                    params: { type: 'string' },
-                                    message: 'must be string',
-                                }
-                                if (vErrors === null) {
-                                    vErrors = [err2]
-                                } else {
-                                    vErrors.push(err2)
-                                }
-                                errors++
-                            }
-                            if ('snapshot_source' !== data0) {
-                                const err3 = {
-                                    instancePath: instancePath + '/key',
-                                    schemaPath: '#/properties/key/anyOf/1/const',
-                                    keyword: 'const',
-                                    params: { allowedValue: 'snapshot_source' },
-                                    message: 'must be equal to constant',
-                                }
-                                if (vErrors === null) {
-                                    vErrors = [err3]
-                                } else {
-                                    vErrors.push(err3)
-                                }
-                                errors++
-                            }
-                            var _valid0 = _errs7 === errors
-                            valid1 = valid1 || _valid0
-                            if (!valid1) {
-                                const _errs9 = errors
-                                if (typeof data0 !== 'string') {
-                                    const err4 = {
-                                        instancePath: instancePath + '/key',
-                                        schemaPath: '#/properties/key/anyOf/2/type',
-                                        keyword: 'type',
-                                        params: { type: 'string' },
-                                        message: 'must be string',
-                                    }
-                                    if (vErrors === null) {
-                                        vErrors = [err4]
-                                    } else {
-                                        vErrors.push(err4)
-                                    }
-                                    errors++
-                                }
-                                if ('visited_page' !== data0) {
-                                    const err5 = {
-                                        instancePath: instancePath + '/key',
-                                        schemaPath: '#/properties/key/anyOf/2/const',
-                                        keyword: 'const',
-                                        params: { allowedValue: 'visited_page' },
-                                        message: 'must be equal to constant',
-                                    }
-                                    if (vErrors === null) {
-                                        vErrors = [err5]
-                                    } else {
-                                        vErrors.push(err5)
-                                    }
-                                    errors++
-                                }
-                                var _valid0 = _errs9 === errors
-                                valid1 = valid1 || _valid0
-                                if (!valid1) {
-                                    const _errs11 = errors
-                                    if (typeof data0 !== 'string') {
-                                        const err6 = {
-                                            instancePath: instancePath + '/key',
-                                            schemaPath: '#/properties/key/anyOf/3/type',
-                                            keyword: 'type',
-                                            params: { type: 'string' },
-                                            message: 'must be string',
-                                        }
-                                        if (vErrors === null) {
-                                            vErrors = [err6]
-                                        } else {
-                                            vErrors.push(err6)
-                                        }
-                                        errors++
-                                    }
-                                    if ('comment_text' !== data0) {
-                                        const err7 = {
-                                            instancePath: instancePath + '/key',
-                                            schemaPath: '#/properties/key/anyOf/3/const',
-                                            keyword: 'const',
-                                            params: { allowedValue: 'comment_text' },
-                                            message: 'must be equal to constant',
-                                        }
-                                        if (vErrors === null) {
-                                            vErrors = [err7]
-                                        } else {
-                                            vErrors.push(err7)
-                                        }
-                                        errors++
-                                    }
-                                    var _valid0 = _errs11 === errors
-                                    valid1 = valid1 || _valid0
-                                    if (!valid1) {
-                                        const _errs13 = errors
-                                        if (typeof data0 !== 'string') {
-                                            const err8 = {
-                                                instancePath: instancePath + '/key',
-                                                schemaPath: '#/properties/key/anyOf/4/type',
+                        if (errors === _errs2) {
+                            if (data0 && typeof data0 == 'object' && !Array.isArray(data0)) {
+                                for (const key1 in data0) {
+                                    const _errs5 = errors
+                                    if (typeof data0[key1] !== 'string') {
+                                        validate33.errors = [
+                                            {
+                                                instancePath:
+                                                    instancePath +
+                                                    '/group_key_names/' +
+                                                    key1.replace(/~/g, '~0').replace(/\//g, '~1'),
+                                                schemaPath: '#/properties/group_key_names/additionalProperties/type',
                                                 keyword: 'type',
                                                 params: { type: 'string' },
                                                 message: 'must be string',
-                                            }
-                                            if (vErrors === null) {
-                                                vErrors = [err8]
-                                            } else {
-                                                vErrors.push(err8)
-                                            }
-                                            errors++
-                                        }
-                                        if ('click_count' !== data0) {
-                                            const err9 = {
-                                                instancePath: instancePath + '/key',
-                                                schemaPath: '#/properties/key/anyOf/4/const',
-                                                keyword: 'const',
-                                                params: { allowedValue: 'click_count' },
-                                                message: 'must be equal to constant',
-                                            }
-                                            if (vErrors === null) {
-                                                vErrors = [err9]
-                                            } else {
-                                                vErrors.push(err9)
-                                            }
-                                            errors++
-                                        }
-                                        var _valid0 = _errs13 === errors
-                                        valid1 = valid1 || _valid0
-                                        if (!valid1) {
-                                            const _errs15 = errors
-                                            if (typeof data0 !== 'string') {
-                                                const err10 = {
-                                                    instancePath: instancePath + '/key',
-                                                    schemaPath: '#/properties/key/anyOf/5/type',
-                                                    keyword: 'type',
-                                                    params: { type: 'string' },
-                                                    message: 'must be string',
-                                                }
-                                                if (vErrors === null) {
-                                                    vErrors = [err10]
-                                                } else {
-                                                    vErrors.push(err10)
-                                                }
-                                                errors++
-                                            }
-                                            if ('keypress_count' !== data0) {
-                                                const err11 = {
-                                                    instancePath: instancePath + '/key',
-                                                    schemaPath: '#/properties/key/anyOf/5/const',
-                                                    keyword: 'const',
-                                                    params: { allowedValue: 'keypress_count' },
-                                                    message: 'must be equal to constant',
-                                                }
-                                                if (vErrors === null) {
-                                                    vErrors = [err11]
-                                                } else {
-                                                    vErrors.push(err11)
-                                                }
-                                                errors++
-                                            }
-                                            var _valid0 = _errs15 === errors
-                                            valid1 = valid1 || _valid0
-                                            if (!valid1) {
-                                                const _errs17 = errors
-                                                if (typeof data0 !== 'string') {
-                                                    const err12 = {
-                                                        instancePath: instancePath + '/key',
-                                                        schemaPath: '#/properties/key/anyOf/6/type',
-                                                        keyword: 'type',
-                                                        params: { type: 'string' },
-                                                        message: 'must be string',
-                                                    }
-                                                    if (vErrors === null) {
-                                                        vErrors = [err12]
-                                                    } else {
-                                                        vErrors.push(err12)
-                                                    }
-                                                    errors++
-                                                }
-                                                if ('mouse_activity_count' !== data0) {
-                                                    const err13 = {
-                                                        instancePath: instancePath + '/key',
-                                                        schemaPath: '#/properties/key/anyOf/6/const',
-                                                        keyword: 'const',
-                                                        params: { allowedValue: 'mouse_activity_count' },
-                                                        message: 'must be equal to constant',
-                                                    }
-                                                    if (vErrors === null) {
-                                                        vErrors = [err13]
-                                                    } else {
-                                                        vErrors.push(err13)
-                                                    }
-                                                    errors++
-                                                }
-                                                var _valid0 = _errs17 === errors
-                                                valid1 = valid1 || _valid0
-                                            }
-                                        }
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid1 = _errs5 === errors
+                                    if (!valid1) {
+                                        break
                                     }
                                 }
-                            }
-                        }
-                        if (!valid1) {
-                            const err14 = {
-                                instancePath: instancePath + '/key',
-                                schemaPath: '#/properties/key/anyOf',
-                                keyword: 'anyOf',
-                                params: {},
-                                message: 'must match a schema in anyOf',
-                            }
-                            if (vErrors === null) {
-                                vErrors = [err14]
                             } else {
-                                vErrors.push(err14)
-                            }
-                            errors++
-                            validate33.errors = vErrors
-                            return false
-                        } else {
-                            errors = _errs3
-                            if (vErrors !== null) {
-                                if (_errs3) {
-                                    vErrors.length = _errs3
-                                } else {
-                                    vErrors = null
-                                }
+                                validate33.errors = [
+                                    {
+                                        instancePath: instancePath + '/group_key_names',
+                                        schemaPath: '#/properties/group_key_names/type',
+                                        keyword: 'type',
+                                        params: { type: 'object' },
+                                        message: 'must be object',
+                                    },
+                                ]
+                                return false
                             }
                         }
                         var valid0 = _errs2 === errors
@@ -2334,33 +2499,292 @@ function validate33(data, { instancePath = '', parentData, parentDataProperty, r
                         var valid0 = true
                     }
                     if (valid0) {
-                        if (data.label !== undefined) {
-                            const _errs19 = errors
-                            if (typeof data.label !== 'string') {
-                                validate33.errors = [
-                                    {
-                                        instancePath: instancePath + '/label',
-                                        schemaPath: '#/properties/label/type',
+                        if (data.key !== undefined) {
+                            let data2 = data.key
+                            const _errs7 = errors
+                            const _errs8 = errors
+                            let valid2 = false
+                            const _errs9 = errors
+                            if (typeof data2 !== 'string') {
+                                const err0 = {
+                                    instancePath: instancePath + '/key',
+                                    schemaPath: '#/definitions/DurationType/type',
+                                    keyword: 'type',
+                                    params: { type: 'string' },
+                                    message: 'must be string',
+                                }
+                                if (vErrors === null) {
+                                    vErrors = [err0]
+                                } else {
+                                    vErrors.push(err0)
+                                }
+                                errors++
+                            }
+                            if (!(data2 === 'duration' || data2 === 'active_seconds' || data2 === 'inactive_seconds')) {
+                                const err1 = {
+                                    instancePath: instancePath + '/key',
+                                    schemaPath: '#/definitions/DurationType/enum',
+                                    keyword: 'enum',
+                                    params: { allowedValues: schema31.enum },
+                                    message: 'must be equal to one of the allowed values',
+                                }
+                                if (vErrors === null) {
+                                    vErrors = [err1]
+                                } else {
+                                    vErrors.push(err1)
+                                }
+                                errors++
+                            }
+                            var _valid0 = _errs9 === errors
+                            valid2 = valid2 || _valid0
+                            if (!valid2) {
+                                const _errs12 = errors
+                                if (typeof data2 !== 'string') {
+                                    const err2 = {
+                                        instancePath: instancePath + '/key',
+                                        schemaPath: '#/properties/key/anyOf/1/type',
                                         keyword: 'type',
                                         params: { type: 'string' },
                                         message: 'must be string',
-                                    },
-                                ]
-                                return false
+                                    }
+                                    if (vErrors === null) {
+                                        vErrors = [err2]
+                                    } else {
+                                        vErrors.push(err2)
+                                    }
+                                    errors++
+                                }
+                                if ('snapshot_source' !== data2) {
+                                    const err3 = {
+                                        instancePath: instancePath + '/key',
+                                        schemaPath: '#/properties/key/anyOf/1/const',
+                                        keyword: 'const',
+                                        params: { allowedValue: 'snapshot_source' },
+                                        message: 'must be equal to constant',
+                                    }
+                                    if (vErrors === null) {
+                                        vErrors = [err3]
+                                    } else {
+                                        vErrors.push(err3)
+                                    }
+                                    errors++
+                                }
+                                var _valid0 = _errs12 === errors
+                                valid2 = valid2 || _valid0
+                                if (!valid2) {
+                                    const _errs14 = errors
+                                    if (typeof data2 !== 'string') {
+                                        const err4 = {
+                                            instancePath: instancePath + '/key',
+                                            schemaPath: '#/properties/key/anyOf/2/type',
+                                            keyword: 'type',
+                                            params: { type: 'string' },
+                                            message: 'must be string',
+                                        }
+                                        if (vErrors === null) {
+                                            vErrors = [err4]
+                                        } else {
+                                            vErrors.push(err4)
+                                        }
+                                        errors++
+                                    }
+                                    if ('visited_page' !== data2) {
+                                        const err5 = {
+                                            instancePath: instancePath + '/key',
+                                            schemaPath: '#/properties/key/anyOf/2/const',
+                                            keyword: 'const',
+                                            params: { allowedValue: 'visited_page' },
+                                            message: 'must be equal to constant',
+                                        }
+                                        if (vErrors === null) {
+                                            vErrors = [err5]
+                                        } else {
+                                            vErrors.push(err5)
+                                        }
+                                        errors++
+                                    }
+                                    var _valid0 = _errs14 === errors
+                                    valid2 = valid2 || _valid0
+                                    if (!valid2) {
+                                        const _errs16 = errors
+                                        if (typeof data2 !== 'string') {
+                                            const err6 = {
+                                                instancePath: instancePath + '/key',
+                                                schemaPath: '#/properties/key/anyOf/3/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
+                                            }
+                                            if (vErrors === null) {
+                                                vErrors = [err6]
+                                            } else {
+                                                vErrors.push(err6)
+                                            }
+                                            errors++
+                                        }
+                                        if ('comment_text' !== data2) {
+                                            const err7 = {
+                                                instancePath: instancePath + '/key',
+                                                schemaPath: '#/properties/key/anyOf/3/const',
+                                                keyword: 'const',
+                                                params: { allowedValue: 'comment_text' },
+                                                message: 'must be equal to constant',
+                                            }
+                                            if (vErrors === null) {
+                                                vErrors = [err7]
+                                            } else {
+                                                vErrors.push(err7)
+                                            }
+                                            errors++
+                                        }
+                                        var _valid0 = _errs16 === errors
+                                        valid2 = valid2 || _valid0
+                                        if (!valid2) {
+                                            const _errs18 = errors
+                                            if (typeof data2 !== 'string') {
+                                                const err8 = {
+                                                    instancePath: instancePath + '/key',
+                                                    schemaPath: '#/properties/key/anyOf/4/type',
+                                                    keyword: 'type',
+                                                    params: { type: 'string' },
+                                                    message: 'must be string',
+                                                }
+                                                if (vErrors === null) {
+                                                    vErrors = [err8]
+                                                } else {
+                                                    vErrors.push(err8)
+                                                }
+                                                errors++
+                                            }
+                                            if ('click_count' !== data2) {
+                                                const err9 = {
+                                                    instancePath: instancePath + '/key',
+                                                    schemaPath: '#/properties/key/anyOf/4/const',
+                                                    keyword: 'const',
+                                                    params: { allowedValue: 'click_count' },
+                                                    message: 'must be equal to constant',
+                                                }
+                                                if (vErrors === null) {
+                                                    vErrors = [err9]
+                                                } else {
+                                                    vErrors.push(err9)
+                                                }
+                                                errors++
+                                            }
+                                            var _valid0 = _errs18 === errors
+                                            valid2 = valid2 || _valid0
+                                            if (!valid2) {
+                                                const _errs20 = errors
+                                                if (typeof data2 !== 'string') {
+                                                    const err10 = {
+                                                        instancePath: instancePath + '/key',
+                                                        schemaPath: '#/properties/key/anyOf/5/type',
+                                                        keyword: 'type',
+                                                        params: { type: 'string' },
+                                                        message: 'must be string',
+                                                    }
+                                                    if (vErrors === null) {
+                                                        vErrors = [err10]
+                                                    } else {
+                                                        vErrors.push(err10)
+                                                    }
+                                                    errors++
+                                                }
+                                                if ('keypress_count' !== data2) {
+                                                    const err11 = {
+                                                        instancePath: instancePath + '/key',
+                                                        schemaPath: '#/properties/key/anyOf/5/const',
+                                                        keyword: 'const',
+                                                        params: { allowedValue: 'keypress_count' },
+                                                        message: 'must be equal to constant',
+                                                    }
+                                                    if (vErrors === null) {
+                                                        vErrors = [err11]
+                                                    } else {
+                                                        vErrors.push(err11)
+                                                    }
+                                                    errors++
+                                                }
+                                                var _valid0 = _errs20 === errors
+                                                valid2 = valid2 || _valid0
+                                                if (!valid2) {
+                                                    const _errs22 = errors
+                                                    if (typeof data2 !== 'string') {
+                                                        const err12 = {
+                                                            instancePath: instancePath + '/key',
+                                                            schemaPath: '#/properties/key/anyOf/6/type',
+                                                            keyword: 'type',
+                                                            params: { type: 'string' },
+                                                            message: 'must be string',
+                                                        }
+                                                        if (vErrors === null) {
+                                                            vErrors = [err12]
+                                                        } else {
+                                                            vErrors.push(err12)
+                                                        }
+                                                        errors++
+                                                    }
+                                                    if ('mouse_activity_count' !== data2) {
+                                                        const err13 = {
+                                                            instancePath: instancePath + '/key',
+                                                            schemaPath: '#/properties/key/anyOf/6/const',
+                                                            keyword: 'const',
+                                                            params: { allowedValue: 'mouse_activity_count' },
+                                                            message: 'must be equal to constant',
+                                                        }
+                                                        if (vErrors === null) {
+                                                            vErrors = [err13]
+                                                        } else {
+                                                            vErrors.push(err13)
+                                                        }
+                                                        errors++
+                                                    }
+                                                    var _valid0 = _errs22 === errors
+                                                    valid2 = valid2 || _valid0
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
-                            var valid0 = _errs19 === errors
+                            if (!valid2) {
+                                const err14 = {
+                                    instancePath: instancePath + '/key',
+                                    schemaPath: '#/properties/key/anyOf',
+                                    keyword: 'anyOf',
+                                    params: {},
+                                    message: 'must match a schema in anyOf',
+                                }
+                                if (vErrors === null) {
+                                    vErrors = [err14]
+                                } else {
+                                    vErrors.push(err14)
+                                }
+                                errors++
+                                validate33.errors = vErrors
+                                return false
+                            } else {
+                                errors = _errs8
+                                if (vErrors !== null) {
+                                    if (_errs8) {
+                                        vErrors.length = _errs8
+                                    } else {
+                                        vErrors = null
+                                    }
+                                }
+                            }
+                            var valid0 = _errs7 === errors
                         } else {
                             var valid0 = true
                         }
                         if (valid0) {
-                            if (data.operator !== undefined) {
-                                let data2 = data.operator
-                                const _errs21 = errors
-                                if (typeof data2 !== 'string') {
+                            if (data.label !== undefined) {
+                                const _errs24 = errors
+                                if (typeof data.label !== 'string') {
                                     validate33.errors = [
                                         {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/type',
+                                            instancePath: instancePath + '/label',
+                                            schemaPath: '#/properties/label/type',
                                             keyword: 'type',
                                             params: { type: 'string' },
                                             message: 'must be string',
@@ -2368,72 +2792,19 @@ function validate33(data, { instancePath = '', parentData, parentDataProperty, r
                                     ]
                                     return false
                                 }
-                                if (
-                                    !(
-                                        data2 === 'exact' ||
-                                        data2 === 'is_not' ||
-                                        data2 === 'icontains' ||
-                                        data2 === 'not_icontains' ||
-                                        data2 === 'starts_with' ||
-                                        data2 === 'not_starts_with' ||
-                                        data2 === 'ends_with' ||
-                                        data2 === 'not_ends_with' ||
-                                        data2 === 'regex' ||
-                                        data2 === 'not_regex' ||
-                                        data2 === 'gt' ||
-                                        data2 === 'gte' ||
-                                        data2 === 'lt' ||
-                                        data2 === 'lte' ||
-                                        data2 === 'is_set' ||
-                                        data2 === 'is_not_set' ||
-                                        data2 === 'is_date_exact' ||
-                                        data2 === 'is_date_before' ||
-                                        data2 === 'is_date_after' ||
-                                        data2 === 'between' ||
-                                        data2 === 'not_between' ||
-                                        data2 === 'min' ||
-                                        data2 === 'max' ||
-                                        data2 === 'in' ||
-                                        data2 === 'not_in' ||
-                                        data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to' ||
-                                        data2 === 'semver_eq' ||
-                                        data2 === 'semver_neq' ||
-                                        data2 === 'semver_gt' ||
-                                        data2 === 'semver_gte' ||
-                                        data2 === 'semver_lt' ||
-                                        data2 === 'semver_lte' ||
-                                        data2 === 'semver_tilde' ||
-                                        data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard' ||
-                                        data2 === 'icontains_multi' ||
-                                        data2 === 'not_icontains_multi'
-                                    )
-                                ) {
-                                    validate33.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/enum',
-                                            keyword: 'enum',
-                                            params: { allowedValues: schema14.enum },
-                                            message: 'must be equal to one of the allowed values',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                var valid0 = _errs21 === errors
+                                var valid0 = _errs24 === errors
                             } else {
                                 var valid0 = true
                             }
                             if (valid0) {
-                                if (data.type !== undefined) {
-                                    let data3 = data.type
-                                    const _errs24 = errors
-                                    if (typeof data3 !== 'string') {
+                                if (data.operator !== undefined) {
+                                    let data4 = data.operator
+                                    const _errs26 = errors
+                                    if (typeof data4 !== 'string') {
                                         validate33.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/type',
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/type',
                                                 keyword: 'type',
                                                 params: { type: 'string' },
                                                 message: 'must be string',
@@ -2441,40 +2812,116 @@ function validate33(data, { instancePath = '', parentData, parentDataProperty, r
                                         ]
                                         return false
                                     }
-                                    if ('recording' !== data3) {
+                                    if (
+                                        !(
+                                            data4 === 'exact' ||
+                                            data4 === 'is_not' ||
+                                            data4 === 'icontains' ||
+                                            data4 === 'not_icontains' ||
+                                            data4 === 'starts_with' ||
+                                            data4 === 'not_starts_with' ||
+                                            data4 === 'ends_with' ||
+                                            data4 === 'not_ends_with' ||
+                                            data4 === 'regex' ||
+                                            data4 === 'not_regex' ||
+                                            data4 === 'gt' ||
+                                            data4 === 'gte' ||
+                                            data4 === 'lt' ||
+                                            data4 === 'lte' ||
+                                            data4 === 'is_set' ||
+                                            data4 === 'is_not_set' ||
+                                            data4 === 'is_date_exact' ||
+                                            data4 === 'is_date_before' ||
+                                            data4 === 'is_date_after' ||
+                                            data4 === 'between' ||
+                                            data4 === 'not_between' ||
+                                            data4 === 'min' ||
+                                            data4 === 'max' ||
+                                            data4 === 'in' ||
+                                            data4 === 'not_in' ||
+                                            data4 === 'is_cleaned_path_exact' ||
+                                            data4 === 'flag_evaluates_to' ||
+                                            data4 === 'semver_eq' ||
+                                            data4 === 'semver_neq' ||
+                                            data4 === 'semver_gt' ||
+                                            data4 === 'semver_gte' ||
+                                            data4 === 'semver_lt' ||
+                                            data4 === 'semver_lte' ||
+                                            data4 === 'semver_tilde' ||
+                                            data4 === 'semver_caret' ||
+                                            data4 === 'semver_wildcard' ||
+                                            data4 === 'icontains_multi' ||
+                                            data4 === 'not_icontains_multi'
+                                        )
+                                    ) {
                                         validate33.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/const',
-                                                keyword: 'const',
-                                                params: { allowedValue: 'recording' },
-                                                message: 'must be equal to constant',
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/enum',
+                                                keyword: 'enum',
+                                                params: { allowedValues: schema14.enum },
+                                                message: 'must be equal to one of the allowed values',
                                             },
                                         ]
                                         return false
                                     }
-                                    var valid0 = _errs24 === errors
+                                    var valid0 = _errs26 === errors
                                 } else {
                                     var valid0 = true
                                 }
                                 if (valid0) {
-                                    if (data.value !== undefined) {
-                                        const _errs26 = errors
-                                        if (
-                                            !validate13(data.value, {
-                                                instancePath: instancePath + '/value',
-                                                parentData: data,
-                                                parentDataProperty: 'value',
-                                                rootData,
-                                            })
-                                        ) {
-                                            vErrors =
-                                                vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
-                                            errors = vErrors.length
+                                    if (data.type !== undefined) {
+                                        let data5 = data.type
+                                        const _errs29 = errors
+                                        if (typeof data5 !== 'string') {
+                                            validate33.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/type',
+                                                    keyword: 'type',
+                                                    params: { type: 'string' },
+                                                    message: 'must be string',
+                                                },
+                                            ]
+                                            return false
                                         }
-                                        var valid0 = _errs26 === errors
+                                        if ('recording' !== data5) {
+                                            validate33.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/const',
+                                                    keyword: 'const',
+                                                    params: { allowedValue: 'recording' },
+                                                    message: 'must be equal to constant',
+                                                },
+                                            ]
+                                            return false
+                                        }
+                                        var valid0 = _errs29 === errors
                                     } else {
                                         var valid0 = true
+                                    }
+                                    if (valid0) {
+                                        if (data.value !== undefined) {
+                                            const _errs31 = errors
+                                            if (
+                                                !validate13(data.value, {
+                                                    instancePath: instancePath + '/value',
+                                                    parentData: data,
+                                                    parentDataProperty: 'value',
+                                                    rootData,
+                                                })
+                                            ) {
+                                                vErrors =
+                                                    vErrors === null
+                                                        ? validate13.errors
+                                                        : vErrors.concat(validate13.errors)
+                                                errors = vErrors.length
+                                            }
+                                            var valid0 = _errs31 === errors
+                                        } else {
+                                            var valid0 = true
+                                        }
                                     }
                                 }
                             }
@@ -2501,6 +2948,12 @@ function validate33(data, { instancePath = '', parentData, parentDataProperty, r
 const schema33 = {
     additionalProperties: false,
     properties: {
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         key: { type: 'string' },
         label: { type: 'string' },
         operator: { $ref: '#/definitions/PropertyOperator' },
@@ -2536,6 +2989,7 @@ function validate36(data, { instancePath = '', parentData, parentDataProperty, r
                 for (const key0 in data) {
                     if (
                         !(
+                            key0 === 'group_key_names' ||
                             key0 === 'key' ||
                             key0 === 'label' ||
                             key0 === 'operator' ||
@@ -2557,125 +3011,21 @@ function validate36(data, { instancePath = '', parentData, parentDataProperty, r
                     }
                 }
                 if (_errs1 === errors) {
-                    if (data.key !== undefined) {
+                    if (data.group_key_names !== undefined) {
+                        let data0 = data.group_key_names
                         const _errs2 = errors
-                        if (typeof data.key !== 'string') {
-                            validate36.errors = [
-                                {
-                                    instancePath: instancePath + '/key',
-                                    schemaPath: '#/properties/key/type',
-                                    keyword: 'type',
-                                    params: { type: 'string' },
-                                    message: 'must be string',
-                                },
-                            ]
-                            return false
-                        }
-                        var valid0 = _errs2 === errors
-                    } else {
-                        var valid0 = true
-                    }
-                    if (valid0) {
-                        if (data.label !== undefined) {
-                            const _errs4 = errors
-                            if (typeof data.label !== 'string') {
-                                validate36.errors = [
-                                    {
-                                        instancePath: instancePath + '/label',
-                                        schemaPath: '#/properties/label/type',
-                                        keyword: 'type',
-                                        params: { type: 'string' },
-                                        message: 'must be string',
-                                    },
-                                ]
-                                return false
-                            }
-                            var valid0 = _errs4 === errors
-                        } else {
-                            var valid0 = true
-                        }
-                        if (valid0) {
-                            if (data.operator !== undefined) {
-                                let data2 = data.operator
-                                const _errs6 = errors
-                                if (typeof data2 !== 'string') {
-                                    validate36.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/type',
-                                            keyword: 'type',
-                                            params: { type: 'string' },
-                                            message: 'must be string',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                if (
-                                    !(
-                                        data2 === 'exact' ||
-                                        data2 === 'is_not' ||
-                                        data2 === 'icontains' ||
-                                        data2 === 'not_icontains' ||
-                                        data2 === 'starts_with' ||
-                                        data2 === 'not_starts_with' ||
-                                        data2 === 'ends_with' ||
-                                        data2 === 'not_ends_with' ||
-                                        data2 === 'regex' ||
-                                        data2 === 'not_regex' ||
-                                        data2 === 'gt' ||
-                                        data2 === 'gte' ||
-                                        data2 === 'lt' ||
-                                        data2 === 'lte' ||
-                                        data2 === 'is_set' ||
-                                        data2 === 'is_not_set' ||
-                                        data2 === 'is_date_exact' ||
-                                        data2 === 'is_date_before' ||
-                                        data2 === 'is_date_after' ||
-                                        data2 === 'between' ||
-                                        data2 === 'not_between' ||
-                                        data2 === 'min' ||
-                                        data2 === 'max' ||
-                                        data2 === 'in' ||
-                                        data2 === 'not_in' ||
-                                        data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to' ||
-                                        data2 === 'semver_eq' ||
-                                        data2 === 'semver_neq' ||
-                                        data2 === 'semver_gt' ||
-                                        data2 === 'semver_gte' ||
-                                        data2 === 'semver_lt' ||
-                                        data2 === 'semver_lte' ||
-                                        data2 === 'semver_tilde' ||
-                                        data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard' ||
-                                        data2 === 'icontains_multi' ||
-                                        data2 === 'not_icontains_multi'
-                                    )
-                                ) {
-                                    validate36.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/enum',
-                                            keyword: 'enum',
-                                            params: { allowedValues: schema14.enum },
-                                            message: 'must be equal to one of the allowed values',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                var valid0 = _errs6 === errors
-                            } else {
-                                var valid0 = true
-                            }
-                            if (valid0) {
-                                if (data.type !== undefined) {
-                                    let data3 = data.type
-                                    const _errs9 = errors
-                                    if (typeof data3 !== 'string') {
+                        if (errors === _errs2) {
+                            if (data0 && typeof data0 == 'object' && !Array.isArray(data0)) {
+                                for (const key1 in data0) {
+                                    const _errs5 = errors
+                                    if (typeof data0[key1] !== 'string') {
                                         validate36.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/type',
+                                                instancePath:
+                                                    instancePath +
+                                                    '/group_key_names/' +
+                                                    key1.replace(/~/g, '~0').replace(/\//g, '~1'),
+                                                schemaPath: '#/properties/group_key_names/additionalProperties/type',
                                                 keyword: 'type',
                                                 params: { type: 'string' },
                                                 message: 'must be string',
@@ -2683,40 +3033,192 @@ function validate36(data, { instancePath = '', parentData, parentDataProperty, r
                                         ]
                                         return false
                                     }
-                                    if ('log_entry' !== data3) {
+                                    var valid1 = _errs5 === errors
+                                    if (!valid1) {
+                                        break
+                                    }
+                                }
+                            } else {
+                                validate36.errors = [
+                                    {
+                                        instancePath: instancePath + '/group_key_names',
+                                        schemaPath: '#/properties/group_key_names/type',
+                                        keyword: 'type',
+                                        params: { type: 'object' },
+                                        message: 'must be object',
+                                    },
+                                ]
+                                return false
+                            }
+                        }
+                        var valid0 = _errs2 === errors
+                    } else {
+                        var valid0 = true
+                    }
+                    if (valid0) {
+                        if (data.key !== undefined) {
+                            const _errs7 = errors
+                            if (typeof data.key !== 'string') {
+                                validate36.errors = [
+                                    {
+                                        instancePath: instancePath + '/key',
+                                        schemaPath: '#/properties/key/type',
+                                        keyword: 'type',
+                                        params: { type: 'string' },
+                                        message: 'must be string',
+                                    },
+                                ]
+                                return false
+                            }
+                            var valid0 = _errs7 === errors
+                        } else {
+                            var valid0 = true
+                        }
+                        if (valid0) {
+                            if (data.label !== undefined) {
+                                const _errs9 = errors
+                                if (typeof data.label !== 'string') {
+                                    validate36.errors = [
+                                        {
+                                            instancePath: instancePath + '/label',
+                                            schemaPath: '#/properties/label/type',
+                                            keyword: 'type',
+                                            params: { type: 'string' },
+                                            message: 'must be string',
+                                        },
+                                    ]
+                                    return false
+                                }
+                                var valid0 = _errs9 === errors
+                            } else {
+                                var valid0 = true
+                            }
+                            if (valid0) {
+                                if (data.operator !== undefined) {
+                                    let data4 = data.operator
+                                    const _errs11 = errors
+                                    if (typeof data4 !== 'string') {
                                         validate36.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/const',
-                                                keyword: 'const',
-                                                params: { allowedValue: 'log_entry' },
-                                                message: 'must be equal to constant',
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
                                             },
                                         ]
                                         return false
                                     }
-                                    var valid0 = _errs9 === errors
+                                    if (
+                                        !(
+                                            data4 === 'exact' ||
+                                            data4 === 'is_not' ||
+                                            data4 === 'icontains' ||
+                                            data4 === 'not_icontains' ||
+                                            data4 === 'starts_with' ||
+                                            data4 === 'not_starts_with' ||
+                                            data4 === 'ends_with' ||
+                                            data4 === 'not_ends_with' ||
+                                            data4 === 'regex' ||
+                                            data4 === 'not_regex' ||
+                                            data4 === 'gt' ||
+                                            data4 === 'gte' ||
+                                            data4 === 'lt' ||
+                                            data4 === 'lte' ||
+                                            data4 === 'is_set' ||
+                                            data4 === 'is_not_set' ||
+                                            data4 === 'is_date_exact' ||
+                                            data4 === 'is_date_before' ||
+                                            data4 === 'is_date_after' ||
+                                            data4 === 'between' ||
+                                            data4 === 'not_between' ||
+                                            data4 === 'min' ||
+                                            data4 === 'max' ||
+                                            data4 === 'in' ||
+                                            data4 === 'not_in' ||
+                                            data4 === 'is_cleaned_path_exact' ||
+                                            data4 === 'flag_evaluates_to' ||
+                                            data4 === 'semver_eq' ||
+                                            data4 === 'semver_neq' ||
+                                            data4 === 'semver_gt' ||
+                                            data4 === 'semver_gte' ||
+                                            data4 === 'semver_lt' ||
+                                            data4 === 'semver_lte' ||
+                                            data4 === 'semver_tilde' ||
+                                            data4 === 'semver_caret' ||
+                                            data4 === 'semver_wildcard' ||
+                                            data4 === 'icontains_multi' ||
+                                            data4 === 'not_icontains_multi'
+                                        )
+                                    ) {
+                                        validate36.errors = [
+                                            {
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/enum',
+                                                keyword: 'enum',
+                                                params: { allowedValues: schema14.enum },
+                                                message: 'must be equal to one of the allowed values',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid0 = _errs11 === errors
                                 } else {
                                     var valid0 = true
                                 }
                                 if (valid0) {
-                                    if (data.value !== undefined) {
-                                        const _errs11 = errors
-                                        if (
-                                            !validate13(data.value, {
-                                                instancePath: instancePath + '/value',
-                                                parentData: data,
-                                                parentDataProperty: 'value',
-                                                rootData,
-                                            })
-                                        ) {
-                                            vErrors =
-                                                vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
-                                            errors = vErrors.length
+                                    if (data.type !== undefined) {
+                                        let data5 = data.type
+                                        const _errs14 = errors
+                                        if (typeof data5 !== 'string') {
+                                            validate36.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/type',
+                                                    keyword: 'type',
+                                                    params: { type: 'string' },
+                                                    message: 'must be string',
+                                                },
+                                            ]
+                                            return false
                                         }
-                                        var valid0 = _errs11 === errors
+                                        if ('log_entry' !== data5) {
+                                            validate36.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/const',
+                                                    keyword: 'const',
+                                                    params: { allowedValue: 'log_entry' },
+                                                    message: 'must be equal to constant',
+                                                },
+                                            ]
+                                            return false
+                                        }
+                                        var valid0 = _errs14 === errors
                                     } else {
                                         var valid0 = true
+                                    }
+                                    if (valid0) {
+                                        if (data.value !== undefined) {
+                                            const _errs16 = errors
+                                            if (
+                                                !validate13(data.value, {
+                                                    instancePath: instancePath + '/value',
+                                                    parentData: data,
+                                                    parentDataProperty: 'value',
+                                                    rootData,
+                                                })
+                                            ) {
+                                                vErrors =
+                                                    vErrors === null
+                                                        ? validate13.errors
+                                                        : vErrors.concat(validate13.errors)
+                                                errors = vErrors.length
+                                            }
+                                            var valid0 = _errs16 === errors
+                                        } else {
+                                            var valid0 = true
+                                        }
                                     }
                                 }
                             }
@@ -2743,7 +3245,12 @@ function validate36(data, { instancePath = '', parentData, parentDataProperty, r
 const schema35 = {
     additionalProperties: false,
     properties: {
-        group_key_names: { additionalProperties: { type: 'string' }, type: 'object' },
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         group_type_index: { anyOf: [{ type: 'integer' }, { type: 'null' }] },
         key: { type: 'string' },
         label: { type: 'string' },
@@ -3112,6 +3619,12 @@ function validate39(data, { instancePath = '', parentData, parentDataProperty, r
 const schema37 = {
     additionalProperties: false,
     properties: {
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         key: { type: 'string' },
         label: { type: 'string' },
         operator: { $ref: '#/definitions/PropertyOperator' },
@@ -3147,6 +3660,7 @@ function validate42(data, { instancePath = '', parentData, parentDataProperty, r
                 for (const key0 in data) {
                     if (
                         !(
+                            key0 === 'group_key_names' ||
                             key0 === 'key' ||
                             key0 === 'label' ||
                             key0 === 'operator' ||
@@ -3168,125 +3682,21 @@ function validate42(data, { instancePath = '', parentData, parentDataProperty, r
                     }
                 }
                 if (_errs1 === errors) {
-                    if (data.key !== undefined) {
+                    if (data.group_key_names !== undefined) {
+                        let data0 = data.group_key_names
                         const _errs2 = errors
-                        if (typeof data.key !== 'string') {
-                            validate42.errors = [
-                                {
-                                    instancePath: instancePath + '/key',
-                                    schemaPath: '#/properties/key/type',
-                                    keyword: 'type',
-                                    params: { type: 'string' },
-                                    message: 'must be string',
-                                },
-                            ]
-                            return false
-                        }
-                        var valid0 = _errs2 === errors
-                    } else {
-                        var valid0 = true
-                    }
-                    if (valid0) {
-                        if (data.label !== undefined) {
-                            const _errs4 = errors
-                            if (typeof data.label !== 'string') {
-                                validate42.errors = [
-                                    {
-                                        instancePath: instancePath + '/label',
-                                        schemaPath: '#/properties/label/type',
-                                        keyword: 'type',
-                                        params: { type: 'string' },
-                                        message: 'must be string',
-                                    },
-                                ]
-                                return false
-                            }
-                            var valid0 = _errs4 === errors
-                        } else {
-                            var valid0 = true
-                        }
-                        if (valid0) {
-                            if (data.operator !== undefined) {
-                                let data2 = data.operator
-                                const _errs6 = errors
-                                if (typeof data2 !== 'string') {
-                                    validate42.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/type',
-                                            keyword: 'type',
-                                            params: { type: 'string' },
-                                            message: 'must be string',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                if (
-                                    !(
-                                        data2 === 'exact' ||
-                                        data2 === 'is_not' ||
-                                        data2 === 'icontains' ||
-                                        data2 === 'not_icontains' ||
-                                        data2 === 'starts_with' ||
-                                        data2 === 'not_starts_with' ||
-                                        data2 === 'ends_with' ||
-                                        data2 === 'not_ends_with' ||
-                                        data2 === 'regex' ||
-                                        data2 === 'not_regex' ||
-                                        data2 === 'gt' ||
-                                        data2 === 'gte' ||
-                                        data2 === 'lt' ||
-                                        data2 === 'lte' ||
-                                        data2 === 'is_set' ||
-                                        data2 === 'is_not_set' ||
-                                        data2 === 'is_date_exact' ||
-                                        data2 === 'is_date_before' ||
-                                        data2 === 'is_date_after' ||
-                                        data2 === 'between' ||
-                                        data2 === 'not_between' ||
-                                        data2 === 'min' ||
-                                        data2 === 'max' ||
-                                        data2 === 'in' ||
-                                        data2 === 'not_in' ||
-                                        data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to' ||
-                                        data2 === 'semver_eq' ||
-                                        data2 === 'semver_neq' ||
-                                        data2 === 'semver_gt' ||
-                                        data2 === 'semver_gte' ||
-                                        data2 === 'semver_lt' ||
-                                        data2 === 'semver_lte' ||
-                                        data2 === 'semver_tilde' ||
-                                        data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard' ||
-                                        data2 === 'icontains_multi' ||
-                                        data2 === 'not_icontains_multi'
-                                    )
-                                ) {
-                                    validate42.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/enum',
-                                            keyword: 'enum',
-                                            params: { allowedValues: schema14.enum },
-                                            message: 'must be equal to one of the allowed values',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                var valid0 = _errs6 === errors
-                            } else {
-                                var valid0 = true
-                            }
-                            if (valid0) {
-                                if (data.type !== undefined) {
-                                    let data3 = data.type
-                                    const _errs9 = errors
-                                    if (typeof data3 !== 'string') {
+                        if (errors === _errs2) {
+                            if (data0 && typeof data0 == 'object' && !Array.isArray(data0)) {
+                                for (const key1 in data0) {
+                                    const _errs5 = errors
+                                    if (typeof data0[key1] !== 'string') {
                                         validate42.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/type',
+                                                instancePath:
+                                                    instancePath +
+                                                    '/group_key_names/' +
+                                                    key1.replace(/~/g, '~0').replace(/\//g, '~1'),
+                                                schemaPath: '#/properties/group_key_names/additionalProperties/type',
                                                 keyword: 'type',
                                                 params: { type: 'string' },
                                                 message: 'must be string',
@@ -3294,40 +3704,192 @@ function validate42(data, { instancePath = '', parentData, parentDataProperty, r
                                         ]
                                         return false
                                     }
-                                    if ('feature' !== data3) {
+                                    var valid1 = _errs5 === errors
+                                    if (!valid1) {
+                                        break
+                                    }
+                                }
+                            } else {
+                                validate42.errors = [
+                                    {
+                                        instancePath: instancePath + '/group_key_names',
+                                        schemaPath: '#/properties/group_key_names/type',
+                                        keyword: 'type',
+                                        params: { type: 'object' },
+                                        message: 'must be object',
+                                    },
+                                ]
+                                return false
+                            }
+                        }
+                        var valid0 = _errs2 === errors
+                    } else {
+                        var valid0 = true
+                    }
+                    if (valid0) {
+                        if (data.key !== undefined) {
+                            const _errs7 = errors
+                            if (typeof data.key !== 'string') {
+                                validate42.errors = [
+                                    {
+                                        instancePath: instancePath + '/key',
+                                        schemaPath: '#/properties/key/type',
+                                        keyword: 'type',
+                                        params: { type: 'string' },
+                                        message: 'must be string',
+                                    },
+                                ]
+                                return false
+                            }
+                            var valid0 = _errs7 === errors
+                        } else {
+                            var valid0 = true
+                        }
+                        if (valid0) {
+                            if (data.label !== undefined) {
+                                const _errs9 = errors
+                                if (typeof data.label !== 'string') {
+                                    validate42.errors = [
+                                        {
+                                            instancePath: instancePath + '/label',
+                                            schemaPath: '#/properties/label/type',
+                                            keyword: 'type',
+                                            params: { type: 'string' },
+                                            message: 'must be string',
+                                        },
+                                    ]
+                                    return false
+                                }
+                                var valid0 = _errs9 === errors
+                            } else {
+                                var valid0 = true
+                            }
+                            if (valid0) {
+                                if (data.operator !== undefined) {
+                                    let data4 = data.operator
+                                    const _errs11 = errors
+                                    if (typeof data4 !== 'string') {
                                         validate42.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/const',
-                                                keyword: 'const',
-                                                params: { allowedValue: 'feature' },
-                                                message: 'must be equal to constant',
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
                                             },
                                         ]
                                         return false
                                     }
-                                    var valid0 = _errs9 === errors
+                                    if (
+                                        !(
+                                            data4 === 'exact' ||
+                                            data4 === 'is_not' ||
+                                            data4 === 'icontains' ||
+                                            data4 === 'not_icontains' ||
+                                            data4 === 'starts_with' ||
+                                            data4 === 'not_starts_with' ||
+                                            data4 === 'ends_with' ||
+                                            data4 === 'not_ends_with' ||
+                                            data4 === 'regex' ||
+                                            data4 === 'not_regex' ||
+                                            data4 === 'gt' ||
+                                            data4 === 'gte' ||
+                                            data4 === 'lt' ||
+                                            data4 === 'lte' ||
+                                            data4 === 'is_set' ||
+                                            data4 === 'is_not_set' ||
+                                            data4 === 'is_date_exact' ||
+                                            data4 === 'is_date_before' ||
+                                            data4 === 'is_date_after' ||
+                                            data4 === 'between' ||
+                                            data4 === 'not_between' ||
+                                            data4 === 'min' ||
+                                            data4 === 'max' ||
+                                            data4 === 'in' ||
+                                            data4 === 'not_in' ||
+                                            data4 === 'is_cleaned_path_exact' ||
+                                            data4 === 'flag_evaluates_to' ||
+                                            data4 === 'semver_eq' ||
+                                            data4 === 'semver_neq' ||
+                                            data4 === 'semver_gt' ||
+                                            data4 === 'semver_gte' ||
+                                            data4 === 'semver_lt' ||
+                                            data4 === 'semver_lte' ||
+                                            data4 === 'semver_tilde' ||
+                                            data4 === 'semver_caret' ||
+                                            data4 === 'semver_wildcard' ||
+                                            data4 === 'icontains_multi' ||
+                                            data4 === 'not_icontains_multi'
+                                        )
+                                    ) {
+                                        validate42.errors = [
+                                            {
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/enum',
+                                                keyword: 'enum',
+                                                params: { allowedValues: schema14.enum },
+                                                message: 'must be equal to one of the allowed values',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid0 = _errs11 === errors
                                 } else {
                                     var valid0 = true
                                 }
                                 if (valid0) {
-                                    if (data.value !== undefined) {
-                                        const _errs11 = errors
-                                        if (
-                                            !validate13(data.value, {
-                                                instancePath: instancePath + '/value',
-                                                parentData: data,
-                                                parentDataProperty: 'value',
-                                                rootData,
-                                            })
-                                        ) {
-                                            vErrors =
-                                                vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
-                                            errors = vErrors.length
+                                    if (data.type !== undefined) {
+                                        let data5 = data.type
+                                        const _errs14 = errors
+                                        if (typeof data5 !== 'string') {
+                                            validate42.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/type',
+                                                    keyword: 'type',
+                                                    params: { type: 'string' },
+                                                    message: 'must be string',
+                                                },
+                                            ]
+                                            return false
                                         }
-                                        var valid0 = _errs11 === errors
+                                        if ('feature' !== data5) {
+                                            validate42.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/const',
+                                                    keyword: 'const',
+                                                    params: { allowedValue: 'feature' },
+                                                    message: 'must be equal to constant',
+                                                },
+                                            ]
+                                            return false
+                                        }
+                                        var valid0 = _errs14 === errors
                                     } else {
                                         var valid0 = true
+                                    }
+                                    if (valid0) {
+                                        if (data.value !== undefined) {
+                                            const _errs16 = errors
+                                            if (
+                                                !validate13(data.value, {
+                                                    instancePath: instancePath + '/value',
+                                                    parentData: data,
+                                                    parentDataProperty: 'value',
+                                                    rootData,
+                                                })
+                                            ) {
+                                                vErrors =
+                                                    vErrors === null
+                                                        ? validate13.errors
+                                                        : vErrors.concat(validate13.errors)
+                                                errors = vErrors.length
+                                            }
+                                            var valid0 = _errs16 === errors
+                                        } else {
+                                            var valid0 = true
+                                        }
                                     }
                                 }
                             }
@@ -3354,6 +3916,12 @@ function validate42(data, { instancePath = '', parentData, parentDataProperty, r
 const schema40 = {
     additionalProperties: false,
     properties: {
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         key: { type: 'string' },
         label: { type: 'string' },
         type: { const: 'hogql', type: 'string' },
@@ -3382,7 +3950,15 @@ function validate45(data, { instancePath = '', parentData, parentDataProperty, r
             } else {
                 const _errs1 = errors
                 for (const key0 in data) {
-                    if (!(key0 === 'key' || key0 === 'label' || key0 === 'type' || key0 === 'value')) {
+                    if (
+                        !(
+                            key0 === 'group_key_names' ||
+                            key0 === 'key' ||
+                            key0 === 'label' ||
+                            key0 === 'type' ||
+                            key0 === 'value'
+                        )
+                    ) {
                         validate45.errors = [
                             {
                                 instancePath,
@@ -3397,32 +3973,58 @@ function validate45(data, { instancePath = '', parentData, parentDataProperty, r
                     }
                 }
                 if (_errs1 === errors) {
-                    if (data.key !== undefined) {
+                    if (data.group_key_names !== undefined) {
+                        let data0 = data.group_key_names
                         const _errs2 = errors
-                        if (typeof data.key !== 'string') {
-                            validate45.errors = [
-                                {
-                                    instancePath: instancePath + '/key',
-                                    schemaPath: '#/properties/key/type',
-                                    keyword: 'type',
-                                    params: { type: 'string' },
-                                    message: 'must be string',
-                                },
-                            ]
-                            return false
+                        if (errors === _errs2) {
+                            if (data0 && typeof data0 == 'object' && !Array.isArray(data0)) {
+                                for (const key1 in data0) {
+                                    const _errs5 = errors
+                                    if (typeof data0[key1] !== 'string') {
+                                        validate45.errors = [
+                                            {
+                                                instancePath:
+                                                    instancePath +
+                                                    '/group_key_names/' +
+                                                    key1.replace(/~/g, '~0').replace(/\//g, '~1'),
+                                                schemaPath: '#/properties/group_key_names/additionalProperties/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid1 = _errs5 === errors
+                                    if (!valid1) {
+                                        break
+                                    }
+                                }
+                            } else {
+                                validate45.errors = [
+                                    {
+                                        instancePath: instancePath + '/group_key_names',
+                                        schemaPath: '#/properties/group_key_names/type',
+                                        keyword: 'type',
+                                        params: { type: 'object' },
+                                        message: 'must be object',
+                                    },
+                                ]
+                                return false
+                            }
                         }
                         var valid0 = _errs2 === errors
                     } else {
                         var valid0 = true
                     }
                     if (valid0) {
-                        if (data.label !== undefined) {
-                            const _errs4 = errors
-                            if (typeof data.label !== 'string') {
+                        if (data.key !== undefined) {
+                            const _errs7 = errors
+                            if (typeof data.key !== 'string') {
                                 validate45.errors = [
                                     {
-                                        instancePath: instancePath + '/label',
-                                        schemaPath: '#/properties/label/type',
+                                        instancePath: instancePath + '/key',
+                                        schemaPath: '#/properties/key/type',
                                         keyword: 'type',
                                         params: { type: 'string' },
                                         message: 'must be string',
@@ -3430,19 +4032,18 @@ function validate45(data, { instancePath = '', parentData, parentDataProperty, r
                                 ]
                                 return false
                             }
-                            var valid0 = _errs4 === errors
+                            var valid0 = _errs7 === errors
                         } else {
                             var valid0 = true
                         }
                         if (valid0) {
-                            if (data.type !== undefined) {
-                                let data2 = data.type
-                                const _errs6 = errors
-                                if (typeof data2 !== 'string') {
+                            if (data.label !== undefined) {
+                                const _errs9 = errors
+                                if (typeof data.label !== 'string') {
                                     validate45.errors = [
                                         {
-                                            instancePath: instancePath + '/type',
-                                            schemaPath: '#/properties/type/type',
+                                            instancePath: instancePath + '/label',
+                                            schemaPath: '#/properties/label/type',
                                             keyword: 'type',
                                             params: { type: 'string' },
                                             message: 'must be string',
@@ -3450,40 +4051,61 @@ function validate45(data, { instancePath = '', parentData, parentDataProperty, r
                                     ]
                                     return false
                                 }
-                                if ('hogql' !== data2) {
-                                    validate45.errors = [
-                                        {
-                                            instancePath: instancePath + '/type',
-                                            schemaPath: '#/properties/type/const',
-                                            keyword: 'const',
-                                            params: { allowedValue: 'hogql' },
-                                            message: 'must be equal to constant',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                var valid0 = _errs6 === errors
+                                var valid0 = _errs9 === errors
                             } else {
                                 var valid0 = true
                             }
                             if (valid0) {
-                                if (data.value !== undefined) {
-                                    const _errs8 = errors
-                                    if (
-                                        !validate13(data.value, {
-                                            instancePath: instancePath + '/value',
-                                            parentData: data,
-                                            parentDataProperty: 'value',
-                                            rootData,
-                                        })
-                                    ) {
-                                        vErrors =
-                                            vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
-                                        errors = vErrors.length
+                                if (data.type !== undefined) {
+                                    let data4 = data.type
+                                    const _errs11 = errors
+                                    if (typeof data4 !== 'string') {
+                                        validate45.errors = [
+                                            {
+                                                instancePath: instancePath + '/type',
+                                                schemaPath: '#/properties/type/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
+                                            },
+                                        ]
+                                        return false
                                     }
-                                    var valid0 = _errs8 === errors
+                                    if ('hogql' !== data4) {
+                                        validate45.errors = [
+                                            {
+                                                instancePath: instancePath + '/type',
+                                                schemaPath: '#/properties/type/const',
+                                                keyword: 'const',
+                                                params: { allowedValue: 'hogql' },
+                                                message: 'must be equal to constant',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid0 = _errs11 === errors
                                 } else {
                                     var valid0 = true
+                                }
+                                if (valid0) {
+                                    if (data.value !== undefined) {
+                                        const _errs13 = errors
+                                        if (
+                                            !validate13(data.value, {
+                                                instancePath: instancePath + '/value',
+                                                parentData: data,
+                                                parentDataProperty: 'value',
+                                                rootData,
+                                            })
+                                        ) {
+                                            vErrors =
+                                                vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
+                                            errors = vErrors.length
+                                        }
+                                        var valid0 = _errs13 === errors
+                                    } else {
+                                        var valid0 = true
+                                    }
                                 }
                             }
                         }
@@ -3509,6 +4131,12 @@ function validate45(data, { instancePath = '', parentData, parentDataProperty, r
 const schema42 = {
     additionalProperties: false,
     properties: {
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         key: { type: 'string' },
         label: { type: 'string' },
         operator: { $ref: '#/definitions/PropertyOperator' },
@@ -3544,6 +4172,7 @@ function validate48(data, { instancePath = '', parentData, parentDataProperty, r
                 for (const key0 in data) {
                     if (
                         !(
+                            key0 === 'group_key_names' ||
                             key0 === 'key' ||
                             key0 === 'label' ||
                             key0 === 'operator' ||
@@ -3565,125 +4194,21 @@ function validate48(data, { instancePath = '', parentData, parentDataProperty, r
                     }
                 }
                 if (_errs1 === errors) {
-                    if (data.key !== undefined) {
+                    if (data.group_key_names !== undefined) {
+                        let data0 = data.group_key_names
                         const _errs2 = errors
-                        if (typeof data.key !== 'string') {
-                            validate48.errors = [
-                                {
-                                    instancePath: instancePath + '/key',
-                                    schemaPath: '#/properties/key/type',
-                                    keyword: 'type',
-                                    params: { type: 'string' },
-                                    message: 'must be string',
-                                },
-                            ]
-                            return false
-                        }
-                        var valid0 = _errs2 === errors
-                    } else {
-                        var valid0 = true
-                    }
-                    if (valid0) {
-                        if (data.label !== undefined) {
-                            const _errs4 = errors
-                            if (typeof data.label !== 'string') {
-                                validate48.errors = [
-                                    {
-                                        instancePath: instancePath + '/label',
-                                        schemaPath: '#/properties/label/type',
-                                        keyword: 'type',
-                                        params: { type: 'string' },
-                                        message: 'must be string',
-                                    },
-                                ]
-                                return false
-                            }
-                            var valid0 = _errs4 === errors
-                        } else {
-                            var valid0 = true
-                        }
-                        if (valid0) {
-                            if (data.operator !== undefined) {
-                                let data2 = data.operator
-                                const _errs6 = errors
-                                if (typeof data2 !== 'string') {
-                                    validate48.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/type',
-                                            keyword: 'type',
-                                            params: { type: 'string' },
-                                            message: 'must be string',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                if (
-                                    !(
-                                        data2 === 'exact' ||
-                                        data2 === 'is_not' ||
-                                        data2 === 'icontains' ||
-                                        data2 === 'not_icontains' ||
-                                        data2 === 'starts_with' ||
-                                        data2 === 'not_starts_with' ||
-                                        data2 === 'ends_with' ||
-                                        data2 === 'not_ends_with' ||
-                                        data2 === 'regex' ||
-                                        data2 === 'not_regex' ||
-                                        data2 === 'gt' ||
-                                        data2 === 'gte' ||
-                                        data2 === 'lt' ||
-                                        data2 === 'lte' ||
-                                        data2 === 'is_set' ||
-                                        data2 === 'is_not_set' ||
-                                        data2 === 'is_date_exact' ||
-                                        data2 === 'is_date_before' ||
-                                        data2 === 'is_date_after' ||
-                                        data2 === 'between' ||
-                                        data2 === 'not_between' ||
-                                        data2 === 'min' ||
-                                        data2 === 'max' ||
-                                        data2 === 'in' ||
-                                        data2 === 'not_in' ||
-                                        data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to' ||
-                                        data2 === 'semver_eq' ||
-                                        data2 === 'semver_neq' ||
-                                        data2 === 'semver_gt' ||
-                                        data2 === 'semver_gte' ||
-                                        data2 === 'semver_lt' ||
-                                        data2 === 'semver_lte' ||
-                                        data2 === 'semver_tilde' ||
-                                        data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard' ||
-                                        data2 === 'icontains_multi' ||
-                                        data2 === 'not_icontains_multi'
-                                    )
-                                ) {
-                                    validate48.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/enum',
-                                            keyword: 'enum',
-                                            params: { allowedValues: schema14.enum },
-                                            message: 'must be equal to one of the allowed values',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                var valid0 = _errs6 === errors
-                            } else {
-                                var valid0 = true
-                            }
-                            if (valid0) {
-                                if (data.type !== undefined) {
-                                    let data3 = data.type
-                                    const _errs9 = errors
-                                    if (typeof data3 !== 'string') {
+                        if (errors === _errs2) {
+                            if (data0 && typeof data0 == 'object' && !Array.isArray(data0)) {
+                                for (const key1 in data0) {
+                                    const _errs5 = errors
+                                    if (typeof data0[key1] !== 'string') {
                                         validate48.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/type',
+                                                instancePath:
+                                                    instancePath +
+                                                    '/group_key_names/' +
+                                                    key1.replace(/~/g, '~0').replace(/\//g, '~1'),
+                                                schemaPath: '#/properties/group_key_names/additionalProperties/type',
                                                 keyword: 'type',
                                                 params: { type: 'string' },
                                                 message: 'must be string',
@@ -3691,40 +4216,192 @@ function validate48(data, { instancePath = '', parentData, parentDataProperty, r
                                         ]
                                         return false
                                     }
-                                    if ('data_warehouse' !== data3) {
+                                    var valid1 = _errs5 === errors
+                                    if (!valid1) {
+                                        break
+                                    }
+                                }
+                            } else {
+                                validate48.errors = [
+                                    {
+                                        instancePath: instancePath + '/group_key_names',
+                                        schemaPath: '#/properties/group_key_names/type',
+                                        keyword: 'type',
+                                        params: { type: 'object' },
+                                        message: 'must be object',
+                                    },
+                                ]
+                                return false
+                            }
+                        }
+                        var valid0 = _errs2 === errors
+                    } else {
+                        var valid0 = true
+                    }
+                    if (valid0) {
+                        if (data.key !== undefined) {
+                            const _errs7 = errors
+                            if (typeof data.key !== 'string') {
+                                validate48.errors = [
+                                    {
+                                        instancePath: instancePath + '/key',
+                                        schemaPath: '#/properties/key/type',
+                                        keyword: 'type',
+                                        params: { type: 'string' },
+                                        message: 'must be string',
+                                    },
+                                ]
+                                return false
+                            }
+                            var valid0 = _errs7 === errors
+                        } else {
+                            var valid0 = true
+                        }
+                        if (valid0) {
+                            if (data.label !== undefined) {
+                                const _errs9 = errors
+                                if (typeof data.label !== 'string') {
+                                    validate48.errors = [
+                                        {
+                                            instancePath: instancePath + '/label',
+                                            schemaPath: '#/properties/label/type',
+                                            keyword: 'type',
+                                            params: { type: 'string' },
+                                            message: 'must be string',
+                                        },
+                                    ]
+                                    return false
+                                }
+                                var valid0 = _errs9 === errors
+                            } else {
+                                var valid0 = true
+                            }
+                            if (valid0) {
+                                if (data.operator !== undefined) {
+                                    let data4 = data.operator
+                                    const _errs11 = errors
+                                    if (typeof data4 !== 'string') {
                                         validate48.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/const',
-                                                keyword: 'const',
-                                                params: { allowedValue: 'data_warehouse' },
-                                                message: 'must be equal to constant',
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
                                             },
                                         ]
                                         return false
                                     }
-                                    var valid0 = _errs9 === errors
+                                    if (
+                                        !(
+                                            data4 === 'exact' ||
+                                            data4 === 'is_not' ||
+                                            data4 === 'icontains' ||
+                                            data4 === 'not_icontains' ||
+                                            data4 === 'starts_with' ||
+                                            data4 === 'not_starts_with' ||
+                                            data4 === 'ends_with' ||
+                                            data4 === 'not_ends_with' ||
+                                            data4 === 'regex' ||
+                                            data4 === 'not_regex' ||
+                                            data4 === 'gt' ||
+                                            data4 === 'gte' ||
+                                            data4 === 'lt' ||
+                                            data4 === 'lte' ||
+                                            data4 === 'is_set' ||
+                                            data4 === 'is_not_set' ||
+                                            data4 === 'is_date_exact' ||
+                                            data4 === 'is_date_before' ||
+                                            data4 === 'is_date_after' ||
+                                            data4 === 'between' ||
+                                            data4 === 'not_between' ||
+                                            data4 === 'min' ||
+                                            data4 === 'max' ||
+                                            data4 === 'in' ||
+                                            data4 === 'not_in' ||
+                                            data4 === 'is_cleaned_path_exact' ||
+                                            data4 === 'flag_evaluates_to' ||
+                                            data4 === 'semver_eq' ||
+                                            data4 === 'semver_neq' ||
+                                            data4 === 'semver_gt' ||
+                                            data4 === 'semver_gte' ||
+                                            data4 === 'semver_lt' ||
+                                            data4 === 'semver_lte' ||
+                                            data4 === 'semver_tilde' ||
+                                            data4 === 'semver_caret' ||
+                                            data4 === 'semver_wildcard' ||
+                                            data4 === 'icontains_multi' ||
+                                            data4 === 'not_icontains_multi'
+                                        )
+                                    ) {
+                                        validate48.errors = [
+                                            {
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/enum',
+                                                keyword: 'enum',
+                                                params: { allowedValues: schema14.enum },
+                                                message: 'must be equal to one of the allowed values',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid0 = _errs11 === errors
                                 } else {
                                     var valid0 = true
                                 }
                                 if (valid0) {
-                                    if (data.value !== undefined) {
-                                        const _errs11 = errors
-                                        if (
-                                            !validate13(data.value, {
-                                                instancePath: instancePath + '/value',
-                                                parentData: data,
-                                                parentDataProperty: 'value',
-                                                rootData,
-                                            })
-                                        ) {
-                                            vErrors =
-                                                vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
-                                            errors = vErrors.length
+                                    if (data.type !== undefined) {
+                                        let data5 = data.type
+                                        const _errs14 = errors
+                                        if (typeof data5 !== 'string') {
+                                            validate48.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/type',
+                                                    keyword: 'type',
+                                                    params: { type: 'string' },
+                                                    message: 'must be string',
+                                                },
+                                            ]
+                                            return false
                                         }
-                                        var valid0 = _errs11 === errors
+                                        if ('data_warehouse' !== data5) {
+                                            validate48.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/const',
+                                                    keyword: 'const',
+                                                    params: { allowedValue: 'data_warehouse' },
+                                                    message: 'must be equal to constant',
+                                                },
+                                            ]
+                                            return false
+                                        }
+                                        var valid0 = _errs14 === errors
                                     } else {
                                         var valid0 = true
+                                    }
+                                    if (valid0) {
+                                        if (data.value !== undefined) {
+                                            const _errs16 = errors
+                                            if (
+                                                !validate13(data.value, {
+                                                    instancePath: instancePath + '/value',
+                                                    parentData: data,
+                                                    parentDataProperty: 'value',
+                                                    rootData,
+                                                })
+                                            ) {
+                                                vErrors =
+                                                    vErrors === null
+                                                        ? validate13.errors
+                                                        : vErrors.concat(validate13.errors)
+                                                errors = vErrors.length
+                                            }
+                                            var valid0 = _errs16 === errors
+                                        } else {
+                                            var valid0 = true
+                                        }
                                     }
                                 }
                             }
@@ -3751,6 +4428,12 @@ function validate48(data, { instancePath = '', parentData, parentDataProperty, r
 const schema44 = {
     additionalProperties: false,
     properties: {
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         key: { type: 'string' },
         label: { type: 'string' },
         operator: { $ref: '#/definitions/PropertyOperator' },
@@ -3786,6 +4469,7 @@ function validate51(data, { instancePath = '', parentData, parentDataProperty, r
                 for (const key0 in data) {
                     if (
                         !(
+                            key0 === 'group_key_names' ||
                             key0 === 'key' ||
                             key0 === 'label' ||
                             key0 === 'operator' ||
@@ -3807,125 +4491,21 @@ function validate51(data, { instancePath = '', parentData, parentDataProperty, r
                     }
                 }
                 if (_errs1 === errors) {
-                    if (data.key !== undefined) {
+                    if (data.group_key_names !== undefined) {
+                        let data0 = data.group_key_names
                         const _errs2 = errors
-                        if (typeof data.key !== 'string') {
-                            validate51.errors = [
-                                {
-                                    instancePath: instancePath + '/key',
-                                    schemaPath: '#/properties/key/type',
-                                    keyword: 'type',
-                                    params: { type: 'string' },
-                                    message: 'must be string',
-                                },
-                            ]
-                            return false
-                        }
-                        var valid0 = _errs2 === errors
-                    } else {
-                        var valid0 = true
-                    }
-                    if (valid0) {
-                        if (data.label !== undefined) {
-                            const _errs4 = errors
-                            if (typeof data.label !== 'string') {
-                                validate51.errors = [
-                                    {
-                                        instancePath: instancePath + '/label',
-                                        schemaPath: '#/properties/label/type',
-                                        keyword: 'type',
-                                        params: { type: 'string' },
-                                        message: 'must be string',
-                                    },
-                                ]
-                                return false
-                            }
-                            var valid0 = _errs4 === errors
-                        } else {
-                            var valid0 = true
-                        }
-                        if (valid0) {
-                            if (data.operator !== undefined) {
-                                let data2 = data.operator
-                                const _errs6 = errors
-                                if (typeof data2 !== 'string') {
-                                    validate51.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/type',
-                                            keyword: 'type',
-                                            params: { type: 'string' },
-                                            message: 'must be string',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                if (
-                                    !(
-                                        data2 === 'exact' ||
-                                        data2 === 'is_not' ||
-                                        data2 === 'icontains' ||
-                                        data2 === 'not_icontains' ||
-                                        data2 === 'starts_with' ||
-                                        data2 === 'not_starts_with' ||
-                                        data2 === 'ends_with' ||
-                                        data2 === 'not_ends_with' ||
-                                        data2 === 'regex' ||
-                                        data2 === 'not_regex' ||
-                                        data2 === 'gt' ||
-                                        data2 === 'gte' ||
-                                        data2 === 'lt' ||
-                                        data2 === 'lte' ||
-                                        data2 === 'is_set' ||
-                                        data2 === 'is_not_set' ||
-                                        data2 === 'is_date_exact' ||
-                                        data2 === 'is_date_before' ||
-                                        data2 === 'is_date_after' ||
-                                        data2 === 'between' ||
-                                        data2 === 'not_between' ||
-                                        data2 === 'min' ||
-                                        data2 === 'max' ||
-                                        data2 === 'in' ||
-                                        data2 === 'not_in' ||
-                                        data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to' ||
-                                        data2 === 'semver_eq' ||
-                                        data2 === 'semver_neq' ||
-                                        data2 === 'semver_gt' ||
-                                        data2 === 'semver_gte' ||
-                                        data2 === 'semver_lt' ||
-                                        data2 === 'semver_lte' ||
-                                        data2 === 'semver_tilde' ||
-                                        data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard' ||
-                                        data2 === 'icontains_multi' ||
-                                        data2 === 'not_icontains_multi'
-                                    )
-                                ) {
-                                    validate51.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/enum',
-                                            keyword: 'enum',
-                                            params: { allowedValues: schema14.enum },
-                                            message: 'must be equal to one of the allowed values',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                var valid0 = _errs6 === errors
-                            } else {
-                                var valid0 = true
-                            }
-                            if (valid0) {
-                                if (data.type !== undefined) {
-                                    let data3 = data.type
-                                    const _errs9 = errors
-                                    if (typeof data3 !== 'string') {
+                        if (errors === _errs2) {
+                            if (data0 && typeof data0 == 'object' && !Array.isArray(data0)) {
+                                for (const key1 in data0) {
+                                    const _errs5 = errors
+                                    if (typeof data0[key1] !== 'string') {
                                         validate51.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/type',
+                                                instancePath:
+                                                    instancePath +
+                                                    '/group_key_names/' +
+                                                    key1.replace(/~/g, '~0').replace(/\//g, '~1'),
+                                                schemaPath: '#/properties/group_key_names/additionalProperties/type',
                                                 keyword: 'type',
                                                 params: { type: 'string' },
                                                 message: 'must be string',
@@ -3933,40 +4513,192 @@ function validate51(data, { instancePath = '', parentData, parentDataProperty, r
                                         ]
                                         return false
                                     }
-                                    if ('data_warehouse_person_property' !== data3) {
+                                    var valid1 = _errs5 === errors
+                                    if (!valid1) {
+                                        break
+                                    }
+                                }
+                            } else {
+                                validate51.errors = [
+                                    {
+                                        instancePath: instancePath + '/group_key_names',
+                                        schemaPath: '#/properties/group_key_names/type',
+                                        keyword: 'type',
+                                        params: { type: 'object' },
+                                        message: 'must be object',
+                                    },
+                                ]
+                                return false
+                            }
+                        }
+                        var valid0 = _errs2 === errors
+                    } else {
+                        var valid0 = true
+                    }
+                    if (valid0) {
+                        if (data.key !== undefined) {
+                            const _errs7 = errors
+                            if (typeof data.key !== 'string') {
+                                validate51.errors = [
+                                    {
+                                        instancePath: instancePath + '/key',
+                                        schemaPath: '#/properties/key/type',
+                                        keyword: 'type',
+                                        params: { type: 'string' },
+                                        message: 'must be string',
+                                    },
+                                ]
+                                return false
+                            }
+                            var valid0 = _errs7 === errors
+                        } else {
+                            var valid0 = true
+                        }
+                        if (valid0) {
+                            if (data.label !== undefined) {
+                                const _errs9 = errors
+                                if (typeof data.label !== 'string') {
+                                    validate51.errors = [
+                                        {
+                                            instancePath: instancePath + '/label',
+                                            schemaPath: '#/properties/label/type',
+                                            keyword: 'type',
+                                            params: { type: 'string' },
+                                            message: 'must be string',
+                                        },
+                                    ]
+                                    return false
+                                }
+                                var valid0 = _errs9 === errors
+                            } else {
+                                var valid0 = true
+                            }
+                            if (valid0) {
+                                if (data.operator !== undefined) {
+                                    let data4 = data.operator
+                                    const _errs11 = errors
+                                    if (typeof data4 !== 'string') {
                                         validate51.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/const',
-                                                keyword: 'const',
-                                                params: { allowedValue: 'data_warehouse_person_property' },
-                                                message: 'must be equal to constant',
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
                                             },
                                         ]
                                         return false
                                     }
-                                    var valid0 = _errs9 === errors
+                                    if (
+                                        !(
+                                            data4 === 'exact' ||
+                                            data4 === 'is_not' ||
+                                            data4 === 'icontains' ||
+                                            data4 === 'not_icontains' ||
+                                            data4 === 'starts_with' ||
+                                            data4 === 'not_starts_with' ||
+                                            data4 === 'ends_with' ||
+                                            data4 === 'not_ends_with' ||
+                                            data4 === 'regex' ||
+                                            data4 === 'not_regex' ||
+                                            data4 === 'gt' ||
+                                            data4 === 'gte' ||
+                                            data4 === 'lt' ||
+                                            data4 === 'lte' ||
+                                            data4 === 'is_set' ||
+                                            data4 === 'is_not_set' ||
+                                            data4 === 'is_date_exact' ||
+                                            data4 === 'is_date_before' ||
+                                            data4 === 'is_date_after' ||
+                                            data4 === 'between' ||
+                                            data4 === 'not_between' ||
+                                            data4 === 'min' ||
+                                            data4 === 'max' ||
+                                            data4 === 'in' ||
+                                            data4 === 'not_in' ||
+                                            data4 === 'is_cleaned_path_exact' ||
+                                            data4 === 'flag_evaluates_to' ||
+                                            data4 === 'semver_eq' ||
+                                            data4 === 'semver_neq' ||
+                                            data4 === 'semver_gt' ||
+                                            data4 === 'semver_gte' ||
+                                            data4 === 'semver_lt' ||
+                                            data4 === 'semver_lte' ||
+                                            data4 === 'semver_tilde' ||
+                                            data4 === 'semver_caret' ||
+                                            data4 === 'semver_wildcard' ||
+                                            data4 === 'icontains_multi' ||
+                                            data4 === 'not_icontains_multi'
+                                        )
+                                    ) {
+                                        validate51.errors = [
+                                            {
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/enum',
+                                                keyword: 'enum',
+                                                params: { allowedValues: schema14.enum },
+                                                message: 'must be equal to one of the allowed values',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid0 = _errs11 === errors
                                 } else {
                                     var valid0 = true
                                 }
                                 if (valid0) {
-                                    if (data.value !== undefined) {
-                                        const _errs11 = errors
-                                        if (
-                                            !validate13(data.value, {
-                                                instancePath: instancePath + '/value',
-                                                parentData: data,
-                                                parentDataProperty: 'value',
-                                                rootData,
-                                            })
-                                        ) {
-                                            vErrors =
-                                                vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
-                                            errors = vErrors.length
+                                    if (data.type !== undefined) {
+                                        let data5 = data.type
+                                        const _errs14 = errors
+                                        if (typeof data5 !== 'string') {
+                                            validate51.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/type',
+                                                    keyword: 'type',
+                                                    params: { type: 'string' },
+                                                    message: 'must be string',
+                                                },
+                                            ]
+                                            return false
                                         }
-                                        var valid0 = _errs11 === errors
+                                        if ('data_warehouse_person_property' !== data5) {
+                                            validate51.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/const',
+                                                    keyword: 'const',
+                                                    params: { allowedValue: 'data_warehouse_person_property' },
+                                                    message: 'must be equal to constant',
+                                                },
+                                            ]
+                                            return false
+                                        }
+                                        var valid0 = _errs14 === errors
                                     } else {
                                         var valid0 = true
+                                    }
+                                    if (valid0) {
+                                        if (data.value !== undefined) {
+                                            const _errs16 = errors
+                                            if (
+                                                !validate13(data.value, {
+                                                    instancePath: instancePath + '/value',
+                                                    parentData: data,
+                                                    parentDataProperty: 'value',
+                                                    rootData,
+                                                })
+                                            ) {
+                                                vErrors =
+                                                    vErrors === null
+                                                        ? validate13.errors
+                                                        : vErrors.concat(validate13.errors)
+                                                errors = vErrors.length
+                                            }
+                                            var valid0 = _errs16 === errors
+                                        } else {
+                                            var valid0 = true
+                                        }
                                     }
                                 }
                             }
@@ -3993,6 +4725,12 @@ function validate51(data, { instancePath = '', parentData, parentDataProperty, r
 const schema46 = {
     additionalProperties: false,
     properties: {
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         key: { type: 'string' },
         label: { type: 'string' },
         operator: { $ref: '#/definitions/PropertyOperator' },
@@ -4028,6 +4766,7 @@ function validate54(data, { instancePath = '', parentData, parentDataProperty, r
                 for (const key0 in data) {
                     if (
                         !(
+                            key0 === 'group_key_names' ||
                             key0 === 'key' ||
                             key0 === 'label' ||
                             key0 === 'operator' ||
@@ -4049,125 +4788,21 @@ function validate54(data, { instancePath = '', parentData, parentDataProperty, r
                     }
                 }
                 if (_errs1 === errors) {
-                    if (data.key !== undefined) {
+                    if (data.group_key_names !== undefined) {
+                        let data0 = data.group_key_names
                         const _errs2 = errors
-                        if (typeof data.key !== 'string') {
-                            validate54.errors = [
-                                {
-                                    instancePath: instancePath + '/key',
-                                    schemaPath: '#/properties/key/type',
-                                    keyword: 'type',
-                                    params: { type: 'string' },
-                                    message: 'must be string',
-                                },
-                            ]
-                            return false
-                        }
-                        var valid0 = _errs2 === errors
-                    } else {
-                        var valid0 = true
-                    }
-                    if (valid0) {
-                        if (data.label !== undefined) {
-                            const _errs4 = errors
-                            if (typeof data.label !== 'string') {
-                                validate54.errors = [
-                                    {
-                                        instancePath: instancePath + '/label',
-                                        schemaPath: '#/properties/label/type',
-                                        keyword: 'type',
-                                        params: { type: 'string' },
-                                        message: 'must be string',
-                                    },
-                                ]
-                                return false
-                            }
-                            var valid0 = _errs4 === errors
-                        } else {
-                            var valid0 = true
-                        }
-                        if (valid0) {
-                            if (data.operator !== undefined) {
-                                let data2 = data.operator
-                                const _errs6 = errors
-                                if (typeof data2 !== 'string') {
-                                    validate54.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/type',
-                                            keyword: 'type',
-                                            params: { type: 'string' },
-                                            message: 'must be string',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                if (
-                                    !(
-                                        data2 === 'exact' ||
-                                        data2 === 'is_not' ||
-                                        data2 === 'icontains' ||
-                                        data2 === 'not_icontains' ||
-                                        data2 === 'starts_with' ||
-                                        data2 === 'not_starts_with' ||
-                                        data2 === 'ends_with' ||
-                                        data2 === 'not_ends_with' ||
-                                        data2 === 'regex' ||
-                                        data2 === 'not_regex' ||
-                                        data2 === 'gt' ||
-                                        data2 === 'gte' ||
-                                        data2 === 'lt' ||
-                                        data2 === 'lte' ||
-                                        data2 === 'is_set' ||
-                                        data2 === 'is_not_set' ||
-                                        data2 === 'is_date_exact' ||
-                                        data2 === 'is_date_before' ||
-                                        data2 === 'is_date_after' ||
-                                        data2 === 'between' ||
-                                        data2 === 'not_between' ||
-                                        data2 === 'min' ||
-                                        data2 === 'max' ||
-                                        data2 === 'in' ||
-                                        data2 === 'not_in' ||
-                                        data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to' ||
-                                        data2 === 'semver_eq' ||
-                                        data2 === 'semver_neq' ||
-                                        data2 === 'semver_gt' ||
-                                        data2 === 'semver_gte' ||
-                                        data2 === 'semver_lt' ||
-                                        data2 === 'semver_lte' ||
-                                        data2 === 'semver_tilde' ||
-                                        data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard' ||
-                                        data2 === 'icontains_multi' ||
-                                        data2 === 'not_icontains_multi'
-                                    )
-                                ) {
-                                    validate54.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/enum',
-                                            keyword: 'enum',
-                                            params: { allowedValues: schema14.enum },
-                                            message: 'must be equal to one of the allowed values',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                var valid0 = _errs6 === errors
-                            } else {
-                                var valid0 = true
-                            }
-                            if (valid0) {
-                                if (data.type !== undefined) {
-                                    let data3 = data.type
-                                    const _errs9 = errors
-                                    if (typeof data3 !== 'string') {
+                        if (errors === _errs2) {
+                            if (data0 && typeof data0 == 'object' && !Array.isArray(data0)) {
+                                for (const key1 in data0) {
+                                    const _errs5 = errors
+                                    if (typeof data0[key1] !== 'string') {
                                         validate54.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/type',
+                                                instancePath:
+                                                    instancePath +
+                                                    '/group_key_names/' +
+                                                    key1.replace(/~/g, '~0').replace(/\//g, '~1'),
+                                                schemaPath: '#/properties/group_key_names/additionalProperties/type',
                                                 keyword: 'type',
                                                 params: { type: 'string' },
                                                 message: 'must be string',
@@ -4175,40 +4810,192 @@ function validate54(data, { instancePath = '', parentData, parentDataProperty, r
                                         ]
                                         return false
                                     }
-                                    if ('error_tracking_issue' !== data3) {
+                                    var valid1 = _errs5 === errors
+                                    if (!valid1) {
+                                        break
+                                    }
+                                }
+                            } else {
+                                validate54.errors = [
+                                    {
+                                        instancePath: instancePath + '/group_key_names',
+                                        schemaPath: '#/properties/group_key_names/type',
+                                        keyword: 'type',
+                                        params: { type: 'object' },
+                                        message: 'must be object',
+                                    },
+                                ]
+                                return false
+                            }
+                        }
+                        var valid0 = _errs2 === errors
+                    } else {
+                        var valid0 = true
+                    }
+                    if (valid0) {
+                        if (data.key !== undefined) {
+                            const _errs7 = errors
+                            if (typeof data.key !== 'string') {
+                                validate54.errors = [
+                                    {
+                                        instancePath: instancePath + '/key',
+                                        schemaPath: '#/properties/key/type',
+                                        keyword: 'type',
+                                        params: { type: 'string' },
+                                        message: 'must be string',
+                                    },
+                                ]
+                                return false
+                            }
+                            var valid0 = _errs7 === errors
+                        } else {
+                            var valid0 = true
+                        }
+                        if (valid0) {
+                            if (data.label !== undefined) {
+                                const _errs9 = errors
+                                if (typeof data.label !== 'string') {
+                                    validate54.errors = [
+                                        {
+                                            instancePath: instancePath + '/label',
+                                            schemaPath: '#/properties/label/type',
+                                            keyword: 'type',
+                                            params: { type: 'string' },
+                                            message: 'must be string',
+                                        },
+                                    ]
+                                    return false
+                                }
+                                var valid0 = _errs9 === errors
+                            } else {
+                                var valid0 = true
+                            }
+                            if (valid0) {
+                                if (data.operator !== undefined) {
+                                    let data4 = data.operator
+                                    const _errs11 = errors
+                                    if (typeof data4 !== 'string') {
                                         validate54.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/const',
-                                                keyword: 'const',
-                                                params: { allowedValue: 'error_tracking_issue' },
-                                                message: 'must be equal to constant',
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
                                             },
                                         ]
                                         return false
                                     }
-                                    var valid0 = _errs9 === errors
+                                    if (
+                                        !(
+                                            data4 === 'exact' ||
+                                            data4 === 'is_not' ||
+                                            data4 === 'icontains' ||
+                                            data4 === 'not_icontains' ||
+                                            data4 === 'starts_with' ||
+                                            data4 === 'not_starts_with' ||
+                                            data4 === 'ends_with' ||
+                                            data4 === 'not_ends_with' ||
+                                            data4 === 'regex' ||
+                                            data4 === 'not_regex' ||
+                                            data4 === 'gt' ||
+                                            data4 === 'gte' ||
+                                            data4 === 'lt' ||
+                                            data4 === 'lte' ||
+                                            data4 === 'is_set' ||
+                                            data4 === 'is_not_set' ||
+                                            data4 === 'is_date_exact' ||
+                                            data4 === 'is_date_before' ||
+                                            data4 === 'is_date_after' ||
+                                            data4 === 'between' ||
+                                            data4 === 'not_between' ||
+                                            data4 === 'min' ||
+                                            data4 === 'max' ||
+                                            data4 === 'in' ||
+                                            data4 === 'not_in' ||
+                                            data4 === 'is_cleaned_path_exact' ||
+                                            data4 === 'flag_evaluates_to' ||
+                                            data4 === 'semver_eq' ||
+                                            data4 === 'semver_neq' ||
+                                            data4 === 'semver_gt' ||
+                                            data4 === 'semver_gte' ||
+                                            data4 === 'semver_lt' ||
+                                            data4 === 'semver_lte' ||
+                                            data4 === 'semver_tilde' ||
+                                            data4 === 'semver_caret' ||
+                                            data4 === 'semver_wildcard' ||
+                                            data4 === 'icontains_multi' ||
+                                            data4 === 'not_icontains_multi'
+                                        )
+                                    ) {
+                                        validate54.errors = [
+                                            {
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/enum',
+                                                keyword: 'enum',
+                                                params: { allowedValues: schema14.enum },
+                                                message: 'must be equal to one of the allowed values',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid0 = _errs11 === errors
                                 } else {
                                     var valid0 = true
                                 }
                                 if (valid0) {
-                                    if (data.value !== undefined) {
-                                        const _errs11 = errors
-                                        if (
-                                            !validate13(data.value, {
-                                                instancePath: instancePath + '/value',
-                                                parentData: data,
-                                                parentDataProperty: 'value',
-                                                rootData,
-                                            })
-                                        ) {
-                                            vErrors =
-                                                vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
-                                            errors = vErrors.length
+                                    if (data.type !== undefined) {
+                                        let data5 = data.type
+                                        const _errs14 = errors
+                                        if (typeof data5 !== 'string') {
+                                            validate54.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/type',
+                                                    keyword: 'type',
+                                                    params: { type: 'string' },
+                                                    message: 'must be string',
+                                                },
+                                            ]
+                                            return false
                                         }
-                                        var valid0 = _errs11 === errors
+                                        if ('error_tracking_issue' !== data5) {
+                                            validate54.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/const',
+                                                    keyword: 'const',
+                                                    params: { allowedValue: 'error_tracking_issue' },
+                                                    message: 'must be equal to constant',
+                                                },
+                                            ]
+                                            return false
+                                        }
+                                        var valid0 = _errs14 === errors
                                     } else {
                                         var valid0 = true
+                                    }
+                                    if (valid0) {
+                                        if (data.value !== undefined) {
+                                            const _errs16 = errors
+                                            if (
+                                                !validate13(data.value, {
+                                                    instancePath: instancePath + '/value',
+                                                    parentData: data,
+                                                    parentDataProperty: 'value',
+                                                    rootData,
+                                                })
+                                            ) {
+                                                vErrors =
+                                                    vErrors === null
+                                                        ? validate13.errors
+                                                        : vErrors.concat(validate13.errors)
+                                                errors = vErrors.length
+                                            }
+                                            var valid0 = _errs16 === errors
+                                        } else {
+                                            var valid0 = true
+                                        }
                                     }
                                 }
                             }
@@ -4235,6 +5022,12 @@ function validate54(data, { instancePath = '', parentData, parentDataProperty, r
 const schema48 = {
     additionalProperties: false,
     properties: {
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         key: { type: 'string' },
         label: { type: 'string' },
         operator: { $ref: '#/definitions/PropertyOperator' },
@@ -4271,6 +5064,7 @@ function validate57(data, { instancePath = '', parentData, parentDataProperty, r
                 for (const key0 in data) {
                     if (
                         !(
+                            key0 === 'group_key_names' ||
                             key0 === 'key' ||
                             key0 === 'label' ||
                             key0 === 'operator' ||
@@ -4292,32 +5086,58 @@ function validate57(data, { instancePath = '', parentData, parentDataProperty, r
                     }
                 }
                 if (_errs1 === errors) {
-                    if (data.key !== undefined) {
+                    if (data.group_key_names !== undefined) {
+                        let data0 = data.group_key_names
                         const _errs2 = errors
-                        if (typeof data.key !== 'string') {
-                            validate57.errors = [
-                                {
-                                    instancePath: instancePath + '/key',
-                                    schemaPath: '#/properties/key/type',
-                                    keyword: 'type',
-                                    params: { type: 'string' },
-                                    message: 'must be string',
-                                },
-                            ]
-                            return false
+                        if (errors === _errs2) {
+                            if (data0 && typeof data0 == 'object' && !Array.isArray(data0)) {
+                                for (const key1 in data0) {
+                                    const _errs5 = errors
+                                    if (typeof data0[key1] !== 'string') {
+                                        validate57.errors = [
+                                            {
+                                                instancePath:
+                                                    instancePath +
+                                                    '/group_key_names/' +
+                                                    key1.replace(/~/g, '~0').replace(/\//g, '~1'),
+                                                schemaPath: '#/properties/group_key_names/additionalProperties/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid1 = _errs5 === errors
+                                    if (!valid1) {
+                                        break
+                                    }
+                                }
+                            } else {
+                                validate57.errors = [
+                                    {
+                                        instancePath: instancePath + '/group_key_names',
+                                        schemaPath: '#/properties/group_key_names/type',
+                                        keyword: 'type',
+                                        params: { type: 'object' },
+                                        message: 'must be object',
+                                    },
+                                ]
+                                return false
+                            }
                         }
                         var valid0 = _errs2 === errors
                     } else {
                         var valid0 = true
                     }
                     if (valid0) {
-                        if (data.label !== undefined) {
-                            const _errs4 = errors
-                            if (typeof data.label !== 'string') {
+                        if (data.key !== undefined) {
+                            const _errs7 = errors
+                            if (typeof data.key !== 'string') {
                                 validate57.errors = [
                                     {
-                                        instancePath: instancePath + '/label',
-                                        schemaPath: '#/properties/label/type',
+                                        instancePath: instancePath + '/key',
+                                        schemaPath: '#/properties/key/type',
                                         keyword: 'type',
                                         params: { type: 'string' },
                                         message: 'must be string',
@@ -4325,19 +5145,18 @@ function validate57(data, { instancePath = '', parentData, parentDataProperty, r
                                 ]
                                 return false
                             }
-                            var valid0 = _errs4 === errors
+                            var valid0 = _errs7 === errors
                         } else {
                             var valid0 = true
                         }
                         if (valid0) {
-                            if (data.operator !== undefined) {
-                                let data2 = data.operator
-                                const _errs6 = errors
-                                if (typeof data2 !== 'string') {
+                            if (data.label !== undefined) {
+                                const _errs9 = errors
+                                if (typeof data.label !== 'string') {
                                     validate57.errors = [
                                         {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/type',
+                                            instancePath: instancePath + '/label',
+                                            schemaPath: '#/properties/label/type',
                                             keyword: 'type',
                                             params: { type: 'string' },
                                             message: 'must be string',
@@ -4345,72 +5164,19 @@ function validate57(data, { instancePath = '', parentData, parentDataProperty, r
                                     ]
                                     return false
                                 }
-                                if (
-                                    !(
-                                        data2 === 'exact' ||
-                                        data2 === 'is_not' ||
-                                        data2 === 'icontains' ||
-                                        data2 === 'not_icontains' ||
-                                        data2 === 'starts_with' ||
-                                        data2 === 'not_starts_with' ||
-                                        data2 === 'ends_with' ||
-                                        data2 === 'not_ends_with' ||
-                                        data2 === 'regex' ||
-                                        data2 === 'not_regex' ||
-                                        data2 === 'gt' ||
-                                        data2 === 'gte' ||
-                                        data2 === 'lt' ||
-                                        data2 === 'lte' ||
-                                        data2 === 'is_set' ||
-                                        data2 === 'is_not_set' ||
-                                        data2 === 'is_date_exact' ||
-                                        data2 === 'is_date_before' ||
-                                        data2 === 'is_date_after' ||
-                                        data2 === 'between' ||
-                                        data2 === 'not_between' ||
-                                        data2 === 'min' ||
-                                        data2 === 'max' ||
-                                        data2 === 'in' ||
-                                        data2 === 'not_in' ||
-                                        data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to' ||
-                                        data2 === 'semver_eq' ||
-                                        data2 === 'semver_neq' ||
-                                        data2 === 'semver_gt' ||
-                                        data2 === 'semver_gte' ||
-                                        data2 === 'semver_lt' ||
-                                        data2 === 'semver_lte' ||
-                                        data2 === 'semver_tilde' ||
-                                        data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard' ||
-                                        data2 === 'icontains_multi' ||
-                                        data2 === 'not_icontains_multi'
-                                    )
-                                ) {
-                                    validate57.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/enum',
-                                            keyword: 'enum',
-                                            params: { allowedValues: schema14.enum },
-                                            message: 'must be equal to one of the allowed values',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                var valid0 = _errs6 === errors
+                                var valid0 = _errs9 === errors
                             } else {
                                 var valid0 = true
                             }
                             if (valid0) {
-                                if (data.type !== undefined) {
-                                    let data3 = data.type
-                                    const _errs9 = errors
-                                    if (typeof data3 !== 'string') {
+                                if (data.operator !== undefined) {
+                                    let data4 = data.operator
+                                    const _errs11 = errors
+                                    if (typeof data4 !== 'string') {
                                         validate57.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/definitions/LogPropertyFilterType/type',
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/type',
                                                 keyword: 'type',
                                                 params: { type: 'string' },
                                                 message: 'must be string',
@@ -4420,44 +5186,120 @@ function validate57(data, { instancePath = '', parentData, parentDataProperty, r
                                     }
                                     if (
                                         !(
-                                            data3 === 'log' ||
-                                            data3 === 'log_attribute' ||
-                                            data3 === 'log_resource_attribute'
+                                            data4 === 'exact' ||
+                                            data4 === 'is_not' ||
+                                            data4 === 'icontains' ||
+                                            data4 === 'not_icontains' ||
+                                            data4 === 'starts_with' ||
+                                            data4 === 'not_starts_with' ||
+                                            data4 === 'ends_with' ||
+                                            data4 === 'not_ends_with' ||
+                                            data4 === 'regex' ||
+                                            data4 === 'not_regex' ||
+                                            data4 === 'gt' ||
+                                            data4 === 'gte' ||
+                                            data4 === 'lt' ||
+                                            data4 === 'lte' ||
+                                            data4 === 'is_set' ||
+                                            data4 === 'is_not_set' ||
+                                            data4 === 'is_date_exact' ||
+                                            data4 === 'is_date_before' ||
+                                            data4 === 'is_date_after' ||
+                                            data4 === 'between' ||
+                                            data4 === 'not_between' ||
+                                            data4 === 'min' ||
+                                            data4 === 'max' ||
+                                            data4 === 'in' ||
+                                            data4 === 'not_in' ||
+                                            data4 === 'is_cleaned_path_exact' ||
+                                            data4 === 'flag_evaluates_to' ||
+                                            data4 === 'semver_eq' ||
+                                            data4 === 'semver_neq' ||
+                                            data4 === 'semver_gt' ||
+                                            data4 === 'semver_gte' ||
+                                            data4 === 'semver_lt' ||
+                                            data4 === 'semver_lte' ||
+                                            data4 === 'semver_tilde' ||
+                                            data4 === 'semver_caret' ||
+                                            data4 === 'semver_wildcard' ||
+                                            data4 === 'icontains_multi' ||
+                                            data4 === 'not_icontains_multi'
                                         )
                                     ) {
                                         validate57.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/definitions/LogPropertyFilterType/enum',
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/enum',
                                                 keyword: 'enum',
-                                                params: { allowedValues: schema50.enum },
+                                                params: { allowedValues: schema14.enum },
                                                 message: 'must be equal to one of the allowed values',
                                             },
                                         ]
                                         return false
                                     }
-                                    var valid0 = _errs9 === errors
+                                    var valid0 = _errs11 === errors
                                 } else {
                                     var valid0 = true
                                 }
                                 if (valid0) {
-                                    if (data.value !== undefined) {
-                                        const _errs12 = errors
-                                        if (
-                                            !validate13(data.value, {
-                                                instancePath: instancePath + '/value',
-                                                parentData: data,
-                                                parentDataProperty: 'value',
-                                                rootData,
-                                            })
-                                        ) {
-                                            vErrors =
-                                                vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
-                                            errors = vErrors.length
+                                    if (data.type !== undefined) {
+                                        let data5 = data.type
+                                        const _errs14 = errors
+                                        if (typeof data5 !== 'string') {
+                                            validate57.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/definitions/LogPropertyFilterType/type',
+                                                    keyword: 'type',
+                                                    params: { type: 'string' },
+                                                    message: 'must be string',
+                                                },
+                                            ]
+                                            return false
                                         }
-                                        var valid0 = _errs12 === errors
+                                        if (
+                                            !(
+                                                data5 === 'log' ||
+                                                data5 === 'log_attribute' ||
+                                                data5 === 'log_resource_attribute'
+                                            )
+                                        ) {
+                                            validate57.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/definitions/LogPropertyFilterType/enum',
+                                                    keyword: 'enum',
+                                                    params: { allowedValues: schema50.enum },
+                                                    message: 'must be equal to one of the allowed values',
+                                                },
+                                            ]
+                                            return false
+                                        }
+                                        var valid0 = _errs14 === errors
                                     } else {
                                         var valid0 = true
+                                    }
+                                    if (valid0) {
+                                        if (data.value !== undefined) {
+                                            const _errs17 = errors
+                                            if (
+                                                !validate13(data.value, {
+                                                    instancePath: instancePath + '/value',
+                                                    parentData: data,
+                                                    parentDataProperty: 'value',
+                                                    rootData,
+                                                })
+                                            ) {
+                                                vErrors =
+                                                    vErrors === null
+                                                        ? validate13.errors
+                                                        : vErrors.concat(validate13.errors)
+                                                errors = vErrors.length
+                                            }
+                                            var valid0 = _errs17 === errors
+                                        } else {
+                                            var valid0 = true
+                                        }
                                     }
                                 }
                             }
@@ -4484,6 +5326,12 @@ function validate57(data, { instancePath = '', parentData, parentDataProperty, r
 const schema51 = {
     additionalProperties: false,
     properties: {
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         key: { type: 'string' },
         label: { type: 'string' },
         operator: { $ref: '#/definitions/PropertyOperator' },
@@ -4519,6 +5367,7 @@ function validate60(data, { instancePath = '', parentData, parentDataProperty, r
                 for (const key0 in data) {
                     if (
                         !(
+                            key0 === 'group_key_names' ||
                             key0 === 'key' ||
                             key0 === 'label' ||
                             key0 === 'operator' ||
@@ -4540,125 +5389,21 @@ function validate60(data, { instancePath = '', parentData, parentDataProperty, r
                     }
                 }
                 if (_errs1 === errors) {
-                    if (data.key !== undefined) {
+                    if (data.group_key_names !== undefined) {
+                        let data0 = data.group_key_names
                         const _errs2 = errors
-                        if (typeof data.key !== 'string') {
-                            validate60.errors = [
-                                {
-                                    instancePath: instancePath + '/key',
-                                    schemaPath: '#/properties/key/type',
-                                    keyword: 'type',
-                                    params: { type: 'string' },
-                                    message: 'must be string',
-                                },
-                            ]
-                            return false
-                        }
-                        var valid0 = _errs2 === errors
-                    } else {
-                        var valid0 = true
-                    }
-                    if (valid0) {
-                        if (data.label !== undefined) {
-                            const _errs4 = errors
-                            if (typeof data.label !== 'string') {
-                                validate60.errors = [
-                                    {
-                                        instancePath: instancePath + '/label',
-                                        schemaPath: '#/properties/label/type',
-                                        keyword: 'type',
-                                        params: { type: 'string' },
-                                        message: 'must be string',
-                                    },
-                                ]
-                                return false
-                            }
-                            var valid0 = _errs4 === errors
-                        } else {
-                            var valid0 = true
-                        }
-                        if (valid0) {
-                            if (data.operator !== undefined) {
-                                let data2 = data.operator
-                                const _errs6 = errors
-                                if (typeof data2 !== 'string') {
-                                    validate60.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/type',
-                                            keyword: 'type',
-                                            params: { type: 'string' },
-                                            message: 'must be string',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                if (
-                                    !(
-                                        data2 === 'exact' ||
-                                        data2 === 'is_not' ||
-                                        data2 === 'icontains' ||
-                                        data2 === 'not_icontains' ||
-                                        data2 === 'starts_with' ||
-                                        data2 === 'not_starts_with' ||
-                                        data2 === 'ends_with' ||
-                                        data2 === 'not_ends_with' ||
-                                        data2 === 'regex' ||
-                                        data2 === 'not_regex' ||
-                                        data2 === 'gt' ||
-                                        data2 === 'gte' ||
-                                        data2 === 'lt' ||
-                                        data2 === 'lte' ||
-                                        data2 === 'is_set' ||
-                                        data2 === 'is_not_set' ||
-                                        data2 === 'is_date_exact' ||
-                                        data2 === 'is_date_before' ||
-                                        data2 === 'is_date_after' ||
-                                        data2 === 'between' ||
-                                        data2 === 'not_between' ||
-                                        data2 === 'min' ||
-                                        data2 === 'max' ||
-                                        data2 === 'in' ||
-                                        data2 === 'not_in' ||
-                                        data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to' ||
-                                        data2 === 'semver_eq' ||
-                                        data2 === 'semver_neq' ||
-                                        data2 === 'semver_gt' ||
-                                        data2 === 'semver_gte' ||
-                                        data2 === 'semver_lt' ||
-                                        data2 === 'semver_lte' ||
-                                        data2 === 'semver_tilde' ||
-                                        data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard' ||
-                                        data2 === 'icontains_multi' ||
-                                        data2 === 'not_icontains_multi'
-                                    )
-                                ) {
-                                    validate60.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/enum',
-                                            keyword: 'enum',
-                                            params: { allowedValues: schema14.enum },
-                                            message: 'must be equal to one of the allowed values',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                var valid0 = _errs6 === errors
-                            } else {
-                                var valid0 = true
-                            }
-                            if (valid0) {
-                                if (data.type !== undefined) {
-                                    let data3 = data.type
-                                    const _errs9 = errors
-                                    if (typeof data3 !== 'string') {
+                        if (errors === _errs2) {
+                            if (data0 && typeof data0 == 'object' && !Array.isArray(data0)) {
+                                for (const key1 in data0) {
+                                    const _errs5 = errors
+                                    if (typeof data0[key1] !== 'string') {
                                         validate60.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/type',
+                                                instancePath:
+                                                    instancePath +
+                                                    '/group_key_names/' +
+                                                    key1.replace(/~/g, '~0').replace(/\//g, '~1'),
+                                                schemaPath: '#/properties/group_key_names/additionalProperties/type',
                                                 keyword: 'type',
                                                 params: { type: 'string' },
                                                 message: 'must be string',
@@ -4666,40 +5411,192 @@ function validate60(data, { instancePath = '', parentData, parentDataProperty, r
                                         ]
                                         return false
                                     }
-                                    if ('metric_attribute' !== data3) {
+                                    var valid1 = _errs5 === errors
+                                    if (!valid1) {
+                                        break
+                                    }
+                                }
+                            } else {
+                                validate60.errors = [
+                                    {
+                                        instancePath: instancePath + '/group_key_names',
+                                        schemaPath: '#/properties/group_key_names/type',
+                                        keyword: 'type',
+                                        params: { type: 'object' },
+                                        message: 'must be object',
+                                    },
+                                ]
+                                return false
+                            }
+                        }
+                        var valid0 = _errs2 === errors
+                    } else {
+                        var valid0 = true
+                    }
+                    if (valid0) {
+                        if (data.key !== undefined) {
+                            const _errs7 = errors
+                            if (typeof data.key !== 'string') {
+                                validate60.errors = [
+                                    {
+                                        instancePath: instancePath + '/key',
+                                        schemaPath: '#/properties/key/type',
+                                        keyword: 'type',
+                                        params: { type: 'string' },
+                                        message: 'must be string',
+                                    },
+                                ]
+                                return false
+                            }
+                            var valid0 = _errs7 === errors
+                        } else {
+                            var valid0 = true
+                        }
+                        if (valid0) {
+                            if (data.label !== undefined) {
+                                const _errs9 = errors
+                                if (typeof data.label !== 'string') {
+                                    validate60.errors = [
+                                        {
+                                            instancePath: instancePath + '/label',
+                                            schemaPath: '#/properties/label/type',
+                                            keyword: 'type',
+                                            params: { type: 'string' },
+                                            message: 'must be string',
+                                        },
+                                    ]
+                                    return false
+                                }
+                                var valid0 = _errs9 === errors
+                            } else {
+                                var valid0 = true
+                            }
+                            if (valid0) {
+                                if (data.operator !== undefined) {
+                                    let data4 = data.operator
+                                    const _errs11 = errors
+                                    if (typeof data4 !== 'string') {
                                         validate60.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/const',
-                                                keyword: 'const',
-                                                params: { allowedValue: 'metric_attribute' },
-                                                message: 'must be equal to constant',
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
                                             },
                                         ]
                                         return false
                                     }
-                                    var valid0 = _errs9 === errors
+                                    if (
+                                        !(
+                                            data4 === 'exact' ||
+                                            data4 === 'is_not' ||
+                                            data4 === 'icontains' ||
+                                            data4 === 'not_icontains' ||
+                                            data4 === 'starts_with' ||
+                                            data4 === 'not_starts_with' ||
+                                            data4 === 'ends_with' ||
+                                            data4 === 'not_ends_with' ||
+                                            data4 === 'regex' ||
+                                            data4 === 'not_regex' ||
+                                            data4 === 'gt' ||
+                                            data4 === 'gte' ||
+                                            data4 === 'lt' ||
+                                            data4 === 'lte' ||
+                                            data4 === 'is_set' ||
+                                            data4 === 'is_not_set' ||
+                                            data4 === 'is_date_exact' ||
+                                            data4 === 'is_date_before' ||
+                                            data4 === 'is_date_after' ||
+                                            data4 === 'between' ||
+                                            data4 === 'not_between' ||
+                                            data4 === 'min' ||
+                                            data4 === 'max' ||
+                                            data4 === 'in' ||
+                                            data4 === 'not_in' ||
+                                            data4 === 'is_cleaned_path_exact' ||
+                                            data4 === 'flag_evaluates_to' ||
+                                            data4 === 'semver_eq' ||
+                                            data4 === 'semver_neq' ||
+                                            data4 === 'semver_gt' ||
+                                            data4 === 'semver_gte' ||
+                                            data4 === 'semver_lt' ||
+                                            data4 === 'semver_lte' ||
+                                            data4 === 'semver_tilde' ||
+                                            data4 === 'semver_caret' ||
+                                            data4 === 'semver_wildcard' ||
+                                            data4 === 'icontains_multi' ||
+                                            data4 === 'not_icontains_multi'
+                                        )
+                                    ) {
+                                        validate60.errors = [
+                                            {
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/enum',
+                                                keyword: 'enum',
+                                                params: { allowedValues: schema14.enum },
+                                                message: 'must be equal to one of the allowed values',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid0 = _errs11 === errors
                                 } else {
                                     var valid0 = true
                                 }
                                 if (valid0) {
-                                    if (data.value !== undefined) {
-                                        const _errs11 = errors
-                                        if (
-                                            !validate13(data.value, {
-                                                instancePath: instancePath + '/value',
-                                                parentData: data,
-                                                parentDataProperty: 'value',
-                                                rootData,
-                                            })
-                                        ) {
-                                            vErrors =
-                                                vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
-                                            errors = vErrors.length
+                                    if (data.type !== undefined) {
+                                        let data5 = data.type
+                                        const _errs14 = errors
+                                        if (typeof data5 !== 'string') {
+                                            validate60.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/type',
+                                                    keyword: 'type',
+                                                    params: { type: 'string' },
+                                                    message: 'must be string',
+                                                },
+                                            ]
+                                            return false
                                         }
-                                        var valid0 = _errs11 === errors
+                                        if ('metric_attribute' !== data5) {
+                                            validate60.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/const',
+                                                    keyword: 'const',
+                                                    params: { allowedValue: 'metric_attribute' },
+                                                    message: 'must be equal to constant',
+                                                },
+                                            ]
+                                            return false
+                                        }
+                                        var valid0 = _errs14 === errors
                                     } else {
                                         var valid0 = true
+                                    }
+                                    if (valid0) {
+                                        if (data.value !== undefined) {
+                                            const _errs16 = errors
+                                            if (
+                                                !validate13(data.value, {
+                                                    instancePath: instancePath + '/value',
+                                                    parentData: data,
+                                                    parentDataProperty: 'value',
+                                                    rootData,
+                                                })
+                                            ) {
+                                                vErrors =
+                                                    vErrors === null
+                                                        ? validate13.errors
+                                                        : vErrors.concat(validate13.errors)
+                                                errors = vErrors.length
+                                            }
+                                            var valid0 = _errs16 === errors
+                                        } else {
+                                            var valid0 = true
+                                        }
                                     }
                                 }
                             }
@@ -4726,6 +5623,12 @@ function validate60(data, { instancePath = '', parentData, parentDataProperty, r
 const schema53 = {
     additionalProperties: false,
     properties: {
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         key: { type: 'string' },
         label: { type: 'string' },
         operator: { $ref: '#/definitions/PropertyOperator' },
@@ -4762,6 +5665,7 @@ function validate63(data, { instancePath = '', parentData, parentDataProperty, r
                 for (const key0 in data) {
                     if (
                         !(
+                            key0 === 'group_key_names' ||
                             key0 === 'key' ||
                             key0 === 'label' ||
                             key0 === 'operator' ||
@@ -4783,32 +5687,58 @@ function validate63(data, { instancePath = '', parentData, parentDataProperty, r
                     }
                 }
                 if (_errs1 === errors) {
-                    if (data.key !== undefined) {
+                    if (data.group_key_names !== undefined) {
+                        let data0 = data.group_key_names
                         const _errs2 = errors
-                        if (typeof data.key !== 'string') {
-                            validate63.errors = [
-                                {
-                                    instancePath: instancePath + '/key',
-                                    schemaPath: '#/properties/key/type',
-                                    keyword: 'type',
-                                    params: { type: 'string' },
-                                    message: 'must be string',
-                                },
-                            ]
-                            return false
+                        if (errors === _errs2) {
+                            if (data0 && typeof data0 == 'object' && !Array.isArray(data0)) {
+                                for (const key1 in data0) {
+                                    const _errs5 = errors
+                                    if (typeof data0[key1] !== 'string') {
+                                        validate63.errors = [
+                                            {
+                                                instancePath:
+                                                    instancePath +
+                                                    '/group_key_names/' +
+                                                    key1.replace(/~/g, '~0').replace(/\//g, '~1'),
+                                                schemaPath: '#/properties/group_key_names/additionalProperties/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid1 = _errs5 === errors
+                                    if (!valid1) {
+                                        break
+                                    }
+                                }
+                            } else {
+                                validate63.errors = [
+                                    {
+                                        instancePath: instancePath + '/group_key_names',
+                                        schemaPath: '#/properties/group_key_names/type',
+                                        keyword: 'type',
+                                        params: { type: 'object' },
+                                        message: 'must be object',
+                                    },
+                                ]
+                                return false
+                            }
                         }
                         var valid0 = _errs2 === errors
                     } else {
                         var valid0 = true
                     }
                     if (valid0) {
-                        if (data.label !== undefined) {
-                            const _errs4 = errors
-                            if (typeof data.label !== 'string') {
+                        if (data.key !== undefined) {
+                            const _errs7 = errors
+                            if (typeof data.key !== 'string') {
                                 validate63.errors = [
                                     {
-                                        instancePath: instancePath + '/label',
-                                        schemaPath: '#/properties/label/type',
+                                        instancePath: instancePath + '/key',
+                                        schemaPath: '#/properties/key/type',
                                         keyword: 'type',
                                         params: { type: 'string' },
                                         message: 'must be string',
@@ -4816,19 +5746,18 @@ function validate63(data, { instancePath = '', parentData, parentDataProperty, r
                                 ]
                                 return false
                             }
-                            var valid0 = _errs4 === errors
+                            var valid0 = _errs7 === errors
                         } else {
                             var valid0 = true
                         }
                         if (valid0) {
-                            if (data.operator !== undefined) {
-                                let data2 = data.operator
-                                const _errs6 = errors
-                                if (typeof data2 !== 'string') {
+                            if (data.label !== undefined) {
+                                const _errs9 = errors
+                                if (typeof data.label !== 'string') {
                                     validate63.errors = [
                                         {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/type',
+                                            instancePath: instancePath + '/label',
+                                            schemaPath: '#/properties/label/type',
                                             keyword: 'type',
                                             params: { type: 'string' },
                                             message: 'must be string',
@@ -4836,72 +5765,19 @@ function validate63(data, { instancePath = '', parentData, parentDataProperty, r
                                     ]
                                     return false
                                 }
-                                if (
-                                    !(
-                                        data2 === 'exact' ||
-                                        data2 === 'is_not' ||
-                                        data2 === 'icontains' ||
-                                        data2 === 'not_icontains' ||
-                                        data2 === 'starts_with' ||
-                                        data2 === 'not_starts_with' ||
-                                        data2 === 'ends_with' ||
-                                        data2 === 'not_ends_with' ||
-                                        data2 === 'regex' ||
-                                        data2 === 'not_regex' ||
-                                        data2 === 'gt' ||
-                                        data2 === 'gte' ||
-                                        data2 === 'lt' ||
-                                        data2 === 'lte' ||
-                                        data2 === 'is_set' ||
-                                        data2 === 'is_not_set' ||
-                                        data2 === 'is_date_exact' ||
-                                        data2 === 'is_date_before' ||
-                                        data2 === 'is_date_after' ||
-                                        data2 === 'between' ||
-                                        data2 === 'not_between' ||
-                                        data2 === 'min' ||
-                                        data2 === 'max' ||
-                                        data2 === 'in' ||
-                                        data2 === 'not_in' ||
-                                        data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to' ||
-                                        data2 === 'semver_eq' ||
-                                        data2 === 'semver_neq' ||
-                                        data2 === 'semver_gt' ||
-                                        data2 === 'semver_gte' ||
-                                        data2 === 'semver_lt' ||
-                                        data2 === 'semver_lte' ||
-                                        data2 === 'semver_tilde' ||
-                                        data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard' ||
-                                        data2 === 'icontains_multi' ||
-                                        data2 === 'not_icontains_multi'
-                                    )
-                                ) {
-                                    validate63.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/enum',
-                                            keyword: 'enum',
-                                            params: { allowedValues: schema14.enum },
-                                            message: 'must be equal to one of the allowed values',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                var valid0 = _errs6 === errors
+                                var valid0 = _errs9 === errors
                             } else {
                                 var valid0 = true
                             }
                             if (valid0) {
-                                if (data.type !== undefined) {
-                                    let data3 = data.type
-                                    const _errs9 = errors
-                                    if (typeof data3 !== 'string') {
+                                if (data.operator !== undefined) {
+                                    let data4 = data.operator
+                                    const _errs11 = errors
+                                    if (typeof data4 !== 'string') {
                                         validate63.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/definitions/SpanPropertyFilterType/type',
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/type',
                                                 keyword: 'type',
                                                 params: { type: 'string' },
                                                 message: 'must be string',
@@ -4911,44 +5787,120 @@ function validate63(data, { instancePath = '', parentData, parentDataProperty, r
                                     }
                                     if (
                                         !(
-                                            data3 === 'span' ||
-                                            data3 === 'span_attribute' ||
-                                            data3 === 'span_resource_attribute'
+                                            data4 === 'exact' ||
+                                            data4 === 'is_not' ||
+                                            data4 === 'icontains' ||
+                                            data4 === 'not_icontains' ||
+                                            data4 === 'starts_with' ||
+                                            data4 === 'not_starts_with' ||
+                                            data4 === 'ends_with' ||
+                                            data4 === 'not_ends_with' ||
+                                            data4 === 'regex' ||
+                                            data4 === 'not_regex' ||
+                                            data4 === 'gt' ||
+                                            data4 === 'gte' ||
+                                            data4 === 'lt' ||
+                                            data4 === 'lte' ||
+                                            data4 === 'is_set' ||
+                                            data4 === 'is_not_set' ||
+                                            data4 === 'is_date_exact' ||
+                                            data4 === 'is_date_before' ||
+                                            data4 === 'is_date_after' ||
+                                            data4 === 'between' ||
+                                            data4 === 'not_between' ||
+                                            data4 === 'min' ||
+                                            data4 === 'max' ||
+                                            data4 === 'in' ||
+                                            data4 === 'not_in' ||
+                                            data4 === 'is_cleaned_path_exact' ||
+                                            data4 === 'flag_evaluates_to' ||
+                                            data4 === 'semver_eq' ||
+                                            data4 === 'semver_neq' ||
+                                            data4 === 'semver_gt' ||
+                                            data4 === 'semver_gte' ||
+                                            data4 === 'semver_lt' ||
+                                            data4 === 'semver_lte' ||
+                                            data4 === 'semver_tilde' ||
+                                            data4 === 'semver_caret' ||
+                                            data4 === 'semver_wildcard' ||
+                                            data4 === 'icontains_multi' ||
+                                            data4 === 'not_icontains_multi'
                                         )
                                     ) {
                                         validate63.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/definitions/SpanPropertyFilterType/enum',
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/enum',
                                                 keyword: 'enum',
-                                                params: { allowedValues: schema55.enum },
+                                                params: { allowedValues: schema14.enum },
                                                 message: 'must be equal to one of the allowed values',
                                             },
                                         ]
                                         return false
                                     }
-                                    var valid0 = _errs9 === errors
+                                    var valid0 = _errs11 === errors
                                 } else {
                                     var valid0 = true
                                 }
                                 if (valid0) {
-                                    if (data.value !== undefined) {
-                                        const _errs12 = errors
-                                        if (
-                                            !validate13(data.value, {
-                                                instancePath: instancePath + '/value',
-                                                parentData: data,
-                                                parentDataProperty: 'value',
-                                                rootData,
-                                            })
-                                        ) {
-                                            vErrors =
-                                                vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
-                                            errors = vErrors.length
+                                    if (data.type !== undefined) {
+                                        let data5 = data.type
+                                        const _errs14 = errors
+                                        if (typeof data5 !== 'string') {
+                                            validate63.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/definitions/SpanPropertyFilterType/type',
+                                                    keyword: 'type',
+                                                    params: { type: 'string' },
+                                                    message: 'must be string',
+                                                },
+                                            ]
+                                            return false
                                         }
-                                        var valid0 = _errs12 === errors
+                                        if (
+                                            !(
+                                                data5 === 'span' ||
+                                                data5 === 'span_attribute' ||
+                                                data5 === 'span_resource_attribute'
+                                            )
+                                        ) {
+                                            validate63.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/definitions/SpanPropertyFilterType/enum',
+                                                    keyword: 'enum',
+                                                    params: { allowedValues: schema55.enum },
+                                                    message: 'must be equal to one of the allowed values',
+                                                },
+                                            ]
+                                            return false
+                                        }
+                                        var valid0 = _errs14 === errors
                                     } else {
                                         var valid0 = true
+                                    }
+                                    if (valid0) {
+                                        if (data.value !== undefined) {
+                                            const _errs17 = errors
+                                            if (
+                                                !validate13(data.value, {
+                                                    instancePath: instancePath + '/value',
+                                                    parentData: data,
+                                                    parentDataProperty: 'value',
+                                                    rootData,
+                                                })
+                                            ) {
+                                                vErrors =
+                                                    vErrors === null
+                                                        ? validate13.errors
+                                                        : vErrors.concat(validate13.errors)
+                                                errors = vErrors.length
+                                            }
+                                            var valid0 = _errs17 === errors
+                                        } else {
+                                            var valid0 = true
+                                        }
                                     }
                                 }
                             }
@@ -4975,6 +5927,12 @@ function validate63(data, { instancePath = '', parentData, parentDataProperty, r
 const schema56 = {
     additionalProperties: false,
     properties: {
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         key: { type: 'string' },
         label: { type: 'string' },
         operator: { $ref: '#/definitions/PropertyOperator' },
@@ -5010,6 +5968,7 @@ function validate66(data, { instancePath = '', parentData, parentDataProperty, r
                 for (const key0 in data) {
                     if (
                         !(
+                            key0 === 'group_key_names' ||
                             key0 === 'key' ||
                             key0 === 'label' ||
                             key0 === 'operator' ||
@@ -5031,125 +5990,21 @@ function validate66(data, { instancePath = '', parentData, parentDataProperty, r
                     }
                 }
                 if (_errs1 === errors) {
-                    if (data.key !== undefined) {
+                    if (data.group_key_names !== undefined) {
+                        let data0 = data.group_key_names
                         const _errs2 = errors
-                        if (typeof data.key !== 'string') {
-                            validate66.errors = [
-                                {
-                                    instancePath: instancePath + '/key',
-                                    schemaPath: '#/properties/key/type',
-                                    keyword: 'type',
-                                    params: { type: 'string' },
-                                    message: 'must be string',
-                                },
-                            ]
-                            return false
-                        }
-                        var valid0 = _errs2 === errors
-                    } else {
-                        var valid0 = true
-                    }
-                    if (valid0) {
-                        if (data.label !== undefined) {
-                            const _errs4 = errors
-                            if (typeof data.label !== 'string') {
-                                validate66.errors = [
-                                    {
-                                        instancePath: instancePath + '/label',
-                                        schemaPath: '#/properties/label/type',
-                                        keyword: 'type',
-                                        params: { type: 'string' },
-                                        message: 'must be string',
-                                    },
-                                ]
-                                return false
-                            }
-                            var valid0 = _errs4 === errors
-                        } else {
-                            var valid0 = true
-                        }
-                        if (valid0) {
-                            if (data.operator !== undefined) {
-                                let data2 = data.operator
-                                const _errs6 = errors
-                                if (typeof data2 !== 'string') {
-                                    validate66.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/type',
-                                            keyword: 'type',
-                                            params: { type: 'string' },
-                                            message: 'must be string',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                if (
-                                    !(
-                                        data2 === 'exact' ||
-                                        data2 === 'is_not' ||
-                                        data2 === 'icontains' ||
-                                        data2 === 'not_icontains' ||
-                                        data2 === 'starts_with' ||
-                                        data2 === 'not_starts_with' ||
-                                        data2 === 'ends_with' ||
-                                        data2 === 'not_ends_with' ||
-                                        data2 === 'regex' ||
-                                        data2 === 'not_regex' ||
-                                        data2 === 'gt' ||
-                                        data2 === 'gte' ||
-                                        data2 === 'lt' ||
-                                        data2 === 'lte' ||
-                                        data2 === 'is_set' ||
-                                        data2 === 'is_not_set' ||
-                                        data2 === 'is_date_exact' ||
-                                        data2 === 'is_date_before' ||
-                                        data2 === 'is_date_after' ||
-                                        data2 === 'between' ||
-                                        data2 === 'not_between' ||
-                                        data2 === 'min' ||
-                                        data2 === 'max' ||
-                                        data2 === 'in' ||
-                                        data2 === 'not_in' ||
-                                        data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to' ||
-                                        data2 === 'semver_eq' ||
-                                        data2 === 'semver_neq' ||
-                                        data2 === 'semver_gt' ||
-                                        data2 === 'semver_gte' ||
-                                        data2 === 'semver_lt' ||
-                                        data2 === 'semver_lte' ||
-                                        data2 === 'semver_tilde' ||
-                                        data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard' ||
-                                        data2 === 'icontains_multi' ||
-                                        data2 === 'not_icontains_multi'
-                                    )
-                                ) {
-                                    validate66.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/enum',
-                                            keyword: 'enum',
-                                            params: { allowedValues: schema14.enum },
-                                            message: 'must be equal to one of the allowed values',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                var valid0 = _errs6 === errors
-                            } else {
-                                var valid0 = true
-                            }
-                            if (valid0) {
-                                if (data.type !== undefined) {
-                                    let data3 = data.type
-                                    const _errs9 = errors
-                                    if (typeof data3 !== 'string') {
+                        if (errors === _errs2) {
+                            if (data0 && typeof data0 == 'object' && !Array.isArray(data0)) {
+                                for (const key1 in data0) {
+                                    const _errs5 = errors
+                                    if (typeof data0[key1] !== 'string') {
                                         validate66.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/type',
+                                                instancePath:
+                                                    instancePath +
+                                                    '/group_key_names/' +
+                                                    key1.replace(/~/g, '~0').replace(/\//g, '~1'),
+                                                schemaPath: '#/properties/group_key_names/additionalProperties/type',
                                                 keyword: 'type',
                                                 params: { type: 'string' },
                                                 message: 'must be string',
@@ -5157,40 +6012,192 @@ function validate66(data, { instancePath = '', parentData, parentDataProperty, r
                                         ]
                                         return false
                                     }
-                                    if ('revenue_analytics' !== data3) {
+                                    var valid1 = _errs5 === errors
+                                    if (!valid1) {
+                                        break
+                                    }
+                                }
+                            } else {
+                                validate66.errors = [
+                                    {
+                                        instancePath: instancePath + '/group_key_names',
+                                        schemaPath: '#/properties/group_key_names/type',
+                                        keyword: 'type',
+                                        params: { type: 'object' },
+                                        message: 'must be object',
+                                    },
+                                ]
+                                return false
+                            }
+                        }
+                        var valid0 = _errs2 === errors
+                    } else {
+                        var valid0 = true
+                    }
+                    if (valid0) {
+                        if (data.key !== undefined) {
+                            const _errs7 = errors
+                            if (typeof data.key !== 'string') {
+                                validate66.errors = [
+                                    {
+                                        instancePath: instancePath + '/key',
+                                        schemaPath: '#/properties/key/type',
+                                        keyword: 'type',
+                                        params: { type: 'string' },
+                                        message: 'must be string',
+                                    },
+                                ]
+                                return false
+                            }
+                            var valid0 = _errs7 === errors
+                        } else {
+                            var valid0 = true
+                        }
+                        if (valid0) {
+                            if (data.label !== undefined) {
+                                const _errs9 = errors
+                                if (typeof data.label !== 'string') {
+                                    validate66.errors = [
+                                        {
+                                            instancePath: instancePath + '/label',
+                                            schemaPath: '#/properties/label/type',
+                                            keyword: 'type',
+                                            params: { type: 'string' },
+                                            message: 'must be string',
+                                        },
+                                    ]
+                                    return false
+                                }
+                                var valid0 = _errs9 === errors
+                            } else {
+                                var valid0 = true
+                            }
+                            if (valid0) {
+                                if (data.operator !== undefined) {
+                                    let data4 = data.operator
+                                    const _errs11 = errors
+                                    if (typeof data4 !== 'string') {
                                         validate66.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/const',
-                                                keyword: 'const',
-                                                params: { allowedValue: 'revenue_analytics' },
-                                                message: 'must be equal to constant',
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
                                             },
                                         ]
                                         return false
                                     }
-                                    var valid0 = _errs9 === errors
+                                    if (
+                                        !(
+                                            data4 === 'exact' ||
+                                            data4 === 'is_not' ||
+                                            data4 === 'icontains' ||
+                                            data4 === 'not_icontains' ||
+                                            data4 === 'starts_with' ||
+                                            data4 === 'not_starts_with' ||
+                                            data4 === 'ends_with' ||
+                                            data4 === 'not_ends_with' ||
+                                            data4 === 'regex' ||
+                                            data4 === 'not_regex' ||
+                                            data4 === 'gt' ||
+                                            data4 === 'gte' ||
+                                            data4 === 'lt' ||
+                                            data4 === 'lte' ||
+                                            data4 === 'is_set' ||
+                                            data4 === 'is_not_set' ||
+                                            data4 === 'is_date_exact' ||
+                                            data4 === 'is_date_before' ||
+                                            data4 === 'is_date_after' ||
+                                            data4 === 'between' ||
+                                            data4 === 'not_between' ||
+                                            data4 === 'min' ||
+                                            data4 === 'max' ||
+                                            data4 === 'in' ||
+                                            data4 === 'not_in' ||
+                                            data4 === 'is_cleaned_path_exact' ||
+                                            data4 === 'flag_evaluates_to' ||
+                                            data4 === 'semver_eq' ||
+                                            data4 === 'semver_neq' ||
+                                            data4 === 'semver_gt' ||
+                                            data4 === 'semver_gte' ||
+                                            data4 === 'semver_lt' ||
+                                            data4 === 'semver_lte' ||
+                                            data4 === 'semver_tilde' ||
+                                            data4 === 'semver_caret' ||
+                                            data4 === 'semver_wildcard' ||
+                                            data4 === 'icontains_multi' ||
+                                            data4 === 'not_icontains_multi'
+                                        )
+                                    ) {
+                                        validate66.errors = [
+                                            {
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/enum',
+                                                keyword: 'enum',
+                                                params: { allowedValues: schema14.enum },
+                                                message: 'must be equal to one of the allowed values',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid0 = _errs11 === errors
                                 } else {
                                     var valid0 = true
                                 }
                                 if (valid0) {
-                                    if (data.value !== undefined) {
-                                        const _errs11 = errors
-                                        if (
-                                            !validate13(data.value, {
-                                                instancePath: instancePath + '/value',
-                                                parentData: data,
-                                                parentDataProperty: 'value',
-                                                rootData,
-                                            })
-                                        ) {
-                                            vErrors =
-                                                vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
-                                            errors = vErrors.length
+                                    if (data.type !== undefined) {
+                                        let data5 = data.type
+                                        const _errs14 = errors
+                                        if (typeof data5 !== 'string') {
+                                            validate66.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/type',
+                                                    keyword: 'type',
+                                                    params: { type: 'string' },
+                                                    message: 'must be string',
+                                                },
+                                            ]
+                                            return false
                                         }
-                                        var valid0 = _errs11 === errors
+                                        if ('revenue_analytics' !== data5) {
+                                            validate66.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/const',
+                                                    keyword: 'const',
+                                                    params: { allowedValue: 'revenue_analytics' },
+                                                    message: 'must be equal to constant',
+                                                },
+                                            ]
+                                            return false
+                                        }
+                                        var valid0 = _errs14 === errors
                                     } else {
                                         var valid0 = true
+                                    }
+                                    if (valid0) {
+                                        if (data.value !== undefined) {
+                                            const _errs16 = errors
+                                            if (
+                                                !validate13(data.value, {
+                                                    instancePath: instancePath + '/value',
+                                                    parentData: data,
+                                                    parentDataProperty: 'value',
+                                                    rootData,
+                                                })
+                                            ) {
+                                                vErrors =
+                                                    vErrors === null
+                                                        ? validate13.errors
+                                                        : vErrors.concat(validate13.errors)
+                                                errors = vErrors.length
+                                            }
+                                            var valid0 = _errs16 === errors
+                                        } else {
+                                            var valid0 = true
+                                        }
                                     }
                                 }
                             }
@@ -5217,6 +6224,12 @@ function validate66(data, { instancePath = '', parentData, parentDataProperty, r
 const schema58 = {
     additionalProperties: false,
     properties: {
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         key: { type: 'string' },
         label: { type: 'string' },
         operator: { $ref: '#/definitions/PropertyOperator' },
@@ -5256,6 +6269,7 @@ function validate69(data, { instancePath = '', parentData, parentDataProperty, r
                 for (const key0 in data) {
                     if (
                         !(
+                            key0 === 'group_key_names' ||
                             key0 === 'key' ||
                             key0 === 'label' ||
                             key0 === 'operator' ||
@@ -5277,125 +6291,21 @@ function validate69(data, { instancePath = '', parentData, parentDataProperty, r
                     }
                 }
                 if (_errs1 === errors) {
-                    if (data.key !== undefined) {
+                    if (data.group_key_names !== undefined) {
+                        let data0 = data.group_key_names
                         const _errs2 = errors
-                        if (typeof data.key !== 'string') {
-                            validate69.errors = [
-                                {
-                                    instancePath: instancePath + '/key',
-                                    schemaPath: '#/properties/key/type',
-                                    keyword: 'type',
-                                    params: { type: 'string' },
-                                    message: 'must be string',
-                                },
-                            ]
-                            return false
-                        }
-                        var valid0 = _errs2 === errors
-                    } else {
-                        var valid0 = true
-                    }
-                    if (valid0) {
-                        if (data.label !== undefined) {
-                            const _errs4 = errors
-                            if (typeof data.label !== 'string') {
-                                validate69.errors = [
-                                    {
-                                        instancePath: instancePath + '/label',
-                                        schemaPath: '#/properties/label/type',
-                                        keyword: 'type',
-                                        params: { type: 'string' },
-                                        message: 'must be string',
-                                    },
-                                ]
-                                return false
-                            }
-                            var valid0 = _errs4 === errors
-                        } else {
-                            var valid0 = true
-                        }
-                        if (valid0) {
-                            if (data.operator !== undefined) {
-                                let data2 = data.operator
-                                const _errs6 = errors
-                                if (typeof data2 !== 'string') {
-                                    validate69.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/type',
-                                            keyword: 'type',
-                                            params: { type: 'string' },
-                                            message: 'must be string',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                if (
-                                    !(
-                                        data2 === 'exact' ||
-                                        data2 === 'is_not' ||
-                                        data2 === 'icontains' ||
-                                        data2 === 'not_icontains' ||
-                                        data2 === 'starts_with' ||
-                                        data2 === 'not_starts_with' ||
-                                        data2 === 'ends_with' ||
-                                        data2 === 'not_ends_with' ||
-                                        data2 === 'regex' ||
-                                        data2 === 'not_regex' ||
-                                        data2 === 'gt' ||
-                                        data2 === 'gte' ||
-                                        data2 === 'lt' ||
-                                        data2 === 'lte' ||
-                                        data2 === 'is_set' ||
-                                        data2 === 'is_not_set' ||
-                                        data2 === 'is_date_exact' ||
-                                        data2 === 'is_date_before' ||
-                                        data2 === 'is_date_after' ||
-                                        data2 === 'between' ||
-                                        data2 === 'not_between' ||
-                                        data2 === 'min' ||
-                                        data2 === 'max' ||
-                                        data2 === 'in' ||
-                                        data2 === 'not_in' ||
-                                        data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to' ||
-                                        data2 === 'semver_eq' ||
-                                        data2 === 'semver_neq' ||
-                                        data2 === 'semver_gt' ||
-                                        data2 === 'semver_gte' ||
-                                        data2 === 'semver_lt' ||
-                                        data2 === 'semver_lte' ||
-                                        data2 === 'semver_tilde' ||
-                                        data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard' ||
-                                        data2 === 'icontains_multi' ||
-                                        data2 === 'not_icontains_multi'
-                                    )
-                                ) {
-                                    validate69.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/enum',
-                                            keyword: 'enum',
-                                            params: { allowedValues: schema14.enum },
-                                            message: 'must be equal to one of the allowed values',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                var valid0 = _errs6 === errors
-                            } else {
-                                var valid0 = true
-                            }
-                            if (valid0) {
-                                if (data.type !== undefined) {
-                                    let data3 = data.type
-                                    const _errs9 = errors
-                                    if (typeof data3 !== 'string') {
+                        if (errors === _errs2) {
+                            if (data0 && typeof data0 == 'object' && !Array.isArray(data0)) {
+                                for (const key1 in data0) {
+                                    const _errs5 = errors
+                                    if (typeof data0[key1] !== 'string') {
                                         validate69.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/type',
+                                                instancePath:
+                                                    instancePath +
+                                                    '/group_key_names/' +
+                                                    key1.replace(/~/g, '~0').replace(/\//g, '~1'),
+                                                schemaPath: '#/properties/group_key_names/additionalProperties/type',
                                                 keyword: 'type',
                                                 params: { type: 'string' },
                                                 message: 'must be string',
@@ -5403,40 +6313,192 @@ function validate69(data, { instancePath = '', parentData, parentDataProperty, r
                                         ]
                                         return false
                                     }
-                                    if ('account_custom_property' !== data3) {
+                                    var valid1 = _errs5 === errors
+                                    if (!valid1) {
+                                        break
+                                    }
+                                }
+                            } else {
+                                validate69.errors = [
+                                    {
+                                        instancePath: instancePath + '/group_key_names',
+                                        schemaPath: '#/properties/group_key_names/type',
+                                        keyword: 'type',
+                                        params: { type: 'object' },
+                                        message: 'must be object',
+                                    },
+                                ]
+                                return false
+                            }
+                        }
+                        var valid0 = _errs2 === errors
+                    } else {
+                        var valid0 = true
+                    }
+                    if (valid0) {
+                        if (data.key !== undefined) {
+                            const _errs7 = errors
+                            if (typeof data.key !== 'string') {
+                                validate69.errors = [
+                                    {
+                                        instancePath: instancePath + '/key',
+                                        schemaPath: '#/properties/key/type',
+                                        keyword: 'type',
+                                        params: { type: 'string' },
+                                        message: 'must be string',
+                                    },
+                                ]
+                                return false
+                            }
+                            var valid0 = _errs7 === errors
+                        } else {
+                            var valid0 = true
+                        }
+                        if (valid0) {
+                            if (data.label !== undefined) {
+                                const _errs9 = errors
+                                if (typeof data.label !== 'string') {
+                                    validate69.errors = [
+                                        {
+                                            instancePath: instancePath + '/label',
+                                            schemaPath: '#/properties/label/type',
+                                            keyword: 'type',
+                                            params: { type: 'string' },
+                                            message: 'must be string',
+                                        },
+                                    ]
+                                    return false
+                                }
+                                var valid0 = _errs9 === errors
+                            } else {
+                                var valid0 = true
+                            }
+                            if (valid0) {
+                                if (data.operator !== undefined) {
+                                    let data4 = data.operator
+                                    const _errs11 = errors
+                                    if (typeof data4 !== 'string') {
                                         validate69.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/const',
-                                                keyword: 'const',
-                                                params: { allowedValue: 'account_custom_property' },
-                                                message: 'must be equal to constant',
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
                                             },
                                         ]
                                         return false
                                     }
-                                    var valid0 = _errs9 === errors
+                                    if (
+                                        !(
+                                            data4 === 'exact' ||
+                                            data4 === 'is_not' ||
+                                            data4 === 'icontains' ||
+                                            data4 === 'not_icontains' ||
+                                            data4 === 'starts_with' ||
+                                            data4 === 'not_starts_with' ||
+                                            data4 === 'ends_with' ||
+                                            data4 === 'not_ends_with' ||
+                                            data4 === 'regex' ||
+                                            data4 === 'not_regex' ||
+                                            data4 === 'gt' ||
+                                            data4 === 'gte' ||
+                                            data4 === 'lt' ||
+                                            data4 === 'lte' ||
+                                            data4 === 'is_set' ||
+                                            data4 === 'is_not_set' ||
+                                            data4 === 'is_date_exact' ||
+                                            data4 === 'is_date_before' ||
+                                            data4 === 'is_date_after' ||
+                                            data4 === 'between' ||
+                                            data4 === 'not_between' ||
+                                            data4 === 'min' ||
+                                            data4 === 'max' ||
+                                            data4 === 'in' ||
+                                            data4 === 'not_in' ||
+                                            data4 === 'is_cleaned_path_exact' ||
+                                            data4 === 'flag_evaluates_to' ||
+                                            data4 === 'semver_eq' ||
+                                            data4 === 'semver_neq' ||
+                                            data4 === 'semver_gt' ||
+                                            data4 === 'semver_gte' ||
+                                            data4 === 'semver_lt' ||
+                                            data4 === 'semver_lte' ||
+                                            data4 === 'semver_tilde' ||
+                                            data4 === 'semver_caret' ||
+                                            data4 === 'semver_wildcard' ||
+                                            data4 === 'icontains_multi' ||
+                                            data4 === 'not_icontains_multi'
+                                        )
+                                    ) {
+                                        validate69.errors = [
+                                            {
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/enum',
+                                                keyword: 'enum',
+                                                params: { allowedValues: schema14.enum },
+                                                message: 'must be equal to one of the allowed values',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid0 = _errs11 === errors
                                 } else {
                                     var valid0 = true
                                 }
                                 if (valid0) {
-                                    if (data.value !== undefined) {
-                                        const _errs11 = errors
-                                        if (
-                                            !validate13(data.value, {
-                                                instancePath: instancePath + '/value',
-                                                parentData: data,
-                                                parentDataProperty: 'value',
-                                                rootData,
-                                            })
-                                        ) {
-                                            vErrors =
-                                                vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
-                                            errors = vErrors.length
+                                    if (data.type !== undefined) {
+                                        let data5 = data.type
+                                        const _errs14 = errors
+                                        if (typeof data5 !== 'string') {
+                                            validate69.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/type',
+                                                    keyword: 'type',
+                                                    params: { type: 'string' },
+                                                    message: 'must be string',
+                                                },
+                                            ]
+                                            return false
                                         }
-                                        var valid0 = _errs11 === errors
+                                        if ('account_custom_property' !== data5) {
+                                            validate69.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/const',
+                                                    keyword: 'const',
+                                                    params: { allowedValue: 'account_custom_property' },
+                                                    message: 'must be equal to constant',
+                                                },
+                                            ]
+                                            return false
+                                        }
+                                        var valid0 = _errs14 === errors
                                     } else {
                                         var valid0 = true
+                                    }
+                                    if (valid0) {
+                                        if (data.value !== undefined) {
+                                            const _errs16 = errors
+                                            if (
+                                                !validate13(data.value, {
+                                                    instancePath: instancePath + '/value',
+                                                    parentData: data,
+                                                    parentDataProperty: 'value',
+                                                    rootData,
+                                                })
+                                            ) {
+                                                vErrors =
+                                                    vErrors === null
+                                                        ? validate13.errors
+                                                        : vErrors.concat(validate13.errors)
+                                                errors = vErrors.length
+                                            }
+                                            var valid0 = _errs16 === errors
+                                        } else {
+                                            var valid0 = true
+                                        }
                                     }
                                 }
                             }
@@ -5463,6 +6525,12 @@ function validate69(data, { instancePath = '', parentData, parentDataProperty, r
 const schema60 = {
     additionalProperties: false,
     properties: {
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         key: { type: 'string' },
         label: { type: 'string' },
         operator: { $ref: '#/definitions/PropertyOperator' },
@@ -5498,6 +6566,7 @@ function validate72(data, { instancePath = '', parentData, parentDataProperty, r
                 for (const key0 in data) {
                     if (
                         !(
+                            key0 === 'group_key_names' ||
                             key0 === 'key' ||
                             key0 === 'label' ||
                             key0 === 'operator' ||
@@ -5519,125 +6588,21 @@ function validate72(data, { instancePath = '', parentData, parentDataProperty, r
                     }
                 }
                 if (_errs1 === errors) {
-                    if (data.key !== undefined) {
+                    if (data.group_key_names !== undefined) {
+                        let data0 = data.group_key_names
                         const _errs2 = errors
-                        if (typeof data.key !== 'string') {
-                            validate72.errors = [
-                                {
-                                    instancePath: instancePath + '/key',
-                                    schemaPath: '#/properties/key/type',
-                                    keyword: 'type',
-                                    params: { type: 'string' },
-                                    message: 'must be string',
-                                },
-                            ]
-                            return false
-                        }
-                        var valid0 = _errs2 === errors
-                    } else {
-                        var valid0 = true
-                    }
-                    if (valid0) {
-                        if (data.label !== undefined) {
-                            const _errs4 = errors
-                            if (typeof data.label !== 'string') {
-                                validate72.errors = [
-                                    {
-                                        instancePath: instancePath + '/label',
-                                        schemaPath: '#/properties/label/type',
-                                        keyword: 'type',
-                                        params: { type: 'string' },
-                                        message: 'must be string',
-                                    },
-                                ]
-                                return false
-                            }
-                            var valid0 = _errs4 === errors
-                        } else {
-                            var valid0 = true
-                        }
-                        if (valid0) {
-                            if (data.operator !== undefined) {
-                                let data2 = data.operator
-                                const _errs6 = errors
-                                if (typeof data2 !== 'string') {
-                                    validate72.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/type',
-                                            keyword: 'type',
-                                            params: { type: 'string' },
-                                            message: 'must be string',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                if (
-                                    !(
-                                        data2 === 'exact' ||
-                                        data2 === 'is_not' ||
-                                        data2 === 'icontains' ||
-                                        data2 === 'not_icontains' ||
-                                        data2 === 'starts_with' ||
-                                        data2 === 'not_starts_with' ||
-                                        data2 === 'ends_with' ||
-                                        data2 === 'not_ends_with' ||
-                                        data2 === 'regex' ||
-                                        data2 === 'not_regex' ||
-                                        data2 === 'gt' ||
-                                        data2 === 'gte' ||
-                                        data2 === 'lt' ||
-                                        data2 === 'lte' ||
-                                        data2 === 'is_set' ||
-                                        data2 === 'is_not_set' ||
-                                        data2 === 'is_date_exact' ||
-                                        data2 === 'is_date_before' ||
-                                        data2 === 'is_date_after' ||
-                                        data2 === 'between' ||
-                                        data2 === 'not_between' ||
-                                        data2 === 'min' ||
-                                        data2 === 'max' ||
-                                        data2 === 'in' ||
-                                        data2 === 'not_in' ||
-                                        data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to' ||
-                                        data2 === 'semver_eq' ||
-                                        data2 === 'semver_neq' ||
-                                        data2 === 'semver_gt' ||
-                                        data2 === 'semver_gte' ||
-                                        data2 === 'semver_lt' ||
-                                        data2 === 'semver_lte' ||
-                                        data2 === 'semver_tilde' ||
-                                        data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard' ||
-                                        data2 === 'icontains_multi' ||
-                                        data2 === 'not_icontains_multi'
-                                    )
-                                ) {
-                                    validate72.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/enum',
-                                            keyword: 'enum',
-                                            params: { allowedValues: schema14.enum },
-                                            message: 'must be equal to one of the allowed values',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                var valid0 = _errs6 === errors
-                            } else {
-                                var valid0 = true
-                            }
-                            if (valid0) {
-                                if (data.type !== undefined) {
-                                    let data3 = data.type
-                                    const _errs9 = errors
-                                    if (typeof data3 !== 'string') {
+                        if (errors === _errs2) {
+                            if (data0 && typeof data0 == 'object' && !Array.isArray(data0)) {
+                                for (const key1 in data0) {
+                                    const _errs5 = errors
+                                    if (typeof data0[key1] !== 'string') {
                                         validate72.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/type',
+                                                instancePath:
+                                                    instancePath +
+                                                    '/group_key_names/' +
+                                                    key1.replace(/~/g, '~0').replace(/\//g, '~1'),
+                                                schemaPath: '#/properties/group_key_names/additionalProperties/type',
                                                 keyword: 'type',
                                                 params: { type: 'string' },
                                                 message: 'must be string',
@@ -5645,40 +6610,192 @@ function validate72(data, { instancePath = '', parentData, parentDataProperty, r
                                         ]
                                         return false
                                     }
-                                    if ('workflow_variable' !== data3) {
+                                    var valid1 = _errs5 === errors
+                                    if (!valid1) {
+                                        break
+                                    }
+                                }
+                            } else {
+                                validate72.errors = [
+                                    {
+                                        instancePath: instancePath + '/group_key_names',
+                                        schemaPath: '#/properties/group_key_names/type',
+                                        keyword: 'type',
+                                        params: { type: 'object' },
+                                        message: 'must be object',
+                                    },
+                                ]
+                                return false
+                            }
+                        }
+                        var valid0 = _errs2 === errors
+                    } else {
+                        var valid0 = true
+                    }
+                    if (valid0) {
+                        if (data.key !== undefined) {
+                            const _errs7 = errors
+                            if (typeof data.key !== 'string') {
+                                validate72.errors = [
+                                    {
+                                        instancePath: instancePath + '/key',
+                                        schemaPath: '#/properties/key/type',
+                                        keyword: 'type',
+                                        params: { type: 'string' },
+                                        message: 'must be string',
+                                    },
+                                ]
+                                return false
+                            }
+                            var valid0 = _errs7 === errors
+                        } else {
+                            var valid0 = true
+                        }
+                        if (valid0) {
+                            if (data.label !== undefined) {
+                                const _errs9 = errors
+                                if (typeof data.label !== 'string') {
+                                    validate72.errors = [
+                                        {
+                                            instancePath: instancePath + '/label',
+                                            schemaPath: '#/properties/label/type',
+                                            keyword: 'type',
+                                            params: { type: 'string' },
+                                            message: 'must be string',
+                                        },
+                                    ]
+                                    return false
+                                }
+                                var valid0 = _errs9 === errors
+                            } else {
+                                var valid0 = true
+                            }
+                            if (valid0) {
+                                if (data.operator !== undefined) {
+                                    let data4 = data.operator
+                                    const _errs11 = errors
+                                    if (typeof data4 !== 'string') {
                                         validate72.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/const',
-                                                keyword: 'const',
-                                                params: { allowedValue: 'workflow_variable' },
-                                                message: 'must be equal to constant',
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
                                             },
                                         ]
                                         return false
                                     }
-                                    var valid0 = _errs9 === errors
+                                    if (
+                                        !(
+                                            data4 === 'exact' ||
+                                            data4 === 'is_not' ||
+                                            data4 === 'icontains' ||
+                                            data4 === 'not_icontains' ||
+                                            data4 === 'starts_with' ||
+                                            data4 === 'not_starts_with' ||
+                                            data4 === 'ends_with' ||
+                                            data4 === 'not_ends_with' ||
+                                            data4 === 'regex' ||
+                                            data4 === 'not_regex' ||
+                                            data4 === 'gt' ||
+                                            data4 === 'gte' ||
+                                            data4 === 'lt' ||
+                                            data4 === 'lte' ||
+                                            data4 === 'is_set' ||
+                                            data4 === 'is_not_set' ||
+                                            data4 === 'is_date_exact' ||
+                                            data4 === 'is_date_before' ||
+                                            data4 === 'is_date_after' ||
+                                            data4 === 'between' ||
+                                            data4 === 'not_between' ||
+                                            data4 === 'min' ||
+                                            data4 === 'max' ||
+                                            data4 === 'in' ||
+                                            data4 === 'not_in' ||
+                                            data4 === 'is_cleaned_path_exact' ||
+                                            data4 === 'flag_evaluates_to' ||
+                                            data4 === 'semver_eq' ||
+                                            data4 === 'semver_neq' ||
+                                            data4 === 'semver_gt' ||
+                                            data4 === 'semver_gte' ||
+                                            data4 === 'semver_lt' ||
+                                            data4 === 'semver_lte' ||
+                                            data4 === 'semver_tilde' ||
+                                            data4 === 'semver_caret' ||
+                                            data4 === 'semver_wildcard' ||
+                                            data4 === 'icontains_multi' ||
+                                            data4 === 'not_icontains_multi'
+                                        )
+                                    ) {
+                                        validate72.errors = [
+                                            {
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/enum',
+                                                keyword: 'enum',
+                                                params: { allowedValues: schema14.enum },
+                                                message: 'must be equal to one of the allowed values',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid0 = _errs11 === errors
                                 } else {
                                     var valid0 = true
                                 }
                                 if (valid0) {
-                                    if (data.value !== undefined) {
-                                        const _errs11 = errors
-                                        if (
-                                            !validate13(data.value, {
-                                                instancePath: instancePath + '/value',
-                                                parentData: data,
-                                                parentDataProperty: 'value',
-                                                rootData,
-                                            })
-                                        ) {
-                                            vErrors =
-                                                vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
-                                            errors = vErrors.length
+                                    if (data.type !== undefined) {
+                                        let data5 = data.type
+                                        const _errs14 = errors
+                                        if (typeof data5 !== 'string') {
+                                            validate72.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/type',
+                                                    keyword: 'type',
+                                                    params: { type: 'string' },
+                                                    message: 'must be string',
+                                                },
+                                            ]
+                                            return false
                                         }
-                                        var valid0 = _errs11 === errors
+                                        if ('workflow_variable' !== data5) {
+                                            validate72.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/const',
+                                                    keyword: 'const',
+                                                    params: { allowedValue: 'workflow_variable' },
+                                                    message: 'must be equal to constant',
+                                                },
+                                            ]
+                                            return false
+                                        }
+                                        var valid0 = _errs14 === errors
                                     } else {
                                         var valid0 = true
+                                    }
+                                    if (valid0) {
+                                        if (data.value !== undefined) {
+                                            const _errs16 = errors
+                                            if (
+                                                !validate13(data.value, {
+                                                    instancePath: instancePath + '/value',
+                                                    parentData: data,
+                                                    parentDataProperty: 'value',
+                                                    rootData,
+                                                })
+                                            ) {
+                                                vErrors =
+                                                    vErrors === null
+                                                        ? validate13.errors
+                                                        : vErrors.concat(validate13.errors)
+                                                errors = vErrors.length
+                                            }
+                                            var valid0 = _errs16 === errors
+                                        } else {
+                                            var valid0 = true
+                                        }
                                     }
                                 }
                             }
@@ -5727,6 +6844,12 @@ const schema62 = {
             type: 'string',
         },
         explicit_datetime_to: { type: 'string' },
+        group_key_names: {
+            additionalProperties: { type: 'string' },
+            description:
+                'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.',
+            type: 'object',
+        },
         key: { description: "Event name, or action id when event_type is 'actions'", type: 'string' },
         label: { type: 'string' },
         negation: {
@@ -6024,71 +7147,22 @@ function validate75(data, { instancePath = '', parentData, parentDataProperty, r
                                     var valid0 = true
                                 }
                                 if (valid0) {
-                                    if (data.key !== undefined) {
+                                    if (data.group_key_names !== undefined) {
+                                        let data5 = data.group_key_names
                                         const _errs18 = errors
-                                        if (typeof data.key !== 'string') {
-                                            validate75.errors = [
-                                                {
-                                                    instancePath: instancePath + '/key',
-                                                    schemaPath: '#/properties/key/type',
-                                                    keyword: 'type',
-                                                    params: { type: 'string' },
-                                                    message: 'must be string',
-                                                },
-                                            ]
-                                            return false
-                                        }
-                                        var valid0 = _errs18 === errors
-                                    } else {
-                                        var valid0 = true
-                                    }
-                                    if (valid0) {
-                                        if (data.label !== undefined) {
-                                            const _errs20 = errors
-                                            if (typeof data.label !== 'string') {
-                                                validate75.errors = [
-                                                    {
-                                                        instancePath: instancePath + '/label',
-                                                        schemaPath: '#/properties/label/type',
-                                                        keyword: 'type',
-                                                        params: { type: 'string' },
-                                                        message: 'must be string',
-                                                    },
-                                                ]
-                                                return false
-                                            }
-                                            var valid0 = _errs20 === errors
-                                        } else {
-                                            var valid0 = true
-                                        }
-                                        if (valid0) {
-                                            if (data.negation !== undefined) {
-                                                const _errs22 = errors
-                                                if (typeof data.negation !== 'boolean') {
-                                                    validate75.errors = [
-                                                        {
-                                                            instancePath: instancePath + '/negation',
-                                                            schemaPath: '#/properties/negation/type',
-                                                            keyword: 'type',
-                                                            params: { type: 'boolean' },
-                                                            message: 'must be boolean',
-                                                        },
-                                                    ]
-                                                    return false
-                                                }
-                                                var valid0 = _errs22 === errors
-                                            } else {
-                                                var valid0 = true
-                                            }
-                                            if (valid0) {
-                                                if (data.operator !== undefined) {
-                                                    let data8 = data.operator
-                                                    const _errs24 = errors
-                                                    if (typeof data8 !== 'string') {
+                                        if (errors === _errs18) {
+                                            if (data5 && typeof data5 == 'object' && !Array.isArray(data5)) {
+                                                for (const key1 in data5) {
+                                                    const _errs21 = errors
+                                                    if (typeof data5[key1] !== 'string') {
                                                         validate75.errors = [
                                                             {
-                                                                instancePath: instancePath + '/operator',
-                                                                schemaPath: '#/definitions/PropertyOperator/type',
+                                                                instancePath:
+                                                                    instancePath +
+                                                                    '/group_key_names/' +
+                                                                    key1.replace(/~/g, '~0').replace(/\//g, '~1'),
+                                                                schemaPath:
+                                                                    '#/properties/group_key_names/additionalProperties/type',
                                                                 keyword: 'type',
                                                                 params: { type: 'string' },
                                                                 message: 'must be string',
@@ -6096,200 +7170,270 @@ function validate75(data, { instancePath = '', parentData, parentDataProperty, r
                                                         ]
                                                         return false
                                                     }
-                                                    if (
-                                                        !(
-                                                            data8 === 'exact' ||
-                                                            data8 === 'is_not' ||
-                                                            data8 === 'icontains' ||
-                                                            data8 === 'not_icontains' ||
-                                                            data8 === 'starts_with' ||
-                                                            data8 === 'not_starts_with' ||
-                                                            data8 === 'ends_with' ||
-                                                            data8 === 'not_ends_with' ||
-                                                            data8 === 'regex' ||
-                                                            data8 === 'not_regex' ||
-                                                            data8 === 'gt' ||
-                                                            data8 === 'gte' ||
-                                                            data8 === 'lt' ||
-                                                            data8 === 'lte' ||
-                                                            data8 === 'is_set' ||
-                                                            data8 === 'is_not_set' ||
-                                                            data8 === 'is_date_exact' ||
-                                                            data8 === 'is_date_before' ||
-                                                            data8 === 'is_date_after' ||
-                                                            data8 === 'between' ||
-                                                            data8 === 'not_between' ||
-                                                            data8 === 'min' ||
-                                                            data8 === 'max' ||
-                                                            data8 === 'in' ||
-                                                            data8 === 'not_in' ||
-                                                            data8 === 'is_cleaned_path_exact' ||
-                                                            data8 === 'flag_evaluates_to' ||
-                                                            data8 === 'semver_eq' ||
-                                                            data8 === 'semver_neq' ||
-                                                            data8 === 'semver_gt' ||
-                                                            data8 === 'semver_gte' ||
-                                                            data8 === 'semver_lt' ||
-                                                            data8 === 'semver_lte' ||
-                                                            data8 === 'semver_tilde' ||
-                                                            data8 === 'semver_caret' ||
-                                                            data8 === 'semver_wildcard' ||
-                                                            data8 === 'icontains_multi' ||
-                                                            data8 === 'not_icontains_multi'
-                                                        )
-                                                    ) {
+                                                    var valid4 = _errs21 === errors
+                                                    if (!valid4) {
+                                                        break
+                                                    }
+                                                }
+                                            } else {
+                                                validate75.errors = [
+                                                    {
+                                                        instancePath: instancePath + '/group_key_names',
+                                                        schemaPath: '#/properties/group_key_names/type',
+                                                        keyword: 'type',
+                                                        params: { type: 'object' },
+                                                        message: 'must be object',
+                                                    },
+                                                ]
+                                                return false
+                                            }
+                                        }
+                                        var valid0 = _errs18 === errors
+                                    } else {
+                                        var valid0 = true
+                                    }
+                                    if (valid0) {
+                                        if (data.key !== undefined) {
+                                            const _errs23 = errors
+                                            if (typeof data.key !== 'string') {
+                                                validate75.errors = [
+                                                    {
+                                                        instancePath: instancePath + '/key',
+                                                        schemaPath: '#/properties/key/type',
+                                                        keyword: 'type',
+                                                        params: { type: 'string' },
+                                                        message: 'must be string',
+                                                    },
+                                                ]
+                                                return false
+                                            }
+                                            var valid0 = _errs23 === errors
+                                        } else {
+                                            var valid0 = true
+                                        }
+                                        if (valid0) {
+                                            if (data.label !== undefined) {
+                                                const _errs25 = errors
+                                                if (typeof data.label !== 'string') {
+                                                    validate75.errors = [
+                                                        {
+                                                            instancePath: instancePath + '/label',
+                                                            schemaPath: '#/properties/label/type',
+                                                            keyword: 'type',
+                                                            params: { type: 'string' },
+                                                            message: 'must be string',
+                                                        },
+                                                    ]
+                                                    return false
+                                                }
+                                                var valid0 = _errs25 === errors
+                                            } else {
+                                                var valid0 = true
+                                            }
+                                            if (valid0) {
+                                                if (data.negation !== undefined) {
+                                                    const _errs27 = errors
+                                                    if (typeof data.negation !== 'boolean') {
                                                         validate75.errors = [
                                                             {
-                                                                instancePath: instancePath + '/operator',
-                                                                schemaPath: '#/definitions/PropertyOperator/enum',
-                                                                keyword: 'enum',
-                                                                params: { allowedValues: schema14.enum },
-                                                                message: 'must be equal to one of the allowed values',
+                                                                instancePath: instancePath + '/negation',
+                                                                schemaPath: '#/properties/negation/type',
+                                                                keyword: 'type',
+                                                                params: { type: 'boolean' },
+                                                                message: 'must be boolean',
                                                             },
                                                         ]
                                                         return false
                                                     }
-                                                    var valid0 = _errs24 === errors
+                                                    var valid0 = _errs27 === errors
                                                 } else {
                                                     var valid0 = true
                                                 }
                                                 if (valid0) {
-                                                    if (data.operator_value !== undefined) {
-                                                        let data9 = data.operator_value
-                                                        const _errs27 = errors
-                                                        if (
-                                                            !(
-                                                                typeof data9 == 'number' &&
-                                                                !(data9 % 1) &&
-                                                                !isNaN(data9) &&
-                                                                isFinite(data9)
-                                                            )
-                                                        ) {
+                                                    if (data.operator !== undefined) {
+                                                        let data10 = data.operator
+                                                        const _errs29 = errors
+                                                        if (typeof data10 !== 'string') {
                                                             validate75.errors = [
                                                                 {
-                                                                    instancePath: instancePath + '/operator_value',
-                                                                    schemaPath: '#/properties/operator_value/type',
+                                                                    instancePath: instancePath + '/operator',
+                                                                    schemaPath: '#/definitions/PropertyOperator/type',
                                                                     keyword: 'type',
-                                                                    params: { type: 'integer' },
-                                                                    message: 'must be integer',
+                                                                    params: { type: 'string' },
+                                                                    message: 'must be string',
                                                                 },
                                                             ]
                                                             return false
                                                         }
-                                                        var valid0 = _errs27 === errors
+                                                        if (
+                                                            !(
+                                                                data10 === 'exact' ||
+                                                                data10 === 'is_not' ||
+                                                                data10 === 'icontains' ||
+                                                                data10 === 'not_icontains' ||
+                                                                data10 === 'starts_with' ||
+                                                                data10 === 'not_starts_with' ||
+                                                                data10 === 'ends_with' ||
+                                                                data10 === 'not_ends_with' ||
+                                                                data10 === 'regex' ||
+                                                                data10 === 'not_regex' ||
+                                                                data10 === 'gt' ||
+                                                                data10 === 'gte' ||
+                                                                data10 === 'lt' ||
+                                                                data10 === 'lte' ||
+                                                                data10 === 'is_set' ||
+                                                                data10 === 'is_not_set' ||
+                                                                data10 === 'is_date_exact' ||
+                                                                data10 === 'is_date_before' ||
+                                                                data10 === 'is_date_after' ||
+                                                                data10 === 'between' ||
+                                                                data10 === 'not_between' ||
+                                                                data10 === 'min' ||
+                                                                data10 === 'max' ||
+                                                                data10 === 'in' ||
+                                                                data10 === 'not_in' ||
+                                                                data10 === 'is_cleaned_path_exact' ||
+                                                                data10 === 'flag_evaluates_to' ||
+                                                                data10 === 'semver_eq' ||
+                                                                data10 === 'semver_neq' ||
+                                                                data10 === 'semver_gt' ||
+                                                                data10 === 'semver_gte' ||
+                                                                data10 === 'semver_lt' ||
+                                                                data10 === 'semver_lte' ||
+                                                                data10 === 'semver_tilde' ||
+                                                                data10 === 'semver_caret' ||
+                                                                data10 === 'semver_wildcard' ||
+                                                                data10 === 'icontains_multi' ||
+                                                                data10 === 'not_icontains_multi'
+                                                            )
+                                                        ) {
+                                                            validate75.errors = [
+                                                                {
+                                                                    instancePath: instancePath + '/operator',
+                                                                    schemaPath: '#/definitions/PropertyOperator/enum',
+                                                                    keyword: 'enum',
+                                                                    params: { allowedValues: schema14.enum },
+                                                                    message:
+                                                                        'must be equal to one of the allowed values',
+                                                                },
+                                                            ]
+                                                            return false
+                                                        }
+                                                        var valid0 = _errs29 === errors
                                                     } else {
                                                         var valid0 = true
                                                     }
                                                     if (valid0) {
-                                                        if (data.time_interval !== undefined) {
-                                                            let data10 = data.time_interval
-                                                            const _errs29 = errors
-                                                            if (typeof data10 !== 'string') {
-                                                                validate75.errors = [
-                                                                    {
-                                                                        instancePath: instancePath + '/time_interval',
-                                                                        schemaPath: '#/definitions/TimeUnitType/type',
-                                                                        keyword: 'type',
-                                                                        params: { type: 'string' },
-                                                                        message: 'must be string',
-                                                                    },
-                                                                ]
-                                                                return false
-                                                            }
+                                                        if (data.operator_value !== undefined) {
+                                                            let data11 = data.operator_value
+                                                            const _errs32 = errors
                                                             if (
                                                                 !(
-                                                                    data10 === 'day' ||
-                                                                    data10 === 'week' ||
-                                                                    data10 === 'month' ||
-                                                                    data10 === 'year'
+                                                                    typeof data11 == 'number' &&
+                                                                    !(data11 % 1) &&
+                                                                    !isNaN(data11) &&
+                                                                    isFinite(data11)
                                                                 )
                                                             ) {
                                                                 validate75.errors = [
                                                                     {
-                                                                        instancePath: instancePath + '/time_interval',
-                                                                        schemaPath: '#/definitions/TimeUnitType/enum',
-                                                                        keyword: 'enum',
-                                                                        params: { allowedValues: schema65.enum },
-                                                                        message:
-                                                                            'must be equal to one of the allowed values',
+                                                                        instancePath: instancePath + '/operator_value',
+                                                                        schemaPath: '#/properties/operator_value/type',
+                                                                        keyword: 'type',
+                                                                        params: { type: 'integer' },
+                                                                        message: 'must be integer',
                                                                     },
                                                                 ]
                                                                 return false
                                                             }
-                                                            var valid0 = _errs29 === errors
+                                                            var valid0 = _errs32 === errors
                                                         } else {
                                                             var valid0 = true
                                                         }
                                                         if (valid0) {
-                                                            if (data.time_value !== undefined) {
-                                                                let data11 = data.time_value
-                                                                const _errs32 = errors
-                                                                if (
-                                                                    !(
-                                                                        typeof data11 == 'number' &&
-                                                                        !(data11 % 1) &&
-                                                                        !isNaN(data11) &&
-                                                                        isFinite(data11)
-                                                                    )
-                                                                ) {
+                                                            if (data.time_interval !== undefined) {
+                                                                let data12 = data.time_interval
+                                                                const _errs34 = errors
+                                                                if (typeof data12 !== 'string') {
                                                                     validate75.errors = [
                                                                         {
-                                                                            instancePath: instancePath + '/time_value',
-                                                                            schemaPath: '#/properties/time_value/type',
+                                                                            instancePath:
+                                                                                instancePath + '/time_interval',
+                                                                            schemaPath:
+                                                                                '#/definitions/TimeUnitType/type',
                                                                             keyword: 'type',
-                                                                            params: { type: 'integer' },
-                                                                            message: 'must be integer',
+                                                                            params: { type: 'string' },
+                                                                            message: 'must be string',
                                                                         },
                                                                     ]
                                                                     return false
                                                                 }
-                                                                var valid0 = _errs32 === errors
+                                                                if (
+                                                                    !(
+                                                                        data12 === 'day' ||
+                                                                        data12 === 'week' ||
+                                                                        data12 === 'month' ||
+                                                                        data12 === 'year'
+                                                                    )
+                                                                ) {
+                                                                    validate75.errors = [
+                                                                        {
+                                                                            instancePath:
+                                                                                instancePath + '/time_interval',
+                                                                            schemaPath:
+                                                                                '#/definitions/TimeUnitType/enum',
+                                                                            keyword: 'enum',
+                                                                            params: { allowedValues: schema65.enum },
+                                                                            message:
+                                                                                'must be equal to one of the allowed values',
+                                                                        },
+                                                                    ]
+                                                                    return false
+                                                                }
+                                                                var valid0 = _errs34 === errors
                                                             } else {
                                                                 var valid0 = true
                                                             }
                                                             if (valid0) {
-                                                                if (data.type !== undefined) {
-                                                                    let data12 = data.type
-                                                                    const _errs34 = errors
-                                                                    if (typeof data12 !== 'string') {
+                                                                if (data.time_value !== undefined) {
+                                                                    let data13 = data.time_value
+                                                                    const _errs37 = errors
+                                                                    if (
+                                                                        !(
+                                                                            typeof data13 == 'number' &&
+                                                                            !(data13 % 1) &&
+                                                                            !isNaN(data13) &&
+                                                                            isFinite(data13)
+                                                                        )
+                                                                    ) {
                                                                         validate75.errors = [
                                                                             {
-                                                                                instancePath: instancePath + '/type',
-                                                                                schemaPath: '#/properties/type/type',
+                                                                                instancePath:
+                                                                                    instancePath + '/time_value',
+                                                                                schemaPath:
+                                                                                    '#/properties/time_value/type',
                                                                                 keyword: 'type',
-                                                                                params: { type: 'string' },
-                                                                                message: 'must be string',
+                                                                                params: { type: 'integer' },
+                                                                                message: 'must be integer',
                                                                             },
                                                                         ]
                                                                         return false
                                                                     }
-                                                                    if ('behavioral' !== data12) {
-                                                                        validate75.errors = [
-                                                                            {
-                                                                                instancePath: instancePath + '/type',
-                                                                                schemaPath: '#/properties/type/const',
-                                                                                keyword: 'const',
-                                                                                params: { allowedValue: 'behavioral' },
-                                                                                message: 'must be equal to constant',
-                                                                            },
-                                                                        ]
-                                                                        return false
-                                                                    }
-                                                                    var valid0 = _errs34 === errors
+                                                                    var valid0 = _errs37 === errors
                                                                 } else {
                                                                     var valid0 = true
                                                                 }
                                                                 if (valid0) {
-                                                                    if (data.value !== undefined) {
-                                                                        let data13 = data.value
-                                                                        const _errs36 = errors
-                                                                        if (typeof data13 !== 'string') {
+                                                                    if (data.type !== undefined) {
+                                                                        let data14 = data.type
+                                                                        const _errs39 = errors
+                                                                        if (typeof data14 !== 'string') {
                                                                             validate75.errors = [
                                                                                 {
                                                                                     instancePath:
-                                                                                        instancePath + '/value',
+                                                                                        instancePath + '/type',
                                                                                     schemaPath:
-                                                                                        '#/definitions/InlineBehavioralType/type',
+                                                                                        '#/properties/type/type',
                                                                                     keyword: 'type',
                                                                                     params: { type: 'string' },
                                                                                     message: 'must be string',
@@ -6297,31 +7441,73 @@ function validate75(data, { instancePath = '', parentData, parentDataProperty, r
                                                                             ]
                                                                             return false
                                                                         }
-                                                                        if (
-                                                                            !(
-                                                                                data13 === 'performed_event' ||
-                                                                                data13 === 'performed_event_multiple'
-                                                                            )
-                                                                        ) {
+                                                                        if ('behavioral' !== data14) {
                                                                             validate75.errors = [
                                                                                 {
                                                                                     instancePath:
-                                                                                        instancePath + '/value',
+                                                                                        instancePath + '/type',
                                                                                     schemaPath:
-                                                                                        '#/definitions/InlineBehavioralType/enum',
-                                                                                    keyword: 'enum',
+                                                                                        '#/properties/type/const',
+                                                                                    keyword: 'const',
                                                                                     params: {
-                                                                                        allowedValues: schema66.enum,
+                                                                                        allowedValue: 'behavioral',
                                                                                     },
                                                                                     message:
-                                                                                        'must be equal to one of the allowed values',
+                                                                                        'must be equal to constant',
                                                                                 },
                                                                             ]
                                                                             return false
                                                                         }
-                                                                        var valid0 = _errs36 === errors
+                                                                        var valid0 = _errs39 === errors
                                                                     } else {
                                                                         var valid0 = true
+                                                                    }
+                                                                    if (valid0) {
+                                                                        if (data.value !== undefined) {
+                                                                            let data15 = data.value
+                                                                            const _errs41 = errors
+                                                                            if (typeof data15 !== 'string') {
+                                                                                validate75.errors = [
+                                                                                    {
+                                                                                        instancePath:
+                                                                                            instancePath + '/value',
+                                                                                        schemaPath:
+                                                                                            '#/definitions/InlineBehavioralType/type',
+                                                                                        keyword: 'type',
+                                                                                        params: { type: 'string' },
+                                                                                        message: 'must be string',
+                                                                                    },
+                                                                                ]
+                                                                                return false
+                                                                            }
+                                                                            if (
+                                                                                !(
+                                                                                    data15 === 'performed_event' ||
+                                                                                    data15 ===
+                                                                                        'performed_event_multiple'
+                                                                                )
+                                                                            ) {
+                                                                                validate75.errors = [
+                                                                                    {
+                                                                                        instancePath:
+                                                                                            instancePath + '/value',
+                                                                                        schemaPath:
+                                                                                            '#/definitions/InlineBehavioralType/enum',
+                                                                                        keyword: 'enum',
+                                                                                        params: {
+                                                                                            allowedValues:
+                                                                                                schema66.enum,
+                                                                                        },
+                                                                                        message:
+                                                                                            'must be equal to one of the allowed values',
+                                                                                    },
+                                                                                ]
+                                                                                return false
+                                                                            }
+                                                                            var valid0 = _errs41 === errors
+                                                                        } else {
+                                                                            var valid0 = true
+                                                                        }
                                                                     }
                                                                 }
                                                             }
@@ -6495,6 +7681,7 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                             for (const key0 in data) {
                                                                 if (
                                                                     !(
+                                                                        key0 === 'group_key_names' ||
                                                                         key0 === 'key' ||
                                                                         key0 === 'label' ||
                                                                         key0 === 'operator' ||
@@ -6520,39 +7707,52 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                                 }
                                                             }
                                                             if (_errs15 === errors) {
-                                                                if (data.key !== undefined) {
+                                                                if (data.group_key_names !== undefined) {
+                                                                    let data0 = data.group_key_names
                                                                     const _errs16 = errors
-                                                                    if (typeof data.key !== 'string') {
-                                                                        const err2 = {
-                                                                            instancePath: instancePath + '/key',
-                                                                            schemaPath:
-                                                                                '#/definitions/FlagPropertyFilter/properties/key/type',
-                                                                            keyword: 'type',
-                                                                            params: { type: 'string' },
-                                                                            message: 'must be string',
-                                                                        }
-                                                                        if (vErrors === null) {
-                                                                            vErrors = [err2]
+                                                                    if (errors === _errs16) {
+                                                                        if (
+                                                                            data0 &&
+                                                                            typeof data0 == 'object' &&
+                                                                            !Array.isArray(data0)
+                                                                        ) {
+                                                                            for (const key1 in data0) {
+                                                                                const _errs19 = errors
+                                                                                if (typeof data0[key1] !== 'string') {
+                                                                                    const err2 = {
+                                                                                        instancePath:
+                                                                                            instancePath +
+                                                                                            '/group_key_names/' +
+                                                                                            key1
+                                                                                                .replace(/~/g, '~0')
+                                                                                                .replace(/\//g, '~1'),
+                                                                                        schemaPath:
+                                                                                            '#/definitions/FlagPropertyFilter/properties/group_key_names/additionalProperties/type',
+                                                                                        keyword: 'type',
+                                                                                        params: { type: 'string' },
+                                                                                        message: 'must be string',
+                                                                                    }
+                                                                                    if (vErrors === null) {
+                                                                                        vErrors = [err2]
+                                                                                    } else {
+                                                                                        vErrors.push(err2)
+                                                                                    }
+                                                                                    errors++
+                                                                                }
+                                                                                var valid3 = _errs19 === errors
+                                                                                if (!valid3) {
+                                                                                    break
+                                                                                }
+                                                                            }
                                                                         } else {
-                                                                            vErrors.push(err2)
-                                                                        }
-                                                                        errors++
-                                                                    }
-                                                                    var valid2 = _errs16 === errors
-                                                                } else {
-                                                                    var valid2 = true
-                                                                }
-                                                                if (valid2) {
-                                                                    if (data.label !== undefined) {
-                                                                        const _errs18 = errors
-                                                                        if (typeof data.label !== 'string') {
                                                                             const err3 = {
-                                                                                instancePath: instancePath + '/label',
+                                                                                instancePath:
+                                                                                    instancePath + '/group_key_names',
                                                                                 schemaPath:
-                                                                                    '#/definitions/FlagPropertyFilter/properties/label/type',
+                                                                                    '#/definitions/FlagPropertyFilter/properties/group_key_names/type',
                                                                                 keyword: 'type',
-                                                                                params: { type: 'string' },
-                                                                                message: 'must be string',
+                                                                                params: { type: 'object' },
+                                                                                message: 'must be object',
                                                                             }
                                                                             if (vErrors === null) {
                                                                                 vErrors = [err3]
@@ -6561,44 +7761,46 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                                             }
                                                                             errors++
                                                                         }
-                                                                        var valid2 = _errs18 === errors
+                                                                    }
+                                                                    var valid2 = _errs16 === errors
+                                                                } else {
+                                                                    var valid2 = true
+                                                                }
+                                                                if (valid2) {
+                                                                    if (data.key !== undefined) {
+                                                                        const _errs21 = errors
+                                                                        if (typeof data.key !== 'string') {
+                                                                            const err4 = {
+                                                                                instancePath: instancePath + '/key',
+                                                                                schemaPath:
+                                                                                    '#/definitions/FlagPropertyFilter/properties/key/type',
+                                                                                keyword: 'type',
+                                                                                params: { type: 'string' },
+                                                                                message: 'must be string',
+                                                                            }
+                                                                            if (vErrors === null) {
+                                                                                vErrors = [err4]
+                                                                            } else {
+                                                                                vErrors.push(err4)
+                                                                            }
+                                                                            errors++
+                                                                        }
+                                                                        var valid2 = _errs21 === errors
                                                                     } else {
                                                                         var valid2 = true
                                                                     }
                                                                     if (valid2) {
-                                                                        if (data.operator !== undefined) {
-                                                                            let data2 = data.operator
-                                                                            const _errs20 = errors
-                                                                            if (typeof data2 !== 'string') {
-                                                                                const err4 = {
+                                                                        if (data.label !== undefined) {
+                                                                            const _errs23 = errors
+                                                                            if (typeof data.label !== 'string') {
+                                                                                const err5 = {
                                                                                     instancePath:
-                                                                                        instancePath + '/operator',
+                                                                                        instancePath + '/label',
                                                                                     schemaPath:
-                                                                                        '#/definitions/FlagPropertyFilter/properties/operator/type',
+                                                                                        '#/definitions/FlagPropertyFilter/properties/label/type',
                                                                                     keyword: 'type',
                                                                                     params: { type: 'string' },
                                                                                     message: 'must be string',
-                                                                                }
-                                                                                if (vErrors === null) {
-                                                                                    vErrors = [err4]
-                                                                                } else {
-                                                                                    vErrors.push(err4)
-                                                                                }
-                                                                                errors++
-                                                                            }
-                                                                            if ('flag_evaluates_to' !== data2) {
-                                                                                const err5 = {
-                                                                                    instancePath:
-                                                                                        instancePath + '/operator',
-                                                                                    schemaPath:
-                                                                                        '#/definitions/FlagPropertyFilter/properties/operator/const',
-                                                                                    keyword: 'const',
-                                                                                    params: {
-                                                                                        allowedValue:
-                                                                                            'flag_evaluates_to',
-                                                                                    },
-                                                                                    message:
-                                                                                        'must be equal to constant',
                                                                                 }
                                                                                 if (vErrors === null) {
                                                                                     vErrors = [err5]
@@ -6607,20 +7809,20 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                 }
                                                                                 errors++
                                                                             }
-                                                                            var valid2 = _errs20 === errors
+                                                                            var valid2 = _errs23 === errors
                                                                         } else {
                                                                             var valid2 = true
                                                                         }
                                                                         if (valid2) {
-                                                                            if (data.type !== undefined) {
-                                                                                let data3 = data.type
-                                                                                const _errs22 = errors
-                                                                                if (typeof data3 !== 'string') {
+                                                                            if (data.operator !== undefined) {
+                                                                                let data4 = data.operator
+                                                                                const _errs25 = errors
+                                                                                if (typeof data4 !== 'string') {
                                                                                     const err6 = {
                                                                                         instancePath:
-                                                                                            instancePath + '/type',
+                                                                                            instancePath + '/operator',
                                                                                         schemaPath:
-                                                                                            '#/definitions/FlagPropertyFilter/properties/type/type',
+                                                                                            '#/definitions/FlagPropertyFilter/properties/operator/type',
                                                                                         keyword: 'type',
                                                                                         params: { type: 'string' },
                                                                                         message: 'must be string',
@@ -6632,15 +7834,16 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                     }
                                                                                     errors++
                                                                                 }
-                                                                                if ('flag' !== data3) {
+                                                                                if ('flag_evaluates_to' !== data4) {
                                                                                     const err7 = {
                                                                                         instancePath:
-                                                                                            instancePath + '/type',
+                                                                                            instancePath + '/operator',
                                                                                         schemaPath:
-                                                                                            '#/definitions/FlagPropertyFilter/properties/type/const',
+                                                                                            '#/definitions/FlagPropertyFilter/properties/operator/const',
                                                                                         keyword: 'const',
                                                                                         params: {
-                                                                                            allowedValue: 'flag',
+                                                                                            allowedValue:
+                                                                                                'flag_evaluates_to',
                                                                                         },
                                                                                         message:
                                                                                             'must be equal to constant',
@@ -6652,31 +7855,23 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                     }
                                                                                     errors++
                                                                                 }
-                                                                                var valid2 = _errs22 === errors
+                                                                                var valid2 = _errs25 === errors
                                                                             } else {
                                                                                 var valid2 = true
                                                                             }
                                                                             if (valid2) {
-                                                                                if (data.value !== undefined) {
-                                                                                    let data4 = data.value
-                                                                                    const _errs24 = errors
-                                                                                    if (
-                                                                                        typeof data4 !== 'boolean' &&
-                                                                                        typeof data4 !== 'string'
-                                                                                    ) {
+                                                                                if (data.type !== undefined) {
+                                                                                    let data5 = data.type
+                                                                                    const _errs27 = errors
+                                                                                    if (typeof data5 !== 'string') {
                                                                                         const err8 = {
                                                                                             instancePath:
-                                                                                                instancePath + '/value',
+                                                                                                instancePath + '/type',
                                                                                             schemaPath:
-                                                                                                '#/definitions/FlagPropertyFilter/properties/value/type',
+                                                                                                '#/definitions/FlagPropertyFilter/properties/type/type',
                                                                                             keyword: 'type',
-                                                                                            params: {
-                                                                                                type: schema39
-                                                                                                    .properties.value
-                                                                                                    .type,
-                                                                                            },
-                                                                                            message:
-                                                                                                'must be boolean,string',
+                                                                                            params: { type: 'string' },
+                                                                                            message: 'must be string',
                                                                                         }
                                                                                         if (vErrors === null) {
                                                                                             vErrors = [err8]
@@ -6685,9 +7880,65 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                         }
                                                                                         errors++
                                                                                     }
-                                                                                    var valid2 = _errs24 === errors
+                                                                                    if ('flag' !== data5) {
+                                                                                        const err9 = {
+                                                                                            instancePath:
+                                                                                                instancePath + '/type',
+                                                                                            schemaPath:
+                                                                                                '#/definitions/FlagPropertyFilter/properties/type/const',
+                                                                                            keyword: 'const',
+                                                                                            params: {
+                                                                                                allowedValue: 'flag',
+                                                                                            },
+                                                                                            message:
+                                                                                                'must be equal to constant',
+                                                                                        }
+                                                                                        if (vErrors === null) {
+                                                                                            vErrors = [err9]
+                                                                                        } else {
+                                                                                            vErrors.push(err9)
+                                                                                        }
+                                                                                        errors++
+                                                                                    }
+                                                                                    var valid2 = _errs27 === errors
                                                                                 } else {
                                                                                     var valid2 = true
+                                                                                }
+                                                                                if (valid2) {
+                                                                                    if (data.value !== undefined) {
+                                                                                        let data6 = data.value
+                                                                                        const _errs29 = errors
+                                                                                        if (
+                                                                                            typeof data6 !==
+                                                                                                'boolean' &&
+                                                                                            typeof data6 !== 'string'
+                                                                                        ) {
+                                                                                            const err10 = {
+                                                                                                instancePath:
+                                                                                                    instancePath +
+                                                                                                    '/value',
+                                                                                                schemaPath:
+                                                                                                    '#/definitions/FlagPropertyFilter/properties/value/type',
+                                                                                                keyword: 'type',
+                                                                                                params: {
+                                                                                                    type: schema39
+                                                                                                        .properties
+                                                                                                        .value.type,
+                                                                                                },
+                                                                                                message:
+                                                                                                    'must be boolean,string',
+                                                                                            }
+                                                                                            if (vErrors === null) {
+                                                                                                vErrors = [err10]
+                                                                                            } else {
+                                                                                                vErrors.push(err10)
+                                                                                            }
+                                                                                            errors++
+                                                                                        }
+                                                                                        var valid2 = _errs29 === errors
+                                                                                    } else {
+                                                                                        var valid2 = true
+                                                                                    }
                                                                                 }
                                                                             }
                                                                         }
@@ -6696,7 +7947,7 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                             }
                                                         }
                                                     } else {
-                                                        const err9 = {
+                                                        const err11 = {
                                                             instancePath,
                                                             schemaPath: '#/definitions/FlagPropertyFilter/type',
                                                             keyword: 'type',
@@ -6704,9 +7955,9 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                             message: 'must be object',
                                                         }
                                                         if (vErrors === null) {
-                                                            vErrors = [err9]
+                                                            vErrors = [err11]
                                                         } else {
-                                                            vErrors.push(err9)
+                                                            vErrors.push(err11)
                                                         }
                                                         errors++
                                                     }
@@ -6714,7 +7965,7 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                 var _valid0 = _errs12 === errors
                                                 valid0 = valid0 || _valid0
                                                 if (!valid0) {
-                                                    const _errs26 = errors
+                                                    const _errs31 = errors
                                                     if (
                                                         !validate45(data, {
                                                             instancePath,
@@ -6729,43 +7980,43 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                                 : vErrors.concat(validate45.errors)
                                                         errors = vErrors.length
                                                     }
-                                                    var _valid0 = _errs26 === errors
+                                                    var _valid0 = _errs31 === errors
                                                     valid0 = valid0 || _valid0
                                                     if (!valid0) {
-                                                        const _errs27 = errors
-                                                        const _errs28 = errors
-                                                        if (errors === _errs28) {
+                                                        const _errs32 = errors
+                                                        const _errs33 = errors
+                                                        if (errors === _errs33) {
                                                             if (
                                                                 data &&
                                                                 typeof data == 'object' &&
                                                                 !Array.isArray(data)
                                                             ) {
-                                                                const _errs30 = errors
-                                                                for (const key1 in data) {
-                                                                    if (!(key1 === 'type')) {
-                                                                        const err10 = {
+                                                                const _errs35 = errors
+                                                                for (const key2 in data) {
+                                                                    if (!(key2 === 'type')) {
+                                                                        const err12 = {
                                                                             instancePath,
                                                                             schemaPath:
                                                                                 '#/definitions/EmptyPropertyFilter/additionalProperties',
                                                                             keyword: 'additionalProperties',
-                                                                            params: { additionalProperty: key1 },
+                                                                            params: { additionalProperty: key2 },
                                                                             message:
                                                                                 'must NOT have additional properties',
                                                                         }
                                                                         if (vErrors === null) {
-                                                                            vErrors = [err10]
+                                                                            vErrors = [err12]
                                                                         } else {
-                                                                            vErrors.push(err10)
+                                                                            vErrors.push(err12)
                                                                         }
                                                                         errors++
                                                                         break
                                                                     }
                                                                 }
-                                                                if (_errs30 === errors) {
+                                                                if (_errs35 === errors) {
                                                                     if (data.type !== undefined) {
-                                                                        let data5 = data.type
-                                                                        if (typeof data5 !== 'string') {
-                                                                            const err11 = {
+                                                                        let data7 = data.type
+                                                                        if (typeof data7 !== 'string') {
+                                                                            const err13 = {
                                                                                 instancePath: instancePath + '/type',
                                                                                 schemaPath:
                                                                                     '#/definitions/EmptyPropertyFilter/properties/type/type',
@@ -6774,14 +8025,14 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                 message: 'must be string',
                                                                             }
                                                                             if (vErrors === null) {
-                                                                                vErrors = [err11]
+                                                                                vErrors = [err13]
                                                                             } else {
-                                                                                vErrors.push(err11)
+                                                                                vErrors.push(err13)
                                                                             }
                                                                             errors++
                                                                         }
-                                                                        if ('empty' !== data5) {
-                                                                            const err12 = {
+                                                                        if ('empty' !== data7) {
+                                                                            const err14 = {
                                                                                 instancePath: instancePath + '/type',
                                                                                 schemaPath:
                                                                                     '#/definitions/EmptyPropertyFilter/properties/type/const',
@@ -6790,16 +8041,16 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                 message: 'must be equal to constant',
                                                                             }
                                                                             if (vErrors === null) {
-                                                                                vErrors = [err12]
+                                                                                vErrors = [err14]
                                                                             } else {
-                                                                                vErrors.push(err12)
+                                                                                vErrors.push(err14)
                                                                             }
                                                                             errors++
                                                                         }
                                                                     }
                                                                 }
                                                             } else {
-                                                                const err13 = {
+                                                                const err15 = {
                                                                     instancePath,
                                                                     schemaPath:
                                                                         '#/definitions/EmptyPropertyFilter/type',
@@ -6808,17 +8059,17 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                                     message: 'must be object',
                                                                 }
                                                                 if (vErrors === null) {
-                                                                    vErrors = [err13]
+                                                                    vErrors = [err15]
                                                                 } else {
-                                                                    vErrors.push(err13)
+                                                                    vErrors.push(err15)
                                                                 }
                                                                 errors++
                                                             }
                                                         }
-                                                        var _valid0 = _errs27 === errors
+                                                        var _valid0 = _errs32 === errors
                                                         valid0 = valid0 || _valid0
                                                         if (!valid0) {
-                                                            const _errs33 = errors
+                                                            const _errs38 = errors
                                                             if (
                                                                 !validate48(data, {
                                                                     instancePath,
@@ -6833,10 +8084,10 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                                         : vErrors.concat(validate48.errors)
                                                                 errors = vErrors.length
                                                             }
-                                                            var _valid0 = _errs33 === errors
+                                                            var _valid0 = _errs38 === errors
                                                             valid0 = valid0 || _valid0
                                                             if (!valid0) {
-                                                                const _errs34 = errors
+                                                                const _errs39 = errors
                                                                 if (
                                                                     !validate51(data, {
                                                                         instancePath,
@@ -6851,10 +8102,10 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                                             : vErrors.concat(validate51.errors)
                                                                     errors = vErrors.length
                                                                 }
-                                                                var _valid0 = _errs34 === errors
+                                                                var _valid0 = _errs39 === errors
                                                                 valid0 = valid0 || _valid0
                                                                 if (!valid0) {
-                                                                    const _errs35 = errors
+                                                                    const _errs40 = errors
                                                                     if (
                                                                         !validate54(data, {
                                                                             instancePath,
@@ -6869,10 +8120,10 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                 : vErrors.concat(validate54.errors)
                                                                         errors = vErrors.length
                                                                     }
-                                                                    var _valid0 = _errs35 === errors
+                                                                    var _valid0 = _errs40 === errors
                                                                     valid0 = valid0 || _valid0
                                                                     if (!valid0) {
-                                                                        const _errs36 = errors
+                                                                        const _errs41 = errors
                                                                         if (
                                                                             !validate57(data, {
                                                                                 instancePath,
@@ -6887,10 +8138,10 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                     : vErrors.concat(validate57.errors)
                                                                             errors = vErrors.length
                                                                         }
-                                                                        var _valid0 = _errs36 === errors
+                                                                        var _valid0 = _errs41 === errors
                                                                         valid0 = valid0 || _valid0
                                                                         if (!valid0) {
-                                                                            const _errs37 = errors
+                                                                            const _errs42 = errors
                                                                             if (
                                                                                 !validate60(data, {
                                                                                     instancePath,
@@ -6907,10 +8158,10 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                           )
                                                                                 errors = vErrors.length
                                                                             }
-                                                                            var _valid0 = _errs37 === errors
+                                                                            var _valid0 = _errs42 === errors
                                                                             valid0 = valid0 || _valid0
                                                                             if (!valid0) {
-                                                                                const _errs38 = errors
+                                                                                const _errs43 = errors
                                                                                 if (
                                                                                     !validate63(data, {
                                                                                         instancePath,
@@ -6927,10 +8178,10 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                               )
                                                                                     errors = vErrors.length
                                                                                 }
-                                                                                var _valid0 = _errs38 === errors
+                                                                                var _valid0 = _errs43 === errors
                                                                                 valid0 = valid0 || _valid0
                                                                                 if (!valid0) {
-                                                                                    const _errs39 = errors
+                                                                                    const _errs44 = errors
                                                                                     if (
                                                                                         !validate66(data, {
                                                                                             instancePath,
@@ -6947,10 +8198,10 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                                   )
                                                                                         errors = vErrors.length
                                                                                     }
-                                                                                    var _valid0 = _errs39 === errors
+                                                                                    var _valid0 = _errs44 === errors
                                                                                     valid0 = valid0 || _valid0
                                                                                     if (!valid0) {
-                                                                                        const _errs40 = errors
+                                                                                        const _errs45 = errors
                                                                                         if (
                                                                                             !validate69(data, {
                                                                                                 instancePath,
@@ -6967,10 +8218,10 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                                       )
                                                                                             errors = vErrors.length
                                                                                         }
-                                                                                        var _valid0 = _errs40 === errors
+                                                                                        var _valid0 = _errs45 === errors
                                                                                         valid0 = valid0 || _valid0
                                                                                         if (!valid0) {
-                                                                                            const _errs41 = errors
+                                                                                            const _errs46 = errors
                                                                                             if (
                                                                                                 !validate72(data, {
                                                                                                     instancePath,
@@ -6988,10 +8239,10 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                                 errors = vErrors.length
                                                                                             }
                                                                                             var _valid0 =
-                                                                                                _errs41 === errors
+                                                                                                _errs46 === errors
                                                                                             valid0 = valid0 || _valid0
                                                                                             if (!valid0) {
-                                                                                                const _errs42 = errors
+                                                                                                const _errs47 = errors
                                                                                                 if (
                                                                                                     !validate75(data, {
                                                                                                         instancePath,
@@ -7010,7 +8261,7 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                                         vErrors.length
                                                                                                 }
                                                                                                 var _valid0 =
-                                                                                                    _errs42 === errors
+                                                                                                    _errs47 === errors
                                                                                                 valid0 =
                                                                                                     valid0 || _valid0
                                                                                             }
@@ -7037,7 +8288,7 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
         }
     }
     if (!valid0) {
-        const err14 = {
+        const err16 = {
             instancePath,
             schemaPath: '#/anyOf',
             keyword: 'anyOf',
@@ -7045,9 +8296,9 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
             message: 'must match a schema in anyOf',
         }
         if (vErrors === null) {
-            vErrors = [err14]
+            vErrors = [err16]
         } else {
-            vErrors.push(err14)
+            vErrors.push(err16)
         }
         errors++
         validate11.errors = vErrors
@@ -7211,6 +8462,7 @@ function validate89(data, { instancePath = '', parentData, parentDataProperty, r
                 for (const key0 in data) {
                     if (
                         !(
+                            key0 === 'group_key_names' ||
                             key0 === 'key' ||
                             key0 === 'label' ||
                             key0 === 'operator' ||
@@ -7232,125 +8484,21 @@ function validate89(data, { instancePath = '', parentData, parentDataProperty, r
                     }
                 }
                 if (_errs1 === errors) {
-                    if (data.key !== undefined) {
+                    if (data.group_key_names !== undefined) {
+                        let data0 = data.group_key_names
                         const _errs2 = errors
-                        if (typeof data.key !== 'string') {
-                            validate89.errors = [
-                                {
-                                    instancePath: instancePath + '/key',
-                                    schemaPath: '#/properties/key/type',
-                                    keyword: 'type',
-                                    params: { type: 'string' },
-                                    message: 'must be string',
-                                },
-                            ]
-                            return false
-                        }
-                        var valid0 = _errs2 === errors
-                    } else {
-                        var valid0 = true
-                    }
-                    if (valid0) {
-                        if (data.label !== undefined) {
-                            const _errs4 = errors
-                            if (typeof data.label !== 'string') {
-                                validate89.errors = [
-                                    {
-                                        instancePath: instancePath + '/label',
-                                        schemaPath: '#/properties/label/type',
-                                        keyword: 'type',
-                                        params: { type: 'string' },
-                                        message: 'must be string',
-                                    },
-                                ]
-                                return false
-                            }
-                            var valid0 = _errs4 === errors
-                        } else {
-                            var valid0 = true
-                        }
-                        if (valid0) {
-                            if (data.operator !== undefined) {
-                                let data2 = data.operator
-                                const _errs6 = errors
-                                if (typeof data2 !== 'string') {
-                                    validate89.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/type',
-                                            keyword: 'type',
-                                            params: { type: 'string' },
-                                            message: 'must be string',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                if (
-                                    !(
-                                        data2 === 'exact' ||
-                                        data2 === 'is_not' ||
-                                        data2 === 'icontains' ||
-                                        data2 === 'not_icontains' ||
-                                        data2 === 'starts_with' ||
-                                        data2 === 'not_starts_with' ||
-                                        data2 === 'ends_with' ||
-                                        data2 === 'not_ends_with' ||
-                                        data2 === 'regex' ||
-                                        data2 === 'not_regex' ||
-                                        data2 === 'gt' ||
-                                        data2 === 'gte' ||
-                                        data2 === 'lt' ||
-                                        data2 === 'lte' ||
-                                        data2 === 'is_set' ||
-                                        data2 === 'is_not_set' ||
-                                        data2 === 'is_date_exact' ||
-                                        data2 === 'is_date_before' ||
-                                        data2 === 'is_date_after' ||
-                                        data2 === 'between' ||
-                                        data2 === 'not_between' ||
-                                        data2 === 'min' ||
-                                        data2 === 'max' ||
-                                        data2 === 'in' ||
-                                        data2 === 'not_in' ||
-                                        data2 === 'is_cleaned_path_exact' ||
-                                        data2 === 'flag_evaluates_to' ||
-                                        data2 === 'semver_eq' ||
-                                        data2 === 'semver_neq' ||
-                                        data2 === 'semver_gt' ||
-                                        data2 === 'semver_gte' ||
-                                        data2 === 'semver_lt' ||
-                                        data2 === 'semver_lte' ||
-                                        data2 === 'semver_tilde' ||
-                                        data2 === 'semver_caret' ||
-                                        data2 === 'semver_wildcard' ||
-                                        data2 === 'icontains_multi' ||
-                                        data2 === 'not_icontains_multi'
-                                    )
-                                ) {
-                                    validate89.errors = [
-                                        {
-                                            instancePath: instancePath + '/operator',
-                                            schemaPath: '#/definitions/PropertyOperator/enum',
-                                            keyword: 'enum',
-                                            params: { allowedValues: schema14.enum },
-                                            message: 'must be equal to one of the allowed values',
-                                        },
-                                    ]
-                                    return false
-                                }
-                                var valid0 = _errs6 === errors
-                            } else {
-                                var valid0 = true
-                            }
-                            if (valid0) {
-                                if (data.type !== undefined) {
-                                    let data3 = data.type
-                                    const _errs9 = errors
-                                    if (typeof data3 !== 'string') {
+                        if (errors === _errs2) {
+                            if (data0 && typeof data0 == 'object' && !Array.isArray(data0)) {
+                                for (const key1 in data0) {
+                                    const _errs5 = errors
+                                    if (typeof data0[key1] !== 'string') {
                                         validate89.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/type',
+                                                instancePath:
+                                                    instancePath +
+                                                    '/group_key_names/' +
+                                                    key1.replace(/~/g, '~0').replace(/\//g, '~1'),
+                                                schemaPath: '#/properties/group_key_names/additionalProperties/type',
                                                 keyword: 'type',
                                                 params: { type: 'string' },
                                                 message: 'must be string',
@@ -7358,40 +8506,192 @@ function validate89(data, { instancePath = '', parentData, parentDataProperty, r
                                         ]
                                         return false
                                     }
-                                    if ('session' !== data3) {
+                                    var valid1 = _errs5 === errors
+                                    if (!valid1) {
+                                        break
+                                    }
+                                }
+                            } else {
+                                validate89.errors = [
+                                    {
+                                        instancePath: instancePath + '/group_key_names',
+                                        schemaPath: '#/properties/group_key_names/type',
+                                        keyword: 'type',
+                                        params: { type: 'object' },
+                                        message: 'must be object',
+                                    },
+                                ]
+                                return false
+                            }
+                        }
+                        var valid0 = _errs2 === errors
+                    } else {
+                        var valid0 = true
+                    }
+                    if (valid0) {
+                        if (data.key !== undefined) {
+                            const _errs7 = errors
+                            if (typeof data.key !== 'string') {
+                                validate89.errors = [
+                                    {
+                                        instancePath: instancePath + '/key',
+                                        schemaPath: '#/properties/key/type',
+                                        keyword: 'type',
+                                        params: { type: 'string' },
+                                        message: 'must be string',
+                                    },
+                                ]
+                                return false
+                            }
+                            var valid0 = _errs7 === errors
+                        } else {
+                            var valid0 = true
+                        }
+                        if (valid0) {
+                            if (data.label !== undefined) {
+                                const _errs9 = errors
+                                if (typeof data.label !== 'string') {
+                                    validate89.errors = [
+                                        {
+                                            instancePath: instancePath + '/label',
+                                            schemaPath: '#/properties/label/type',
+                                            keyword: 'type',
+                                            params: { type: 'string' },
+                                            message: 'must be string',
+                                        },
+                                    ]
+                                    return false
+                                }
+                                var valid0 = _errs9 === errors
+                            } else {
+                                var valid0 = true
+                            }
+                            if (valid0) {
+                                if (data.operator !== undefined) {
+                                    let data4 = data.operator
+                                    const _errs11 = errors
+                                    if (typeof data4 !== 'string') {
                                         validate89.errors = [
                                             {
-                                                instancePath: instancePath + '/type',
-                                                schemaPath: '#/properties/type/const',
-                                                keyword: 'const',
-                                                params: { allowedValue: 'session' },
-                                                message: 'must be equal to constant',
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
                                             },
                                         ]
                                         return false
                                     }
-                                    var valid0 = _errs9 === errors
+                                    if (
+                                        !(
+                                            data4 === 'exact' ||
+                                            data4 === 'is_not' ||
+                                            data4 === 'icontains' ||
+                                            data4 === 'not_icontains' ||
+                                            data4 === 'starts_with' ||
+                                            data4 === 'not_starts_with' ||
+                                            data4 === 'ends_with' ||
+                                            data4 === 'not_ends_with' ||
+                                            data4 === 'regex' ||
+                                            data4 === 'not_regex' ||
+                                            data4 === 'gt' ||
+                                            data4 === 'gte' ||
+                                            data4 === 'lt' ||
+                                            data4 === 'lte' ||
+                                            data4 === 'is_set' ||
+                                            data4 === 'is_not_set' ||
+                                            data4 === 'is_date_exact' ||
+                                            data4 === 'is_date_before' ||
+                                            data4 === 'is_date_after' ||
+                                            data4 === 'between' ||
+                                            data4 === 'not_between' ||
+                                            data4 === 'min' ||
+                                            data4 === 'max' ||
+                                            data4 === 'in' ||
+                                            data4 === 'not_in' ||
+                                            data4 === 'is_cleaned_path_exact' ||
+                                            data4 === 'flag_evaluates_to' ||
+                                            data4 === 'semver_eq' ||
+                                            data4 === 'semver_neq' ||
+                                            data4 === 'semver_gt' ||
+                                            data4 === 'semver_gte' ||
+                                            data4 === 'semver_lt' ||
+                                            data4 === 'semver_lte' ||
+                                            data4 === 'semver_tilde' ||
+                                            data4 === 'semver_caret' ||
+                                            data4 === 'semver_wildcard' ||
+                                            data4 === 'icontains_multi' ||
+                                            data4 === 'not_icontains_multi'
+                                        )
+                                    ) {
+                                        validate89.errors = [
+                                            {
+                                                instancePath: instancePath + '/operator',
+                                                schemaPath: '#/definitions/PropertyOperator/enum',
+                                                keyword: 'enum',
+                                                params: { allowedValues: schema14.enum },
+                                                message: 'must be equal to one of the allowed values',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid0 = _errs11 === errors
                                 } else {
                                     var valid0 = true
                                 }
                                 if (valid0) {
-                                    if (data.value !== undefined) {
-                                        const _errs11 = errors
-                                        if (
-                                            !validate13(data.value, {
-                                                instancePath: instancePath + '/value',
-                                                parentData: data,
-                                                parentDataProperty: 'value',
-                                                rootData,
-                                            })
-                                        ) {
-                                            vErrors =
-                                                vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
-                                            errors = vErrors.length
+                                    if (data.type !== undefined) {
+                                        let data5 = data.type
+                                        const _errs14 = errors
+                                        if (typeof data5 !== 'string') {
+                                            validate89.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/type',
+                                                    keyword: 'type',
+                                                    params: { type: 'string' },
+                                                    message: 'must be string',
+                                                },
+                                            ]
+                                            return false
                                         }
-                                        var valid0 = _errs11 === errors
+                                        if ('session' !== data5) {
+                                            validate89.errors = [
+                                                {
+                                                    instancePath: instancePath + '/type',
+                                                    schemaPath: '#/properties/type/const',
+                                                    keyword: 'const',
+                                                    params: { allowedValue: 'session' },
+                                                    message: 'must be equal to constant',
+                                                },
+                                            ]
+                                            return false
+                                        }
+                                        var valid0 = _errs14 === errors
                                     } else {
                                         var valid0 = true
+                                    }
+                                    if (valid0) {
+                                        if (data.value !== undefined) {
+                                            const _errs16 = errors
+                                            if (
+                                                !validate13(data.value, {
+                                                    instancePath: instancePath + '/value',
+                                                    parentData: data,
+                                                    parentDataProperty: 'value',
+                                                    rootData,
+                                                })
+                                            ) {
+                                                vErrors =
+                                                    vErrors === null
+                                                        ? validate13.errors
+                                                        : vErrors.concat(validate13.errors)
+                                                errors = vErrors.length
+                                            }
+                                            var valid0 = _errs16 === errors
+                                        } else {
+                                            var valid0 = true
+                                        }
                                     }
                                 }
                             }

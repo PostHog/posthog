@@ -1609,6 +1609,14 @@ class FlagPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
+    )
     key: str = Field(..., description="The key should be the flag ID")
     label: str | None = None
     operator: Literal["flag_evaluates_to"] = Field(
@@ -2649,6 +2657,14 @@ class RecordingDurationFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
+    )
     key: DurationType
     label: str | None = None
     operator: PropertyOperator
@@ -2659,6 +2675,14 @@ class RecordingDurationFilter(BaseModel):
 class RecordingPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
     )
     key: DurationType | str
     label: str | None = None
@@ -2724,6 +2748,14 @@ class RetentionValue(BaseModel):
 class RevenueAnalyticsPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
     )
     key: str
     label: str | None = None
@@ -2806,6 +2838,14 @@ class SessionEventsItem(BaseModel):
 class SessionPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
     )
     key: str
     label: str | None = None
@@ -3222,6 +3262,14 @@ class WorkflowVariablePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
+    )
     key: str
     label: str | None = None
     operator: PropertyOperator
@@ -3258,6 +3306,14 @@ class Integer(RootModel[int]):
 class AccountCustomPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
     )
     key: str
     label: str | None = None
@@ -4813,6 +4869,14 @@ class CohortPropertyFilter(BaseModel):
         extra="forbid",
     )
     cohort_name: str | None = None
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
+    )
     key: Literal["id"] = "id"
     label: str | None = None
     operator: PropertyOperator | None = PropertyOperator.IN_
@@ -4882,6 +4946,14 @@ class DataWarehousePersonPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
+    )
     key: str
     label: str | None = None
     operator: PropertyOperator
@@ -4892,6 +4964,14 @@ class DataWarehousePersonPropertyFilter(BaseModel):
 class DataWarehousePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
     )
     key: str
     label: str | None = None
@@ -4974,6 +5054,14 @@ class ElementPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
+    )
     key: Key10
     label: str | None = None
     operator: PropertyOperator
@@ -5020,6 +5108,14 @@ class ErrorTrackingIssueAssignee(BaseModel):
 class ErrorTrackingIssueFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
     )
     key: str
     label: str | None = None
@@ -5081,6 +5177,14 @@ class EventMetadataPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
+    )
     key: str
     label: str | None = None
     operator: PropertyOperator
@@ -5102,6 +5206,14 @@ class EventOddsRatioSerialized(BaseModel):
 class EventPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
     )
     key: str
     label: str | None = None
@@ -5401,6 +5513,14 @@ class FeaturePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
+    )
     key: str
     label: str | None = None
     operator: PropertyOperator
@@ -5536,7 +5656,14 @@ class GroupPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    group_key_names: dict[str, str] | None = None
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
+    )
     group_type_index: int | None = None
     key: str
     label: str | None = None
@@ -5616,6 +5743,14 @@ class HogQLNotice(BaseModel):
 class HogQLPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
     )
     key: str
     label: str | None = None
@@ -5810,6 +5945,14 @@ class LogEntryPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
+    )
     key: str
     label: str | None = None
     operator: PropertyOperator
@@ -5841,6 +5984,14 @@ class LogMessage(BaseModel):
 class LogPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
     )
     key: str
     label: str | None = None
@@ -6242,6 +6393,14 @@ class MetricPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
+    )
     key: str
     label: str | None = None
     operator: PropertyOperator
@@ -6560,6 +6719,14 @@ class PersonMetadataPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
+    )
     key: str
     label: str | None = None
     operator: PropertyOperator
@@ -6573,6 +6740,14 @@ class PersonMetadataPropertyFilter(BaseModel):
 class PersonPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
     )
     key: str
     label: str | None = None
@@ -7432,6 +7607,14 @@ class SourceSymbol(BaseModel):
 class SpanPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
     )
     key: str
     label: str | None = None
@@ -9389,6 +9572,14 @@ class AssistantBehavioralPropertyFilter(BaseModel):
         description=("Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval"),
     )
     explicit_datetime_to: str | None = None
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
+    )
     key: str = Field(..., description="Event name, or action id when event_type is 'actions'")
     label: str | None = None
     negation: bool | None = Field(
@@ -10804,6 +10995,14 @@ class BehavioralPropertyFilter(BaseModel):
         description=("Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval"),
     )
     explicit_datetime_to: str | None = None
+    group_key_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Display-only passthrough: resolved group names keyed by raw group key. The"
+            " serializer accepts it on any property filter, so a `<group_type>_id`"
+            " person/event value can carry it."
+        ),
+    )
     key: str = Field(..., description="Event name, or action id when event_type is 'actions'")
     label: str | None = None
     negation: bool | None = Field(
