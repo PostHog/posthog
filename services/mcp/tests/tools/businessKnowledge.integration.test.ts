@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
+import { PostHogApiError } from '@/lib/errors'
 import {
     TEST_ORG_ID,
     TEST_PROJECT_ID,
@@ -16,9 +17,98 @@ import type { Context } from '@/tools/types'
 
 const BK_FEATURE_FLAG = 'product-business-knowledge'
 
+// Prefixes this suite hands to generateUniqueKey: a source that carries one is test-owned.
+const TEST_SOURCE_PREFIXES = ['MCP Text Source', 'MCP URL Source']
+
+// The backend recovers a PROCESSING claim that is older than 10 minutes. A test
+// source older than that is therefore left over from a run that ended.
+const STALE_SOURCE_AGE_MS = 10 * 60 * 1000
+
+const POLL_INTERVAL_MS = 1000
+const SETTLE_TIMEOUT_MS = 20_000
+
+interface TestKnowledgeSource {
+    id: string
+    name?: string
+    status?: string
+    created_at?: string
+}
+
 describe('Business knowledge sources', { concurrent: false }, () => {
     let context: Context
     const createdSourceIds: string[] = []
+    const sourcesPath = `/api/projects/${TEST_PROJECT_ID}/business_knowledge/sources/`
+
+    async function listSources(): Promise<TestKnowledgeSource[]> {
+        const response = await context.api.request<TestKnowledgeSource[] | { results?: TestKnowledgeSource[] }>({
+            method: 'GET',
+            path: sourcesPath,
+            query: { limit: 100 },
+        })
+        return Array.isArray(response) ? response : (response.results ?? [])
+    }
+
+    async function deleteSource(id: string): Promise<void> {
+        try {
+            await context.api.request({ method: 'DELETE', path: `${sourcesPath}${id}/` })
+        } catch (error) {
+            console.warn(`Failed to cleanup knowledge source ${id}:`, error)
+        }
+    }
+
+    function isStaleTestSource(source: TestKnowledgeSource): boolean {
+        if (!TEST_SOURCE_PREFIXES.some((prefix) => source.name?.startsWith(prefix))) {
+            return false
+        }
+        const createdAt = Date.parse(source.created_at ?? '')
+        return Number.isFinite(createdAt) && Date.now() - createdAt > STALE_SOURCE_AGE_MS
+    }
+
+    // An interrupted run leaves its source behind, and a leftover URL source stays
+    // PROCESSING. The team allows one PROCESSING source at a time, so that leftover
+    // makes every later url-create return 409 until the backend recovers the claim.
+    async function removeStaleTestSources(): Promise<void> {
+        for (const source of await listSources()) {
+            if (isStaleTestSource(source)) {
+                await deleteSource(source.id)
+            }
+        }
+    }
+
+    async function waitUntilNoSourceIsProcessing(): Promise<void> {
+        const deadline = Date.now() + SETTLE_TIMEOUT_MS
+        while (Date.now() < deadline) {
+            const sources = await listSources()
+            if (!sources.some((source) => source.status === 'processing')) {
+                return
+            }
+            await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+        }
+    }
+
+    // A URL source is claimed in PROCESSING and ingested in the background. Drain that
+    // work before cleanup deletes the row, so the ingest does not write against a
+    // source that no longer exists.
+    async function waitUntilSettled(id: string): Promise<void> {
+        const deadline = Date.now() + SETTLE_TIMEOUT_MS
+        while (Date.now() < deadline) {
+            try {
+                const source = await context.api.request<TestKnowledgeSource>({
+                    method: 'GET',
+                    path: `${sourcesPath}${id}/`,
+                })
+                if (source.status !== 'processing') {
+                    return
+                }
+            } catch (error) {
+                if (error instanceof PostHogApiError && error.status === 404) {
+                    return
+                }
+                throw error
+            }
+            await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+        }
+    }
 
     beforeAll(async () => {
         validateEnvironmentVariables()
@@ -47,18 +137,13 @@ describe('Business knowledge sources', { concurrent: false }, () => {
                 },
             })
         }
-    })
+
+        await removeStaleTestSources()
+    }, 60_000)
 
     afterAll(async () => {
         for (const id of createdSourceIds) {
-            try {
-                await context.api.request({
-                    method: 'DELETE',
-                    path: `/api/projects/${TEST_PROJECT_ID}/business_knowledge/sources/${id}/`,
-                })
-            } catch (error) {
-                console.warn(`Failed to cleanup knowledge source ${id}:`, error)
-            }
+            await deleteSource(id)
         }
     })
 
@@ -100,6 +185,8 @@ describe('Business knowledge sources', { concurrent: false }, () => {
         // create would 409. We therefore exercise dispatch + refresh_interval in one
         // create rather than two.
         it('should dispatch source_type=url and persist refresh_interval', async () => {
+            await waitUntilNoSourceIsProcessing()
+
             const name = generateUniqueKey('MCP URL Source')
             const result = await urlCreateTool.handler(context, {
                 name,
@@ -107,13 +194,15 @@ describe('Business knowledge sources', { concurrent: false }, () => {
                 refresh_interval: '24h',
             })
             const source = parseToolResponse(result)
+            createdSourceIds.push(source.id)
 
             expect(source.id).toBeTruthy()
             expect(source.name).toBe(name)
             expect(source.source_type).toBe('url')
             expect(source.refresh_interval).toBe('24h')
-            createdSourceIds.push(source.id)
-        })
+
+            await waitUntilSettled(source.id)
+        }, 90_000)
     })
 
     describe('list', () => {
