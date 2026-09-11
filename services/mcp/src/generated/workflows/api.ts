@@ -887,7 +887,7 @@ export const HogFlowsInvocationResultRetrieveQueryParams = () => zod.object({
         .min(1)
         .optional()
         .describe(
-            "Comma-separated top-level keys of the triggering payload to return in full, e.g. 'event,person'. Pass 'all' for the whole payload. Omitted, the response stays bounded and describes the payload in 'invocation_globals_summary' instead. The payload holds a raw event with person properties, groups and parked flow state, so ask only for the keys you need."
+            "Comma-separated top-level keys of the stored run state to return in full, e.g. 'event'. Pass 'all' for the whole state. Omitted, the response stays bounded and describes the state in 'invocation_globals_summary' instead. The state holds the trigger event plus run bookkeeping such as 'personId', 'currentAction' and 'variables'. There is no top-level 'person' or 'groups' key, so ask only for the keys 'invocation_globals_summary' lists."
         ),
 })
 

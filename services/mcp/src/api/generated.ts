@@ -44843,17 +44843,17 @@ export namespace Schemas {
     }
 
     /**
-     * The top-level keys of the triggering payload named by 'include_globals'. Empty by default.
+     * The top-level keys of the stored run state named by 'include_globals'. Empty by default.
      */
     export type HogInvocationResultDetailInvocationGlobals = { [key: string]: unknown };
 
     /**
-     * Byte size of each top-level key in the triggering payload. Pass the keys you need to 'include_globals'.
+     * Byte size of each top-level key of the stored run state. Pass the keys you need to 'include_globals'.
      */
     export type InvocationGlobalsSummaryKeySizes = {[key: string]: number};
 
     export interface InvocationGlobalsSummary {
-      /** Byte size of each top-level key in the triggering payload. Pass the keys you need to 'include_globals'. */
+      /** Byte size of each top-level key of the stored run state. Pass the keys you need to 'include_globals'. */
       key_sizes: InvocationGlobalsSummaryKeySizes;
       /** @nullable */
       event_name: string | null;
@@ -44862,9 +44862,9 @@ export namespace Schemas {
     }
 
     export interface HogInvocationResultDetail {
-      /** What the triggering payload holds, without the payload itself. */
+      /** What the stored run state holds, without the state itself. */
       invocation_globals_summary: InvocationGlobalsSummary;
-      /** The top-level keys of the triggering payload named by 'include_globals'. Empty by default. */
+      /** The top-level keys of the stored run state named by 'include_globals'. Empty by default. */
       invocation_globals: HogInvocationResultDetailInvocationGlobals;
       invocation_id: string;
       status: string;
@@ -98511,7 +98511,7 @@ export namespace Schemas {
 
     export type HogFlowsInvocationResultRetrieveParams = {
     /**
-     * Comma-separated top-level keys of the triggering payload to return in full, e.g. 'event,person'. Pass 'all' for the whole payload. Omitted, the response stays bounded and describes the payload in 'invocation_globals_summary' instead. The payload holds a raw event with person properties, groups and parked flow state, so ask only for the keys you need.
+     * Comma-separated top-level keys of the stored run state to return in full, e.g. 'event'. Pass 'all' for the whole state. Omitted, the response stays bounded and describes the state in 'invocation_globals_summary' instead. The state holds the trigger event plus run bookkeeping such as 'personId', 'currentAction' and 'variables'. There is no top-level 'person' or 'groups' key, so ask only for the keys 'invocation_globals_summary' lists.
      * @minLength 1
      */
     include_globals?: string;

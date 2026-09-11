@@ -67,12 +67,15 @@ def create_hog_invocation_result(
     sync_execute(INSERT_HOG_INVOCATION_RESULT_SQL, params)
 
 
-# Shaped like a real hog_flow payload: the trigger data plus the parked flow state that
-# makes the whole blob too large to return by default.
+# The producer stores the persisted run state for a hog_flow, so the trigger event sits beside run
+# bookkeeping and the parked action state. There is no top-level person or groups key: the person is
+# held outside the state and is never persisted, and group properties reach the row only nested under
+# currentAction.hogFunctionState.
 SAMPLE_GLOBALS: dict[str, Any] = {
     "event": {"event": "$pageview", "properties": {"$current_url": "https://example.com/pricing"}},
-    "person": {"id": "p1", "properties": {"email": "person@example.com"}},
-    "groups": {"organization": {"id": "org-1"}},
+    "personId": "0195c7aa-0000-7000-8000-000000000001",
+    "actionStepCount": 3,
+    "variables": {"plan": "enterprise"},
     "currentAction": {"id": "send_email", "hogFunctionState": {"globals": {"event": {"uuid": "evt-1"}}}},
 }
 
@@ -245,7 +248,7 @@ class TestHogFlowInvocationResults(ClickhouseTestMixin, APIBaseTest):
         assert body["status"] == "failed"
         assert body["invocation_globals"] == {}
         summary = body["invocation_globals_summary"]
-        assert set(summary["key_sizes"]) == {"event", "person", "groups", "currentAction"}
+        assert set(summary["key_sizes"]) == {"event", "personId", "actionStepCount", "variables", "currentAction"}
         assert all(size > 0 for size in summary["key_sizes"].values())
         assert summary["event_name"] == "$pageview"
         assert summary["current_action_id"] == "send_email"
@@ -253,9 +256,10 @@ class TestHogFlowInvocationResults(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("event", {"event"}),
-            ("event,person", {"event", "person"}),
-            ("all", {"event", "person", "groups", "currentAction"}),
-            ("event, person ,", {"event", "person"}),
+            ("event,currentAction", {"event", "currentAction"}),
+            ("all", {"event", "personId", "actionStepCount", "variables", "currentAction"}),
+            ("event, currentAction ,", {"event", "currentAction"}),
+            ("person", set()),
             ("nope", set()),
         ]
     )

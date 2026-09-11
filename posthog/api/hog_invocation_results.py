@@ -100,8 +100,8 @@ class InvocationGlobalsSummary:
 @dataclasses.dataclass(frozen=True)
 class HogInvocationResultDetail(HogInvocationResult):
     invocation_globals_summary: InvocationGlobalsSummary
-    # Only the top-level keys the caller asked for. The whole payload — a raw event with person
-    # properties, groups and parked flow state — is unbounded, so it is opt-in per key.
+    # Only the top-level keys the caller asked for. The producer stores the persisted run state,
+    # which is unbounded because a parked action keeps its own nested globals, so it is opt-in per key.
     invocation_globals: dict[str, Any]
 
 
@@ -166,7 +166,7 @@ class InvocationGlobalsField(serializers.JSONField):
 class InvocationGlobalsSummarySerializer(DataclassSerializer):
     key_sizes = serializers.DictField(
         child=serializers.IntegerField(),
-        help_text="Byte size of each top-level key in the triggering payload. Pass the keys you need to 'include_globals'.",
+        help_text="Byte size of each top-level key of the stored run state. Pass the keys you need to 'include_globals'.",
     )
 
     class Meta:
@@ -175,10 +175,10 @@ class InvocationGlobalsSummarySerializer(DataclassSerializer):
 
 class HogInvocationResultDetailSerializer(DataclassSerializer):
     invocation_globals_summary = InvocationGlobalsSummarySerializer(
-        help_text="What the triggering payload holds, without the payload itself."
+        help_text="What the stored run state holds, without the state itself."
     )
     invocation_globals = InvocationGlobalsField(
-        help_text="The top-level keys of the triggering payload named by 'include_globals'. Empty by default."
+        help_text="The top-level keys of the stored run state named by 'include_globals'. Empty by default."
     )
 
     class Meta:
@@ -189,10 +189,11 @@ class HogInvocationResultDetailRequestSerializer(serializers.Serializer):
     include_globals = serializers.CharField(
         required=False,
         help_text=(
-            "Comma-separated top-level keys of the triggering payload to return in full, e.g. 'event,person'. "
-            f"Pass '{ALL_INVOCATION_GLOBALS}' for the whole payload. Omitted, the response stays bounded and "
-            "describes the payload in 'invocation_globals_summary' instead. The payload holds a raw event with "
-            "person properties, groups and parked flow state, so ask only for the keys you need."
+            "Comma-separated top-level keys of the stored run state to return in full, e.g. 'event'. "
+            f"Pass '{ALL_INVOCATION_GLOBALS}' for the whole state. Omitted, the response stays bounded and "
+            "describes the state in 'invocation_globals_summary' instead. The state holds the trigger event "
+            "plus run bookkeeping such as 'personId', 'currentAction' and 'variables'. There is no top-level "
+            "'person' or 'groups' key, so ask only for the keys 'invocation_globals_summary' lists."
         ),
     )
 
