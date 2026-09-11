@@ -30,7 +30,7 @@ import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
-import { isDashboardFilterEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
+import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -539,9 +539,9 @@ export function insightOverridesPresent(
     tileFiltersOverride?: TileFilters | null
 ): boolean {
     return (
-        !isDashboardFilterEmpty(filtersOverride) ||
+        !isDashboardFilterOverrideEmpty(filtersOverride) ||
         (isObject(variablesOverride) && !isEmptyObject(variablesOverride)) ||
-        !isDashboardFilterEmpty(tileFiltersOverride)
+        !isDashboardFilterOverrideEmpty(tileFiltersOverride)
     )
 }
 

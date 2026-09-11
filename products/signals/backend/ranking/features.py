@@ -1,19 +1,26 @@
-"""Feature universe for the report-ranking model.
+"""Feature universes for the report-ranking model.
 
-One ordered list of feature names, one function that turns a report-state row into that vector.
-Training (`products/signals/dags/inbox_ranking/training/`) and serving (the scoring sweep in this
-package) must build features through the same code, so the booster's `feature_names` match the
-serving matrix by construction; the model's `metadata.json` records FEATURE_SCHEMA_VERSION and the
-serving side refuses a booster whose version or feature names disagree with what it can produce.
+A `FeatureSet` is one universe: its name, its schema version, its ordered feature names, the
+report-state columns it reads, and `build_matrix`, which turns a frame of those rows into the
+matrix. A model records the set it was fit on in its `metadata.json`, so a run can hold several
+sets at once: the examples Parquet, the training matrix and the scoring matrix are all built per
+set, and a model whose declared set this build cannot produce is left unscored.
 
-v0 is tabular only: the report-state columns the dataset dag snapshots from Postgres plus the
+The tabular set is the first one. Training (`products/signals/dags/inbox_ranking/training/`) and
+serving (the scoring sweep in this package) must build features through the same code, so the
+booster's `feature_names` match the serving matrix by construction. The sweep reads the tabular
+contract directly as FEATURE_NAMES / `feature_vector` / FEATURE_SCHEMA_VERSION.
+
+The tabular set is: the report-state columns the dataset dag snapshots from Postgres plus the
 report's age at the scoring moment. No report embedding and no impression-derived columns
 (`source_products`), so the sweep needs nothing beyond the SignalReport row and its latest
 judgment artefacts. Embeddings wait for the score log to accrue (skill issue 14).
 """
 
+import abc
 import math
 from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Any
 
 import pandas as pd
@@ -39,6 +46,24 @@ FEATURE_NAMES: tuple[str, ...] = (
     "actionability_known",
     *(f"actionability_{value}" for value in ACTIONABILITY_VALUES),
 )
+
+# The report-state columns `feature_frame` reads. `age_hours` is not one of them: it is the
+# report's age at the scoring moment, derived from the snapshot's own clock, and the caller adds
+# it to the rows of every set.
+TABULAR_STATE_COLUMNS: tuple[str, ...] = (
+    "signal_count",
+    "total_weight",
+    "run_count",
+    "title_chars",
+    "summary_chars",
+    "priority",
+    "actionability",
+)
+
+# Side inputs a set may read next to the report-state rows, keyed by name and indexed by
+# report_id. The tabular set needs none.
+Extras = Mapping[str, pd.DataFrame]
+NO_EXTRAS: Extras = MappingProxyType({})
 
 
 def _number(value: Any) -> float:
@@ -89,3 +114,53 @@ def feature_frame(rows: pd.DataFrame) -> pd.DataFrame:
     for value in ACTIONABILITY_VALUES:
         out[f"actionability_{value}"] = (actionability == value).astype(float)
     return out[list(FEATURE_NAMES)]
+
+
+class FeatureSet(abc.ABC):
+    """One feature universe a model can be fit on and scored with.
+
+    `state_columns` are the report-state columns `build_matrix` reads. The caller always adds
+    `age_hours`, so a set may read that without declaring it.
+    """
+
+    name: str
+    schema_version: int
+    feature_names: tuple[str, ...]
+    state_columns: tuple[str, ...]
+
+    @abc.abstractmethod
+    def build_matrix(self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS) -> pd.DataFrame:
+        """The matrix for `rows`, one column per name in `feature_names` order.
+
+        `rows` carries the state columns the set declared plus `age_hours`, indexed by report_id.
+        `extras` carries the side inputs a set needs beyond report state.
+        """
+
+
+class TabularFeatureSet(FeatureSet):
+    """The v0 set: the report-state counters, the title and summary lengths, the report's age, and
+    the one-hot priority and actionability. This is the set `feature_vector` serves."""
+
+    name = "tabular"
+    schema_version = FEATURE_SCHEMA_VERSION
+    feature_names = FEATURE_NAMES
+    state_columns = TABULAR_STATE_COLUMNS
+
+    def build_matrix(self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS) -> pd.DataFrame:
+        return feature_frame(rows)
+
+
+TABULAR_FEATURE_SET = TabularFeatureSet()
+
+# Every set this build can produce, by name. A model that names a set absent from here cannot be
+# scored, the same way a model whose feature names have moved on cannot.
+FEATURE_SETS: Mapping[str, FeatureSet] = MappingProxyType({TABULAR_FEATURE_SET.name: TABULAR_FEATURE_SET})
+
+# What a model written before `feature_set` was recorded was fit on: every one of those is tabular.
+DEFAULT_FEATURE_SET = TABULAR_FEATURE_SET
+
+
+def feature_set_by_name(name: str | None) -> FeatureSet | None:
+    """The named set, the tabular default when the name is absent, or None when this build cannot
+    produce it."""
+    return DEFAULT_FEATURE_SET if name is None else FEATURE_SETS.get(name)

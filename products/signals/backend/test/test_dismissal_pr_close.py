@@ -105,6 +105,38 @@ class TestClosePrWhenReportDismissed(BaseTest):
             self._save_transition(report, SignalReport.Status.RESOLVED)
         mock_task.delay.assert_not_called()
 
+    def test_pr_merge_enqueues_completed_tracker_close(self):
+        report = self._create_report()
+        SignalReportAssignment.all_teams.create(
+            team=self.team,
+            report=report,
+            pr_url=_PR_URL,
+            repository="posthog/posthog",
+            pr_number=123,
+            pr_state=SignalReportAssignment.PrState.OPEN,
+        )
+
+        with patch("products.signals.backend.receivers.close_report_tracker_issue") as mock_task:
+            with self.captureOnCommitCallbacks(execute=True):
+                update_assignments_for_pull_request(
+                    team_ids=[self.team.id],
+                    repository="posthog/posthog",
+                    pr_number=123,
+                    pr_state=SignalReportAssignment.PrState.MERGED,
+                )
+
+        mock_task.delay.assert_called_once_with(report_id=str(report.id), team_id=self.team.id, completed=True)
+
+    def test_deleting_a_report_enqueues_a_tracker_close(self):
+        # A deleted report never returns to the inbox, so its tracker issue would otherwise stay
+        # open with nothing left to answer it.
+        report = self._create_report()
+
+        with patch("products.signals.backend.receivers.close_report_tracker_issue") as mock_task:
+            self._save_transition(report, SignalReport.Status.DELETED)
+
+        mock_task.delay.assert_called_once_with(report_id=str(report.id), team_id=self.team.id, completed=False)
+
     def test_pr_closed_webhook_does_not_enqueue_for_any_linked_report(self):
         reports = [self._create_report(), self._create_report()]
         for report in reports:

@@ -2,7 +2,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
@@ -12,10 +12,6 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-# Load the API URLconf (and its pydantic.v1 import chain) before any freeze_time window:
-# first-importing date-subclassing modules under freezegun's fake date raises a metaclass
-# conflict, which standalone runs of this file otherwise hit on the first request.
-import posthog.api.rest_router  # noqa: F401
 from posthog.models import Organization, Team
 
 from products.signals.backend.billing import SIGNALS_CREDITS_PER_REPORT_WITH_PR
@@ -80,7 +76,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
     def _refund(self, report: SignalReport, body: dict | None = None):
         return self.client.post(self._refund_url(str(report.id)), body or {"reason": "pr_not_useful"}, format="json")
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_refund_earlier_in_period_goes_credited_and_archives(self, _flag):
         report = self._report_with_pr(pr_created_at=datetime(2026, 6, 10, 9, 30, tzinfo=UTC))
         response = self._refund(report, {"reason": "pr_incorrect", "note": "does not fix the bug"})
@@ -112,14 +108,14 @@ class TestSignalReportRefundAPI(APIBaseTest):
         assert content["reason"] == "refunded"
         assert content["note"] == "does not fix the bug"
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_refund_on_pr_run_day_goes_excluded(self, _flag):
         report = self._report_with_pr(pr_created_at=datetime(2026, 6, 15, 8, 0, tzinfo=UTC))
         response = self._refund(report)
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["billing_path"] == "excluded"
 
-    @freeze_time("2026-06-15T00:30:00Z")
+    @time_machine.travel("2026-06-15T00:30:00Z", tick=False)
     def test_refund_just_after_utc_midnight_goes_credited(self, _flag):
         # The path rule is the PR run's UTC day, not "before the 03:45 send" — a 23:50 PR refunded
         # at 00:30 must go credited even though the usage report hasn't shipped yet.
@@ -128,14 +124,14 @@ class TestSignalReportRefundAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["billing_path"] == "credited"
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_refund_without_billable_pr_is_rejected(self, _flag):
         report = _make_report(self.team)
         response = self._refund(report)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "no billable implementation PR" in response.json()["error"]
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_refund_for_previous_period_pr_is_rejected(self, _flag):
         report = self._report_with_pr(pr_created_at=datetime(2026, 5, 20, tzinfo=UTC))
         response = self._refund(report)
@@ -148,7 +144,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
             ("pr_in_previous_month", datetime(2026, 5, 20, tzinfo=UTC), status.HTTP_400_BAD_REQUEST),
         ]
     )
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_missing_billing_period_falls_back_to_calendar_month(self, _flag, _name, pr_created_at, expected_status):
         self.organization.usage = None
         self.organization.save()
@@ -165,7 +161,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
             ("billing_exempt", "billing_exempt"),
         ]
     )
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_report_response_carries_refund_ineligibility_reason(self, _flag, case, expected):
         # The serializer field shares the refund endpoint's eligibility decision (billable moment +
         # period context + helper); a wiring regression would re-enable buttons that only 400.
@@ -194,7 +190,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
         listed = {row["id"]: row for row in list_response.json()["results"]}
         assert listed[str(report.id)]["refund_ineligibility_reason"] == expected
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_refund_on_exempt_report_is_rejected(self, _flag):
         report = self._report_with_pr(pr_created_at=datetime(2026, 6, 10, tzinfo=UTC))
         SignalReport.objects.filter(id=report.id).update(
@@ -204,7 +200,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "never-billable" in response.json()["error"]
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_second_refund_is_idempotent(self, _flag):
         report = self._report_with_pr(pr_created_at=datetime(2026, 6, 10, tzinfo=UTC))
         first = self._refund(report, {"reason": "pr_incorrect"})
@@ -218,7 +214,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
         assert second.json()["id"] == first.json()["id"]
         assert SignalReportRefund.objects.filter(report=report).count() == 1
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_refund_reaches_already_archived_report(self, _flag):
         # An archived-but-charged report must still be refundable (suppressed reports are hidden
         # from most by-id actions); it stays suppressed.
@@ -239,7 +235,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
             ("resolved_without_merge", {"pr_url": "https://github.com/x/y/pull/1"}, SignalReport.Status.SUPPRESSED),
         ]
     )
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_refund_of_resolved_report_suppresses_unless_pr_merged(self, _flag, _name, output, expected_status):
         report = _make_report(self.team, status=SignalReport.Status.RESOLVED)
         _make_pr_run(self.team, report, created_at=datetime(2026, 6, 10, tzinfo=UTC), output=output)
@@ -252,14 +248,14 @@ class TestSignalReportRefundAPI(APIBaseTest):
             report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
         ).exists()
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_invalid_reason_is_rejected(self, _flag):
         report = self._report_with_pr(pr_created_at=datetime(2026, 6, 10, tzinfo=UTC))
         response = self._refund(report, {"reason": "because"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not SignalReportRefund.objects.filter(report=report).exists()
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_credited_refund_enqueues_billing_sync_on_commit(self, _flag):
         report = self._report_with_pr(pr_created_at=datetime(2026, 6, 10, tzinfo=UTC))
         with patch("products.signals.backend.views.sync_signals_refund_credit.delay") as mock_delay:
@@ -268,7 +264,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         mock_delay.assert_called_once_with(str(report.refund.id))
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_excluded_refund_never_calls_billing(self, _flag):
         report = self._report_with_pr(pr_created_at=datetime(2026, 6, 15, 8, 0, tzinfo=UTC))
         with patch("products.signals.backend.views.sync_signals_refund_credit.delay") as mock_delay:
@@ -277,7 +273,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         mock_delay.assert_not_called()
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_refund_fires_analytics_event(self, _flag):
         report = self._report_with_pr(pr_created_at=datetime(2026, 6, 10, tzinfo=UTC))
         with patch("products.signals.backend.views.report_user_action") as mock_report:
@@ -308,7 +304,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
             ),
         ]
     )
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_analytics_pr_merged_reflects_merge_flag_not_status(self, _flag, _name, report_status, output, expected):
         report = _make_report(self.team, status=report_status)
         _make_pr_run(self.team, report, created_at=datetime(2026, 6, 10, tzinfo=UTC), output=output)
@@ -316,7 +312,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
             assert self._refund(report).status_code == status.HTTP_200_OK
         assert mock_report.call_args.kwargs["properties"]["pr_merged"] is expected
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_later_merged_pr_does_not_vouch_for_the_refunded_one(self, _flag):
         # The refund reverses the charge for the first billable PR, and it's that PR which must be
         # closed if it never merged. A different, later PR on the same report merging says nothing
@@ -342,7 +338,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
         report.refresh_from_db()
         assert report.status == SignalReport.Status.SUPPRESSED
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_merge_flag_on_non_github_run_does_not_attest_a_merge(self, _flag):
         # A billable GitHub run makes the report refundable, while a second implementation run
         # carries a merge flag on a URL the billing path never counts. That flag must not attest a
@@ -368,7 +364,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
         report.refresh_from_db()
         assert report.status == SignalReport.Status.SUPPRESSED
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_restore_of_refunded_report_is_blocked(self, _flag):
         report = self._report_with_pr(pr_created_at=datetime(2026, 6, 10, tzinfo=UTC))
         assert self._refund(report).status_code == status.HTTP_200_OK
@@ -379,7 +375,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
         report.refresh_from_db()
         assert report.status == SignalReport.Status.SUPPRESSED
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_snooze_of_refunded_resolved_report_is_blocked(self, _flag):
         # A merged-PR report stays RESOLVED through its refund, so the guard can't key on SUPPRESSED:
         # snoozing it to POTENTIAL would put a refunded report back where grouping re-promotes it to
@@ -401,7 +397,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
         report.refresh_from_db()
         assert report.status == SignalReport.Status.RESOLVED
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_resolve_of_refunded_report_is_blocked(self, _flag):
         # A refunded report is suppressed; resolving would undo that suppression — and the PR close
         # it triggers — so the refund guard must cover resolve too (not just restore to potential).
@@ -414,7 +410,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
         report.refresh_from_db()
         assert report.status == SignalReport.Status.SUPPRESSED
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_resolve_then_refund_suppresses_report(self, _flag):
         # The exploit path the refund must close: a task:write caller resolves a ready report through
         # the API while its PR is still open, then refunds it. If the refund left it RESOLVED the
@@ -431,7 +427,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
         reopen = self.client.post(self._state_url(str(report.id)), {"state": "resolved"}, format="json")
         assert reopen.status_code == status.HTTP_409_CONFLICT
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_bulk_restore_of_refunded_report_is_blocked(self, _flag):
         refunded = self._report_with_pr(pr_created_at=datetime(2026, 6, 10, tzinfo=UTC))
         assert self._refund(refunded).status_code == status.HTTP_200_OK
@@ -452,7 +448,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
         refunded.refresh_from_db()
         assert refunded.status == SignalReport.Status.SUPPRESSED
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_report_response_includes_refund_and_exemption_fields(self, _flag):
         report = self._report_with_pr(pr_created_at=datetime(2026, 6, 10, tzinfo=UTC))
         self._refund(report)
@@ -463,7 +459,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
         assert body["refund"]["reason"] == "pr_not_useful"
         assert body["billing_exempt_reason"] is None
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_refund_summary_aggregates_credited_refunds_org_wide(self, _flag):
         # Two teams in the org contribute; excluded-path, out-of-period, and foreign-org refunds don't.
         report_a = self._report_with_pr(pr_created_at=datetime(2026, 6, 10, tzinfo=UTC))
@@ -496,7 +492,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
             "quota_limited": False,
         }
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_refund_summary_counts_unreported_prs_live_until_excluded_refund(self, _flag):
         # A PR created today hasn't shipped to billing yet but must count in the live number,
         # and a same-day (excluded-path) refund must visibly un-count it.
@@ -507,7 +503,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
         assert self._refund(report).json()["billing_path"] == "excluded"
         assert self.client.get(url).json()["period_billable_credits"] == 0
 
-    @freeze_time(_NOW)
+    @time_machine.travel(_NOW, tick=False)
     def test_refund_summary_reports_quota_limited_from_the_gate(self, _flag):
         # The widget's "agents are paused" banner keys off this field, so it must reflect the
         # same gate the pipeline enforces, not the widget's own usage math.

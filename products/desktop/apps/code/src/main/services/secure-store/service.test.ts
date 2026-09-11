@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import {
   mkdtempSync,
   readdirSync,
@@ -10,7 +11,15 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { secureStoreRouter } from "@posthog/host-router/routers/secure-store.router";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { ElectronClaudeSubscriptionTokenStore } from "../../platform-adapters/electron-claude-subscription-token-store";
 import { type SecureStoreBackend, SecureStoreService } from "./service";
 
@@ -22,6 +31,14 @@ const safeStorage = vi.hoisted(() => ({
 }));
 
 vi.mock("electron", () => ({ safeStorage }));
+
+beforeAll(() => {
+  vi.spyOn(crypto, "scryptSync").mockReturnValue(Buffer.alloc(32));
+});
+
+afterAll(() => {
+  vi.restoreAllMocks();
+});
 
 function makeFakeBackend(initial: Record<string, string> = {}) {
   const data = new Map<string, string>(Object.entries(initial));

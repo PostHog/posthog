@@ -3,8 +3,13 @@ import {
   canvasBuildStatusSchema,
 } from "@posthog/shared";
 import { z } from "zod";
+import { canvasBuildRecordSchema } from "./canvasBuildSchemas";
 import { canvasAgentRequestInputSchema } from "./freeformSchemas";
-import { componentMetaSchema } from "./gridLayoutSchemas";
+import {
+  canvasLayoutSchema,
+  componentLifecycleSeedSchema,
+  componentMetaSchema,
+} from "./gridLayoutSchemas";
 
 export const canvasCreatorSchema = z.object({
   id: z.number().optional(),
@@ -97,6 +102,23 @@ export const canvasSourceSchema = z.object({
   currentVersionId: z.string().nullish(),
 });
 export type CanvasSource = z.infer<typeof canvasSourceSchema>;
+
+// Everything the app needs to open a canvas, in one round trip (the `view`
+// endpoint): the record, the live build with its signed artifact URL, and,
+// only when there is nothing built to render, the head source (freeform/
+// component) or layout (grid).
+export const canvasViewSchema = z.object({
+  record: dashboardRecordSchema,
+  publishedBuild: canvasBuildRecordSchema.nullable(),
+  currentVersionId: z.string().nullable(),
+  hasActiveBuild: z.boolean(),
+  source: canvasSourceProjectSchema.nullable(),
+  layout: canvasLayoutSchema.nullable(),
+  // For grids: the placed components' renderable builds, so a primed grid
+  // renders without a builds fetch per placement.
+  componentLifecycles: z.array(componentLifecycleSeedSchema).optional(),
+});
+export type CanvasView = z.infer<typeof canvasViewSchema>;
 
 export const listDashboardsInput = z.object({ channelId: z.string().min(1) });
 
@@ -242,6 +264,7 @@ export const requestCanvasAgentInput = canvasAgentRequestInputSchema.extend({
 });
 
 export const canvasConnectorCallServiceInput = z.object({
+  approval_token: z.string().max(200).optional(),
   id: z.string().min(1),
   provider: z.string().min(1).max(300),
   tool: z.string().min(1).max(200),
@@ -251,10 +274,12 @@ export const canvasConnectorCallServiceInput = z.object({
 // Mirrors the API's connector call result. `status` is "ok" when `result`
 // holds the tool output; every other status explains itself in `detail`.
 export const canvasConnectorCallResultSchema = z.object({
+  approval_token: z.string().nullable().optional(),
   status: z.enum([
     "ok",
     "not_connected",
     "needs_reauth",
+    "needs_approval",
     "blocked",
     "tool_missing",
     "write_blocked",

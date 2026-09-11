@@ -39,10 +39,11 @@ pub(super) async fn resolve_distinct_ids(
         pdi_table = tables.person_distinct_id,
         person_table = tables.person,
     );
+    let mut conn = super::acquire_timed(pool).await?;
     let rows = sqlx::query(&sql)
         .bind(&team_ids)
         .bind(&distinct_ids)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
 
     let mut resolved = HashMap::with_capacity(rows.len());

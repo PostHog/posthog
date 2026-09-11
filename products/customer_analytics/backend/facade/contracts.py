@@ -105,6 +105,12 @@ class Account:
 
 
 @dataclass(frozen=True)
+class AccountPresenceViewer:
+    user_id: int
+    display_name: str
+
+
+@dataclass(frozen=True)
 class EmailAccountMatch:
     account_id: str
     account_external_id: str | None

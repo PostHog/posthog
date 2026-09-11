@@ -10,10 +10,13 @@ adapters: input validation + the shared preflight gates + attribution, then call
 Opt-in is by `allowed_tools`: a scout gets these only if its skill lists `emit_report` / `edit_report`,
 intersected with what `tools/__init__.py` re-exports.
 
-Like `emit_finding`, these are NOT idempotent — a retried `emit_report` authors a second report. The
-dedup story is the vanilla inbox tools (`inbox-reports-list` / `inbox-reports-retrieve`) plus a
-`report:<domain>:<entity>` scratchpad key the scout maintains; callers must not retry an authoring call
-that may have succeeded.
+`emit_report` carries an idempotency key, so a retried emission returns the report the first call
+authored instead of a second one. The key is the caller's `idempotency_key` when it supplies one, and
+the report's own content when it doesn't, scoped to the authoring run either way. This covers the
+retry a scout sends after a proxy timeout, not cross-run dedup: telling one run's finding from a
+previous run's is still the vanilla inbox tools (`inbox-reports-list` / `inbox-reports-retrieve`) plus
+a `report:<domain>:<entity>` scratchpad key the scout maintains. `edit_report` remains NOT idempotent
+— a retried edit appends a second note.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ import re
 import json
 import uuid
 import asyncio
+import hashlib
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -51,7 +55,12 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalScoutRun
 from products.signals.backend.report_charts import ChartSize, ReportChart, chart_batch_error
-from products.signals.backend.report_generation.resolve_reviewers import get_org_member_github_logins_by_user_uuid
+from products.signals.backend.report_generation.resolve_reviewers import (
+    ReviewerIdentitySet,
+    get_org_member_github_logins_by_user_uuid,
+    resolve_org_github_login_to_users,
+    resolve_org_users_by_uuid,
+)
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_prompts import normalize_suggested_prompts, suggested_prompts_batch_error
 from products.signals.backend.scout_harness.prompt import SELF_IMPROVEMENT_REPORT_TITLE_PREFIX
@@ -69,12 +78,15 @@ from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_
 from products.signals.backend.scout_report import (
     INFERRED_REPOSITORY_REASON,
     MAX_REPORT_SIGNALS,
+    ExistingScoutReport,
     InvalidScoutReportError,
+    ScoutReportAlreadyEmittedError,
     ScoutReportSignal,
     append_report_evidence,
     append_report_note,
     create_scout_report,
     emit_appended_report_evidence,
+    find_scout_report_by_idempotency_key,
     get_scout_report_signal_count,
     get_scout_report_status,
     get_scout_report_title,
@@ -105,6 +117,8 @@ MAX_SUGGESTED_REVIEWERS = 10
 # per-item description (or summary) lets one malformed call spend/fail on a huge LLM prompt.
 MAX_EVIDENCE_DESCRIPTION_LENGTH = 4000
 MAX_REPORT_SUMMARY_LENGTH = 20000
+# The caller-supplied part of an emit key, bounded so the stored key (run id + this) fits the column.
+MAX_IDEMPOTENCY_KEY_LENGTH = 200
 
 # Repository modes for `emit_report`, mirroring `custom_agent`'s three-mode contract:
 #   "owner/repo" -> that repo; NO_REPO -> explicitly no repo (lands without a draft PR);
@@ -162,6 +176,8 @@ class EmitReportResult:
     `remediation` carries a one-line, scout-actionable next step for that skip (see
     `EMIT_SKIP_REMEDIATION`) so a gate-skipped report isn't a dead end — the scout learns why its
     report was dropped and how to unblock it rather than losing a full run to a silent skip.
+    `idempotent_replay` means this call authored nothing because its emit key already had a report:
+    the fields above describe that first report, so the caller reads its own emission back.
     """
 
     report_id: str | None
@@ -170,6 +186,7 @@ class EmitReportResult:
     skipped_reason: str | None
     safety_explanation: str | None
     remediation: str | None = None
+    idempotent_replay: bool = False
 
 
 @dataclass(frozen=True)
@@ -367,6 +384,43 @@ def _gate_skip_result(preflight: str) -> EmitReportResult:
     )
 
 
+def _emit_idempotency_key(
+    *, run: SignalScoutRun, supplied: str | None, title: str, summary: str, evidence: list[ReportEvidence]
+) -> str:
+    """The key this emission is stored under, always scoped to the authoring run.
+
+    A supplied key is the caller's own name for the emission, so a retry that rewords the report still
+    resolves to the first one. Without a key the report's identity is the key, which still covers the
+    case the barrier exists for: an emission times out at a proxy while the server keeps working, and
+    the scout sends the same call again. Identity is the title, the summary, and the evidence, not the
+    routing around them — a resend that only adds `suggested_reviewers` is the same report, and belongs
+    on `edit_report`. Run-scoped either way, so a later run can still report a finding nothing fixed."""
+    if supplied is not None:
+        key = supplied.strip()
+        if not key:
+            raise InvalidScoutReportError("idempotency_key must not be blank")
+        if len(key) > MAX_IDEMPOTENCY_KEY_LENGTH:
+            raise InvalidScoutReportError(f"idempotency_key must be at most {MAX_IDEMPOTENCY_KEY_LENGTH} characters")
+        return f"{run.id}:key:{key}"
+    content = json.dumps(
+        [title, summary, [[item.source_id, item.description] for item in evidence]], separators=(",", ":")
+    )
+    return f"{run.id}:auto:{hashlib.sha256(content.encode()).hexdigest()}"
+
+
+def _replay_result(existing: ExistingScoutReport) -> EmitReportResult:
+    """What a retried emission returns: the first report, at the status it holds now. No
+    `safety_explanation` — the judge ran on the call that authored it, not on this one."""
+    return EmitReportResult(
+        report_id=existing.report_id,
+        status=existing.status,
+        emitted=_surfaced(existing.status),
+        skipped_reason=None,
+        safety_explanation=None,
+        idempotent_replay=True,
+    )
+
+
 def _emit_result(persisted_report_id: str, judgement: ScoutReportJudgement) -> EmitReportResult:
     return EmitReportResult(
         report_id=persisted_report_id,
@@ -398,17 +452,22 @@ def _build_priority(priority: str | None, explanation: str | None) -> PriorityAs
     return PriorityAssessment(priority=priority_level, explanation=explanation)
 
 
-def _owner_logins(team: Team, skill_name: str) -> set[str]:
-    """The running scout's owner GitHub logins (lowercased), for stamping reviewer provenance.
+def _owner_identities(team: Team, skill_name: str) -> ReviewerIdentitySet:
+    """The running scout's owners, for stamping reviewer provenance.
 
-    Owners come from `LLMSkillOwner`. Owners with no linked GitHub identity aren't included — they
-    can't be a routable reviewer, and provenance only matters for a login that could appear in the
-    artefact. Used to mark, not to inject: routing is the scout's call (see `_build_suggested_reviewers`)."""
+    Owners come from `LLMSkillOwner`. Both identities are collected because an owner with no linked
+    GitHub account is a routable reviewer too, and the stamp has to recognize them however the
+    scout named them. Used to mark, not to inject: routing is the scout's call (see
+    `_build_suggested_reviewers`)."""
     owner_uuids = resolve_skill_owner_user_uuids(team, skill_name)
     if not owner_uuids:
-        return set()
+        return ReviewerIdentitySet.empty()
     uuid_to_login = get_org_member_github_logins_by_user_uuid(team.id, owner_uuids)
-    return {login for login in uuid_to_login.values() if login}  # already lowercased by the resolver
+    return ReviewerIdentitySet(
+        user_uuids=frozenset(str(u) for u in owner_uuids),
+        # already lowercased by the resolver
+        github_logins=frozenset(login for login in uuid_to_login.values() if login),
+    )
 
 
 def _build_suggested_reviewers(
@@ -417,16 +476,17 @@ def _build_suggested_reviewers(
     *,
     skill_name: str | None = None,
 ) -> SuggestedReviewers | None:
-    """Resolve reviewer entries to a canonical, lowercased, deduped `suggested_reviewers` artefact
-    (GitHub logins), or None to omit it.
+    """Resolve reviewer entries to a canonical, deduped `suggested_reviewers` artefact, or None to
+    omit it.
 
-    Each scout-supplied entry identifies a reviewer by `github_login`, `user_uuid`, or both — mirroring
-    the inbox `SuggestedReviewerEntryWriteSerializer`. A `user_uuid` is resolved to the org member's
-    linked GitHub login (and wins over a supplied `github_login` when both are given), so a scout that
-    only knows a PostHog user can still route a report. Resolution is fail-loud: a `user_uuid` that
-    isn't an org member of this team with a linked GitHub identity raises `InvalidScoutReportError`
-    rather than silently dropping the reviewer, since a quietly-lost reviewer is what leaves a report
-    routed to no one.
+    Each scout-supplied entry identifies a reviewer by `github_login`, `user_uuid`, or both —
+    mirroring the inbox `SuggestedReviewerEntryWriteSerializer`. A reviewer is a PostHog user, so a
+    `user_uuid` only has to name an org member of this team: a member who never connected GitHub is
+    stored by uuid with a null login and routes like anyone else. A supplied login is stored
+    alongside the uuid of the org member it names, so the entry keeps routing if they later unlink
+    GitHub. Resolution is fail-loud: a `user_uuid` that isn't an org member of this team raises
+    `InvalidScoutReportError` rather than silently dropping the reviewer, since a quietly-lost
+    reviewer is what leaves a report routed to no one.
 
     **The scout owns routing.** Owners are *not* injected here — they're surfaced to the scout as
     context (the run prompt's skill-owners line) so it can decide, and a skill body that says "route
@@ -460,30 +520,38 @@ def _build_suggested_reviewers(
             raise InvalidScoutReportError("each suggested reviewer needs a github_login or a user_uuid")
 
     uuids_to_resolve = [str(entry.user_uuid) for entry in reviewers if entry.user_uuid]
-    uuid_to_login = get_org_member_github_logins_by_user_uuid(team.id, uuids_to_resolve) if uuids_to_resolve else {}
+    uuid_to_user = resolve_org_users_by_uuid(team.id, uuids_to_resolve) if uuids_to_resolve else {}
+    logins_to_resolve = {
+        (entry.github_login or "").strip().lower()
+        for entry in reviewers
+        if not entry.user_uuid and (entry.github_login or "").strip()
+    }
+    login_to_user = resolve_org_github_login_to_users(team.id, logins_to_resolve) if logins_to_resolve else {}
 
     scout_entries: list[SuggestedReviewerEntry] = []
     for entry in reviewers:
         if entry.user_uuid:
-            resolved = uuid_to_login.get(str(entry.user_uuid))
-            if not resolved:
-                raise InvalidScoutReportError(
-                    f"user_uuid '{entry.user_uuid}' is not an org member of this team with a linked GitHub identity"
-                )
-            login = resolved.lower()
+            member = uuid_to_user.get(str(entry.user_uuid))
+            if member is None:
+                raise InvalidScoutReportError(f"user_uuid '{entry.user_uuid}' is not an org member of this team")
+            user_uuid: str | None = str(member.uuid)
+            member_login = member.get_github_login()
+            login: str | None = member_login.lower() if member_login else None
         else:
-            login = (entry.github_login or "").strip().lower()
+            login = (entry.github_login or "").strip().lower() or None
             if not login:
                 raise InvalidScoutReportError("github_login resolved to empty after normalization")
+            member = login_to_user.get(login)
+            user_uuid = str(member.uuid) if member is not None else None
         reason = entry.reason.strip() if entry.reason and entry.reason.strip() else None
-        scout_entries.append(SuggestedReviewerEntry(github_login=login, reason=reason))
+        scout_entries.append(SuggestedReviewerEntry(github_login=login, user_uuid=user_uuid, reason=reason))
 
-    # Dedupe by login (a login + its uuid can resolve to the same person), preserving the scout's
+    # Dedupe by identity (a login and its owner's uuid are the same person), preserving the scout's
     # order — there's no reordering, so the scout's ranking is the routing order.
-    entries_by_login: dict[str, SuggestedReviewerEntry] = {}
+    entries_by_identity: dict[str, SuggestedReviewerEntry] = {}
     for scout_entry in scout_entries:
-        entries_by_login.setdefault(scout_entry.github_login, scout_entry)
-    entries = list(entries_by_login.values())[:MAX_SUGGESTED_REVIEWERS]
+        entries_by_identity.setdefault(scout_entry.github_login or f"user:{scout_entry.user_uuid}", scout_entry)
+    entries = list(entries_by_identity.values())[:MAX_SUGGESTED_REVIEWERS]
 
     if not entries:
         return None
@@ -505,10 +573,15 @@ def _stamp_owner_provenance(team: Team, reviewers: SuggestedReviewers, *, skill_
     the pick: autostart's live owner exclusion also resolves the touching scouts from the run's
     edit/emit tallies, but those writes are best-effort — a lost tally must not lose the exclusion.
     """
-    owners = _owner_logins(team, skill_name) if skill_name else set()
+    owners = _owner_identities(team, skill_name) if skill_name else ReviewerIdentitySet.empty()
     entries = [
         # model_copy keeps every other field (name, commit evidence) exactly as the entry carries it.
-        e.model_copy(update={"is_skill_owner": e.github_login in owners, "source_skill": skill_name or None})
+        e.model_copy(
+            update={
+                "is_skill_owner": owners.covers(user_uuid=e.user_uuid, github_login=e.github_login),
+                "source_skill": skill_name or None,
+            }
+        )
         for e in reviewers.root
     ]
     return SuggestedReviewers(root=entries)
@@ -936,8 +1009,10 @@ def _capture_report_emitted(
 
     `outcome` is the single dimension to segment the channel funnel on: `gate_skipped` (a preflight gate
     stopped the call before any report existed), `suppressed` (authored but the judge / actionability kept
-    it out of the inbox), or `surfaced` (landed in the inbox as READY / PENDING_INPUT). The event also
-    carries the report's content (`title` / `summary` / `actionability` / `priority` / `repository` /
+    it out of the inbox), `surfaced` (landed in the inbox as READY / PENDING_INPUT), or
+    `idempotent_replay` (the emit key already had a report, so this call authored nothing — its own
+    bucket, so a retry never counts as a second report, and so the retry rate stays measurable).
+    The event also carries the report's content (`title` / `summary` / `actionability` / `priority` / `repository` /
     `safety_explanation`) — parity with the signal channel's `signal_emitted`, so internal consumers
     (dashboards, alerts, CDP forwards) can act on a report's substance, not just its ids. Content rides
     every outcome, including `gate_skipped` (it records what would have been authored). Also stamped
@@ -949,7 +1024,9 @@ def _capture_report_emitted(
     Returns the customer-facing fan-out payload for the caller to forward, or None to suppress the
     fan-out — a disabled / dry-run gate-skip records the attempt on the internal stream here but must
     not fire an automation-driving event into the team's own project."""
-    if result.skipped_reason is not None:
+    if result.idempotent_replay:
+        outcome = "idempotent_replay"
+    elif result.skipped_reason is not None:
         outcome = "gate_skipped"
     elif result.emitted:
         outcome = "surfaced"
@@ -1126,6 +1203,7 @@ async def emit_report(
     suggested_reviewers: list[ReviewerInput] | None = None,
     charts: list[ReportChartInput] | None = None,
     suggested_prompts: list[str] | None = None,
+    idempotency_key: str | None = None,
 ) -> EmitReportResult:
     """Author a full report: judge for safety, then persist at the judged status. Async entry (used by
     the in-Temporal runner); routes the sync DB work through `database_sync_to_async`.
@@ -1135,7 +1213,11 @@ async def emit_report(
     open a draft PR. They're only resolved/written when the report actually surfaces.
 
     `charts` are the optional queries the inbox renders on the report, and `suggested_prompts` the
-    optional prompts (questions or next-step actions) it offers above the report's "Ask AI" box."""
+    optional prompts (questions or next-step actions) it offers above the report's "Ask AI" box.
+
+    `idempotency_key` names this emission, so a retry after a timeout returns the first report instead
+    of a twin (see `_emit_idempotency_key`). One is derived from the content when the caller supplies
+    none, so a resent call is safe either way."""
     _assert_team_owns_run(team, run)
     _validate_emit_inputs(title, summary, evidence)
     chart_contents = _build_charts(charts)
@@ -1148,15 +1230,10 @@ async def emit_report(
         explanation=actionability_explanation, choice=actionability, already_addressed=already_addressed
     )
     priority_assessment = _build_priority(priority, priority_explanation)
-    # Resolves user_uuid → github_login (a DB read), so bridge it off the event loop. Runs before the
-    # safety judge so an unresolvable reviewer fails fast rather than after paying for the LLM call.
-    reviewers = await database_sync_to_async(_build_suggested_reviewers, thread_sensitive=False)(
-        team, suggested_reviewers, skill_name=run.skill_name
-    )
+    emit_key = _emit_idempotency_key(run=run, supplied=idempotency_key, title=title, summary=summary, evidence=evidence)
 
-    preflight = await database_sync_to_async(_preflight_emit_gates, thread_sensitive=False)(team, run)
-    if preflight is not None:
-        result = _gate_skip_result(preflight)
+    async def finish(result: EmitReportResult) -> EmitReportResult:
+        # Every exit reports the same call, so the capture and the fan-out sit here, not beside each return.
         forward = await database_sync_to_async(_capture_report_emitted, thread_sensitive=False)(
             team=team,
             run=run,
@@ -1173,6 +1250,24 @@ async def emit_report(
         )
         await _forward_report_event_async(team, forward)
         return result
+
+    # Ahead of the gates: the report this emission already authored outranks a gate the project has
+    # crossed since, and answering a retry with "skipped" would hide a report that exists.
+    existing = await database_sync_to_async(find_scout_report_by_idempotency_key, thread_sensitive=False)(
+        team_id=team.id, idempotency_key=emit_key
+    )
+    if existing is not None:
+        return await finish(_replay_result(existing))
+
+    # Resolves user_uuid → github_login (a DB read), so bridge it off the event loop. Runs before the
+    # safety judge so an unresolvable reviewer fails fast rather than after paying for the LLM call.
+    reviewers = await database_sync_to_async(_build_suggested_reviewers, thread_sensitive=False)(
+        team, suggested_reviewers, skill_name=run.skill_name
+    )
+
+    preflight = await database_sync_to_async(_preflight_emit_gates, thread_sensitive=False)(team, run)
+    if preflight is not None:
+        return await finish(_gate_skip_result(preflight))
 
     task_id = await database_sync_to_async(_resolve_task_id, thread_sensitive=False)(run)
     attribution = _attribution_for(task_id)
@@ -1205,28 +1300,34 @@ async def emit_report(
         reviewers = await database_sync_to_async(_stamp_owner_provenance, thread_sensitive=False)(
             team, reviewers, skill_name=run.skill_name
         )
-    persisted = await database_sync_to_async(create_scout_report, thread_sensitive=False)(
-        team_id=team.id,
-        title=title,
-        summary=summary,
-        signals=signals,
-        attribution=attribution,
-        status=judgement.status,
-        safety=judgement.safety,
-        actionability=judgement.actionability,
-        repo_selection=repo_selection,
-        priority=priority_assessment if surfaced else None,
-        suggested_reviewers=reviewers if surfaced else None,
-        charts=chart_contents,
-        # A judged-unsafe report keeps its prose for audit, but not its prompts: a suppressed report
-        # is still reachable from the Dismissed view, where a click would hand the judge-rejected
-        # wording to an action-capable agent run.
-        suggested_prompts=prompt_contents if judgement.safety.choice else (),
-        # Don't index the backing observations of a safety-suppressed (unsafe) report — they'd
-        # otherwise become semantic-search / matching context despite never surfacing.
-        emit_signals=judgement.safety.choice,
-        run=run,
-    )
+    try:
+        persisted = await database_sync_to_async(create_scout_report, thread_sensitive=False)(
+            team_id=team.id,
+            title=title,
+            summary=summary,
+            signals=signals,
+            attribution=attribution,
+            status=judgement.status,
+            safety=judgement.safety,
+            actionability=judgement.actionability,
+            repo_selection=repo_selection,
+            priority=priority_assessment if surfaced else None,
+            suggested_reviewers=reviewers if surfaced else None,
+            charts=chart_contents,
+            # A judged-unsafe report keeps its prose for audit, but not its prompts: a suppressed report
+            # is still reachable from the Dismissed view, where a click would hand the judge-rejected
+            # wording to an action-capable agent run.
+            suggested_prompts=prompt_contents if judgement.safety.choice else (),
+            # Don't index the backing observations of a safety-suppressed (unsafe) report — they'd
+            # otherwise become semantic-search / matching context despite never surfacing.
+            emit_signals=judgement.safety.choice,
+            run=run,
+            idempotency_key=emit_key,
+        )
+    except ScoutReportAlreadyEmittedError as already_emitted:
+        # The retry arrived while this call was still judging, so both reached the insert. The winner's
+        # report is the answer, and the Slack delivery and autostart below are its business, not ours.
+        return await finish(_replay_result(already_emitted.existing))
     if surfaced:
         await database_sync_to_async(queue_configured_scout_slack_delivery, thread_sensitive=False)(
             run_id=run.id,
@@ -1237,23 +1338,7 @@ async def emit_report(
             delivery_id=persisted.report_id,
         )
         await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
-    result = _emit_result(persisted.report_id, judgement)
-    forward = await database_sync_to_async(_capture_report_emitted, thread_sensitive=False)(
-        team=team,
-        run=run,
-        result=result,
-        evidence_count=len(evidence),
-        title=title,
-        summary=summary,
-        actionability=actionability,
-        already_addressed=already_addressed,
-        priority=priority,
-        repository=repository,
-        chart_count=len(chart_contents),
-        suggested_prompt_count=len(prompt_contents),
-    )
-    await _forward_report_event_async(team, forward)
-    return result
+    return await finish(_emit_result(persisted.report_id, judgement))
 
 
 def emit_report_sync(
@@ -1272,6 +1357,7 @@ def emit_report_sync(
     suggested_reviewers: list[ReviewerInput] | None = None,
     charts: list[ReportChartInput] | None = None,
     suggested_prompts: list[str] | None = None,
+    idempotency_key: str | None = None,
 ) -> EmitReportResult:
     """Sync entry used by the DRF view path. Mirrors `emit_report` but keeps the sync DB work on the
     calling thread/connection (gates, persist) — only the safety-judge LLM call, the free-form repo
@@ -1290,11 +1376,10 @@ def emit_report_sync(
         explanation=actionability_explanation, choice=actionability, already_addressed=already_addressed
     )
     priority_assessment = _build_priority(priority, priority_explanation)
-    reviewers = _build_suggested_reviewers(team, suggested_reviewers, skill_name=run.skill_name)
+    emit_key = _emit_idempotency_key(run=run, supplied=idempotency_key, title=title, summary=summary, evidence=evidence)
 
-    preflight = _preflight_emit_gates(team, run)
-    if preflight is not None:
-        result = _gate_skip_result(preflight)
+    def finish(result: EmitReportResult) -> EmitReportResult:
+        # The sync twin of `emit_report.finish` — see there for why the capture lives in one place.
         forward = _capture_report_emitted(
             team=team,
             run=run,
@@ -1312,6 +1397,16 @@ def emit_report_sync(
         if forward is not None:
             _forward_report_event_to_team(team=team, forward=forward)
         return result
+
+    existing = find_scout_report_by_idempotency_key(team_id=team.id, idempotency_key=emit_key)
+    if existing is not None:
+        return finish(_replay_result(existing))
+
+    reviewers = _build_suggested_reviewers(team, suggested_reviewers, skill_name=run.skill_name)
+
+    preflight = _preflight_emit_gates(team, run)
+    if preflight is not None:
+        return finish(_gate_skip_result(preflight))
 
     task_id = _resolve_task_id(run)
     attribution = _attribution_for(task_id)
@@ -1342,28 +1437,33 @@ def emit_report_sync(
         # Re-stamp owner provenance from the live owner set after the judge wait (see
         # `_stamp_owner_provenance`) — autostart trusts the stored stamp.
         reviewers = _stamp_owner_provenance(team, reviewers, skill_name=run.skill_name)
-    persisted = create_scout_report(
-        team_id=team.id,
-        title=title,
-        summary=summary,
-        signals=signals,
-        attribution=attribution,
-        status=judgement.status,
-        safety=judgement.safety,
-        actionability=judgement.actionability,
-        repo_selection=repo_selection,
-        priority=priority_assessment if surfaced else None,
-        suggested_reviewers=reviewers if surfaced else None,
-        charts=chart_contents,
-        # A judged-unsafe report keeps its prose for audit, but not its prompts: a suppressed report
-        # is still reachable from the Dismissed view, where a click would hand the judge-rejected
-        # wording to an action-capable agent run.
-        suggested_prompts=prompt_contents if judgement.safety.choice else (),
-        # Don't index the backing observations of a safety-suppressed (unsafe) report — they'd
-        # otherwise become semantic-search / matching context despite never surfacing.
-        emit_signals=judgement.safety.choice,
-        run=run,
-    )
+    try:
+        persisted = create_scout_report(
+            team_id=team.id,
+            title=title,
+            summary=summary,
+            signals=signals,
+            attribution=attribution,
+            status=judgement.status,
+            safety=judgement.safety,
+            actionability=judgement.actionability,
+            repo_selection=repo_selection,
+            priority=priority_assessment if surfaced else None,
+            suggested_reviewers=reviewers if surfaced else None,
+            charts=chart_contents,
+            # A judged-unsafe report keeps its prose for audit, but not its prompts: a suppressed report
+            # is still reachable from the Dismissed view, where a click would hand the judge-rejected
+            # wording to an action-capable agent run.
+            suggested_prompts=prompt_contents if judgement.safety.choice else (),
+            # Don't index the backing observations of a safety-suppressed (unsafe) report — they'd
+            # otherwise become semantic-search / matching context despite never surfacing.
+            emit_signals=judgement.safety.choice,
+            run=run,
+            idempotency_key=emit_key,
+        )
+    except ScoutReportAlreadyEmittedError as already_emitted:
+        # As in `emit_report`: a concurrent retry won the insert, so hand back its report.
+        return finish(_replay_result(already_emitted.existing))
     if surfaced:
         queue_configured_scout_slack_delivery(
             run_id=run.id,
@@ -1372,24 +1472,7 @@ def emit_report_sync(
             delivery_id=persisted.report_id,
         )
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
-    result = _emit_result(persisted.report_id, judgement)
-    forward = _capture_report_emitted(
-        team=team,
-        run=run,
-        result=result,
-        evidence_count=len(evidence),
-        title=title,
-        summary=summary,
-        actionability=actionability,
-        already_addressed=already_addressed,
-        priority=priority,
-        repository=repository,
-        chart_count=len(chart_contents),
-        suggested_prompt_count=len(prompt_contents),
-    )
-    if forward is not None:
-        _forward_report_event_to_team(team=team, forward=forward)
-    return result
+    return finish(_emit_result(persisted.report_id, judgement))
 
 
 def _do_edit_report(

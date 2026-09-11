@@ -1,8 +1,8 @@
 import {
     ActivityLogItem,
+    ActivityLogUserName,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
@@ -20,8 +20,7 @@ export function personActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted the person:{' '}
-                    {logItem.detail.name}
+                    <ActivityLogUserName logItem={logItem} /> deleted the person: {logItem.detail.name}
                 </>
             ),
         }
@@ -35,8 +34,7 @@ export function personActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> edited this person's
-                    properties
+                    <ActivityLogUserName logItem={logItem} /> edited this person's properties
                 </>
             ),
         }
@@ -48,7 +46,7 @@ export function personActivityDescriber(logItem: ActivityLogItem, asNotification
                     <SentenceList
                         prefix={
                             <>
-                                <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> merged
+                                <ActivityLogUserName logItem={logItem} /> merged
                             </>
                         }
                         listParts={logItem.detail.merge.source.flatMap((di, idx) => (
@@ -74,8 +72,7 @@ export function personActivityDescriber(logItem: ActivityLogItem, asNotification
                     <SentenceList
                         prefix={
                             <>
-                                <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> split this
-                                person into
+                                <ActivityLogUserName logItem={logItem} /> split this person into
                             </>
                         }
                         listParts={normalizedDistinctIds.map((di) => (

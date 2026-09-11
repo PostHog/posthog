@@ -228,6 +228,7 @@ import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
+import type { SignalUserAutonomyConfigCreateApi } from 'products/signals/frontend/generated/api.schemas'
 import {
     SignalReport,
     SignalReportArtefact,
@@ -1936,10 +1937,6 @@ export class ApiRequest {
         return this.coreMemory().addPathComponent(id)
     }
 
-    public authenticateWizard(): ApiRequest {
-        return this.wizard().addPathComponent('authenticate')
-    }
-
     public messagingTemplates(): ApiRequest {
         return this.environmentsDetail().addPathComponent('messaging_templates')
     }
@@ -2014,10 +2011,6 @@ export class ApiRequest {
 
     public hogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): ApiRequest {
         return this.hogFlowTemplates().addPathComponent(hogFlowTemplateId)
-    }
-
-    public wizard(): ApiRequest {
-        return this.addPathComponent('wizard')
     }
 
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
@@ -5229,7 +5222,7 @@ const api = {
             }
         },
         async update(
-            data: Partial<SignalUserAutonomyConfig>,
+            data: SignalUserAutonomyConfigCreateApi,
             userId: string | '@me' = '@me'
         ): Promise<SignalUserAutonomyConfig> {
             return await new ApiRequest().signalUserAutonomy(userId).create({ data })
@@ -6519,11 +6512,6 @@ const api = {
         },
         async update(coreMemoryId: CoreMemory['id'], coreMemory: Pick<CoreMemory, 'text'>): Promise<CoreMemory> {
             return await new ApiRequest().coreMemoryDetail(coreMemoryId).update({ data: coreMemory })
-        },
-    },
-    wizard: {
-        async authenticateWizard(data: { hash: string; projectId: number }): Promise<{ success: boolean }> {
-            return await new ApiRequest().authenticateWizard().create({ data })
         },
     },
     messaging: {

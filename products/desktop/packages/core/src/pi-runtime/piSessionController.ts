@@ -664,6 +664,7 @@ export class PiSessionController {
             if (context) {
               this.notifier?.notify({
                 kind: "needs_input",
+                trigger: "pi_mcp_permission_request",
                 taskId,
                 taskTitle: context.taskTitle,
                 isTaskAuthor: context.isTaskAuthor,
@@ -1022,6 +1023,7 @@ export class PiSessionController {
       : undefined;
     this.notifier?.notify({
       kind: "turn_completed",
+      trigger: "pi_turn_completed",
       taskId,
       taskTitle: notificationContext.taskTitle,
       stopReason,

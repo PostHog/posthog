@@ -92,7 +92,9 @@ export function ReviewerSearchList({
             return
         }
         const optimisticEntry: EnrichedReviewer = {
-            github_login: '',
+            // The picker adds a PostHog member, whose GitHub login (if any) the server fills in.
+            github_login: null,
+            user_uuid: option.user_uuid,
             github_name: option.name || null,
             relevant_commits: [],
             user: {

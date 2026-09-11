@@ -4,6 +4,9 @@ import { router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
 
@@ -30,6 +33,10 @@ import { aiConsentDisabledReason } from './utils/aiConsent'
 // task-kickoff actions (create a cloud Task linked to the report, then navigate to it) –
 // NOT a live chat surface. The created task carries the SignalReport linkage so the
 // backend's agent pipeline can pick it up.
+
+// Mirrors the server's `FREE_TRIAL_PR_MESSAGE`, so the disabled button and a refused call read the same.
+export const FREE_TRIAL_PR_DISABLED_REASON =
+    "During your free trial, Self-driving writes reports but doesn't open pull requests. Contact us to upgrade."
 
 // The run endpoint rejects a model without its runtime adapter, so the two are always sent together.
 type ClaudeRuntimeSelection = Pick<ClaudeTaskRunCreateSchemaApi, 'runtime_adapter' | 'model' | 'reasoning_effort'>
@@ -137,10 +144,15 @@ export function buildDiscussReportPrompt(report: SignalReport | null, reportUrl:
 
 // The per-report cap 429 carries code `signal_report_task_cap` with its message under `error`
 // (TaskRunErrorResponseSerializer); the per-user creation throttle is DRF's `throttled` 429 with
-// `detail`. Both are user-facing copy the server owns. Matching on code, not status: other 429s
-// (e.g. the compute-quota gate) are not task limits and belong on the generic failure path.
+// `detail`; the free-trial refusal is a 402 with code `self_driving_free_trial` and `detail`. All
+// are user-facing copy the server owns. Matching on code, not status: other 429s (e.g. the
+// compute-quota gate) are not task limits and belong on the generic failure path.
 function taskLimitMessage(error: any): string | null {
-    if (error?.code === 'signal_report_task_cap' || error?.code === 'throttled') {
+    if (
+        error?.code === 'signal_report_task_cap' ||
+        error?.code === 'throttled' ||
+        error?.code === 'self_driving_free_trial'
+    ) {
         return error?.data?.error || error?.detail || 'Task limit reached for this report. Try again later.'
     }
     return null
@@ -213,7 +225,10 @@ async function createReportTask(
 export interface inboxTaskKickoffLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     dataProcessingApprovalDisabledReason: string | null // aiConsentLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     aiConsentDisabledReason: string | null
+    createPrDisabledReason: string | null
+    freeTrialDisabledReason: string | null
     isCreatingPr: boolean
     isDiscussing: boolean
 }
@@ -257,6 +272,11 @@ export interface inboxTaskKickoffLogicMeta {
             dataProcessingAccepted: boolean,
             dataProcessingApprovalDisabledReason: string | null
         ) => string | null
+        freeTrialDisabledReason: (featureFlags: FeatureFlagsSet) => string | null
+        createPrDisabledReason: (
+            aiConsentDisabledReason: string | null,
+            freeTrialDisabledReason: string | null
+        ) => string | null
     }
 }
 
@@ -271,7 +291,12 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
     path(['scenes', 'inbox', 'inboxTaskKickoffLogic']),
 
     connect({
-        values: [aiConsentLogic, ['dataProcessingAccepted', 'dataProcessingApprovalDisabledReason']],
+        values: [
+            aiConsentLogic,
+            ['dataProcessingAccepted', 'dataProcessingApprovalDisabledReason'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
     }),
 
     actions({
@@ -307,6 +332,20 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             (s) => [s.dataProcessingAccepted, s.dataProcessingApprovalDisabledReason],
             (dataProcessingAccepted: boolean, dataProcessingApprovalDisabledReason: string | null): string | null =>
                 aiConsentDisabledReason(dataProcessingAccepted, dataProcessingApprovalDisabledReason),
+        ],
+        // The flag is keyed on the organization group, so it resolves once the org group is
+        // registered and flags are re-fetched. The server refuses the call regardless.
+        freeTrialDisabledReason: [
+            (s) => [s.featureFlags],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): string | null =>
+                featureFlags[FEATURE_FLAGS.SELF_DRIVING_FREE_TRIAL] ? FREE_TRIAL_PR_DISABLED_REASON : null,
+        ],
+        // Why Create PR is unavailable before any report is considered: consent first, then the
+        // trial. Discuss keeps only the consent reason, because a trial org can still discuss.
+        createPrDisabledReason: [
+            (s) => [s.aiConsentDisabledReason, s.freeTrialDisabledReason],
+            (aiConsentDisabledReason: string | null, freeTrialDisabledReason: string | null): string | null =>
+                aiConsentDisabledReason ?? freeTrialDisabledReason,
         ],
     }),
 
@@ -359,13 +398,13 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         createPrFromReport: async ({ report, feedback }) => {
-            if (values.aiConsentDisabledReason) {
-                lemonToast.error(values.aiConsentDisabledReason)
+            if (values.createPrDisabledReason) {
+                lemonToast.error(values.createPrDisabledReason)
                 captureInboxReportActionCompleted({
                     report,
                     actionType: 'create_pr',
                     outcome: 'blocked',
-                    blockedReason: values.aiConsentDisabledReason,
+                    blockedReason: values.createPrDisabledReason,
                 })
                 actions.createPrFailure()
                 return

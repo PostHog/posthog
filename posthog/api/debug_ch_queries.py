@@ -1016,6 +1016,11 @@ class DebugCHQueries(viewsets.ViewSet):
         # Latency and bytes stats cover successful precomputed reads only, matching the
         # overview endpoint (failed reads have truncated durations). ifNotFinite guards the
         # empty buckets, where quantileIf/avgIf return nan and nan is not valid JSON.
+        # The bytes series requires the metric-events side to be precomputed too: read_bytes
+        # covers the whole metric query, so a direct events scan on the metric-events side
+        # (breakdowns, CUPED, ineligible metrics) swamps the cache read by orders of magnitude.
+        # Fully precomputed reads touch only the preaggregation tables, so their bytes directly
+        # measure whether cache reads prune to their own jobs' rows.
         # nosemgrep: clickhouse-fstring-param-audit - bucket_fn is one of two hardcoded function names
         reads_sql = f"""
             SELECT
@@ -1030,8 +1035,13 @@ class DebugCHQueries(viewsets.ViewSet):
                     quantileIf(0.9)(query_duration_ms, exposures_path = 'precomputed' AND exception_code = 0), 0
                 ) AS precomputed_p90_duration_ms,
                 ifNotFinite(
-                    avgIf(read_bytes, exposures_path = 'precomputed' AND exception_code = 0), 0
-                ) AS precomputed_avg_read_bytes
+                    avgIf(
+                        read_bytes,
+                        exposures_path = 'precomputed'
+                            AND metric_events_path = 'precomputed'
+                            AND exception_code = 0
+                    ), 0
+                ) AS fully_precomputed_avg_read_bytes
             FROM (
                 SELECT
                     event_time,
@@ -1042,6 +1052,7 @@ class DebugCHQueries(viewsets.ViewSet):
                         nullIf(toString(log_comment.experiment_exposures_path), ''),
                         ifNull(toString(log_comment.experiment_execution_path), '')
                     ) AS exposures_path,
+                    ifNull(toString(log_comment.experiment_metric_events_path), '') AS metric_events_path,
                     ifNull(toString(log_comment.experiment_precompute_skip_reason), '') AS skip_reason
                 FROM query_log_archive
                 WHERE
@@ -1085,7 +1096,7 @@ class DebugCHQueries(viewsets.ViewSet):
         fallback_reads = [0] * n
         precomputed_p50_duration_ms = [0] * n
         precomputed_p90_duration_ms = [0] * n
-        precomputed_avg_read_bytes = [0] * n
+        fully_precomputed_avg_read_bytes = [0] * n
         failed_build_read_bytes = [0] * n
         failed_builds_by_code: dict[str, list[int]] = {}
         for (
@@ -1105,7 +1116,7 @@ class DebugCHQueries(viewsets.ViewSet):
             fallback_reads[i] = bucket_fallback
             precomputed_p50_duration_ms[i] = round(bucket_p50)
             precomputed_p90_duration_ms[i] = round(bucket_p90)
-            precomputed_avg_read_bytes[i] = round(bucket_bytes)
+            fully_precomputed_avg_read_bytes[i] = round(bucket_bytes)
         for bucket, exception_code, bucket_builds, bucket_read_bytes in builds_response:
             i = index_by_bucket.get(bucket)
             if i is None or exception_code == 0:
@@ -1125,7 +1136,7 @@ class DebugCHQueries(viewsets.ViewSet):
                     "fallback": fallback_reads,
                     "precomputed_p50_duration_ms": precomputed_p50_duration_ms,
                     "precomputed_p90_duration_ms": precomputed_p90_duration_ms,
-                    "precomputed_avg_read_bytes": precomputed_avg_read_bytes,
+                    "fully_precomputed_avg_read_bytes": fully_precomputed_avg_read_bytes,
                 },
                 "builds": {
                     "failed_by_code": failed_builds_by_code,

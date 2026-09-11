@@ -294,18 +294,19 @@ const MOCK_SURVEY_AGGREGATE_RESULTS = {
 
 // Rows from the base-stats query: [event_name, total_count, unique_persons, first_seen, last_seen].
 const MOCK_SURVEY_BASE_STATS = {
-    columns: ['event_name', 'total_count', 'unique_persons', 'first_seen', 'last_seen'],
+    columns: ['event_name', 'total_count', 'unique_persons', 'first_seen', 'last_seen', 'outcome_counts'],
     types: [
         ['event_name', 'String'],
         ['total_count', 'UInt64'],
         ['unique_persons', 'UInt64'],
         ['first_seen', "Nullable(DateTime64(6, 'UTC'))"],
         ['last_seen', "Nullable(DateTime64(6, 'UTC'))"],
+        ['outcome_counts', 'Tuple(UInt64, UInt64, UInt64)'],
     ],
     results: [
-        [SurveyEventName.SHOWN, 120, 110, '2023-05-02T10:00:00Z', '2023-06-20T10:00:00Z'],
-        [SurveyEventName.SENT, 75, 70, '2023-05-02T11:00:00Z', '2023-06-20T09:00:00Z'],
-        [SurveyEventName.DISMISSED, 18, 17, '2023-05-03T10:00:00Z', '2023-06-19T10:00:00Z'],
+        [SurveyEventName.SHOWN, 120, 110, '2023-05-02T10:00:00Z', '2023-06-20T10:00:00Z', [0, 0, 0]],
+        [SurveyEventName.SENT, 75, 70, '2023-05-02T11:00:00Z', '2023-06-20T09:00:00Z', [40, 30, 5]],
+        [SurveyEventName.DISMISSED, 18, 17, '2023-05-03T10:00:00Z', '2023-06-19T10:00:00Z', [0, 0, 0]],
     ],
 }
 
@@ -345,8 +346,19 @@ const meta: Meta = {
                 }`]: toPaginatedResponse([MOCK_SURVEY_WITH_RELEASE_CONS.targeting_flag]),
             },
             post: {
-                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
                     const body = (await request.json()) as any
+                    if (body?.query?.query?.includes(MOCK_SURVEY_WITH_RESULTS.id)) {
+                        switch (body.query.tags?.name) {
+                            case 'survey_results_aggregate':
+                                return MOCK_SURVEY_AGGREGATE_RESULTS
+                            case 'survey_base_stats':
+                                return MOCK_SURVEY_BASE_STATS
+                            case 'survey_dismissed_sent_overlap':
+                                return { results: [[5]] }
+                        }
+                        return { results: [] }
+                    }
                     if (body.kind == 'EventsQuery') {
                         return [200, MOCK_SURVEY_RESULTS]
                     }
@@ -566,22 +578,6 @@ export const SurveyResults: Story = {
                     [MOCK_SURVEY_WITH_RESULTS.id]: 75,
                 },
                 '/api/environments/:team_id/hog_functions/': { count: 0, results: [], next: null },
-            },
-            post: {
-                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = (await request.json()) as any
-                    const sql: string = body?.query?.query ?? ''
-                    if (body?.query?.tags?.name === 'survey_results_aggregate') {
-                        return MOCK_SURVEY_AGGREGATE_RESULTS
-                    }
-                    if (sql.includes('BASE STATS')) {
-                        return MOCK_SURVEY_BASE_STATS
-                    }
-                    if (sql.includes('DISMISSED AND SENT COUNT')) {
-                        return { results: [[60]] }
-                    }
-                    return { results: [] }
-                },
             },
         }),
     ],

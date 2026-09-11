@@ -107,30 +107,55 @@ class TestResolveScoutModel:
         )
         assert resolved == ScoutModel(model=GLM_MODEL, runtime_adapter="codex")
 
-    def test_object_form_carries_reasoning_effort(self) -> None:
-        # The effort pin must survive resolution — a dropped effort silently runs the trial arm at a
-        # different effort than the baseline arm, skewing the comparison.
+    @parameterized.expand(
+        [
+            # Each pin must survive resolution — a dropped effort or tier silently runs the trial
+            # arm at a different setting than the baseline arm, and the comparison measures nothing.
+            ("reasoning_effort", "high"),
+            ("service_tier", "flex"),
+        ]
+    )
+    def test_object_form_carries_pin(self, key: str, value: str) -> None:
         resolved = _resolve_full(
-            payload=_scouts(
-                {_SKILL: {GLM_MODEL: {"fraction": 1, "runtime_adapter": "codex", "reasoning_effort": "high"}}}
-            )
+            payload=_scouts({_SKILL: {GLM_MODEL: {"fraction": 1, "runtime_adapter": "codex", key: value}}})
         )
-        assert resolved == ScoutModel(model=GLM_MODEL, runtime_adapter="codex", reasoning_effort="high")
+        assert resolved == ScoutModel(model=GLM_MODEL, runtime_adapter="codex", **{key: value})
 
     @parameterized.expand(
         [
-            # A bad effort must not reach the run state — like a bad runtime, it'd fail the run
-            # downstream. Drop it (effort unset) and keep the model + runtime.
-            ("typo", "hgih"),
-            ("non_string", 5),
-            ("list", ["high"]),
+            # A bad pin must not reach the run state — like a bad runtime, it'd fail the run
+            # downstream. Drop it (unset) and keep the model + runtime.
+            ("effort_typo", "reasoning_effort", "hgih"),
+            ("effort_non_string", "reasoning_effort", 5),
+            ("effort_list", "reasoning_effort", ["high"]),
+            ("tier_unknown", "service_tier", "turbo"),
+            ("tier_non_string", "service_tier", True),
         ]
     )
-    def test_bad_reasoning_effort_is_dropped_not_fatal(self, _name: str, bad_effort: object) -> None:
-        resolved = _resolve_full(
-            payload=_scouts({_SKILL: {GLM_MODEL: {"fraction": 1, "reasoning_effort": bad_effort}}})
+    def test_bad_pin_is_dropped_not_fatal(self, _name: str, key: str, bad_value: object) -> None:
+        resolved = _resolve_full(payload=_scouts({_SKILL: {GLM_MODEL: {"fraction": 1, key: bad_value}}}))
+        assert resolved == ScoutModel(model=GLM_MODEL, runtime_adapter="codex")
+
+    def test_remainder_carries_no_pins_even_when_it_names_a_sliced_model(self) -> None:
+        # The flex trial's shape: a 5% slice of a model on flex, the remainder the same model on the
+        # standard queue. Recovering the spec by model id would put the whole fleet on flex and read
+        # the control arm as the treatment; the remainder must stay pin-free.
+        payload = _scouts(
+            {
+                _SKILL: {
+                    GLM_MODEL: {"fraction": 0.05, "runtime_adapter": "codex", "service_tier": "flex"},
+                    "default": GLM_MODEL,
+                }
+            }
         )
-        assert resolved == ScoutModel(model=GLM_MODEL, runtime_adapter="codex", reasoning_effort=None)
+        tiers: dict[str | None, int] = {}
+        for i in range(400):
+            resolved = _resolve_full(run_id=f"run-{i}", payload=payload)
+            assert resolved.model == GLM_MODEL
+            assert resolved.runtime_adapter == "codex"
+            tiers[resolved.service_tier] = tiers.get(resolved.service_tier, 0) + 1
+        assert set(tiers) == {"flex", None}
+        assert 5 <= tiers["flex"] <= 45  # ~5% of 400, loose enough not to flake
 
     def test_object_form_drops_malformed_fraction(self) -> None:
         # A pinned runtime can't rescue a malformed fraction — the entry is dropped, agent default kept.

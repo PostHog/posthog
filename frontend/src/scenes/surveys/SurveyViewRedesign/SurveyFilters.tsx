@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
-import React, { useState } from 'react'
+import React from 'react'
 
-import { IconCopy, IconFilter, IconGraph, IconRefresh, IconX } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSelectOptions, LemonSwitch } from '@posthog/lemon-ui'
+import { IconCopy, IconEllipsis, IconFilter, IconGraph, IconX } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonMenu, LemonSelect, LemonSelectOptions, LemonSwitch } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
@@ -13,7 +13,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { QUESTION_TYPE_ICON_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { OPERATOR_OPTIONS } from 'scenes/surveys/SurveyResponseFilters'
-import { getSurveyEndDateForQuery, getSurveyIdBasedResponseKey, getSurveyStartDateForQuery } from 'scenes/surveys/utils'
+import { getSurveyIdBasedResponseKey } from 'scenes/surveys/utils'
 
 import { groupsModel } from '~/models/groupsModel'
 import {
@@ -47,24 +47,22 @@ export function SurveyResultsFiltersBar(): JSX.Element {
         survey,
         answerFilters,
         propertyFilters,
-        defaultAnswerFilters,
+        hasActiveFilters,
+        activeResultsFilterCount,
+        resultsFiltersExpanded,
         dateRange,
         showArchivedResponses,
         surveyAsInsightURL,
     } = useValues(surveyLogic)
-    const { setAnswerFilters, setPropertyFilters, setDateRange, setShowArchivedResponses } = useActions(surveyLogic)
+    const {
+        setAnswerFilters,
+        setPropertyFilters,
+        setDateRange,
+        setShowArchivedResponses,
+        clearFilters,
+        setResultsFiltersExpanded,
+    } = useActions(surveyLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const [questionFiltersExpanded, setQuestionFiltersExpanded] = useState(false)
-
-    const handleResetFilters = (): void => {
-        setAnswerFilters(defaultAnswerFilters)
-        setPropertyFilters([])
-        setDateRange({
-            date_from: getSurveyStartDateForQuery(survey as Survey),
-            date_to: getSurveyEndDateForQuery(survey as Survey),
-        })
-    }
-
     const handleUpdateFilter = (
         questionId: string,
         field: 'operator' | 'value',
@@ -100,19 +98,8 @@ export function SurveyResultsFiltersBar(): JSX.Element {
         return operators.length > 0
     })
 
-    const activeAnswerFiltersCount = questionWithFiltersAvailable.filter((question) => {
-        if (!question.id) {
-            return false
-        }
-        const filter = getFilterForQuestion(question.id)
-        if (!filter?.value) {
-            return false
-        }
-        return Array.isArray(filter.value) ? filter.value.length > 0 : filter.value !== ''
-    }).length
-
     return (
-        <div className="flex flex-col gap-2">
+        <div className="@container/survey-filters flex flex-col gap-4">
             <div className="flex flex-wrap gap-2 items-center justify-between">
                 <div className="flex flex-wrap gap-2 items-center">
                     <DateFilter
@@ -120,108 +107,145 @@ export function SurveyResultsFiltersBar(): JSX.Element {
                         dateTo={dateRange?.date_to}
                         onChange={(dateFrom, dateTo) => setDateRange({ date_from: dateFrom, date_to: dateTo })}
                     />
-                    {questionWithFiltersAvailable.length > 0 && (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconFilter />}
+                        sideIcon={
+                            activeResultsFilterCount > 0 ? (
+                                <LemonBadge.Number count={activeResultsFilterCount} size="small" />
+                            ) : undefined
+                        }
+                        onClick={() => setResultsFiltersExpanded(!resultsFiltersExpanded)}
+                        active={resultsFiltersExpanded || activeResultsFilterCount > 0}
+                        aria-expanded={resultsFiltersExpanded}
+                        aria-controls={resultsFiltersExpanded ? 'survey-results-filters' : undefined}
+                        data-attr="survey-results-filters-toggle"
+                    >
+                        Filters
+                    </LemonButton>
+                    {(hasActiveFilters || showArchivedResponses) && (
                         <LemonButton
-                            type="secondary"
                             size="small"
-                            icon={<IconFilter />}
-                            sideIcon={questionFiltersExpanded ? <IconX /> : null}
-                            onClick={() => setQuestionFiltersExpanded(!questionFiltersExpanded)}
-                            active={questionFiltersExpanded || activeAnswerFiltersCount > 0}
+                            type="tertiary"
+                            onClick={clearFilters}
+                            data-attr="survey-results-clear-filters"
                         >
-                            Filter by response
-                            {activeAnswerFiltersCount > 0 && ` (${activeAnswerFiltersCount})`}
+                            Clear filters
                         </LemonButton>
                     )}
-                    <PropertyFilters
-                        propertyFilters={propertyFilters}
-                        onChange={setPropertyFilters}
-                        pageKey="survey-results"
-                        buttonText="Add filter"
-                        taxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.EventProperties,
-                            TaxonomicFilterGroupType.PersonProperties,
-                            TaxonomicFilterGroupType.EventFeatureFlags,
-                            TaxonomicFilterGroupType.Cohorts,
-                            TaxonomicFilterGroupType.HogQLExpression,
-                            ...groupsTaxonomicTypes,
-                        ]}
-                    />
                 </div>
-                <div className="flex flex-wrap gap-2 items-center">
+                <LemonMenu items={[{ label: 'View insights', icon: <IconGraph />, to: surveyAsInsightURL }]}>
+                    <LemonButton
+                        size="small"
+                        icon={<IconEllipsis />}
+                        aria-label="More result actions"
+                        tooltip="More result actions"
+                        data-attr="survey-results-more-actions"
+                    />
+                </LemonMenu>
+            </div>
+
+            {resultsFiltersExpanded && (
+                <section
+                    id="survey-results-filters"
+                    aria-label="Survey filters"
+                    className="border rounded bg-bg-light p-4 flex flex-col gap-4"
+                >
+                    <div className="flex items-center justify-between gap-2">
+                        <h4 className="m-0">Filters</h4>
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconX />}
+                            aria-label="Close filters"
+                            onClick={() => setResultsFiltersExpanded(false)}
+                            data-attr="survey-results-filters-close"
+                        />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                        <h5 className="m-0">Properties</h5>
+                        <PropertyFilters
+                            propertyFilters={propertyFilters}
+                            onChange={setPropertyFilters}
+                            pageKey="survey-results"
+                            buttonText="Add filter"
+                            taxonomicGroupTypes={[
+                                TaxonomicFilterGroupType.EventProperties,
+                                TaxonomicFilterGroupType.PersonProperties,
+                                TaxonomicFilterGroupType.EventFeatureFlags,
+                                TaxonomicFilterGroupType.Cohorts,
+                                TaxonomicFilterGroupType.HogQLExpression,
+                                ...groupsTaxonomicTypes,
+                            ]}
+                        />
+                    </div>
                     <LemonSwitch
                         checked={showArchivedResponses}
                         onChange={setShowArchivedResponses}
                         label="Show archived"
                     />
-                    <LemonButton size="small" type="secondary" icon={<IconGraph />} to={surveyAsInsightURL}>
-                        View insights
-                    </LemonButton>
-                    <LemonButton size="small" type="secondary" icon={<IconRefresh />} onClick={handleResetFilters}>
-                        Reset filters
-                    </LemonButton>
-                </div>
-            </div>
+                    {questionWithFiltersAvailable.length > 0 && <h5 className="m-0">Responses</h5>}
+                    <div className="flex flex-col gap-3">
+                        {questionWithFiltersAvailable.map((question, index) => {
+                            if (!question.id) {
+                                return null
+                            }
 
-            {questionFiltersExpanded && questionWithFiltersAvailable.length > 0 && (
-                <div className="border rounded bg-bg-light overflow-hidden">
-                    {questionWithFiltersAvailable.map((question, index) => {
-                        if (!question.id) {
-                            return null
-                        }
+                            const currentFilter = getFilterForQuestion(question.id)
+                            const operators = OPERATOR_OPTIONS[question.type] || []
 
-                        const currentFilter = getFilterForQuestion(question.id)
-                        const operators = OPERATOR_OPTIONS[question.type] || []
-
-                        return (
-                            <React.Fragment key={question.id}>
-                                {index > 0 && <LemonDivider className="my-0" label={FilterLogicalOperator.And} />}
-                                <div className="grid grid-cols-6 gap-2 p-2 items-center">
-                                    <div className="col-span-3">
-                                        <span className="font-medium">{question.question}</span>
-                                        <div className="text-muted text-xs flex gap-4">
-                                            <span className="flex items-center gap-1">
-                                                {QUESTION_TYPE_ICON_MAP[question.type]}
-                                                {SurveyQuestionLabel[question.type]}
-                                            </span>
-                                            {question.id && <CopyResponseKeyButton questionId={question.id} />}
+                            return (
+                                <React.Fragment key={question.id}>
+                                    {index > 0 && <LemonDivider className="my-0" label={FilterLogicalOperator.And} />}
+                                    <div className="grid grid-cols-1 @min-[48rem]/survey-filters:grid-cols-6 gap-3 items-center">
+                                        <div className="@min-[48rem]/survey-filters:col-span-3">
+                                            <span className="font-medium">{question.question}</span>
+                                            <div className="text-muted text-xs flex flex-wrap gap-x-4 gap-y-1">
+                                                <span className="flex items-center gap-1">
+                                                    {QUESTION_TYPE_ICON_MAP[question.type]}
+                                                    {SurveyQuestionLabel[question.type]}
+                                                </span>
+                                                {question.id && <CopyResponseKeyButton questionId={question.id} />}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <LemonSelect
+                                                value={currentFilter?.operator}
+                                                onChange={(val) =>
+                                                    handleUpdateFilter(question.id ?? '', 'operator', val)
+                                                }
+                                                options={operators as LemonSelectOptions<PropertyOperator>}
+                                                className="w-full"
+                                            />
+                                        </div>
+                                        <div className="@min-[48rem]/survey-filters:col-span-2">
+                                            {currentFilter?.operator &&
+                                                ![PropertyOperator.IsSet, PropertyOperator.IsNotSet].includes(
+                                                    currentFilter.operator
+                                                ) && (
+                                                    <PropertyValue
+                                                        propertyKey={`${SurveyEventProperties.SURVEY_RESPONSE}_${question.id}`}
+                                                        type={PropertyFilterType.Event}
+                                                        operator={currentFilter.operator}
+                                                        value={currentFilter.value || []}
+                                                        onSet={(value: string | string[]) =>
+                                                            handleUpdateFilter(question.id ?? '', 'value', value)
+                                                        }
+                                                        placeholder={
+                                                            question.type === SurveyQuestionType.Rating
+                                                                ? 'Enter a number'
+                                                                : 'Enter text to match'
+                                                        }
+                                                        eventNames={[SurveyEventName.SENT]}
+                                                    />
+                                                )}
                                         </div>
                                     </div>
-                                    <div>
-                                        <LemonSelect
-                                            value={currentFilter?.operator}
-                                            onChange={(val) => handleUpdateFilter(question.id ?? '', 'operator', val)}
-                                            options={operators as LemonSelectOptions<PropertyOperator>}
-                                            className="w-full"
-                                        />
-                                    </div>
-                                    <div className="col-span-2">
-                                        {currentFilter?.operator &&
-                                            ![PropertyOperator.IsSet, PropertyOperator.IsNotSet].includes(
-                                                currentFilter.operator
-                                            ) && (
-                                                <PropertyValue
-                                                    propertyKey={`${SurveyEventProperties.SURVEY_RESPONSE}_${question.id}`}
-                                                    type={PropertyFilterType.Event}
-                                                    operator={currentFilter.operator}
-                                                    value={currentFilter.value || []}
-                                                    onSet={(value: string | string[]) =>
-                                                        handleUpdateFilter(question.id ?? '', 'value', value)
-                                                    }
-                                                    placeholder={
-                                                        question.type === SurveyQuestionType.Rating
-                                                            ? 'Enter a number'
-                                                            : 'Enter text to match'
-                                                    }
-                                                    eventNames={[SurveyEventName.SENT]}
-                                                />
-                                            )}
-                                    </div>
-                                </div>
-                            </React.Fragment>
-                        )
-                    })}
-                </div>
+                                </React.Fragment>
+                            )
+                        })}
+                    </div>
+                </section>
             )}
         </div>
     )

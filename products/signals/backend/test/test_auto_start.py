@@ -23,7 +23,7 @@ from products.signals.backend.auto_start import (
     _build_autostart_task_description,
     _create_implementation_task_if_absent,
     _generate_self_driving_head_branch,
-    _live_skill_owner_logins,
+    _live_skill_owner_identities,
     _report_meets_team_autostart_threshold,
     _resolve_autostart_assignee,
     _resolve_autostart_fallback_user,
@@ -51,6 +51,7 @@ from products.signals.backend.report_generation.research import (
     Priority,
     PriorityAssessment,
 )
+from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
 from products.signals.backend.signal_metadata import SignalSourceReference
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 from products.signals.backend.test.test_billing import _seed_canonical_scout_skill
@@ -79,9 +80,16 @@ def _create_org_member_with_github(email: str, organization: Organization, login
     return user
 
 
-def _reviewer(login: str, *, is_skill_owner: bool = False, source_skill: str | None = None) -> ReviewerContent:
+def _reviewer(
+    login: str | None,
+    *,
+    user_uuid: str | None = None,
+    is_skill_owner: bool = False,
+    source_skill: str | None = None,
+) -> ReviewerContent:
     return ReviewerContent(
         github_login=login,
+        user_uuid=user_uuid,
         github_name=None,
         relevant_commits=[],
         reason=None,
@@ -122,6 +130,22 @@ def test_resolve_autostart_assignee(
         assert assignee.id == user.id
     else:
         assert assignee is None
+
+
+@pytest.mark.django_db
+def test_resolve_autostart_assignee_binds_a_login_to_the_stored_uuid(organization, team):
+    original = _create_org_member_with_github("original@example.com", organization, "CurrentLogin")
+    _create_org_member_with_github("replacement@example.com", organization, "StaleLogin")
+
+    assignee = _resolve_autostart_assignee(
+        team_id=team.id,
+        report_priority=Priority.P0,
+        reviewers_content=[_reviewer("stalelogin", user_uuid=str(original.uuid))],
+        team_default_priority=Priority.P4,
+    )
+
+    assert assignee is not None
+    assert assignee.id == original.id
 
 
 @pytest.mark.django_db
@@ -171,7 +195,7 @@ def test_resolve_autostart_assignee_excludes_live_owners_past_a_stale_stamp(orga
         # Stamp says not-an-owner (stale); the live set says otherwise.
         reviewers_content=[_reviewer("ownercat", is_skill_owner=False), _reviewer("authorcat")],
         team_default_priority=Priority.P4,
-        live_owner_logins={"ownercat"},
+        live_owner_identities=ReviewerIdentitySet(user_uuids=frozenset(), github_logins=frozenset({"ownercat"})),
     )
     assert assignee is not None
     assert assignee.id == author.id
@@ -205,7 +229,7 @@ def test_live_owner_logins_span_every_scout_that_touched_the_report(organization
             )
         LLMSkillOwner.objects.create(team=team, skill_name=editing_skill, user=owner)
 
-    assert _live_skill_owner_logins(team, str(report.id), []) == {"editorowner"}
+    assert _live_skill_owner_identities(team, str(report.id), []).github_logins == frozenset({"editorowner"})
 
 
 @pytest.mark.django_db
@@ -222,7 +246,7 @@ def test_live_owner_logins_survive_a_lost_edit_tally(organization, team):
         LLMSkillOwner.objects.create(team=team, skill_name="signals-scout-tallyless", user=owner)
 
     reviewers = [_reviewer("tallylessowner", source_skill="signals-scout-tallyless")]
-    assert _live_skill_owner_logins(team, str(report.id), reviewers) == {"tallylessowner"}
+    assert _live_skill_owner_identities(team, str(report.id), reviewers).github_logins == frozenset({"tallylessowner"})
 
 
 @pytest.mark.parametrize(
@@ -880,6 +904,83 @@ async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
         )
 
     assert (mock_create.call_count == 0) is enforced
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("on_trial", "repository_autostart_eligible", "expect_task", "expect_pause_event"),
+    [
+        (True, True, False, True),
+        (False, True, True, False),
+        # An inferred repository blocks the reviewer-less fallback, so no runner resolves and the
+        # report opens no pull request off the trial either. The trial held nothing back, so the
+        # sales count must not carry it.
+        (True, False, False, False),
+    ],
+)
+async def test_free_trial_gate_blocks_autostart(
+    on_trial, repository_autostart_eligible, expect_task, expect_pause_event
+):
+    # A trial org gets reports, not pull requests: the implementation task is the step that opens
+    # one, so auto-start creates none while the flag is on, and counts the held-back PR.
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+
+    def _setup() -> tuple[Team, SignalReport]:
+        organization = Organization.objects.create(name="trial-org")
+        team = Team.objects.create(organization=organization, name="trial-team")
+        enabler = User.objects.create(email="trial-enabler@example.com")
+        OrganizationMembership.objects.create(user=enabler, organization=organization)
+        SignalSourceConfig.objects.create(
+            team=team, source_product="error_tracking", source_type="issue_created", created_by=enabler
+        )
+        report = SignalReport.objects.create(
+            team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+        )
+        return team, report
+
+    team, report = await sync_to_async(_setup)()
+
+    def _fake_create_and_run_task(**kwargs):
+        task = Task.objects.create(
+            team_id=team.id,
+            title=kwargs["title"],
+            description=kwargs["description"],
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        run = TaskRun.objects.create(task=task, team_id=team.id)
+        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+
+    with (
+        patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
+        patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
+        patch("products.signals.backend.auto_start.self_driving_free_trial_enabled", return_value=on_trial),
+        patch("products.signals.backend.auto_start.capture_signal_report_free_trial_paused") as capture_mock,
+    ):
+        await maybe_autostart_implementation_task(
+            team_id=team.id,
+            report_id=str(report.id),
+            repository="owner/repo",
+            title="t",
+            summary="s",
+            actionability=ActionabilityAssessment(
+                explanation="Clear fix in the affected module.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            reviewers_content=[],
+            priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
+            repository_autostart_eligible=repository_autostart_eligible,
+        )
+
+    assert (mock_create.call_count == 1) is expect_task
+    if expect_task:
+        # The verdict travels with the create, so the gate behind it re-reads no flag under the lock.
+        assert mock_create.call_args.kwargs["free_trial_enabled"] is False
+    assert (capture_mock.call_count == 1) is expect_pause_event
+    if expect_pause_event:
+        assert capture_mock.call_args.kwargs == {"report_id": str(report.id), "stage": "autostart"}
 
 
 @pytest.mark.asyncio

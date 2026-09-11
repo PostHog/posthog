@@ -903,27 +903,27 @@
         "chromium": 5.482,
         "webkit": 2.056
     },
-    "frontend/src/scenes/funnels/FunnelFlowGraph/BuilderPathFlowNode.stories.tsx": {
+    "products/product_analytics/frontend/insights/funnels/FunnelFlowGraph/BuilderPathFlowNode.stories.tsx": {
         "chromium": 13.59,
         "webkit": 2.763
     },
-    "frontend/src/scenes/funnels/FunnelFlowGraph/BuilderStepNode.stories.tsx": {
+    "products/product_analytics/frontend/insights/funnels/FunnelFlowGraph/BuilderStepNode.stories.tsx": {
         "chromium": 19.437,
         "webkit": 3.343
     },
-    "frontend/src/scenes/funnels/FunnelFlowGraph/FunnelFlowGraph.stories.tsx": {
+    "products/product_analytics/frontend/insights/funnels/FunnelFlowGraph/FunnelFlowGraph.stories.tsx": {
         "chromium": 15.57,
         "webkit": 3.855
     },
-    "frontend/src/scenes/funnels/FunnelFlowGraph/JourneyFlowNode.stories.tsx": {
+    "products/product_analytics/frontend/insights/funnels/FunnelFlowGraph/JourneyFlowNode.stories.tsx": {
         "chromium": 26.84,
         "webkit": 3.855
     },
-    "frontend/src/scenes/funnels/FunnelFlowGraph/PathFlowNode.stories.tsx": {
+    "products/product_analytics/frontend/insights/funnels/FunnelFlowGraph/PathFlowNode.stories.tsx": {
         "chromium": 23.407,
         "webkit": 3.427
     },
-    "frontend/src/scenes/funnels/FunnelFlowGraph/ProfileFlowNode.stories.tsx": {
+    "products/product_analytics/frontend/insights/funnels/FunnelFlowGraph/ProfileFlowNode.stories.tsx": {
         "chromium": 23.416,
         "webkit": 3.403
     },
@@ -1039,19 +1039,19 @@
         "chromium": 6.229,
         "webkit": 2.209
     },
-    "frontend/src/scenes/insights/views/Funnels/FunnelCorrelationTable.stories.tsx": {
+    "products/product_analytics/frontend/insights/funnels/FunnelCorrelation/FunnelCorrelationTable.stories.tsx": {
         "chromium": 6.961,
         "webkit": 3.258
     },
-    "frontend/src/scenes/insights/views/Funnels/FunnelPropertyCorrelationTable.stories.tsx": {
+    "products/product_analytics/frontend/insights/funnels/FunnelCorrelation/FunnelPropertyCorrelationTable.stories.tsx": {
         "chromium": 6.022,
         "webkit": 3.166
     },
-    "frontend/src/scenes/insights/views/Funnels/FunnelTimeToConvertTable.stories.tsx": {
+    "products/product_analytics/frontend/insights/funnels/FunnelTimeToConvertTable/FunnelTimeToConvertTable.stories.tsx": {
         "chromium": 6.958,
         "webkit": 3.259
     },
-    "frontend/src/scenes/insights/views/Funnels/FunnelTrendsTable.stories.tsx": {
+    "products/product_analytics/frontend/insights/funnels/FunnelTrendsTable/FunnelTrendsTable.stories.tsx": {
         "chromium": 13.933,
         "webkit": 2.926
     },

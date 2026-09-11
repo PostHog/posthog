@@ -35,7 +35,7 @@ class ButtonTile(UUIDModel):
         max_length=10, choices=[("primary", "Primary"), ("secondary", "Secondary")], default="primary"
     )
 
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     last_modified_at = models.DateTimeField(default=timezone.now)
     last_modified_by = models.ForeignKey(
         "posthog.User",
@@ -45,7 +45,7 @@ class ButtonTile(UUIDModel):
         related_name="modified_button_tiles",
     )
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
     class Meta:
         db_table = "posthog_buttontile"
@@ -90,7 +90,7 @@ class DashboardTile(models.Model):
     # Auto-populated in save() when omitted. The index is created concurrently
     # outside Django state (migration 0004) and not declared here, so db_index=False
     # keeps state and DB in sync.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_index=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_index=False, related_name="+")
 
     # Tile layout and style
     layouts = models.JSONField(default=dict)

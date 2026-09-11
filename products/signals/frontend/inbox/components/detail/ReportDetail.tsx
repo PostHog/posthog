@@ -37,9 +37,9 @@ import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
-import { CreatePrButton } from './CreatePrButton'
 import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
+import { ImplementButton } from './ImplementButton'
 import { PrChecksSection } from './PrChecksSection'
 import { PrCommentsSection } from './PrCommentsSection'
 import { PullRequestDiffPending, PullRequestDiffStat, PullRequestDiffStatSkeleton } from './PullRequestDiffPanel'
@@ -51,6 +51,7 @@ import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportSummaryBody } from './ReportSummaryBody'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
+import { TrackerIssueNote } from './TrackerIssueNote'
 
 /**
  * Status / priority / actionability badges for a report's detail header. Mirrors desktop `InboxDetailFrame`.
@@ -83,7 +84,7 @@ export function ReportDetailBadges({
 
 /** Placeholder finding rows shown while the signals query is in flight, sized to the known count. */
 function EvidenceSkeleton({ count }: { count: number }): JSX.Element {
-    const rows = Math.max(1, Math.min(count, 4))
+    const rows = Math.max(1, Math.min(count, 2))
     return (
         <div className="flex flex-col gap-3" aria-hidden>
             {Array.from({ length: rows }).map((_, i) => (
@@ -214,9 +215,16 @@ export function InboxDetailFrame({
             : 'Back'
         : 'Self-driving inbox'
     const logicProps = { reportId: report.id, report }
-    const { reportSignals, reportSignalsLoading, priorityExplanation, chartPlacements, trailingCharts, detailTab } =
-        useValues(inboxReportDetailLogic(logicProps))
-    const { setDetailTab } = useActions(inboxReportDetailLogic(logicProps))
+    const {
+        reportSignals,
+        reportSignalsLoading,
+        evidenceExpanded,
+        priorityExplanation,
+        chartPlacements,
+        trailingCharts,
+        detailTab,
+    } = useValues(inboxReportDetailLogic(logicProps))
+    const { setDetailTab, expandEvidence, collapseEvidence } = useActions(inboxReportDetailLogic(logicProps))
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
     const { toggleEvidenceRail } = useActions(inboxDetailLayoutLogic)
     // The API returns evidence oldest-first, but a reader wants the most recent signal at the top of
@@ -245,14 +253,9 @@ export function InboxDetailFrame({
     // the report directly.
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
 
-    // Create PR is the report's main call to action, so it takes the primary slot (styled like
-    // "Open in GitHub" on PR-bearing reports). The rest render inline as buttons on wide layouts
-    // and as a standard `LemonMenu` on narrow ones.
     const reportActions = useReportDetailActions(report)
     const showCreatePr = canCreateImplementationPr(report)
-    const createPrButton = showCreatePr ? <CreatePrButton report={report} /> : null
-    // `ReportSummaryBody` renders Create PR under the Solution section, so the header only carries it
-    // when the summary has no Solution section — otherwise an actionable report shows it twice.
+    const implementButton = showCreatePr ? <ImplementButton report={report} /> : null
     const summaryHasSolution = parseReportSummary(report.summary).sections.some(
         (section) => section.kind === 'solution'
     )
@@ -318,13 +321,16 @@ export function InboxDetailFrame({
                     <ReportSummaryBody
                         summary={report.summary}
                         chartPlacements={chartPlacements}
-                        createPrButton={createPrButton}
+                        implementButton={implementButton}
                         pullRequestNote={pullRequestNote}
                     />
                 ) : (
-                    <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
-                        No summary yet. An agent is still investigating.
-                    </p>
+                    <>
+                        <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
+                            No summary yet. An agent is still investigating.
+                        </p>
+                        {pullRequestNote}
+                    </>
                 )}
                 {trailingCharts.length > 0 && (
                     <div className="flex flex-col gap-4 mt-5">
@@ -397,9 +403,20 @@ export function InboxDetailFrame({
                                     <EvidenceSkeleton count={evidenceCount} />
                                 ) : (
                                     <div className="flex flex-col gap-3">
-                                        {signals.map((signal: SignalNode) => (
-                                            <SignalCard key={signal.signal_id} signal={signal} />
-                                        ))}
+                                        {(evidenceExpanded ? signals : signals.slice(0, 2)).map(
+                                            (signal: SignalNode) => (
+                                                <SignalCard key={signal.signal_id} signal={signal} />
+                                            )
+                                        )}
+                                        {signals.length > 2 && (
+                                            <LemonButton
+                                                type="tertiary"
+                                                size="small"
+                                                onClick={evidenceExpanded ? collapseEvidence : expandEvidence}
+                                            >
+                                                {evidenceExpanded ? 'Show less' : 'Show more'}
+                                            </LemonButton>
+                                        )}
                                     </div>
                                 )}
                             </DetailSection>
@@ -483,7 +500,7 @@ export function InboxDetailFrame({
                 </LemonButton>
                 <div className="flex items-center gap-2">
                     {primaryAction}
-                    {!summaryHasSolution && createPrButton}
+                    {!summaryHasSolution && implementButton}
                     {/* Discuss is always available and stays inline as its own dropdown button. */}
                     <DiscussReportButton report={report} reportUrl={reportUrl} />
                     {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
@@ -565,6 +582,9 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
     const prUrl = safeHttpUrl(report.implementation_pr_url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
     const hasPr = !!(prRef && prUrl)
+    // A tracker-issue failure has to show even on a report whose run never reached a pull request:
+    // that is exactly the case an audit has to find.
+    const hasTrackerNote = !!(report.tracker_issue_url || report.tracker_issue_error)
 
     // The branch to diff comes from the latest "Commit pushed" artefact; the diff needs the repo + branch
     // it carries. A PR-bearing report gets the tab bar right away off `hasPr` (immediate) rather than the
@@ -604,6 +624,11 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
                             </span>
                         </span>
                         <OpenPullRequestButton report={report} prUrl={prUrl} prRef={prRef} />
+                        <TrackerIssueNote report={report} />
+                    </div>
+                ) : hasTrackerNote ? (
+                    <div className="flex flex-wrap items-center gap-3" data-attr="inbox-report-solution-pr-note">
+                        <TrackerIssueNote report={report} />
                     </div>
                 ) : undefined
             }

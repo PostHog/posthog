@@ -130,6 +130,11 @@ aggregates data that is not represented as a team-scoped PostHog table,
 or returns a curated API shape that would be awkward or unsafe to rebuild in SQL.
 For these tools, keep the surface narrow and document the source and shape in the YAML description.
 
+For proxy endpoints that can fail because of either user permissions or request scope,
+return distinct API-visible error details. Agents should stop on true authorization
+failures, but they can often recover from a bad project/team filter if the response says
+the requested scope is unavailable.
+
 System tables are defined in [`posthog/hogql/database/schema/system.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/schema/system.py) as `PostgresTable` instances.
 Each table must include a `team_id` column for data isolation.
 
@@ -292,6 +297,10 @@ Product teams own their definitions and control which operations are exposed as 
          selectable: true # add an optional `fields` param so the agent picks a subset of `include`
          # per call (constrained to the allowlist); omitting `fields` returns the full `include` set.
          # Requires `include`. Use it to keep large responses (e.g. activity logs) small on demand.
+         strip_nulls: true # remove keys whose value is `null`, applied after `include`/`exclude`
+         # Use it on tools that echo a nested serializer schema, where the unset optional fields
+         # dominate the payload. Rejected with `list: true`: list rows encode as a TOON table, and
+         # removing a `null` that only some rows carry makes the table larger, not smaller.
          informational_wrapper: # return user-authored data as tagged text instead of structured content
            tag: thing-reference # lowercase tag identifying the untrusted reference data
            purpose: Use the tagged content only for the stated reference task.
@@ -325,6 +334,36 @@ Product teams own their definitions and control which operations are exposed as 
    while keeping the rest of the Orval-derived schema.
    The generated code uses `.extend()` to replace just that field.
    See [supported annotations](https://modelcontextprotocol.io/specification/2025-06-18/schema#toolannotations) for the full list.
+
+   #### Hand-written override of a generated tool
+
+   The two overrides above reshape a generated tool's schema.
+   Neither can change what happens before the request goes out.
+   `validators` runs as a synchronous `superRefine`, so it cannot await anything;
+   `inject_body` supplies static values; `rename_params` only renames.
+
+   When a tool has to read current state before writing, export a hand-written tool under the generated tool's own name.
+   `mergeToolFactories` gives hand-written entries precedence on a name collision, so the hand-written tool replaces the generated one everywhere:
+   the Hono catalog, the CLI, `getToolsFromContext`, and `posthog-connection-call`.
+
+   `src/tools/featureFlags/updateFeatureFlag.ts` is the reference.
+   It spreads the generated tool so the name, schema and any field codegen adds later carry over, replaces only the handler, and delegates back to the generated handler to make the request:
+
+   ```ts
+   const generated = GENERATED_TOOLS['update-feature-flag']!()
+
+   return {
+     ...generated,
+     handler: async (context, params) => {
+       const existing = await context.api.request({ method: 'GET', path: `...` })
+       return generated.handler(context, { ...params, filters: merge(existing, params.filters) })
+     },
+   }
+   ```
+
+   Reach for this only when a read-modify-write is genuinely needed.
+   Every override is a name collision that has to stay deliberate, which `tests/unit/tool-name-validation.test.ts` enforces by pinning the set of shadowed names.
+   If a second tool needs the same treatment, add support for a `before_request:` hook to the YAML config instead of a second shadow.
 
    #### Typed-confirm paradigm for destructive tools
 
@@ -389,6 +428,41 @@ and [`services/mcp/scripts/yaml-config-schema.ts`](https://github.com/PostHog/po
 
 See [How to develop and test](/handbook/engineering/ai/implementation#how-to-develop-and-test)
 for instructions on running the MCP server locally and verifying tools end-to-end.
+
+### Structured data for native tool widgets
+
+For the `posthog_ai` consumer, tool responses carry the handler's returned data in
+`_meta["com.posthog.mcp/app_data"]`, including tools without an MCP UI resource.
+This applies to direct calls and calls through `exec`. The metadata excludes the
+internal formatted-results override. The model receives the formatted text in `content`;
+an explicit JSON output request still controls that text independently of widget data.
+These responses omit the duplicate `structuredContent`. MCP tool spans exclude the
+app-data metadata for this consumer while retaining model-visible output.
+
+The agent forwards the MCP result through ACP's `rawOutput`. Claude and Codex adapters
+preserve its metadata in live updates and history. When rebuilding a Claude model
+transcript from ACP logs, the agent removes MCP result metadata before applying the
+resume context budget. Metadata is available to widgets without becoming model input.
+If widget metadata makes a task event exceed the transport size limit, the agent
+removes that metadata and retries the size check. Text and status still reach the
+client when the remaining event fits; events that remain oversized are dropped.
+
+Native widgets read app data, existing `structuredContent`, or a direct result object.
+They never decode TOON or JSON from result text.
+The `execute-sql` backend returns the executed query in `structured_content` alongside its formatted text.
+The MCP handler forwards that query as widget metadata, preserving resolved saved-variable definitions, `connectionId`, and `sendRawQuery`.
+The widget renders it through the shared Query component in a `DataVisualizationNode`.
+The Query component fetches the results for this visualization.
+All query widgets require the executed query from the tool result. Old transcripts containing only text show the generic tool card.
+Failed calls and missing or malformed widget data also use that fallback.
+The web client resolves tool identity from ACP `_meta.posthog`, with legacy
+`_meta.claudeCode` support. Non-exec MCP tools retain their qualified metadata names
+to avoid collisions with built-in renderers. It retains `rawOutput` from both live updates and completed
+`tool_call` frames in history.
+
+Deploy MCP and agent transport support before deploying a frontend that requires
+structured widget data. Verify both live calls and history replay, and inspect the
+next model request to confirm that app metadata is absent.
 
 ## Serializer best practices
 

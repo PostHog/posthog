@@ -13,7 +13,8 @@ import { scoutDetailLogic } from '../../../logics/scoutDetailLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutNotesLogic } from '../../../logics/scoutNotesLogic'
 import { entriesForSkill, scratchpadLogic } from '../../../logics/scratchpadLogic'
-import { SCOUT_NO_RECENT_RUNS, SCOUT_RUNS_PER_SCOUT_LABEL } from '../../../utils/scoutRunsWindow'
+import { ScoutCostRollup, scoutCostWindowLabel } from '../../../utils/scoutCosts'
+import { formatRunCost, SCOUT_NO_RECENT_RUNS, SCOUT_RUNS_PER_SCOUT_LABEL } from '../../../utils/scoutRunsWindow'
 import { ScoutDetailHeader, ScoutAttentionBanner } from './ScoutDetailHeader'
 import { ScoutEmissionCard } from './ScoutEmissionCard'
 import { ScoutLearnedPanel } from './ScoutLearnedPanel'
@@ -145,8 +146,9 @@ function BackToScouts(): JSX.Element {
 
 /** The window's totals in one line, so the sections below don't each restate the same window. */
 function ScoutActivitySummary({ skillName }: { skillName: string }): JSX.Element {
-    const { rollups } = useValues(scoutFleetLogic)
+    const { rollups, scoutCostRollups } = useValues(scoutFleetLogic)
     const rollup = rollups.get(skillName)
+    const costRollup = scoutCostRollups.get(skillName)
 
     if (!rollup || rollup.runCount === 0) {
         return <span className="text-sm text-secondary">{SCOUT_NO_RECENT_RUNS}</span>
@@ -170,8 +172,28 @@ function ScoutActivitySummary({ skillName }: { skillName: string }): JSX.Element
                 {SCOUT_RUNS_PER_SCOUT_LABEL}
             </span>
             <span className="text-sm text-secondary">{parts.join(' · ')}</span>
+            {costRollup && <span className="text-sm text-secondary tabular-nums">{scoutSpendSummary(costRollup)}</span>}
         </div>
     )
+}
+
+/**
+ * What the scout spent over the cost window and what it produced for it, e.g.
+ * "$1.68 across 14 priced runs · 11 reports filed or added to · $0.15 per report". Staff only, and
+ * on its own line because it describes the cost window rather than the run window above it.
+ *
+ * The count is the priced runs rather than every run started, because it is the divisor behind the
+ * "Cost per run" tile. It keeps the qualifier so it does not read as the activity count that the
+ * run summary above states over its own window.
+ */
+function scoutSpendSummary(rollup: ScoutCostRollup): string {
+    return [
+        `${formatRunCost(rollup.spendUsd)} across ${pluralize(rollup.pricedRunCount, 'priced run')} in the ${scoutCostWindowLabel(rollup.windowDays)}`,
+        rollup.reportsTouched > 0
+            ? `${pluralize(rollup.reportsTouched, 'report')} filed or added to`
+            : 'no reports filed or added to',
+        ...(rollup.perReport === null ? [] : [`${formatRunCost(rollup.perReport)} per report`]),
+    ].join(' · ')
 }
 
 /**

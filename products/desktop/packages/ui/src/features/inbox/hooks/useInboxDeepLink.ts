@@ -1,6 +1,12 @@
+import { useService } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import {
+  BROWSER_TABS_CLIENT,
+  type BrowserTabsClient,
+} from "@posthog/ui/features/browser-tabs/browserTabsClient";
+import { focusOrOpenBrowserTab } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import { navigateToInbox } from "@posthog/ui/router/navigationBridge";
 import { useQuery } from "@tanstack/react-query";
@@ -22,6 +28,7 @@ import { useCallback, useEffect } from "react";
 export function useInboxDeepLink() {
   const trpcReact = useHostTRPC();
   const client = useOptionalAuthenticatedClient();
+  const tabsClient = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
   const isAuthenticated = useAuthStateValue(
     (s) => s.status === "authenticated",
   );
@@ -30,12 +37,17 @@ export function useInboxDeepLink() {
   const open = useCallback(
     (reportId: string | null): void => {
       if (reportId) {
-        void openReport(reportId, { preserveSource: false });
+        void openReport(reportId, { preserveSource: false, newTab: true });
       } else {
-        navigateToInbox();
+        void focusOrOpenBrowserTab(tabsClient, { href: "/inbox" }).then(
+          (handled) => {
+            if (handled) return;
+            navigateToInbox();
+          },
+        );
       }
     },
-    [openReport],
+    [openReport, tabsClient],
   );
 
   const pendingDeepLink = useQuery(

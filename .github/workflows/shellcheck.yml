@@ -55,6 +55,15 @@ jobs:
                       .github/scripts/check-commit-warnings.test.sh
                   .github/scripts/check-commit-warnings.test.sh
 
+            - name: Check merge queue triage helpers
+              run: |
+                  # An open PR that has not rebased onto this commit does not carry these
+                  # scripts, so the step skips rather than failing before its own tests run.
+                  d=.agents/skills/triaging-merge-queue-failures/scripts
+                  [ -f "$d/mq-queue-state.test.sh" ] || exit 0
+                  shellcheck "$d/mq-queue-state.sh" "$d/mq-queue-state.test.sh" "$d/mq-triage-marker.sh"
+                  bash "$d/mq-queue-state.test.sh"
+
             # Runs here, not in a path-gated ci-* job, so AGENTS/CLAUDE changes
             # anywhere in the repo are validated on every PR.
             - name: Check AGENTS.md / CLAUDE.md symlinks

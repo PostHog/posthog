@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseDestroyTablesMixin,
@@ -36,7 +36,7 @@ from posthog.tasks.ai_observability_usage_report import (
 from posthog.utils import get_previous_day
 
 
-@freeze_time("2022-01-10T00:01:00Z")
+@time_machine.travel("2022-01-10T00:01:00Z", tick=False)
 class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
     """Tests for AI observability usage reporting functionality."""
 
@@ -1105,7 +1105,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
             timestamp=jan_5_timestamp,
         )
 
-        # Create AI events for January 9th (within the default period based on freeze_time)
+        # Create AI events for January 9th (within the default period based on the frozen clock)
         jan_9_timestamp = datetime(2022, 1, 9, 12, 0, 0, tzinfo=UTC)
         self._create_ai_events(
             self.team,
@@ -1179,7 +1179,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert mock_capture_report.delay.call_count == expected_emissions
 
 
-@freeze_time("2022-01-10T00:01:00Z")
+@time_machine.travel("2022-01-10T00:01:00Z", tick=False)
 class TestAIObservabilityUsageReportTaskWiring(SimpleTestCase):
     @parameterized.expand(
         [

@@ -1,7 +1,8 @@
 import clsx from 'clsx'
 import { deepEqual as equal } from 'fast-equals'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
-import { useEffect, useId, useRef, useState } from 'react'
+import { combineUrl, router } from 'kea-router'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import {
     IconAsterisk,
@@ -15,6 +16,7 @@ import {
     IconRefresh,
     IconRevert,
     IconSearch,
+    IconSparkles,
     IconTrash,
     IconX,
 } from '@posthog/icons'
@@ -51,15 +53,17 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
+import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
-import { NodeKind, RecordingsQuery } from '~/queries/schema/schema-general'
+import { NodeKind, ProductIntentContext, ProductKey, RecordingsQuery } from '~/queries/schema/schema-general'
 import {
     PropertyFilterType,
     PropertyOperator,
@@ -70,6 +74,7 @@ import {
 
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
+import { scannerHandoffFromFilters } from 'products/replay_vision/frontend/replay_scanners/scannerHandoffFromFilters'
 
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
 import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -740,6 +745,10 @@ export const ReplayFiltersTab = ({
         featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
     )
     const showFeedbackButton = useFeatureFlag('SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON')
+    const scannerCrossSellEnabled = useFeatureFlag('VISION_ENTRYPOINT_REPLAY_FILTERS')
+    // A scanner keeps less of the filter set than this panel does, so what it would actually watch
+    // decides both the destination and whether the button is worth offering.
+    const scannerHandoff = useMemo(() => scannerHandoffFromFilters(filters), [filters])
 
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
@@ -1029,6 +1038,41 @@ export const ReplayFiltersTab = ({
                             </LemonButton>
                         )}
                         <div className="flex gap-2 ml-auto">
+                            {scannerCrossSellEnabled && (
+                                <>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconSparkles className="text-ai" />}
+                                        data-attr="replay-save-filters-as-scanner"
+                                        tooltip="Create a Replay vision scanner that keeps watching sessions matching these filters. The date range does not carry over, so the scanner watches sessions from now on."
+                                        disabledReason={
+                                            scannerHandoff.narrowsSessions
+                                                ? undefined
+                                                : 'Add an event or property filter. A date range and pinned sessions do not carry over to a scanner.'
+                                        }
+                                        onClick={() => {
+                                            void addProductIntentForCrossSell({
+                                                from: ProductKey.SESSION_REPLAY,
+                                                to: ProductKey.REPLAY_VISION,
+                                                intent_context:
+                                                    ProductIntentContext.SESSION_REPLAY_SAVE_FILTERS_AS_SCANNER,
+                                            })
+                                            router.actions.push(
+                                                combineUrl(
+                                                    urls.replayVisionScannerConfigure('new'),
+                                                    scannerHandoff.searchParams
+                                                ).url
+                                            )
+                                        }}
+                                    >
+                                        Create scanner
+                                    </LemonButton>
+                                    {/* Grouped away from the buttons that act on the filters themselves:
+                                        this one leaves for another product. */}
+                                    <LemonDivider vertical className="mx-1 self-stretch" />
+                                </>
+                            )}
                             {resetButton}
                             <LemonButton type="primary" size="small" onClick={() => setIsSaveFiltersModalOpen(true)}>
                                 Save as new filter

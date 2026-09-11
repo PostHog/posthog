@@ -1568,16 +1568,23 @@ const EventContent = React.memo(
         // Check if we're viewing a trace with actual content vs. a pseudo-trace (grouping of generations w/o input/output state)
         const isTopLevelTraceWithoutContent = !event || (!isLLMEvent(event) && !event.inputState && !event.outputState)
 
-        // Only pre-load for generation events ($ai_input/$ai_output_choices).
         // TODO: Figure out why spans can't load properties async
         const eventData = isGenerationEvent
             ? {
                   uuid: event.id,
                   input: event.properties.$ai_input,
                   output: event.properties.$ai_output_choices,
+                  tools: event.properties.$ai_tools,
+                  traceId: trace.id,
+                  timestamp: event.createdAt,
               }
             : undefined
-        const { input: loadedInput, output: loadedOutput } = useAIData(eventData)
+        const {
+            input: loadedInput,
+            output: loadedOutput,
+            tools: loadedTools,
+            isLoading: aiDataLoading,
+        } = useAIData(eventData)
 
         const handleOpenInPlayground = (): void => {
             if (!event || !isLLMEvent(event)) {
@@ -1586,9 +1593,8 @@ const EventContent = React.memo(
 
             const model = event.properties.$ai_model
             const provider = event.properties.$ai_provider
-            const tools = event.properties.$ai_tools
-
-            openInPlayground({ model, provider, input: loadedInput, output: loadedOutput, tools })
+            const output = selectAiValue(loadedOutput, event.properties.$ai_output)
+            openInPlayground({ model, provider, input: loadedInput, output, tools: loadedTools })
         }
 
         return (
@@ -1697,6 +1703,7 @@ const EventContent = React.memo(
                                             size="xsmall"
                                             icon={<IconPlay />}
                                             onClick={handleOpenInPlayground}
+                                            loading={aiDataLoading}
                                             tooltip="Open in Playground"
                                             data-attr="llma-playground-open-from-trace"
                                         >

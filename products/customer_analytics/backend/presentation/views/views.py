@@ -70,6 +70,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountEmailThreadSerializer,
     AccountNotebookSerializer,
     AccountNoteSerializer,
+    AccountPresenceViewerSerializer,
     AccountRelationshipDefinitionSerializer,
     AccountRelationshipSerializer,
     AccountRelationshipWriteSerializer,
@@ -78,6 +79,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountTrackRuleRunRequestSerializer,
     AccountTrackRuleRunSerializer,
     AccountTrackRulesConfigSerializer,
+    CalendarSyncBackfillSerializer,
     CalendarSyncStatusSerializer,
     CalendarSyncTriggerResponseSerializer,
     CalendarSyncTriggerSerializer,
@@ -1721,6 +1723,27 @@ class AccountViewSet(
             raise PermissionDenied()
         return Response(AccountSerializer(instance=account).data)
 
+    @extend_schema(
+        parameters=[_ACCOUNT_ID_PARAM],
+        request=None,
+        responses={200: AccountPresenceViewerSerializer(many=True)},
+    )
+    @action(methods=["POST"], detail=True, pagination_class=None, required_scopes=["account:read"])
+    def presence(self, request: Request, *args, **kwargs) -> Response:
+        if is_service_auth(request):
+            if api.get_account(self.team_id, self.kwargs["pk"]) is None:
+                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response([])
+        viewers = api.list_account_presence_viewers(
+            self.team_id,
+            self.kwargs["pk"],
+            self.user_access_control,
+            cast(User, request.user),
+        )
+        if viewers is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AccountPresenceViewerSerializer(instance=viewers, many=True).data)
+
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: SupportTicketSerializer(many=True)})
     @action(methods=["GET"], detail=True, pagination_class=None)
     def support_tickets(self, request: Request, *args, **kwargs) -> Response:
@@ -2602,6 +2625,43 @@ class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
     def list(self, request: Request, *args, **kwargs) -> Response:
         statuses = api.list_calendar_sync_statuses(self.team_id)
         return Response(CalendarSyncStatusSerializer(instance=statuses, many=True).data)
+
+    @validated_request(
+        request_serializer=CalendarSyncBackfillSerializer,
+        responses={200: OpenApiResponse(response=CalendarSyncTriggerResponseSerializer)},
+        summary="Backfill a connected Google account",
+        description="Start an admin-only Gmail and Google Calendar backfill for an inclusive UTC date range.",
+    )
+    @action(methods=["POST"], detail=False, url_path="backfill")
+    def backfill(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        requesting_level = self.user_permissions.current_team.effective_membership_level
+        has_management_access = requesting_level is not None and requesting_level >= OrganizationMembership.Level.ADMIN
+        try:
+            result = api.trigger_google_account_backfill(
+                self.team_id,
+                request.validated_data["integration_id"],
+                start_date=request.validated_data["start_date"],
+                end_date=request.validated_data["end_date"],
+                has_management_access=has_management_access,
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied("Only project admins can backfill Google accounts.")
+        except api.GoogleAccountBackfillUnavailable:
+            raise ValidationError(
+                {"integration_id": "This Google account cannot sync email. Ask its owner to reconnect it."}
+            )
+        if result is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        report_user_action(
+            cast(User, request.user),
+            "google account backfill triggered",
+            {
+                "range_days": (request.validated_data["end_date"] - request.validated_data["start_date"]).days + 1,
+                "already_running": result == "already_running",
+            },
+            team=self.team,
+        )
+        return Response(CalendarSyncTriggerResponseSerializer({"status": result}).data)
 
     @validated_request(
         request_serializer=CalendarSyncTriggerSerializer,

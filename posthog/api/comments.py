@@ -566,6 +566,9 @@ class CommentListQueryParamsSerializer(serializers.Serializer):
         ),
     )
     item_id = serializers.CharField(required=False, help_text="Filter by the ID of the resource being commented on.")
+    created_by = serializers.IntegerField(
+        required=False, help_text="Filter by the numeric ID of the user who wrote the comment."
+    )
     task_id = serializers.UUIDField(
         required=False, help_text="Owning task for task, task_artifact, and desktop_canvas comment scopes."
     )
@@ -910,8 +913,10 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         params = self.request.GET.dict()
         queryset = queryset.exclude(scope__in=COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API)
 
-        if params.get("user"):
-            queryset = queryset.filter(user=params.get("user"))
+        if created_by := params.get("created_by"):
+            if not created_by.isdigit():
+                raise exceptions.ValidationError("created_by must be a numeric user ID")
+            queryset = queryset.filter(created_by_id=int(created_by))
 
         if self.action != "partial_update" and params.get("deleted", "false") == "false":
             queryset = queryset.filter(deleted=False)

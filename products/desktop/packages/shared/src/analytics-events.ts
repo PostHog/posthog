@@ -18,6 +18,10 @@ export interface PromptHistorySelectedProperties {
 
 type ExecutionType = "cloud" | "local";
 export type RepositoryProvider = "github" | "gitlab" | "local" | "none";
+export type SpaceContextMode =
+  | "none"
+  | "legacy_inline"
+  | "context_wiki_reference";
 type TaskCreatedFrom = "cli" | "command-menu" | "sidebar-worktree";
 type RepositorySelectSource = "task-creation" | "task-detail";
 type GitActionType =
@@ -105,6 +109,10 @@ export interface TaskCreateProperties {
   adapter?: Adapter;
   codex_model_access?: ModelAccess;
   claude_model_access?: ModelAccess;
+  /** Space that owns the task, when it was created from a Space. */
+  channel_id?: string;
+  /** How shared Space context was delivered to the task. */
+  space_context_mode: SpaceContextMode;
 }
 
 export interface TaskViewProperties {

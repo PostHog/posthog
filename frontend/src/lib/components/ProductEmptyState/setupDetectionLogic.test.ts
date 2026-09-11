@@ -23,7 +23,7 @@ describe('createSetupDetectionLogic', () => {
     })
 
     function buildLogic(
-        detect: jest.Mock<Promise<ProductSetupStatus>, []>,
+        detect: jest.Mock<Promise<ProductSetupStatus | null>, []>,
         pollIntervalMs?: number
     ): ReturnType<ReturnType<typeof createSetupDetectionLogic>['build']> {
         const logic = createSetupDetectionLogic({
@@ -37,15 +37,18 @@ describe('createSetupDetectionLogic', () => {
 
     // The factory's whole job is feeding the scene gate: a status that never
     // arrives strands every adopting product on the scene-level spinner.
-    it.each([['has-data'], ['needs-setup'], ['waiting-for-data'], ['unknown']] as const)(
-        'pushes a detected %s into productSetupStatusLogic',
-        async (status) => {
-            const logic = buildLogic(jest.fn().mockResolvedValue(status))
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-            expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe(status)
-        }
-    )
+    it.each([
+        ['has-data', 'has-data'],
+        ['needs-setup', 'needs-setup'],
+        ['waiting-for-data', 'waiting-for-data'],
+        ['unknown', 'unknown'],
+        [null, 'unknown'],
+    ] as const)('pushes an initial detection of %s into productSetupStatusLogic as %s', async (status, expected) => {
+        const logic = buildLogic(jest.fn().mockResolvedValue(status))
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe(expected)
+    })
 
     it('fails open to unknown when detection fails before any answer', async () => {
         const logic = buildLogic(jest.fn().mockRejectedValue(new Error('network down')))
@@ -54,17 +57,25 @@ describe('createSetupDetectionLogic', () => {
         expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('unknown')
     })
 
-    it('never downgrades an existing answer on a poll blip', async () => {
-        const detect = jest
-            .fn<Promise<ProductSetupStatus>, []>()
-            .mockResolvedValueOnce('needs-setup')
-            .mockRejectedValueOnce(new Error('blip'))
+    it.each([
+        ['rejects', 'needs-setup'],
+        ['returns null', 'needs-setup'],
+        ['returns unknown', 'unknown'],
+    ] as const)('handles a poll that %s after an existing answer', async (failure, expected) => {
+        const detect = jest.fn<Promise<ProductSetupStatus | null>, []>().mockResolvedValueOnce('needs-setup')
+        if (failure === 'rejects') {
+            detect.mockRejectedValueOnce(new Error('blip'))
+        } else if (failure === 'returns null') {
+            detect.mockResolvedValueOnce(null)
+        } else {
+            detect.mockResolvedValueOnce('unknown')
+        }
         const logic = buildLogic(detect)
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.detectStatus()
         await expectLogic(logic).toFinishAllListeners()
-        expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('needs-setup')
+        expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe(expected)
     })
 
     // `toFinishAllListeners` waits on real timers, so under fake timers flush

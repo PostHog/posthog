@@ -24,6 +24,7 @@ from products.signals.backend.billing import (
     mark_report_billing_exempt,
     system_billing_exempt_reason,
 )
+from products.signals.backend.free_trial import capture_signal_report_free_trial_paused, self_driving_free_trial_enabled
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
@@ -40,8 +41,10 @@ from products.signals.backend.report_generation.research import (
     PriorityAssessment,
 )
 from products.signals.backend.report_generation.resolve_reviewers import (
+    ReviewerIdentitySet,
     get_org_member_github_logins_by_user_uuid,
     resolve_org_github_login_to_users,
+    resolve_org_users_by_uuid,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_steering import NO_STEERING, ReportSteering, load_report_steering
@@ -57,6 +60,7 @@ from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_IMPLEMENTATION,
     record_implementation_task,
 )
+from products.signals.backend.tracker_issues import create_tracker_issue_for_report
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
@@ -71,7 +75,10 @@ IMPLEMENTATION_MCP_SCOPES: McpScopePreset = "signals_implementation"
 
 
 class ReviewerContent(TypedDict):
-    github_login: str
+    # Null for a reviewer with no linked GitHub account: they route the report like anyone else, but
+    # can never be the autostart runner, which mints its session under a GitHub identity.
+    github_login: str | None
+    user_uuid: str | None
     github_name: str | None
     relevant_commits: list[dict]
     reason: str | None
@@ -202,6 +209,7 @@ def _generate_self_driving_head_branch(title: str) -> str:
     can write (see tasks' ``find_signal_implementation_run``). The slug keeps branch names
     readable; the random suffix is only there to prevent collisions between runs off similarly
     titled reports.
+
     """
     slug = slugify(title)
     if len(slug) > 40:
@@ -380,6 +388,7 @@ def _create_implementation_task_if_absent(
     base_branch: str | None,
     billing_exempt_reason: str | None = None,
     steering: ReportSteering = NO_STEERING,
+    free_trial_enabled: bool | None = None,
 ) -> bool:
     """Create the implementation task and record it (gate row + work-log artefact), serialized per report.
 
@@ -397,6 +406,8 @@ def _create_implementation_task_if_absent(
     # Resolved outside the transaction: the flag read does network I/O and must not hold the row lock.
     agent_runtime = resolve_agent_runtime(team_id, STEP_IMPLEMENTATION)
 
+    # Create the task before the provider issue. A failed task creation must not leave an external
+    # issue that says Self-driving started work when no run exists.
     head_branch = _generate_self_driving_head_branch(title)
     description = description + _head_branch_instruction(head_branch)
 
@@ -429,6 +440,9 @@ def _create_implementation_task_if_absent(
             repository=repository,
             branch=base_branch,
             signal_report_id=report_id,
+            # Resolved by the caller outside this lock, like `agent_runtime` above, so the
+            # create-time free-trial gate makes no flag request while the report row is locked.
+            free_trial_enabled=free_trial_enabled,
             # `full` scopes so the implementation agent can log its work on the report (notes,
             # code references) via the task:write artefact tools, plus the scratchpad so what it
             # learned about the codebase outlives the run.
@@ -443,6 +457,7 @@ def _create_implementation_task_if_absent(
             runtime_adapter=agent_runtime.runtime_adapter,
             model=agent_runtime.model,
             reasoning_effort=agent_runtime.reasoning_effort,
+            service_tier=agent_runtime.service_tier,
         )
         if created.latest_run is None:
             raise RuntimeError(f"Task {created.task_id} auto-started without producing a TaskRun")
@@ -455,6 +470,7 @@ def _create_implementation_task_if_absent(
             task_id=task_id,
             run_id=str(created.latest_run.id),
         )
+    create_tracker_issue_for_report(team_id=team_id, report_id=report_id, repository=repository)
     if exempt_reason and task_id:
         # After commit: the exempt report's implementation task exists — count it (includes a
         # best-effort ClickHouse lookup, so it must not run under the lock).
@@ -464,7 +480,9 @@ def _create_implementation_task_if_absent(
     return True
 
 
-def _live_skill_owner_logins(team: Team, report_id: str, reviewers_content: list[ReviewerContent]) -> set[str]:
+def _live_skill_owner_identities(
+    team: Team, report_id: str, reviewers_content: list[ReviewerContent]
+) -> ReviewerIdentitySet:
     """GitHub logins (lowercased) of the *current* owners of every scout that touched the report.
 
     The `is_skill_owner` stamp on a stored reviewer entry is a write-time snapshot: an owner added
@@ -488,9 +506,13 @@ def _live_skill_owner_logins(team: Team, report_id: str, reviewers_content: list
     for skill_name in skill_names:
         owner_uuids.update(resolve_skill_owner_user_uuids(team, skill_name))
     if not owner_uuids:
-        return set()
+        return ReviewerIdentitySet.empty()
     uuid_to_login = get_org_member_github_logins_by_user_uuid(team.id, list(owner_uuids))
-    return {login for login in uuid_to_login.values() if login}  # already lowercased by the resolver
+    return ReviewerIdentitySet(
+        user_uuids=frozenset(owner_uuids),
+        # already lowercased by the resolver
+        github_logins=frozenset(login for login in uuid_to_login.values() if login),
+    )
 
 
 def _resolve_autostart_assignee(
@@ -498,7 +520,7 @@ def _resolve_autostart_assignee(
     report_priority: Priority,
     reviewers_content: list[ReviewerContent],
     team_default_priority: Priority,
-    live_owner_logins: set[str] | None = None,
+    live_owner_identities: ReviewerIdentitySet | None = None,
 ) -> User | None:
     """Return the first suggested reviewer whose effective priority threshold allows auto-start.
 
@@ -513,7 +535,7 @@ def _resolve_autostart_assignee(
     skill editor name a privileged teammate as owner, steer the scout to pick them, and have the
     implementation agent mint an OAuth session under that teammate. They still route the report (they
     remain in the artefact); they just can't be the runner. The stored stamp is a write-time snapshot,
-    so *live_owner_logins* (the authoring scout's current owner set, resolved by the caller at
+    so *live_owner_identities* (the authoring scout's current owner set, resolved by the caller at
     identity time) is excluded too — an owner added after the stamp must not slip through as a stale
     ``False``.
 
@@ -525,27 +547,34 @@ def _resolve_autostart_assignee(
     # Owner-stamped entries — by the stored stamp or the live owner set — never select the task
     # identity (see docstring). Filter before resolving so their logins aren't even looked up as
     # candidates.
-    owner_logins = live_owner_logins or set()
+    owners = live_owner_identities or ReviewerIdentitySet.empty()
     identity_candidates = [
         r
         for r in reviewers_content
-        if not r.get("is_skill_owner") and str(r.get("github_login") or "").strip().lower() not in owner_logins
+        if not r.get("is_skill_owner")
+        and not owners.covers(user_uuid=r.get("user_uuid"), github_login=r.get("github_login"))
     ]
     login_to_user = resolve_org_github_login_to_users(
-        team_id, (str(r["github_login"]) for r in identity_candidates if r.get("github_login"))
+        team_id,
+        (str(r["github_login"]) for r in identity_candidates if not r.get("user_uuid") and r.get("github_login")),
+    )
+    uuid_to_user = resolve_org_users_by_uuid(
+        team_id, (str(r["user_uuid"]) for r in identity_candidates if r.get("user_uuid"))
     )
     report_rank = _priority_rank(report_priority)
 
     # Map reviewer github logins to org members, preserving reviewer order (most relevant first).
     candidate_users: list[User] = []
     for reviewer in identity_candidates:
+        user_uuid = reviewer.get("user_uuid")
         login = reviewer.get("github_login")
-        if not login:
+        if user_uuid:
+            candidate = uuid_to_user.get(str(user_uuid))
+        elif login:
+            candidate = login_to_user.get(str(login).strip().lower())
+        else:
             continue
-        # strip + lower matches the resolver's key normalization, so a legacy padded login
-        # (stored before the schema stripped on write) still resolves.
-        candidate = login_to_user.get(str(login).strip().lower())
-        if isinstance(candidate, User):
+        if isinstance(candidate, User) and candidate.get_github_login():
             candidate_users.append(candidate)
 
     if not candidate_users:
@@ -769,16 +798,16 @@ async def maybe_autostart_implementation_task(
     else:
         # Resolve the authoring scout's current owners at identity time — the stored
         # `is_skill_owner` stamp is a write-time snapshot and can be stale (see
-        # `_live_skill_owner_logins`). Skipped when no reviewer is up for selection.
-        live_owner_logins = (
-            await database_sync_to_async(_live_skill_owner_logins, thread_sensitive=False)(
+        # `_live_skill_owner_identities`). Skipped when no reviewer is up for selection.
+        live_owner_identities = (
+            await database_sync_to_async(_live_skill_owner_identities, thread_sensitive=False)(
                 team, report_id, reviewers_content
             )
             if reviewers_content
-            else set()
+            else ReviewerIdentitySet.empty()
         )
         task_user = await database_sync_to_async(_resolve_autostart_assignee, thread_sensitive=False)(
-            team_id, priority.priority, reviewers_content, team_default_priority, live_owner_logins
+            team_id, priority.priority, reviewers_content, team_default_priority, live_owner_identities
         )
         if (
             task_user is None
@@ -795,6 +824,21 @@ async def maybe_autostart_implementation_task(
             report_id=report_id,
             team_id=team_id,
             reason="no autostart runner: no reviewer met threshold, and no enabling member for a report at/above the team autostart priority",
+        )
+        return
+
+    # Free trial gate: a trial org gets reports, not pull requests, so no implementation task on
+    # any path. The report stays ready and gets its PR after the trial, on the next re-evaluation
+    # or by hand. The gate sits after the runner resolution because a report with no runner opens
+    # no pull request anyway, so counting it would overstate what the trial held back.
+    on_free_trial = await database_sync_to_async(self_driving_free_trial_enabled, thread_sensitive=False)(team)
+    if on_free_trial:
+        capture_signal_report_free_trial_paused(team, report_id=report_id, stage="autostart")
+        logger.info(
+            "self-driving auto-start skipped",
+            report_id=report_id,
+            team_id=team_id,
+            reason="org on self-driving free trial",
         )
         return
 
@@ -825,6 +869,9 @@ async def maybe_autostart_implementation_task(
         base_branch=base_branch,
         billing_exempt_reason=billing_exempt_reason,
         steering=steering,
+        # The verdict resolved above, so the create-time gate re-reads no flag while it holds the
+        # report row lock.
+        free_trial_enabled=on_free_trial,
     )
     if not created:
         # Another evaluation won the race and already created the implementation task.
@@ -872,11 +919,14 @@ async def _latest_reviewers_content(report_id: str) -> tuple[list[ReviewerConten
         return [], editor_user_id
     reviewers: list[ReviewerContent] = []
     for entry in data:
-        if isinstance(entry, dict) and entry.get("github_login"):
+        # Either identity is enough to keep the entry. A reviewer with no login still routes the
+        # report and still carries the owner stamp; only the runner-identity step needs a login.
+        if isinstance(entry, dict) and (entry.get("github_login") or entry.get("user_uuid")):
             source_skill = entry.get("source_skill")
             reviewers.append(
                 ReviewerContent(
-                    github_login=str(entry["github_login"]),
+                    github_login=str(entry["github_login"]) if entry.get("github_login") else None,
+                    user_uuid=str(entry["user_uuid"]) if entry.get("user_uuid") else None,
                     github_name=entry.get("github_name"),
                     relevant_commits=entry.get("relevant_commits") or [],
                     reason=entry.get("reason"),

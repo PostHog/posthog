@@ -4,12 +4,6 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/signals/api'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
-import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
-import {
-    executeConfirmedAction,
-    prepareConfirmedAction,
-    type PrepareConfirmedActionResult,
-} from '@/tools/confirmed-action-runtime'
 import {
     withPostHogUrl,
     withAgentNote,
@@ -286,6 +280,9 @@ const inboxReportsList = (): ToolBase<
                     'implementation_pr_url',
                     'implementation_pr_state',
                     'implementation_pr_merged',
+                    'tracker_issue_url',
+                    'tracker_issue_reference',
+                    'tracker_issue_error',
                     'work_state',
                     'assignee',
                     'created_at',
@@ -714,6 +711,9 @@ const scoutConfigUpdate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutConfigUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.display_name !== undefined) {
+            body['display_name'] = params.display_name
+        }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
         }
@@ -764,51 +764,11 @@ const ScoutCreateSchema = () => {
     return SignalsScoutCreateBody
 }
 
-const ScoutCreateSchemaExecute = z.strictObject({
-    confirmation_hash: z
-        .string()
-        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
-    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
-})
-
-const scoutCreatePrepare = (): ToolBase<ReturnType<typeof ScoutCreateSchema>, PrepareConfirmedActionResult> => ({
-    name: 'scout-create-prepare',
+const scoutCreate = (): ToolBase<ReturnType<typeof ScoutCreateSchema>, Schemas.SignalScoutCreateResponse> => ({
+    name: 'scout-create',
     schema: ScoutCreateSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutCreateSchema>>) => {
-        const __runtime = getConfirmedActionRuntime()
-        const __scopeProjectId = await context.stateManager.getProjectId()
-        return await prepareConfirmedAction(context, {
-            args: params,
-            purpose: 'scout-create',
-            actionLabel: 'create scout',
-            messageTemplate:
-                "About to create scout '{name}', a persistent automation that can run unattended on its configured schedule and write reports to the inbox when enabled with emit on. Reply 'confirm' to create it.\n",
-            codec: __runtime.codec,
-            stash: __runtime.stash,
-            boundScope: { projectId: String(__scopeProjectId) },
-        })
-    },
-})
-
-const scoutCreateExecute = (): ToolBase<typeof ScoutCreateSchemaExecute, Schemas.SignalScoutCreateResponse> => ({
-    name: 'scout-create-execute',
-    schema: ScoutCreateSchemaExecute,
-    handler: async (context: Context, confirmationParams: z.infer<typeof ScoutCreateSchemaExecute>) => {
-        const __runtime = getConfirmedActionRuntime()
-        const __scopeProjectId = await context.stateManager.getProjectId()
-        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof ScoutCreateSchema>>>(context, {
-            incomingArgs: confirmationParams,
-            purpose: 'scout-create',
-            codec: __runtime.codec,
-            ledger: __runtime.ledger,
-            stash: __runtime.stash,
-            expectedScope: { projectId: String(__scopeProjectId) },
-        })
-        if (!__guard.ok) {
-            return __guard.result as never
-        }
-        const params = __guard.verifiedArgs
-        const projectId = __scopeProjectId
+        const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
             body['name'] = params.name
@@ -926,6 +886,9 @@ const scoutEmitReport = (): ToolBase<ReturnType<typeof ScoutEmitReportSchema>, S
         }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
+        }
+        if (params.idempotency_key !== undefined) {
+            body['idempotency_key'] = params.idempotency_key
         }
         const result = await context.api.request<Schemas.EmitReportResponse>({
             method: 'POST',
@@ -1525,6 +1488,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof SignalsScoutConfigUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.display_name !== undefined) {
+            body['display_name'] = params.display_name
+        }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
         }
@@ -1668,6 +1634,9 @@ const signalsScoutEmitReport = (): ToolBase<
         }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
+        }
+        if (params.idempotency_key !== undefined) {
+            body['idempotency_key'] = params.idempotency_key
         }
         const result = await context.api.request<Schemas.EmitReportResponse>({
             method: 'POST',
@@ -2032,8 +2001,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-config-list': scoutConfigList,
     'scout-config-sync': scoutConfigSync,
     'scout-config-update': scoutConfigUpdate,
-    'scout-create-prepare': scoutCreatePrepare,
-    'scout-create-execute': scoutCreateExecute,
+    'scout-create': scoutCreate,
     'scout-edit-report': scoutEditReport,
     'scout-emit-report': scoutEmitReport,
     'scout-emit-signal': scoutEmitSignal,

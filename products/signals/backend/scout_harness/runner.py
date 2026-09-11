@@ -39,7 +39,7 @@ from products.signals.backend.scout_harness.limits import (
     failure_streak_pause_threshold,
     interval_runs_in_tolerance_window,
 )
-from products.signals.backend.scout_harness.model_selection import resolve_scout_model
+from products.signals.backend.scout_harness.model_selection import RUNTIME_ADAPTER_CODEX, resolve_scout_model
 from products.signals.backend.scout_harness.prompt import (
     HARNESS_PROMPT_VERSION,
     SignalScoutRunSummary,
@@ -323,14 +323,25 @@ async def arun_signals_scout(
         runtime_adapter: str | None = scout_model.runtime_adapter
         model: str | None = scout_model.model
         reasoning_effort: str | None = scout_model.reasoning_effort
+        service_tier: str | None = scout_model.service_tier
     elif agent_runtime.runtime_adapter:
         runtime_adapter = agent_runtime.runtime_adapter
         model = agent_runtime.model
         reasoning_effort = agent_runtime.reasoning_effort
+        service_tier = agent_runtime.service_tier
     else:
         runtime_adapter = None
         model = None
         reasoning_effort = None
+        service_tier = None
+    # The OpenAI queue travels with the model it was configured beside, like the rest of the
+    # triple: a slice's own tier, or the pipeline pin's when the pin's model runs. It never crosses
+    # to a model the operator did not pair it with (some reject the field outright), which is what
+    # lets one slice trial `flex` against the remainder's standard queue on the same model. Only a
+    # Codex turn joins an OpenAI queue, so a claude runtime drops it rather than stamping a tier the
+    # run never asked for onto the A/B readout.
+    if runtime_adapter != RUNTIME_ADAPTER_CODEX:
+        service_tier = None
     # Resolved here rather than inside `_spawn_and_run` so the failure and cancellation paths below
     # can report the same prompt shape the run actually got: a spawn that raises never returns, so a
     # value resolved in there would be unavailable to exactly the runs whose shape matters most.
@@ -375,6 +386,7 @@ async def arun_signals_scout(
             model=model,
             runtime_adapter=runtime_adapter,
             reasoning_effort=reasoning_effort,
+            service_tier=service_tier,
             triggered_by=triggered_by,
         )
         runtime_s = time.monotonic() - started
@@ -401,6 +413,7 @@ async def arun_signals_scout(
             triggered_by=triggered_by,
             model=model,
             runtime_adapter=runtime_adapter,
+            service_tier=service_tier,
         )
         return RunResult(
             run_id=str(run_id),
@@ -464,6 +477,7 @@ async def arun_signals_scout(
             triggered_by=triggered_by,
             model=model,
             runtime_adapter=runtime_adapter,
+            service_tier=service_tier,
             error_type=type(exc).__name__,
             error_message=str(exc)[:300],
             extra_properties=_poll_timeout_properties(exc),
@@ -525,6 +539,7 @@ async def arun_signals_scout(
             triggered_by=triggered_by,
             model=model,
             runtime_adapter=runtime_adapter,
+            service_tier=service_tier,
         )
         raise
 
@@ -623,6 +638,7 @@ async def _spawn_and_run(
     model: str | None,
     runtime_adapter: str | None = None,
     reasoning_effort: str | None = None,
+    service_tier: str | None = None,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
 ) -> tuple[str, str]:
     """Spawn the sandbox, create the bridge row before the first turn, run the agent.
@@ -703,6 +719,8 @@ async def _spawn_and_run(
         # Paired with `model`: the agent server derives the LLM provider from the runtime.
         runtime_adapter=runtime_adapter,
         reasoning_effort=reasoning_effort,
+        # Codex-only, and independent of the model pin: which OpenAI queue the run's turns join.
+        service_tier=service_tier,
     )
     governed_metric_names = await database_sync_to_async(_governed_metric_names_for_team, thread_sensitive=False)(
         team, user_id
@@ -757,6 +775,7 @@ async def _spawn_and_run(
             model=model,
             runtime_adapter=runtime_adapter,
             reasoning_effort=reasoning_effort,
+            service_tier=service_tier,
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
             triggered_by=triggered_by,
@@ -777,6 +796,7 @@ async def _spawn_and_run(
             triggered_by=triggered_by,
             model=model,
             runtime_adapter=runtime_adapter,
+            service_tier=service_tier,
         )
 
     session, result = await MultiTurnSession.start(
@@ -958,19 +978,22 @@ def _create_run_row(
     model: str | None = None,
     runtime_adapter: str | None = None,
     reasoning_effort: str | None = None,
+    service_tier: str | None = None,
     github_guidance: bool = False,
     business_knowledge_maintained: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
 ) -> SignalScoutRun:
-    # Stamp the routed model triple onto the row's `metadata` so "which model ran this?" is a
-    # column read on the run API, not an analytics-event join. Keys are omitted (not null-valued)
-    # on the default path, so their absence means the agent-server default served the run.
+    # Stamp the routed model triple (and the OpenAI queue it asked for) onto the row's `metadata`
+    # so "which model ran this?" is a column read on the run API, not an analytics-event join. Keys
+    # are omitted (not null-valued) on the default path, so their absence means the agent-server
+    # default served the run.
     metadata: dict[str, Any] = {
         key: value
         for key, value in (
             ("model", model),
             ("runtime_adapter", runtime_adapter),
             ("reasoning_effort", reasoning_effort),
+            ("service_tier", service_tier),
         )
         if value is not None
     }
@@ -1217,6 +1240,7 @@ def _capture_run_started(
     triggered_by: str,
     model: str | None = None,
     runtime_adapter: str | None = None,
+    service_tier: str | None = None,
 ) -> None:
     """Emit the scout-owned run-started analytics event.
 
@@ -1242,6 +1266,7 @@ def _capture_run_started(
         business_knowledge_maintained=business_knowledge_maintained,
         model=model,
         runtime_adapter=runtime_adapter,
+        service_tier=service_tier,
         triggered_by=triggered_by,
     )
     try:
@@ -1350,6 +1375,7 @@ def _attach_run_shape_props(
     business_knowledge_maintained: bool,
     model: str | None,
     runtime_adapter: str | None,
+    service_tier: str | None,
     triggered_by: str,
 ) -> None:
     """Attach the dimensions that describe what this run was configured with, to both lifecycle
@@ -1359,7 +1385,9 @@ def _attach_run_shape_props(
     which is the dimension a prompt A/B has to hold constant, and until it existed nothing recorded
     which build a run used. Model and runtime adapter are attached only when the
     `scouts-model-selection` gate (or a runtime pin) routed the run, so their absence means the
-    agent-server default served it. `network_access` follows the same absent-means-default
+    agent-server default served it; `service_tier` likewise only when a slice or pipeline pin asked
+    for an OpenAI queue, so a flex arm and its standard control split without joining through
+    `$ai_generation`. `network_access` follows the same absent-means-default
     convention (attached only for `full`), so an event-based readout never pools runs with
     different egress capabilities under one model or prompt. `write_scopes` is attached only for a scout
     granted extra write access, so a readout can separate runs that could change project objects from
@@ -1382,6 +1410,8 @@ def _attach_run_shape_props(
         properties["model"] = model
     if runtime_adapter is not None:
         properties["runtime_adapter"] = runtime_adapter
+    if service_tier is not None:
+        properties["service_tier"] = service_tier
     if triggered_by != TRIGGERED_BY_SCHEDULE:
         properties["triggered_by"] = triggered_by
 
@@ -1401,6 +1431,7 @@ def _capture_run_finished(
     triggered_by: str,
     model: str | None = None,
     runtime_adapter: str | None = None,
+    service_tier: str | None = None,
     error_type: str | None = None,
     error_message: str | None = None,
     extra_properties: dict[str, Any] | None = None,
@@ -1440,6 +1471,7 @@ def _capture_run_finished(
         business_knowledge_maintained=business_knowledge_maintained,
         model=model,
         runtime_adapter=runtime_adapter,
+        service_tier=service_tier,
         triggered_by=triggered_by,
     )
     # Only attach failure context on failed runs — keeps successful / cancelled events clean

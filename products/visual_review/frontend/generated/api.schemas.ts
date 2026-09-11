@@ -75,6 +75,8 @@ export interface BaselineQuarantineSummaryApi {
 export interface BaselineEntryApi {
     /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
     quarantine?: BaselineQuarantineSummaryApi | null
+    /** Accepted variants still recorded against this baseline's current hash. Unlike the 30-day and 90-day counts, this has no time window: an accepted variant keeps matching without a new record. A baseline change resets it to zero. */
+    active_variants_current_baseline: number
     identifier: string
     run_type: string
     /** @nullable */
@@ -98,6 +100,8 @@ export type BaselineTotalsApiByRunType = { [key: string]: number }
 
 export interface BaselineTotalsApi {
     by_run_type: BaselineTotalsApiByRunType
+    /** Baselines carrying three or more accepted variants of their current hash. */
+    variant_pileups: number
     all_snapshots: number
     recently_tolerated: number
     frequently_tolerated: number

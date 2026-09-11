@@ -779,7 +779,8 @@ export function TaxonomicFilterMenu({
                 and dismisses both the dialog and the popover). */}
             {state.kind === 'dwh-config' && (
                 <MenuFilterDwhConfig
-                    table={state.table}
+                    // The selected entry receives schema loaded after opening; state.table is only the opening snapshot.
+                    table={state.origin === 'menu' ? (selected?.item ?? state.table) : state.table}
                     group={state.group}
                     dataWarehousePopoverFields={dataWarehousePopoverFields}
                     insightProps={insightProps}

@@ -5,7 +5,7 @@ from io import BytesIO
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_persons_and_events
 from unittest import mock
 from unittest.mock import ANY, MagicMock, Mock, patch
@@ -1035,7 +1035,7 @@ class TestCSVExporter(APIBaseTest):
     def test_csv_exporter_trends_actors(
         self,
     ) -> None:
-        with freeze_time("2022-06-01T12:00:00.000Z"):
+        with time_machine.travel("2022-06-01T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=[f"user_1"], team=self.team, uuid="725f10a7-26dd-fa38-f973-757866a10ad4")
 
         events_by_person = {
@@ -1104,7 +1104,7 @@ class TestCSVExporter(APIBaseTest):
     def test_csv_exporter_trends_query_with_formula(
         self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
     ) -> None:
-        with freeze_time("2024-05-15T12:00:00.000Z"):
+        with time_machine.travel("2024-05-15T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=["formula_test_user_xyz"], team=self.team)
 
         events_by_person = {
@@ -1161,7 +1161,7 @@ class TestCSVExporter(APIBaseTest):
     def test_csv_exporter_trends_query_with_formula_and_single_breakdown(
         self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
     ) -> None:
-        with freeze_time("2024-06-10T12:00:00.000Z"):
+        with time_machine.travel("2024-06-10T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=["breakdown_user_single"], team=self.team)
 
         _create_event(
@@ -1239,7 +1239,7 @@ class TestCSVExporter(APIBaseTest):
     def test_csv_exporter_trends_query_with_formula_and_multiple_breakdowns(
         self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
     ) -> None:
-        with freeze_time("2024-07-20T12:00:00.000Z"):
+        with time_machine.travel("2024-07-20T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=["multi_breakdown_user_1"], team=self.team)
             _create_person(distinct_ids=["multi_breakdown_user_2"], team=self.team)
 
@@ -1330,7 +1330,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_csv_exporter_trends_with_breakdown(self, mocked_uuidt: Any) -> None:
-        with freeze_time("2025-05-22T12:00:00.000Z"):
+        with time_machine.travel("2025-05-22T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=["user_1"], team=self.team)
             _create_person(distinct_ids=["user_2"], team=self.team)
 
@@ -1400,7 +1400,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_csv_exporter_trends_with_breakdown_and_action(self, mocked_uuidt: Any) -> None:
-        with freeze_time("2025-05-22T12:00:00.000Z"):
+        with time_machine.travel("2025-05-22T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=["user_1"], team=self.team)
             _create_person(distinct_ids=["user_2"], team=self.team)
 

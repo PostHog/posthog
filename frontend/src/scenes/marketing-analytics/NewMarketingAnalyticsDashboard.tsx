@@ -1,13 +1,25 @@
+import { useActions, useValues } from 'kea'
+
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+
+import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
+import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { MarketingAnalyticsCell } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/shared'
 import { webAnalyticsDataTableQueryContext } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { OverviewMetricCardGrid } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
+import { labelFromKey } from '~/queries/nodes/WebOverview/WebOverview'
 import { Query } from '~/queries/Query/Query'
 import {
     DataTableNode,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsDrillDownLevel,
     NodeKind,
+    WebOverviewQuery,
+    WebOverviewQueryResponse,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
 
@@ -67,9 +79,62 @@ const QUERY_CONTEXT: QueryContext = {
 // Scaffold for the redesigned marketing analytics dashboard, gated behind the
 // `new-marketing-analytics-dashboard` feature flag.
 export function NewMarketingAnalyticsDashboard(): JSX.Element {
+    const { dateFilter, compareFilter, shouldFilterTestAccounts } = useValues(marketingAnalyticsLogic)
+    const { setDates, setCompareFilter } = useActions(marketingAnalyticsLogic)
+    const dateRange = { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo }
+    const query: WebOverviewQuery = {
+        kind: NodeKind.WebOverviewQuery,
+        dateRange,
+        compareFilter,
+        filterTestAccounts: shouldFilterTestAccounts,
+        properties: [],
+        tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
+    }
+    const overviewLogic = dataNodeLogic({ query, key: 'marketing-acquisition-overview' })
+    const { response, responseLoading, responseError } = useValues(overviewLogic)
+    const { loadData } = useActions(overviewLogic)
+    const overview = response as WebOverviewQueryResponse | undefined
+    const items = ['visitors', 'sessions', 'views'].flatMap((key) =>
+        (overview?.results?.filter((item) => item.key === key) ?? []).map((item) => ({ ...item, value: item.value }))
+    )
+
     return (
-        <div className="mt-4">
-            <Query query={CHANNEL_SOURCE_BREAKDOWN} context={QUERY_CONTEXT} readOnly />
+        <div className="mt-4 flex flex-col gap-4">
+            <div className="flex flex-wrap items-center gap-2">
+                <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
+                <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
+                <LemonButton size="small" loading={responseLoading} onClick={() => loadData('force_async')}>
+                    Reload summary
+                </LemonButton>
+            </div>
+            <h2 className="mb-0">Acquisition</h2>
+            {responseError ? (
+                <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadData('force_async') }}>
+                    Could not load acquisition metrics. Try again.
+                </LemonBanner>
+            ) : (
+                <OverviewMetricCardGrid
+                    items={items}
+                    loading={responseLoading}
+                    numSkeletons={3}
+                    samplingRate={overview?.samplingRate}
+                    preComputeStrategy={overview?.preComputeStrategy}
+                    labelFromKey={labelFromKey}
+                />
+            )}
+            <Query
+                query={{
+                    ...CHANNEL_SOURCE_BREAKDOWN,
+                    source: {
+                        ...CHANNEL_SOURCE_BREAKDOWN.source,
+                        dateRange,
+                        compareFilter,
+                        filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                }}
+                context={QUERY_CONTEXT}
+                readOnly
+            />
         </div>
     )
 }

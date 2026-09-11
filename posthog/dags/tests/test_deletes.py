@@ -4,7 +4,7 @@ from typing import cast
 from uuid import UUID
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import patch
 
 from django.conf import settings as django_settings
@@ -582,7 +582,7 @@ def test_cleanup_old_events_by_partition(cluster: ClickhouseCluster):
 
 
 @pytest.mark.django_db
-@freeze_time("2025-09-15")
+@time_machine.travel("2025-09-15", tick=False)
 def test_cleanup_old_events_delete_query_format(cluster: ClickhouseCluster, snapshot):
     from unittest.mock import patch
 

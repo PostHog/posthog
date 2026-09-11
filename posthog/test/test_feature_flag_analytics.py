@@ -3,7 +3,7 @@ import datetime
 import concurrent.futures
 
 import pytest
-from freezegun import config, configure, freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -43,10 +43,6 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
     maxDiff = None
 
-    def tearDown(self):
-        configure(default_ignore_list=config.DEFAULT_IGNORE_LIST)
-        return super().tearDown()
-
     def setUp(self):
         # delete all keys in redis
         r = redis.get_client()
@@ -59,7 +55,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
         team_id = 3
         other_team_id = 1243
 
-        with freeze_time("2022-05-07 12:23:07") as frozen_datetime:
+        with time_machine.travel("2022-05-07 12:23:07", tick=False) as frozen_datetime:
             for _ in range(10):
                 # 10 requests in first bucket
                 increment_request_count(team_id)
@@ -67,7 +63,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 7 requests for other team
                 increment_request_count(other_team_id)
 
-            frozen_datetime.tick(datetime.timedelta(seconds=5))
+            frozen_datetime.shift(datetime.timedelta(seconds=5))
 
             for _ in range(5):
                 # 5 requests in second bucket
@@ -93,7 +89,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
     def test_increment_request_count_remote_config_uses_own_bucket(self):
         team_id = 3
 
-        with freeze_time("2022-05-07 12:23:07"):
+        with time_machine.travel("2022-05-07 12:23:07", tick=False):
             for _ in range(4):
                 increment_request_count(team_id)
             for _ in range(6):
@@ -121,7 +117,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
         other_team_uuid = "other-team-uuid"
 
         with (
-            freeze_time("2022-05-07 12:23:07") as frozen_datetime,
+            time_machine.travel("2022-05-07 12:23:07", tick=False) as frozen_datetime,
             self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"),
         ):
             for _ in range(10):
@@ -133,7 +129,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 7 requests for other team
                 increment_request_count(other_team_id)
 
-            frozen_datetime.tick(datetime.timedelta(seconds=5))
+            frozen_datetime.shift(datetime.timedelta(seconds=5))
 
             for _ in range(5):
                 # 5 requests in second bucket
@@ -144,7 +140,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 3 requests for other team
                 increment_request_count(other_team_id)
 
-            frozen_datetime.tick(datetime.timedelta(seconds=10))
+            frozen_datetime.shift(datetime.timedelta(seconds=10))
 
             for _ in range(5):
                 # 5 requests in third bucket
@@ -219,7 +215,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
         team_uuid = "team-uuid"
         other_team_uuid = "other-team-uuid"
 
-        with freeze_time("2022-05-07 12:23:07") as frozen_datetime:
+        with time_machine.travel("2022-05-07 12:23:07", tick=False) as frozen_datetime:
             for _ in range(10):
                 # 10 requests in first bucket
                 increment_request_count(team_id)
@@ -227,7 +223,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 7 requests for other team
                 increment_request_count(other_team_id)
 
-            frozen_datetime.tick(datetime.timedelta(seconds=5))
+            frozen_datetime.shift(datetime.timedelta(seconds=5))
 
             for _ in range(5):
                 # 5 requests in second bucket
@@ -236,7 +232,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 3 requests for other team
                 increment_request_count(other_team_id)
 
-            frozen_datetime.tick(datetime.timedelta(seconds=10))
+            frozen_datetime.shift(datetime.timedelta(seconds=10))
 
             for _ in range(5):
                 # 5 requests in third bucket
@@ -290,7 +286,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             id=other_team_id, organization=self.organization, api_token=f"token:::{other_team_id}", uuid=other_team_uuid
         )
 
-        with freeze_time("2022-05-07 12:23:07") as frozen_datetime:
+        with time_machine.travel("2022-05-07 12:23:07", tick=False) as frozen_datetime:
             for _ in range(10):
                 # 10 requests in first bucket
                 increment_request_count(team_id)
@@ -298,7 +294,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 7 requests for other team
                 increment_request_count(other_team_id)
 
-            frozen_datetime.tick(datetime.timedelta(seconds=5))
+            frozen_datetime.shift(datetime.timedelta(seconds=5))
 
             for _ in range(5):
                 # 5 requests in second bucket
@@ -307,7 +303,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 3 requests for other team
                 increment_request_count(other_team_id)
 
-            frozen_datetime.tick(datetime.timedelta(seconds=10))
+            frozen_datetime.shift(datetime.timedelta(seconds=10))
 
             for _ in range(5):
                 # 5 requests in third bucket
@@ -345,13 +341,10 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 assert mock_capture.capture.call_count == 2
 
     @pytest.mark.skip(
-        reason="This works locally, but causes issues in CI because the freeze_time applies to threads as well in unrelated tests, causing timeouts."
+        reason="This works locally, but causes issues in CI because the frozen clock applies to threads as well in unrelated tests, causing timeouts."
     )
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_no_interference_between_different_types_of_new_incoming_increments(self):
-        # we want freezetime to apply to threads too.
-        # However, the list can't be empty, so we need to add something.
-        configure(default_ignore_list=["tensorflow"])
 
         mock_capture = MagicMock()
         team_id = 3
@@ -359,7 +352,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
         team_uuid = "team-uuid"
 
         with (
-            freeze_time("2022-05-07 12:23:07") as frozen_datetime,
+            time_machine.travel("2022-05-07 12:23:07", tick=False) as frozen_datetime,
             self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"),
         ):
             for _ in range(10):
@@ -367,21 +360,21 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 increment_request_count(team_id)
                 increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION)
 
-            frozen_datetime.tick(datetime.timedelta(seconds=5))
+            frozen_datetime.shift(datetime.timedelta(seconds=5))
 
             for _ in range(5):
                 # 5 requests in second bucket
                 increment_request_count(team_id)
                 increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION)
 
-            frozen_datetime.tick(datetime.timedelta(seconds=10))
+            frozen_datetime.shift(datetime.timedelta(seconds=10))
 
             for _ in range(3):
                 # 3 requests in third bucket
                 increment_request_count(team_id)
                 increment_request_count(team_id, 1, FlagRequestType.LOCAL_EVALUATION)
 
-            frozen_datetime.tick(datetime.timedelta(seconds=2))
+            frozen_datetime.shift(datetime.timedelta(seconds=2))
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
                 future_to_index = {executor.submit(increment_request_count, team_id): index for index in range(5, 10)}
@@ -446,13 +439,10 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             self.assertEqual(client.hgetall(f"posthog:local_evaluation_requests:{other_team_id}"), {})
 
     @pytest.mark.skip(
-        reason="This works locally, but causes issues in CI because the freeze_time applies to threads as well in unrelated tests, causing timeouts."
+        reason="This works locally, but causes issues in CI because the frozen clock applies to threads as well in unrelated tests, causing timeouts."
     )
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_locking_works_for_capture_team_decide_usage(self):
-        # we want freezetime to apply to threads too.
-        # However, the list can't be empty, so we need to add something.
-        configure(default_ignore_list=["tensorflow"])
 
         mock_capture = MagicMock()
         team_id = 3
@@ -461,7 +451,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
         other_team_uuid = "other-team-uuid"
 
         with (
-            freeze_time("2022-05-07 12:23:07") as frozen_datetime,
+            time_machine.travel("2022-05-07 12:23:07", tick=False) as frozen_datetime,
             self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"),
         ):
             for _ in range(10):
@@ -471,7 +461,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 7 requests for other team
                 increment_request_count(other_team_id)
 
-            frozen_datetime.tick(datetime.timedelta(seconds=5))
+            frozen_datetime.shift(datetime.timedelta(seconds=5))
 
             for _ in range(5):
                 # 5 requests in second bucket
@@ -480,14 +470,14 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 3 requests for other team
                 increment_request_count(other_team_id)
 
-            frozen_datetime.tick(datetime.timedelta(seconds=10))
+            frozen_datetime.shift(datetime.timedelta(seconds=10))
 
             for _ in range(5):
                 # 5 requests in third bucket
                 increment_request_count(team_id)
                 increment_request_count(other_team_id)
 
-            frozen_datetime.tick(datetime.timedelta(seconds=10))
+            frozen_datetime.shift(datetime.timedelta(seconds=10))
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
                 future_to_index = {
@@ -537,13 +527,10 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
 
     # TODO: Figure out a way to run these tests in CI
     @pytest.mark.skip(
-        reason="This works locally, but causes issues in CI because the freeze_time applies to threads as well in unrelated tests, causing timeouts."
+        reason="This works locally, but causes issues in CI because the frozen clock applies to threads as well in unrelated tests, causing timeouts."
     )
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_locking_in_redis_doesnt_block_new_incoming_increments(self):
-        # we want freezetime to apply to threads too.
-        # However, the list can't be empty, so we need to add something.
-        configure(default_ignore_list=["tensorflow"])
 
         mock_capture = MagicMock()
         team_id = 3
@@ -551,26 +538,26 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
         team_uuid = "team-uuid"
 
         with (
-            freeze_time("2022-05-07 12:23:07") as frozen_datetime,
+            time_machine.travel("2022-05-07 12:23:07", tick=False) as frozen_datetime,
             self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"),
         ):
             for _ in range(10):
                 # 10 requests in first bucket
                 increment_request_count(team_id)
 
-            frozen_datetime.tick(datetime.timedelta(seconds=5))
+            frozen_datetime.shift(datetime.timedelta(seconds=5))
 
             for _ in range(5):
                 # 5 requests in second bucket
                 increment_request_count(team_id)
 
-            frozen_datetime.tick(datetime.timedelta(seconds=10))
+            frozen_datetime.shift(datetime.timedelta(seconds=10))
 
             for _ in range(3):
                 # 3 requests in third bucket
                 increment_request_count(team_id)
 
-            frozen_datetime.tick(datetime.timedelta(seconds=2))
+            frozen_datetime.shift(datetime.timedelta(seconds=2))
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
                 future_to_index = {
@@ -675,7 +662,7 @@ class TestSdkBreakdown(BaseTest):
         client = redis.get_client()
         team_id = 999
 
-        with freeze_time("2022-05-07 12:23:07"):
+        with time_machine.travel("2022-05-07 12:23:07", tick=False):
             result = _extract_sdk_breakdown_from_redis(client, team_id, FlagRequestType.DECIDE)
             self.assertEqual(result, {})
 
@@ -684,20 +671,20 @@ class TestSdkBreakdown(BaseTest):
         client = redis.get_client()
         team_id = 888
 
-        with freeze_time("2022-05-07 12:23:07") as frozen_datetime:
+        with time_machine.travel("2022-05-07 12:23:07", tick=False) as frozen_datetime:
             # Set up SDK-specific data in Redis in first bucket
             time_bucket_1 = "165192618"
             client.hincrby(f"posthog:decide_requests:sdk:{team_id}:posthog-js", time_bucket_1, 100)
             client.hincrby(f"posthog:decide_requests:sdk:{team_id}:posthog-node", time_bucket_1, 50)
 
             # Move to second bucket - each SDK key needs 2+ buckets for extraction
-            frozen_datetime.tick(datetime.timedelta(seconds=10))
+            frozen_datetime.shift(datetime.timedelta(seconds=10))
             time_bucket_2 = "165192619"
             client.hincrby(f"posthog:decide_requests:sdk:{team_id}:posthog-js", time_bucket_2, 10)
             client.hincrby(f"posthog:decide_requests:sdk:{team_id}:posthog-node", time_bucket_2, 5)
 
             # Move time forward so bucket 2 is no longer "current"
-            frozen_datetime.tick(datetime.timedelta(seconds=15))
+            frozen_datetime.shift(datetime.timedelta(seconds=15))
 
             result = _extract_sdk_breakdown_from_redis(client, team_id, FlagRequestType.DECIDE)
             # Only bucket 1 should be extracted (bucket 2 is skipped as it's most recent)
@@ -720,7 +707,7 @@ class TestSdkBreakdown(BaseTest):
         team_uuid = "team-uuid-777"
 
         with (
-            freeze_time("2022-05-07 12:23:07") as frozen_datetime,
+            time_machine.travel("2022-05-07 12:23:07", tick=False) as frozen_datetime,
             self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"),
         ):
             client = redis.get_client()
@@ -734,14 +721,14 @@ class TestSdkBreakdown(BaseTest):
             client.hincrby(f"posthog:decide_requests:sdk:{team_id}:posthog-node", time_bucket_1, 50)
 
             # Move to second bucket - each key needs 2+ buckets for extraction
-            frozen_datetime.tick(datetime.timedelta(seconds=10))
+            frozen_datetime.shift(datetime.timedelta(seconds=10))
             time_bucket_2 = "165192619"
             client.hincrby(f"posthog:decide_requests:{team_id}", time_bucket_2, 1)
             client.hincrby(f"posthog:decide_requests:sdk:{team_id}:posthog-js", time_bucket_2, 1)
             client.hincrby(f"posthog:decide_requests:sdk:{team_id}:posthog-node", time_bucket_2, 1)
 
             # Move time forward so bucket 2 is no longer "current"
-            frozen_datetime.tick(datetime.timedelta(seconds=15))
+            frozen_datetime.shift(datetime.timedelta(seconds=15))
 
             capture_team_decide_usage(mock_capture, team_id, team_uuid)
 
@@ -766,7 +753,7 @@ class TestSdkBreakdown(BaseTest):
         team_uuid = "team-uuid-666"
 
         with (
-            freeze_time("2022-05-07 12:23:07") as frozen_datetime,
+            time_machine.travel("2022-05-07 12:23:07", tick=False) as frozen_datetime,
             self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"),
         ):
             client = redis.get_client()
@@ -776,11 +763,11 @@ class TestSdkBreakdown(BaseTest):
             client.hincrby(f"posthog:decide_requests:{team_id}", time_bucket_1, 100)
 
             # Move to second bucket (extraction requires 2+ buckets)
-            frozen_datetime.tick(datetime.timedelta(seconds=10))
+            frozen_datetime.shift(datetime.timedelta(seconds=10))
             time_bucket_2 = "165192619"
             client.hincrby(f"posthog:decide_requests:{team_id}", time_bucket_2, 1)
 
-            frozen_datetime.tick(datetime.timedelta(seconds=15))
+            frozen_datetime.shift(datetime.timedelta(seconds=15))
 
             capture_team_decide_usage(mock_capture, team_id, team_uuid)
 
@@ -805,7 +792,7 @@ class TestSdkBreakdown(BaseTest):
         team_uuid = "team-uuid-555"
 
         with (
-            freeze_time("2022-05-07 12:23:07") as frozen_datetime,
+            time_machine.travel("2022-05-07 12:23:07", tick=False) as frozen_datetime,
             self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"),
         ):
             client = redis.get_client()
@@ -817,13 +804,13 @@ class TestSdkBreakdown(BaseTest):
             client.hincrby(f"posthog:local_evaluation_requests:sdk:{team_id}:posthog-node", time_bucket_1, 30)
 
             # Move to second bucket - each key needs 2+ buckets for extraction
-            frozen_datetime.tick(datetime.timedelta(seconds=10))
+            frozen_datetime.shift(datetime.timedelta(seconds=10))
             time_bucket_2 = "165192619"
             client.hincrby(f"posthog:local_evaluation_requests:{team_id}", time_bucket_2, 1)
             client.hincrby(f"posthog:local_evaluation_requests:sdk:{team_id}:posthog-python", time_bucket_2, 1)
             client.hincrby(f"posthog:local_evaluation_requests:sdk:{team_id}:posthog-node", time_bucket_2, 1)
 
-            frozen_datetime.tick(datetime.timedelta(seconds=15))
+            frozen_datetime.shift(datetime.timedelta(seconds=15))
 
             capture_team_decide_usage(mock_capture, team_id, team_uuid)
 
@@ -852,7 +839,7 @@ class TestSdkBreakdown(BaseTest):
         client = redis.get_client()
         team_id = 444
 
-        with freeze_time("2022-05-07 12:23:07") as frozen_datetime:
+        with time_machine.travel("2022-05-07 12:23:07", tick=False) as frozen_datetime:
             time_bucket_1 = "165192618"
 
             # Set up data for multiple SDKs (simulating real-world usage)
@@ -869,14 +856,14 @@ class TestSdkBreakdown(BaseTest):
                 client.hincrby(f"posthog:decide_requests:sdk:{team_id}:{sdk}", time_bucket_1, count)
 
             # Move to second bucket - extraction requires 2+ buckets
-            frozen_datetime.tick(datetime.timedelta(seconds=10))
+            frozen_datetime.shift(datetime.timedelta(seconds=10))
             time_bucket_2 = "165192619"
 
             for sdk in test_sdks:
                 client.hincrby(f"posthog:decide_requests:sdk:{team_id}:{sdk}", time_bucket_2, 1)
 
             # Move time forward so bucket 2 is no longer "current"
-            frozen_datetime.tick(datetime.timedelta(seconds=15))
+            frozen_datetime.shift(datetime.timedelta(seconds=15))
 
             result = _extract_sdk_breakdown_from_redis(client, team_id, FlagRequestType.DECIDE)
 
@@ -896,7 +883,7 @@ class TestSdkBreakdown(BaseTest):
         client = redis.get_client()
         team_id = 333
 
-        with freeze_time("2022-05-07 12:23:07"):
+        with time_machine.travel("2022-05-07 12:23:07", tick=False):
             time_bucket = "165192618"
 
             # Set up data with only one bucket per SDK

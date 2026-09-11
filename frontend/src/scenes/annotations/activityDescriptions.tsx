@@ -1,8 +1,8 @@
 import {
     ActivityLogItem,
+    ActivityLogUserName,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -80,7 +80,7 @@ export function annotationActivityDescriber(logItem: ActivityLogItem, asNotifica
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created the annotation "
+                    <ActivityLogUserName logItem={logItem} /> created the annotation "
                     {nameOrLinkToAnnotation(logItem?.item_id, logItem?.detail.name)}"{contextDesc}
                 </>
             ),
@@ -99,8 +99,7 @@ export function annotationActivityDescriber(logItem: ActivityLogItem, asNotifica
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted the annotation:{' '}
-                    {displayName}
+                    <ActivityLogUserName logItem={logItem} /> deleted the annotation: {displayName}
                     {contextDesc}
                 </>
             ),
@@ -112,7 +111,7 @@ export function annotationActivityDescriber(logItem: ActivityLogItem, asNotifica
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated the annotation:{' '}
+                    <ActivityLogUserName logItem={logItem} /> updated the annotation:{' '}
                     {nameOrLinkToAnnotation(logItem?.item_id, logItem?.detail.name)}
                     {contextDesc}
                 </>

@@ -4,7 +4,7 @@ from typing import Any, cast
 from uuid import UUID
 
 import pytest
-from freezegun.api import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 from unittest import mock
 from unittest.mock import patch
@@ -52,16 +52,16 @@ def typed_group_type_index(value: int) -> GroupTypeIndex:
 class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     def test_groups_list(self):
-        with freeze_time("2021-05-01"):
+        with time_machine.travel("2021-05-01", tick=False):
             create_group(
                 team_id=self.team.pk,
                 group_type_index=0,
                 group_key="org:5",
                 properties={"industry": "finance", "name": "Mr. Krabs"},
             )
-        with freeze_time("2021-05-02"):
+        with time_machine.travel("2021-05-02", tick=False):
             create_group(
                 team_id=self.team.pk,
                 group_type_index=0,
@@ -140,7 +140,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     def test_groups_list_no_group_type(self):
         response_data = self.client.get(f"/api/projects/{self.team.id}/groups/").json()
         self.assertEqual(
@@ -185,7 +185,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index=0")
         self.assertEqual(response.status_code, 400)
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     @patch(f"{PATH}.feature_enabled_or_false", return_value=False)
     def test_retrieve_group_crm_disabled(self, _):
         index: GroupTypeIndex = 0
@@ -213,7 +213,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(ResourceNotebook.objects.filter(group=group.id).exists())
         self.assertEqual(0, Notebook.objects.filter(team=self.team).count())
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     @patch(f"{PATH}.feature_enabled_or_false", return_value=True)
     def test_retrieve_group_crm_enabled(self, _):
         index: GroupTypeIndex = 0
@@ -252,7 +252,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(notebook.content[0]["content"][0]["text"], "Mr. Krabs Notes")
         self.assertEqual(notebook.content[1]["type"], "text")
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     @patch(f"{PATH}.feature_enabled_or_false", return_value=True)
     def test_find_with_skip_create_notebook_does_not_create_notebook(self, _):
         index: GroupTypeIndex = 0
@@ -273,7 +273,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(ResourceNotebook.objects.filter(group=group.id).exists())
         self.assertEqual(0, Notebook.objects.filter(team=self.team).count())
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     def test_retrieve_group_with_notebook(self):
         index: GroupTypeIndex = 0
         key = "key"
@@ -300,7 +300,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     @patch("products.notebooks.backend.logic.ResourceNotebook.objects.create", side_effect=IntegrityError)
     @patch(f"{PATH}.feature_enabled_or_false", return_value=True)
     def test_retrieve_group_notebook_transaction_rollback(self, _, mock_relationship_create):
@@ -334,7 +334,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(message["team_id"], self.team.pk)
         self.assertEqual(message["event"], "Group notebook creation failed")
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
     def test_create_group_missing_group_properties(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
@@ -366,7 +366,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         mock_capture.assert_called_once()
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
     @pytest.mark.flaky(reruns=2)
     def test_create_group(self, mock_capture):
@@ -581,9 +581,8 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         mock_capture.assert_not_called()
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
-    @pytest.mark.flaky(reruns=2)
     def test_group_property_crud_add_success(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -604,10 +603,11 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             properties={"name": "Mr. Krabs"},
         )
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
-            {"key": "industry", "value": "technology"},
-        )
+        with time_machine.travel("2021-05-02T00:00:01Z", tick=False):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
+                {"key": "industry", "value": "technology"},
+            )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
@@ -666,9 +666,8 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], None)
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
-    @pytest.mark.flaky(reruns=2)
     def test_group_property_crud_update_success(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -683,10 +682,11 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
-            {"key": "industry", "value": "technology"},
-        )
+        with time_machine.travel("2021-05-02T00:00:01Z", tick=False):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/groups/update_property?group_key=org:5&group_type_index=0",
+                {"key": "industry", "value": "technology"},
+            )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
@@ -748,7 +748,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], "finance")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     def test_group_property_crud_update_missing_key(self):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -769,7 +769,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, 400)
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     def test_group_property_crud_update_invalid_group_key(self):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -790,9 +790,8 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, 404)
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
-    @pytest.mark.flaky(reruns=2)
     def test_group_property_crud_delete_success(self, mock_capture):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -807,10 +806,11 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/groups/delete_property?group_key=org:5&group_type_index=0",
-            {"$unset": "industry"},
-        )
+        with time_machine.travel("2021-05-02T00:00:01Z", tick=False):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/groups/delete_property?group_key=org:5&group_type_index=0",
+                {"$unset": "industry"},
+            )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
@@ -869,7 +869,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], "finance")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], None)
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     def test_group_property_crud_delete_missing_key(self):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -890,7 +890,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, 400)
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     def test_group_property_crud_delete_invalid_group_key(self):
         group_type_mapping = create_group_type_mapping_without_created_at(
             team=self.team,
@@ -925,7 +925,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, 400)
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     @patch("ee.clickhouse.views.groups.capture_internal")
     def test_delete_property_nonexistent_property(self, mock_capture):
         mock_capture.return_value = mock.MagicMock(status_code=200)
@@ -948,7 +948,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, 400)
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     def test_delete_property_non_string_unset(self):
         create_group_type_mapping_without_created_at(
             team=self.team,
@@ -970,7 +970,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, 400)
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     @patch("ee.clickhouse.views.groups.capture_internal")
     def test_get_group_activities_success(self, mock_capture):
         # Mock the response to return a 200 OK
@@ -1010,7 +1010,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["type"], "Group")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "changed")
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     @patch("ee.clickhouse.views.groups.capture_internal")
     def test_get_group_activities_invalid_group(self, mock_capture):
         # Mock the response to return a 200 OK
@@ -1043,7 +1043,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, 404)
 
-    @freeze_time("2021-05-10")
+    @time_machine.travel("2021-05-10", tick=False)
     @snapshot_clickhouse_queries
     def test_related_groups(self):
         self._create_related_groups_data()
@@ -1090,7 +1090,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    @freeze_time("2021-05-10")
+    @time_machine.travel("2021-05-10", tick=False)
     @snapshot_clickhouse_queries
     def test_related_groups_person(self):
         uuid = self._create_related_groups_data()
@@ -2380,11 +2380,11 @@ class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
-    @freeze_time("2021-05-03")
+    @time_machine.travel("2021-05-03", tick=False)
     def test_returns_groups_ordered_by_created_at_desc(self):
-        with freeze_time("2021-05-01"):
+        with time_machine.travel("2021-05-01", tick=False):
             create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={})
-        with freeze_time("2021-05-02"):
+        with time_machine.travel("2021-05-02", tick=False):
             create_group(team_id=self.team.pk, group_type_index=0, group_key="org:2", properties={})
 
         result = list_groups(team_id=self.team.pk, group_type_index=0)
@@ -2394,13 +2394,13 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
         assert result.groups[1].group_key == "org:1"
         assert result.has_more is False
 
-    @freeze_time("2021-05-04")
+    @time_machine.travel("2021-05-04", tick=False)
     def test_pagination_with_limit(self):
-        with freeze_time("2021-05-01"):
+        with time_machine.travel("2021-05-01", tick=False):
             create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={})
-        with freeze_time("2021-05-02"):
+        with time_machine.travel("2021-05-02", tick=False):
             create_group(team_id=self.team.pk, group_type_index=0, group_key="org:2", properties={})
-        with freeze_time("2021-05-03"):
+        with time_machine.travel("2021-05-03", tick=False):
             create_group(team_id=self.team.pk, group_type_index=0, group_key="org:3", properties={})
 
         result = list_groups(team_id=self.team.pk, group_type_index=0, limit=2)
@@ -2410,13 +2410,13 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
         assert result.groups[1].group_key == "org:2"
         assert result.has_more is True
 
-    @freeze_time("2021-05-04")
+    @time_machine.travel("2021-05-04", tick=False)
     def test_pagination_cursor_returns_next_page(self):
-        with freeze_time("2021-05-01"):
+        with time_machine.travel("2021-05-01", tick=False):
             create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={})
-        with freeze_time("2021-05-02"):
+        with time_machine.travel("2021-05-02", tick=False):
             create_group(team_id=self.team.pk, group_type_index=0, group_key="org:2", properties={})
-        with freeze_time("2021-05-03"):
+        with time_machine.travel("2021-05-03", tick=False):
             create_group(team_id=self.team.pk, group_type_index=0, group_key="org:3", properties={})
 
         page1 = list_groups(team_id=self.team.pk, group_type_index=0, limit=2)
@@ -2434,11 +2434,11 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
         assert page2.groups[0].group_key == "org:1"
         assert page2.has_more is False
 
-    @freeze_time("2021-05-04")
+    @time_machine.travel("2021-05-04", tick=False)
     def test_pagination_cursor_breaks_created_at_ties_on_group_key(self):
         # Three groups created at the same instant: keyset pagination must fall back to the
         # group_key tiebreaker (descending) and neither skip nor duplicate a row across pages.
-        with freeze_time("2021-05-01"):
+        with time_machine.travel("2021-05-01", tick=False):
             create_group(team_id=self.team.pk, group_type_index=0, group_key="org:a", properties={})
             create_group(team_id=self.team.pk, group_type_index=0, group_key="org:b", properties={})
             create_group(team_id=self.team.pk, group_type_index=0, group_key="org:c", properties={})
@@ -2458,7 +2458,7 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
         assert [g.group_key for g in page2.groups] == ["org:a"]
         assert page2.has_more is False
 
-    @freeze_time("2021-05-03")
+    @time_machine.travel("2021-05-03", tick=False)
     def test_search_escapes_like_wildcards(self):
         # A literal "%" in the search term must match literally, not act as a wildcard.
         create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={"name": "50% off"})
@@ -2472,7 +2472,7 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
         literal = list_groups(team_id=self.team.pk, group_type_index=0, search="%")
         assert [g.group_key for g in literal.groups] == ["org:1"]
 
-    @freeze_time("2021-05-03")
+    @time_machine.travel("2021-05-03", tick=False)
     def test_search_filters_by_properties(self):
         create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={"name": "Acme Corp"})
         create_group(team_id=self.team.pk, group_type_index=0, group_key="org:2", properties={"name": "Beta Inc"})
@@ -2482,7 +2482,7 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
         assert len(result.groups) == 1
         assert result.groups[0].group_key == "org:1"
 
-    @freeze_time("2021-05-03")
+    @time_machine.travel("2021-05-03", tick=False)
     def test_search_matches_group_key_exact(self):
         create_group(team_id=self.team.pk, group_type_index=0, group_key="org:alpha", properties={"name": "Alpha"})
         create_group(team_id=self.team.pk, group_type_index=0, group_key="org:beta", properties={"name": "Beta"})
@@ -2492,7 +2492,7 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
         assert len(result.groups) == 1
         assert result.groups[0].group_key == "org:alpha"
 
-    @freeze_time("2021-05-03")
+    @time_machine.travel("2021-05-03", tick=False)
     def test_group_key_contains_filter(self):
         create_group(team_id=self.team.pk, group_type_index=0, group_key="org:alpha", properties={})
         create_group(team_id=self.team.pk, group_type_index=0, group_key="org:beta", properties={})
@@ -2502,7 +2502,7 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
         assert len(result.groups) == 1
         assert result.groups[0].group_key == "org:alpha"
 
-    @freeze_time("2021-05-03")
+    @time_machine.travel("2021-05-03", tick=False)
     def test_filters_by_group_type_index(self):
         create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={})
         create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={})
@@ -2512,14 +2512,14 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
         assert len(result.groups) == 1
         assert result.groups[0].group_key == "org:1"
 
-    @freeze_time("2021-05-03")
+    @time_machine.travel("2021-05-03", tick=False)
     def test_empty_result(self):
         result = list_groups(team_id=self.team.pk, group_type_index=0)
 
         assert len(result.groups) == 0
         assert result.has_more is False
 
-    @freeze_time("2021-05-03")
+    @time_machine.travel("2021-05-03", tick=False)
     def test_scopes_results_to_team(self):
         # An identically-keyed group under a different team must never surface — the query is
         # team-scoped by HogQL, so this guards against a cross-team leak.
@@ -2541,9 +2541,9 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
     def test_returns_latest_properties_after_update(self):
         # The groups table dedups by argMax(_timestamp); a newer write for the same (index, key)
         # must win and produce a single row — guards the choice of `groups` over `raw_groups`.
-        with freeze_time("2021-05-01"):
+        with time_machine.travel("2021-05-01", tick=False):
             create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={"name": "Old"})
-        with freeze_time("2021-05-02"):
+        with time_machine.travel("2021-05-02", tick=False):
             raw_create_group_ch(
                 team_id=self.team.pk,
                 group_type_index=0,
@@ -2557,7 +2557,7 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
         assert len(result.groups) == 1
         assert result.groups[0].group_properties == {"name": "New"}
 
-    @freeze_time("2021-05-03")
+    @time_machine.travel("2021-05-03", tick=False)
     def test_preserves_complex_property_values(self):
         # Properties survive the ClickHouse string -> json.loads -> dict round-trip with types intact.
         props = {"count": 5, "active": True, "ratio": 1.5, "tags": ["a", "b"], "nested": {"x": 1}, "missing": None}
@@ -2568,7 +2568,7 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
         assert len(result.groups) == 1
         assert result.groups[0].group_properties == props
 
-    @freeze_time("2021-05-03")
+    @time_machine.travel("2021-05-03", tick=False)
     def test_search_is_case_insensitive(self):
         create_group(team_id=self.team.pk, group_type_index=0, group_key="org:alpha", properties={"name": "Acme Corp"})
 
@@ -2579,7 +2579,7 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
         assert [g.group_key for g in by_props.groups] == ["org:alpha"]
         assert [g.group_key for g in by_key.groups] == ["org:alpha"]
 
-    @freeze_time("2021-05-03")
+    @time_machine.travel("2021-05-03", tick=False)
     def test_search_no_match_returns_empty(self):
         create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={"name": "Acme"})
 
@@ -2588,11 +2588,11 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
         assert result.groups == []
         assert result.has_more is False
 
-    @freeze_time("2021-05-04")
+    @time_machine.travel("2021-05-04", tick=False)
     def test_has_more_false_when_result_count_equals_limit(self):
-        with freeze_time("2021-05-01"):
+        with time_machine.travel("2021-05-01", tick=False):
             create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={})
-        with freeze_time("2021-05-02"):
+        with time_machine.travel("2021-05-02", tick=False):
             create_group(team_id=self.team.pk, group_type_index=0, group_key="org:2", properties={})
 
         result = list_groups(team_id=self.team.pk, group_type_index=0, limit=2)
@@ -2602,7 +2602,7 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestGroupsListAPIContract(ClickhouseTestMixin, APIBaseTest):
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     def test_response_format_matches_contract(self):
         create_group(
             team_id=self.team.pk,
@@ -2625,15 +2625,15 @@ class TestGroupsListAPIContract(ClickhouseTestMixin, APIBaseTest):
         assert result["group_properties"] == {"name": "Test"}
         assert "created_at" in result
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     def test_invalid_group_type_index_returns_400(self):
         response = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=abc")
         assert response.status_code == 400
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     def test_cursor_pagination_via_api(self):
         for i in range(3):
-            with freeze_time(f"2021-05-0{i + 1}"):
+            with time_machine.travel(f"2021-05-0{i + 1}", tick=False):
                 create_group(
                     team_id=self.team.pk,
                     group_type_index=0,
@@ -2648,7 +2648,7 @@ class TestGroupsListAPIContract(ClickhouseTestMixin, APIBaseTest):
         assert page1["results"][0]["group_key"] == "org:2"
         assert page1["results"][-1]["group_key"] == "org:0"
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     def test_cursor_roundtrip(self):
         cursor = _encode_groups_cursor(1620000000000_000, "org:42")
         created_at_us, group_key = _decode_groups_cursor(cursor)
@@ -2656,7 +2656,7 @@ class TestGroupsListAPIContract(ClickhouseTestMixin, APIBaseTest):
         assert created_at_us == 1620000000000_000
         assert group_key == "org:42"
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     def test_cursor_backward_compat_ms(self):
         cursor = _encode_groups_cursor(1620000000000, "org:42")
         created_at_us, group_key = _decode_groups_cursor(cursor)
@@ -2664,7 +2664,7 @@ class TestGroupsListAPIContract(ClickhouseTestMixin, APIBaseTest):
         assert created_at_us == 1620000000000_000
         assert group_key == "org:42"
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     def test_old_format_cursor_is_treated_as_no_cursor(self):
         # Pre-deploy cursors encoded the tiebreaker as "i" (PG id) with no "k". The new keyset can't
         # honor that boundary, so the decoder degrades it to no cursor (restart from the first page).
@@ -2675,7 +2675,7 @@ class TestGroupsListAPIContract(ClickhouseTestMixin, APIBaseTest):
         assert created_at_us == 0
         assert group_key == ""
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     def test_invalid_cursor_is_ignored(self):
         create_group(
             team_id=self.team.pk,
@@ -2690,7 +2690,7 @@ class TestGroupsListAPIContract(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response_data["results"]) == 1
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     def test_find_uses_personhog_routed_lookup(self):
         create_group(
             team_id=self.team.pk,
@@ -2706,12 +2706,12 @@ class TestGroupsListAPIContract(ClickhouseTestMixin, APIBaseTest):
         assert data["group_key"] == "org:1"
         assert data["group_properties"] == {"name": "Test"}
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     def test_find_nonexistent_returns_404(self):
         response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index=0&group_key=nonexistent")
         assert response.status_code == 404
 
-    @freeze_time("2021-05-02")
+    @time_machine.travel("2021-05-02", tick=False)
     @patch("ee.clickhouse.views.groups.list_groups")
     def test_list_api_has_more_produces_next_url(self, mock_list_groups):
         # The viewset turns a has_more result into a forward cursor in the `next` URL.

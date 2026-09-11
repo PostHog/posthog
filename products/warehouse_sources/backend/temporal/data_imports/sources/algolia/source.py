@@ -7,6 +7,8 @@ from posthog.schema import (
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.algolia import (
@@ -39,6 +41,11 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "synonyms": "Synonyms configured on the index. Full refresh only.",
     "rules": "Query rules configured on the index. Full refresh only.",
     "indices": "Every index on the application. Full refresh only.",
+    "top_searches": "Most popular searches on the index with search and click/conversion counts. Full refresh only.",
+    "top_hits": "Most frequent search results on the index with click and conversion counts. Full refresh only.",
+    "searches_no_results": "Most frequent searches on the index that returned zero results. Full refresh only.",
+    "searches_no_clicks": "Most frequent searches on the index that received no clicks. Full refresh only.",
+    "ab_tests": "A/B tests configured on the application, with per-variant results. Full refresh only.",
 }
 
 
@@ -65,6 +72,9 @@ The API key needs the ACLs for the data you want to sync:
 - `browse` — index records
 - `settings` — synonyms and query rules
 - `listIndexes` — the list of indices
+- `analytics` — top searches, top hits, zero-result/zero-click searches, and A/B tests
+
+Set the region to match where your Algolia application is hosted. It selects the analytics host used for the analytics and A/B test tables.
 """,
             iconPath="/static/services/algolia.png",
             docsUrl="https://posthog.com/docs/cdp/sources/algolia",
@@ -94,6 +104,16 @@ The API key needs the ACLs for the data you want to sync:
                         required=True,
                         placeholder="your_index",
                         secret=False,
+                    ),
+                    SourceFieldSelectConfig(
+                        name="region",
+                        label="Region",
+                        required=True,
+                        defaultValue="us",
+                        options=[
+                            SourceFieldSelectConfigOption(label="US (analytics.algolia.com)", value="us"),
+                            SourceFieldSelectConfigOption(label="EU (analytics.de.algolia.com)", value="de"),
+                        ],
                     ),
                 ],
             ),
@@ -146,6 +166,7 @@ The API key needs the ACLs for the data you want to sync:
             api_key=config.api_key,
             index_name=config.index_name,
             schema_name=schema_name,
+            region=config.region,
         )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AlgoliaResumeConfig]:
@@ -165,6 +186,7 @@ The API key needs the ACLs for the data you want to sync:
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             manager=resumable_source_manager,
+            region=config.region,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

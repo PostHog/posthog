@@ -250,9 +250,8 @@ def _build_reviewers_content(
     - PostHog user enrichment happens at read time (in the artefact serializer via
       ``enrich_reviewer_dicts_with_org_members``) so it stays fresh when users
       connect/disconnect their GitHub account.
-    - The list view resolves ``is_suggested_reviewer`` by looking up the current
-      user's GitHub login and checking for jsonb containment on ``github_login``
-      in this artefact's content — no cached user IDs needed.
+    - The list view resolves ``is_suggested_reviewer`` by jsonb containment on this artefact's
+      content, matching the current user's uuid or their GitHub login — no cached user IDs needed.
     """
     commit_hashes_with_reasons: dict[str, str] = {}
     for finding in findings:
@@ -267,6 +266,9 @@ def _build_reviewers_content(
         reviewers_content.append(
             ReviewerContent(
                 github_login=reviewer.login.lower(),
+                # Commit authorship only ever names a GitHub account, so this path stores no uuid;
+                # read-time enrichment resolves the login to a member as it always has.
+                user_uuid=None,
                 github_name=reviewer.name,
                 relevant_commits=[dict(commit.model_dump()) for commit in reviewer.commits],
                 reason=None,
@@ -474,7 +476,7 @@ async def _persist_agentic_report_artefacts(
         await database_sync_to_async(capture_suggested_reviewers_resolved, thread_sensitive=False)(
             team_id=team_id,
             report_id=report_id,
-            github_logins=[reviewer["github_login"] for reviewer in reviewers_content],
+            github_logins=[login for reviewer in reviewers_content if (login := reviewer["github_login"])],
             source="pipeline",
         )
     elif not reviewers_content:
@@ -622,6 +624,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 model=agent_runtime.model,
                 runtime_adapter=agent_runtime.runtime_adapter,
                 reasoning_effort=agent_runtime.reasoning_effort,
+                service_tier=agent_runtime.service_tier,
             )
             has_bk = await database_sync_to_async(_team_has_business_knowledge, thread_sensitive=False)(input.team_id)
             charts_enabled = await database_sync_to_async(_team_report_charts_enabled, thread_sensitive=False)(

@@ -350,6 +350,13 @@ class BaselineEntrySerializer(DataclassSerializer):
         required=False,
         help_text="Active quarantine details when `is_quarantined` is true. Null otherwise.",
     )
+    active_variants_current_baseline = serializers.IntegerField(
+        help_text=(
+            "Accepted variants still recorded against this baseline's current hash. Unlike the "
+            "30-day and 90-day counts, this has no time window: an accepted variant keeps matching "
+            "without a new record. A baseline change resets it to zero."
+        )
+    )
 
     class Meta:
         dataclass = BaselineEntry
@@ -357,6 +364,9 @@ class BaselineEntrySerializer(DataclassSerializer):
 
 class BaselineTotalsSerializer(DataclassSerializer):
     by_run_type = serializers.DictField(child=serializers.IntegerField())
+    variant_pileups = serializers.IntegerField(
+        help_text="Baselines carrying three or more accepted variants of their current hash."
+    )
 
     class Meta:
         dataclass = BaselineTotals

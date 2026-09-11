@@ -2,6 +2,7 @@ import type { AcpMessage } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import type { BuildResult } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { SessionFooter } from "@posthog/ui/features/sessions/components/SessionFooter";
+import { SessionStartupRow } from "@posthog/ui/features/sessions/components/SessionStartupRow";
 import { useConversationItems } from "@posthog/ui/features/sessions/hooks/useConversationItems";
 import {
   usePendingPermissionsForTask,
@@ -69,6 +70,11 @@ export function ChatThreadFooter({
 
   return (
     <div className="pt-1">
+      {taskId && task && (
+        <div className="-mx-2.5 pb-1">
+          <SessionStartupRow taskId={taskId} task={task} />
+        </div>
+      )}
       <SessionFooter
         task={task}
         isPromptPending={isPromptPending}

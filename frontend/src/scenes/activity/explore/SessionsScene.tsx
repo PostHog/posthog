@@ -43,6 +43,8 @@ export function SessionsScene(): JSX.Element {
                     extraDataTableQueryFeatures: [QueryFeature.highlightExceptionEventRows],
                     dataTableMaxPaginationLimit: 200,
                     dataTableRowsTransformer,
+                    // A live-data explorer over captured events, so it keeps the hidden ones selectable.
+                    includeHiddenEvents: true,
                 }}
             />
         </SceneContent>

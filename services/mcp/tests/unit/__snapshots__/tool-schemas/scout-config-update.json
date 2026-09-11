@@ -5,6 +5,11 @@
             "description": "Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet.",
             "type": "boolean"
         },
+        "display_name": {
+            "description": "Name shown in the UI. Does not change the skill name. Leave blank to use the default name.",
+            "maxLength": 200,
+            "type": "string"
+        },
         "emit": {
             "description": "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing.",
             "type": "boolean"

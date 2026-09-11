@@ -293,6 +293,49 @@ class TestContextLayerAPI(APIBaseTest):
         assert page["content"] == _page("Analytics")
         assert page["head_sha"] == new_head
 
+    def test_channel_page_write_captures_context_change(self, _flag) -> None:
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
+            assert channel is not None
+        head = self._enable()
+        path = f"projects/{self.team.id}/spaces/growth.md"
+        page = self.client.get(f"{self.base_url}/pages/", {"path": path}).json()
+
+        updated_content = f"{page['content']}\n## Direction\n\nImprove activation.\n"
+        with patch("products.tasks.backend.repository_config_analytics.posthoganalytics.capture") as capture:
+            response = self.client.put(
+                f"{self.base_url}/pages/",
+                {
+                    "path": path,
+                    "content": updated_content,
+                    "base_head": head,
+                },
+                format="json",
+            )
+
+        assert response.status_code == 200, response.content
+        rows = [
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.kwargs.get("event") == "space_context_changed"
+        ]
+        assert len(rows) == 1
+        properties = rows[0]
+        assert properties == {
+            "team_id": self.team.id,
+            "channel_id": str(channel.id),
+            "action": "published",
+            "source": "user",
+            "storage": "context_wiki",
+            "actor_type": "user_or_api",
+            "previous_version": None,
+            "new_version": None,
+            "is_first_version": False,
+            "content_bytes": len(updated_content.encode("utf-8")),
+            "previous_content_bytes": None,
+            "base_version_provided": True,
+        }
+
     def test_page_write_with_stale_base_head_returns_409_with_current_head(self, _flag) -> None:
         head = self._enable()
         first = self.client.put(

@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime
+from typing import Optional
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -14,6 +15,7 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
     IncrementalFieldMissingFromDataError,
+    PublishedFiles,
     get_incremental_field_value,
     notify_revenue_analytics_that_sync_has_completed,
     run_post_load_operations,
@@ -30,6 +32,7 @@ _DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pip
 _PIPELINE_SYNC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync"
 _REPARTITION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
 _JOB_CREATED_AT = datetime(2026, 8, 19, 11, 0, tzinfo=UTC)
+_A_LINKED_TABLE_ID = uuid.uuid4()
 
 
 def _make_schema(
@@ -192,6 +195,8 @@ class TestZeroRowSkip:
         [
             ("steady_state_zero_rows_skips", 0, "incremental", True, {}, True, True),
             ("synced_rows_run_full_path", 5, "incremental", True, {}, True, False),
+            # An unlinked schema has nothing queryable, and a skip here strands it forever.
+            ("unlinked_schema_runs_full_path", 0, "incremental", True, {}, True, False, None),
             ("caller_without_opt_in_runs_full_path", 0, "incremental", True, {}, False, False),
             ("incomplete_initial_sync_runs_full_path", 0, "incremental", False, {}, True, False),
             ("cdc_schema_runs_full_path", 0, "cdc", True, {}, True, False),
@@ -253,6 +258,7 @@ class TestZeroRowSkip:
         sync_type_config: dict,
         allow_zero_row_skip: bool,
         expect_skip: bool,
+        table_id: Optional[uuid.UUID] = _A_LINKED_TABLE_ID,
     ):
         schema = ExternalDataSchema(
             id=uuid.uuid4(),
@@ -260,6 +266,7 @@ class TestZeroRowSkip:
             sync_type=sync_type,
             initial_sync_complete=initial_sync_complete,
             sync_type_config=sync_type_config,
+            table_id=table_id,
         )
         job = MagicMock()
         job.id = uuid.uuid4()
@@ -267,7 +274,7 @@ class TestZeroRowSkip:
         job.created_at = _JOB_CREATED_AT
 
         maintenance = AsyncMock()
-        publish = AsyncMock(return_value="folder")
+        publish = AsyncMock(return_value=PublishedFiles(folder="folder", file_count=1))
         bookkeeping = AsyncMock()
         post_load_step = AsyncMock()
         with (
@@ -338,6 +345,40 @@ class TestCdcCompanionSeeding:
             await _run_post_load(schema, _make_helper(), cdc_write_mode=cdc_write_mode)
 
         assert seed.await_count == (1 if expect_seed else 0)
+
+
+class TestZeroRowRunFinalizesBookkeeping:
+    @pytest.mark.asyncio
+    async def test_no_delta_table_still_sets_initial_sync_complete(self) -> None:
+        # A clean run that wrote zero rows creates no delta table. Post-load used to bail before the
+        # bookkeeping, so initial_sync_complete never advanced and the schema stayed "completed but
+        # not initial-synced" forever. It must be finalized even with no table to register.
+        schema = _make_schema(is_cdc=False, initial_sync_complete=False)
+        job = MagicMock()
+        job.id = uuid.uuid4()
+        job.team_id = schema.team_id
+        logger = MagicMock(debug=MagicMock(), adebug=AsyncMock())
+        helper = MagicMock(get_delta_table=AsyncMock(return_value=None))
+
+        set_complete = AsyncMock()
+        with (
+            patch(f"{_LOAD_MODULE}.set_initial_sync_complete", set_complete),
+            patch(f"{_PIPELINE_SYNC_MODULE}.update_last_synced_at", AsyncMock()) as synced,
+        ):
+            result = await run_post_load_operations(
+                job=job,
+                schema=schema,
+                source=MagicMock(),
+                delta_table_ref=helper,
+                row_count=0,
+                table_schema_dict={},
+                resource_name="subscription_reports",
+                logger=logger,
+            )
+
+        assert result is None
+        set_complete.assert_awaited_once()
+        synced.assert_awaited_once()
 
 
 class TestGetIncrementalFieldValue:

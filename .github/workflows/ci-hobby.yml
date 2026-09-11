@@ -20,7 +20,18 @@ on:
         types: [opened, synchronize, labeled, unlabeled]
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # Keep unrelated labels out of the group that owns active smoke tests and previews.
+    group: >-
+        ${{ github.workflow }}-${{
+            contains(fromJSON('["labeled", "unlabeled"]'), github.event.action)
+            && !(
+                (github.event.action == 'labeled'
+                    && contains(fromJSON('["hobby-preview", "no-depot-docker-cache"]'), github.event.label.name))
+                || (github.event.action == 'unlabeled' && github.event.label.name == 'hobby-preview')
+            )
+            && format('ignored-label-{0}', github.event.label.name)
+            || github.head_ref || github.ref
+        }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -36,7 +47,13 @@ jobs:
         timeout-minutes: 5
         # trunk-merge/** heads are skipped: merge-queue PRs are ephemeral and every
         # constituent PR already ran this in full.
-        if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
+        if: >-
+            github.event_name == 'pull_request'
+            && !startsWith(github.head_ref, 'trunk-merge/')
+            && (!contains(fromJSON('["labeled", "unlabeled"]'), github.event.action)
+                || (github.event.action == 'labeled'
+                    && contains(fromJSON('["hobby-preview", "no-depot-docker-cache"]'), github.event.label.name))
+                || (github.event.action == 'unlabeled' && github.event.label.name == 'hobby-preview'))
         name: Determine need to run hobby checks
         outputs:
             should_run: ${{ steps.filter.outputs.hobby == 'true' || steps.check-label.outputs.has_label == 'true' }}
@@ -83,6 +100,7 @@ jobs:
                         - 'docker/**'
                         - uv.lock
                         - .github/workflows/ci-hobby.yml
+                        - .github/actions/setup-uv/**
                       installer:
                         - 'bin/hobby-installer/**'
 
@@ -202,7 +220,11 @@ jobs:
               id: wait-for-image
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
-                  checkName: Build Docker image
+                  checkName: >-
+                      ${{ github.event.action == 'labeled'
+                          && contains(fromJSON('["hobby-preview", "no-depot-docker-cache"]'), github.event.label.name)
+                          && 'Build labeled Docker image'
+                          || 'Build Docker image' }}
                   ref: ${{ github.event.pull_request.head.sha }}
                   timeoutSeconds: '3600'
                   intervalSeconds: '30'
@@ -251,9 +273,9 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
             - name: Install uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+              uses: ./.github/actions/setup-uv
               with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: false
             - name: Set environment variables from previous job
               run: |
                   echo "PREVIEW_MODE=${{ github.event_name == 'pull_request' && needs.wait-for-docker-image.outputs.preview-mode || 'false' }}" >> $GITHUB_ENV

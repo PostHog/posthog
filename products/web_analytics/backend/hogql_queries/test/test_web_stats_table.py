@@ -3,7 +3,7 @@ from collections import defaultdict
 from typing import Any, Optional
 
 import unittest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -127,7 +127,7 @@ class TestWebStatsTableQueryRunner(
     def _create_events(self, data, event="$pageview"):
         person_result = []
         for id, timestamps in data:
-            with freeze_time(timestamps[0][0]):
+            with time_machine.travel(timestamps[0][0], tick=False):
                 person_result.append(
                     _create_person(
                         team_id=self.team.pk,
@@ -169,7 +169,7 @@ class TestWebStatsTableQueryRunner(
     def _create_pageviews(self, distinct_id: str, list_page_view_properties: list[PageViewProperties]):
         person_time = list_page_view_properties[0].timestamp
 
-        with freeze_time(person_time):
+        with time_machine.travel(person_time, tick=False):
             person_result = _create_person(
                 team_id=self.team.pk,
                 distinct_ids=[distinct_id],
@@ -241,7 +241,7 @@ class TestWebStatsTableQueryRunner(
         bounce_rate_mode: Optional[BounceRatePageViewMode] = BounceRatePageViewMode.COUNT_PAGEVIEWS,
         orderBy=None,
     ):
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             modifiers = HogQLQueryModifiers(
                 sessionTableVersion=session_table_version, bounceRatePageViewMode=bounce_rate_mode
             )
@@ -2156,7 +2156,7 @@ class TestWebStatsTableQueryRunner(
 
         assert [row[0] for row in response.results] == ["/foo", "/bar"]
 
-    @freeze_time("2023-12-15T12:00:00Z")
+    @time_machine.travel("2023-12-15T12:00:00Z", tick=False)
     def test_can_use_preaggregated_tables_with_channel_type_filter(self):
         query = WebStatsTableQuery(
             dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
@@ -2834,7 +2834,7 @@ class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
             ("user_a", s2, [("/pricing", "2025-01-11T09:00:00Z")]),
             ("user_b", s3, [("/", "2025-01-12T12:00:00Z"), ("/", "2025-01-12T12:00:30Z")]),
         ]:
-            with freeze_time(path_timestamps[0][1]):
+            with time_machine.travel(path_timestamps[0][1], tick=False):
                 _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
             for pathname, ts in path_timestamps:
                 _create_event(
@@ -2873,7 +2873,7 @@ class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
     def test_no_join_paths_results_match_join_path(self, include_avg_time: bool):
         self._create_pageviews()
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk]):
                 fast_runner = self._make_runner(includeAvgTimeOnPage=include_avg_time)
                 assert fast_runner.query_strategy().startswith("stats_table_no_join_path_bounce")
@@ -2960,9 +2960,9 @@ class TestWebStatsTableSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
         # the same distinct_id mints a second person, and events then carry
         # whichever person id existed at creation time, manufacturing the known
         # per-event vs per-session visitor-count drift inside a single session.
-        with freeze_time("2025-01-10T09:00:00Z"):
+        with time_machine.travel("2025-01-10T09:00:00Z", tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["user_a"])
-        with freeze_time("2025-01-12T09:00:00Z"):
+        with time_machine.travel("2025-01-12T09:00:00Z", tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["user_b"])
         for distinct_id, session_id, browser, path_timestamps in [
             ("user_a", s1, "Chrome", [("/", "2025-01-10T10:00:00Z"), ("/pricing", "2025-01-10T10:05:00Z")]),
@@ -3035,7 +3035,7 @@ class TestWebStatsTableSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
         self._create_pageviews()
         properties = [EventPropertyFilter(key=key, operator=PropertyOperator.EXACT, value=value)]
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
                 fast_runner = self._make_runner(includeAvgTimeOnPage=include_avg_time, properties=properties)
                 assert fast_runner.query_strategy().startswith("stats_table_session_id_set")
@@ -3103,7 +3103,7 @@ class TestWebStatsTableSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
     def test_session_id_set_paths_pushes_id_filter_below_session_aggregation(
         self, _name: str, key: str, value: str, expected_global_in: int
     ):
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
                 runner = self._make_runner(
                     properties=[EventPropertyFilter(key=key, operator=PropertyOperator.EXACT, value=value)]
@@ -3121,7 +3121,7 @@ class TestWebStatsTableSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
     def test_session_id_set_paths_executes_with_pushdown_modifier_and_tag(self):
         self._create_pageviews()
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
                 runner = self._make_runner()
                 original_execute = runner.paginator.execute_hogql_query
@@ -3141,7 +3141,7 @@ class TestWebStatsTableSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
     def test_session_id_set_paths_falls_back_to_join_when_filter_is_unselective(self):
         self._create_pageviews()
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
                 with patch(
                     "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.SESSION_ID_SET_MAX_MATCHING_SESSIONS",

@@ -10,7 +10,7 @@ use crate::{
     frames::releases::{ReleaseInfo, ReleaseRecord},
     issue_resolution::{Issue, IssueSeverity},
     langs::native::DebugImage,
-    modes::processing::normalization::normalize_wire_order,
+    modes::processing::normalization::{normalize_legacy_tags, normalize_wire_order},
     recursively_sanitize_properties,
     types::{event::AnyEvent, ExceptionList, ProcessedExceptionProperties, RawExceptionProperties},
 };
@@ -615,6 +615,7 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
             .and_then(|object| object.get_mut("$exception_list"))
         {
             recursively_sanitize_properties(event.uuid, value, 0)?;
+            normalize_legacy_tags(value);
         }
 
         let mut raw: RawExceptionProperties = serde_json::from_value(properties)

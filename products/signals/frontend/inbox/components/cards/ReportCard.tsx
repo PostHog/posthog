@@ -39,6 +39,7 @@ import {
     sourceProductsTooltipTitle,
 } from '../badges/sourceProductIcons'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
+import { useReportCardSelection } from './useReportCardSelection'
 import { useReportDismiss } from './useReportDismiss'
 
 // ── Shared card sub-components ────────────────────────────────────────────────
@@ -118,6 +119,7 @@ export function ReportCard({
     onRestore,
     backUrl,
     preview = false,
+    selectable = false,
 }: {
     report: SignalReport
     sectionKey?: InboxReportSectionKey
@@ -130,6 +132,8 @@ export function ReportCard({
     /** Onboarding sample: render as a static card with no detail link and no focusable actions, so its
      * placeholder report id can never be opened (it 404s). */
     preview?: boolean
+    /** Offer multi-select on this row: press and hold and modifier clicks. */
+    selectable?: boolean
 }): JSX.Element {
     // Keyed on status, not the section: the legacy Archive tab lists dismissed and resolved rows
     // through one section key, and the two need different affordances.
@@ -153,6 +157,11 @@ export function ReportCard({
         report.id,
         backUrl,
         redesign ? 'reports' : INBOX_SECTION_LEGACY_TAB[sectionKey]
+    )
+
+    const { isSelected, isHolding, cardHandlers } = useReportCardSelection(
+        report.id,
+        selectable && !preview && !isResolved
     )
 
     const { isDismissing, onDismissClick } = useReportDismiss({
@@ -278,7 +287,10 @@ export function ReportCard({
                 inboxCardRowClassName(attached, { dashed: !hasPr }),
                 // Closed rows recede so open work stands out in the mixed flat list; hover restores
                 // full opacity for reading. Matches the disabled-scout treatment in ScoutRosterCard.
-                (isDismissed || isResolved) && 'opacity-55 hover:opacity-100'
+                (isDismissed || isResolved) && 'opacity-55 hover:opacity-100',
+                isSelected && 'ring-1 ring-accent',
+                // A long press must not paint the title as selected text under the finger.
+                isHolding && 'select-none'
             )}
         >
             <div className="relative flex min-w-0 flex-1">
@@ -298,9 +310,13 @@ export function ReportCard({
                 {preview ? (
                     <div className={cardBodyClassName}>{cardBody}</div>
                 ) : (
-                    <Link to={detailUrl} className={cardBodyClassName}>
-                        {cardBody}
-                    </Link>
+                    // The gestures sit on this wrapper, not on the link: a selecting click has to
+                    // be caught before the link acts on it.
+                    <div className="flex min-w-0 flex-1" {...cardHandlers}>
+                        <Link to={detailUrl} className={cardBodyClassName}>
+                            {cardBody}
+                        </Link>
+                    </div>
                 )}
             </div>
 

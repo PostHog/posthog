@@ -40,7 +40,7 @@ The queue tracks the remaining request slots from active and waiting jobs. It ap
 
 The frontier consumer uses cooperative rebalancing. Its revoke path drains active work before it releases assigned partitions.
 
-Each image-fetch worker creates two Kafka group members by default. A local joiner combines their batches before it starts a fetch pass. Group assignments do not overlap, so each ready member adds a different partition. The joiner processes available batches when its join window ends. A later group can run concurrently instead of spending its Kafka poll interval behind a full pass. Shared request limits still bound total network concurrency. The worker divides the existing Kafka prefetch memory budget across its group members. During a mixed-version rollout, pods with more group members can receive more partitions until the rollout finishes. `SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH` accepts targets from one to four for worker-count experiments.
+Each image-fetch worker creates two Kafka group members by default. A local joiner combines their batches before it starts a fetch pass. Group assignments do not overlap, and each member can own multiple partitions. The joiner processes available batches when its join window ends. A later group can run concurrently instead of spending its Kafka poll interval behind a full pass. Shared request limits still bound total network concurrency. The worker divides a 100 MiB Kafka prefetch budget across its group members, with a minimum of 25 MiB per member. This preserves the queue sizes for one to four members and allows a default maximum-sized record in each queue. Sixteen members have a combined prefetch budget of 400 MiB. During a mixed-version rollout, pods with more group members can receive more partitions until the rollout finishes. `SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH` accepts targets from one to sixteen for worker-count experiments.
 
 Retry jobs use 1-minute, 10-minute, and 1-hour Kafka topics. The topics use broker append timestamps.
 
@@ -125,7 +125,7 @@ The pass-budget alert is inactive in dry-run mode. Delay-topic lag has no alert 
 
 ## Assumptions
 
-- Only the `src` attribute creates a remote-image ref. The collector does not create refs for `rr_src` or `poster`.
+- Image source selection follows requirements 13.11–13.12. A usable `img[srcset]` suppresses that element's `src` and `rr_src` fallbacks. Shopify resize normalisation follows the shared URL policy.
 - A response can contain at most four content-coding layers. This bound limits decompression work while retaining common stacked encodings.
 - The standard pass is shorter than the minimum image retry delay. Active back-off therefore follows requirement 7.13 without an in-memory second pass.
 - Smokescreen is the authoritative production DNS and connection boundary. Local URL admission is an additional fail-closed check.

@@ -109,15 +109,15 @@ class TestClearUnearnedNodeSuspensions(BaseTest):
         )
         saved_query = node.saved_query
         assert saved_query is not None
-        resume = command_module.resume_nodes
+        unsuspend = command_module.unsuspend_nodes
 
-        def fail_twice_more_then_resume(*args, **kwargs):
+        def fail_twice_more_then_unsuspend(*args, **kwargs):
             # stands in for the materializations that keep running while a whole-region sweep walks
             # its list: by the time this marker comes up for clearing, the streak is genuine
             self._record_failures(saved_query, [CUSTOMER_ERROR, CUSTOMER_ERROR])
-            return resume(*args, **kwargs)
+            return unsuspend(*args, **kwargs)
 
-        with mock.patch.object(command_module, "resume_nodes", fail_twice_more_then_resume):
+        with mock.patch.object(command_module, "unsuspend_nodes", fail_twice_more_then_unsuspend):
             call_command("clear_unearned_node_suspensions", "--apply", stdout=StringIO())
 
         node.refresh_from_db()

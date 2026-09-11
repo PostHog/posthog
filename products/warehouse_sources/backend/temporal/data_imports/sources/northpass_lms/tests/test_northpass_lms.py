@@ -10,6 +10,7 @@ from parameterized import parameterized
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.northpass_lms import (
+    NorthpassQuizLogEmptyError,
     NorthpassResumeConfig,
     _build_url,
     _flatten_item,
@@ -17,6 +18,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_
     _make_quiz_attempt_flattener,
     _make_relationship_flattener,
     northpass_source,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_lms.settings import (
+    QUIZ_LOG_EMPTY_MESSAGE,
 )
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -233,6 +237,22 @@ class TestTopLevelPagination:
 
         assert rows == []
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_page_stops_even_with_next_link(self, mock_make_session):
+        pages = {
+            COURSES_P1: _page([{"id": "1"}], next_url=COURSES_P2),
+            COURSES_P2: _page([], next_url="https://api.northpass.com/v2/courses?page=3&limit=100"),
+        }
+        sent = _wire(mock_make_session, pages)
+        manager = _make_manager()
+
+        rows = _rows("courses", manager)
+
+        assert [r["id"] for r in rows] == ["1"]
+        assert sent == [COURSES_P1, COURSES_P2]
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved == [NorthpassResumeConfig(next_url=COURSES_P2)]
+
 
 class TestFanOut:
     def _parent_and_children(self) -> dict[str, Any]:
@@ -426,7 +446,7 @@ def _message_without_payload() -> dict[str, Any]:
 
 class TestQuizAttemptFlattener:
     def test_reshapes_webhook_message_into_attempt_row(self):
-        row = _make_quiz_attempt_flattener()(_quiz_message("at1"))
+        row = _make_quiz_attempt_flattener(set())(_quiz_message("at1"))
 
         assert isinstance(row, dict)
         # The attempt UUID must land as `id` — it is the primary key and what the answers fan-out
@@ -450,10 +470,10 @@ class TestQuizAttemptFlattener:
     def test_drops_unusable_messages(self, _name, message):
         # A message that can't yield an attempt row must be dropped, not emitted — a row without an
         # `id` would fail the fan-out's parent resolution and corrupt the primary key.
-        assert _make_quiz_attempt_flattener()(message) == []
+        assert _make_quiz_attempt_flattener(set())(message) == []
 
     def test_dedupes_attempts_across_messages_within_a_run(self):
-        flatten = _make_quiz_attempt_flattener()
+        flatten = _make_quiz_attempt_flattener(set())
 
         first = flatten(_quiz_message("at1", message_id="m1"))
         second = flatten(_quiz_message("at1", message_id="m2"))
@@ -466,11 +486,11 @@ class TestQuizAttemptFlattener:
     def test_seen_state_is_fresh_per_flattener(self):
         # Each sync builds its own flattener; a shared seen-set would make every sync after the
         # first in a long-lived worker yield an empty table.
-        assert isinstance(_make_quiz_attempt_flattener()(_quiz_message("at1")), dict)
-        assert isinstance(_make_quiz_attempt_flattener()(_quiz_message("at1")), dict)
+        assert isinstance(_make_quiz_attempt_flattener(set())(_quiz_message("at1")), dict)
+        assert isinstance(_make_quiz_attempt_flattener(set())(_quiz_message("at1")), dict)
 
     def test_missing_relationships_still_emit_id_columns(self):
-        row = _make_quiz_attempt_flattener()(_quiz_message("at1", relationships={}))
+        row = _make_quiz_attempt_flattener(set())(_quiz_message("at1", relationships={}))
 
         assert isinstance(row, dict)
         # Columns must exist (as None) even when a reference is absent, so the table schema stays
@@ -544,6 +564,52 @@ class TestQuizAttemptsAndAnswers:
             "https://api.northpass.com/v2/quiz_attempts/at1/answers?limit=100",
             "https://api.northpass.com/v2/quiz_attempts/at2/answers?limit=100",
         ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_log_with_next_link_stops_and_raises(self, mock_make_session):
+        pages = {WEBHOOKS_URL: _page([], next_url="https://api.northpass.com/v2/webhooks?page=2&limit=50")}
+        sent = _wire(mock_make_session, pages)
+
+        with pytest.raises(NorthpassQuizLogEmptyError, match=QUIZ_LOG_EMPTY_MESSAGE):
+            _rows("quiz_attempts", _make_manager())
+
+        assert sent == [WEBHOOKS_URL]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_log_holding_only_other_event_types_raises(self, mock_make_session):
+        pages = {WEBHOOKS_URL: _page([_quiz_message("at9", message_id="m3", event_type="course_completed_events")])}
+        _wire(mock_make_session, pages)
+
+        with pytest.raises(NorthpassQuizLogEmptyError, match="quiz_attempts has no rows to sync"):
+            _rows("quiz_attempts", _make_manager())
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_answers_raise_when_the_log_holds_no_attempt(self, mock_make_session):
+        pages = {WEBHOOKS_URL: _page([])}
+        sent = _wire(mock_make_session, pages)
+
+        with pytest.raises(NorthpassQuizLogEmptyError, match="quiz_attempt_answers has no rows to sync"):
+            _rows("quiz_attempt_answers", _make_manager())
+
+        assert sent == [WEBHOOKS_URL]
+
+    @parameterized.expand(
+        [
+            ("empty_page", _page([])),
+            ("ignored_404", _resp({"errors": []}, status=404)),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_answers_yield_nothing_when_the_log_attempt_has_no_answers(
+        self, _name: str, answers: Response, mock_make_session: mock.MagicMock
+    ) -> None:
+        answers_url = "https://api.northpass.com/v2/quiz_attempts/at1/answers?limit=100"
+        sent = _wire(mock_make_session, {WEBHOOKS_URL: _page([_quiz_message("at1")]), answers_url: answers})
+
+        rows = _rows("quiz_attempt_answers", _make_manager())
+
+        assert rows == []
+        assert sent == [WEBHOOKS_URL, answers_url]
 
 
 class TestNorthpassSource:

@@ -19,6 +19,7 @@ from posthog.models.organization import OrganizationMembership
 
 from products.signals.backend.artefact_schemas import Priority, PriorityAssessment, SuggestedReviewers, TaskRunArtefact
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalSourceConfig
+from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
 from products.signals.backend.scout_harness.tools.report import (
     MAX_EVIDENCE_DESCRIPTION_LENGTH,
     MAX_REPORT_SIGNALS,
@@ -130,6 +131,59 @@ class TestScoutReportAPI(APIBaseTest):
         assert body["skipped_reason"] is None
         assert SignalReport.objects.filter(id=body["report_id"], team=self.team).exists()
         embed_mock.assert_called_once()
+
+    def test_emit_report_retry_returns_the_first_report(self) -> None:
+        # The failure this exists for: the caller times out at a proxy, the server keeps working, and
+        # the scout resends. The resend reads its report back instead of doubling it, judge unpaid.
+        run = _make_run(self.team)
+        with _safe_judge() as judge, patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
+            first = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+            with patch(CAPTURE_PATH) as capture:
+                retry = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        assert retry["report_id"] == first["report_id"]
+        assert retry["idempotent_replay"] is True
+        assert retry["emitted"] is True
+        assert first["idempotent_replay"] is False
+        assert SignalReport.objects.filter(team=self.team).count() == 1
+        judge.assert_awaited_once()
+        # The report already surfaced, so its draft PR must not be started a second time.
+        autostart.assert_awaited_once()
+        event = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_emitted")
+        assert event.kwargs["properties"]["outcome"] == "idempotent_replay"
+
+    def test_emit_report_key_covers_a_retry_that_rewords_the_report(self) -> None:
+        # Without a key the content is the key, so a scout that rewrites its summary on the retry would
+        # file twice. Naming the emission is what makes the second call resolve to the first report.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            first = self.client.post(
+                self._emit_url(str(run.id)),
+                data=self._payload(idempotency_key="checkout-p99"),
+                format="json",
+            ).json()
+            retry = self.client.post(
+                self._emit_url(str(run.id)),
+                data=self._payload(summary="Reworded: p99 on /checkout doubled.", idempotency_key="checkout-p99"),
+                format="json",
+            ).json()
+        assert retry["report_id"] == first["report_id"]
+        assert retry["idempotent_replay"] is True
+        assert SignalReport.objects.filter(team=self.team).count() == 1
+
+    def test_emit_report_still_authors_a_second_report_for_a_different_finding(self) -> None:
+        # The barrier must not swallow a real second finding: one run routinely reports more than one
+        # thing, and those calls differ in content and (when supplied) in key.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            first = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+            second = self.client.post(
+                self._emit_url(str(run.id)),
+                data=self._payload(title="Signup funnel dropped 12% after 4.2"),
+                format="json",
+            ).json()
+        assert second["report_id"] != first["report_id"]
+        assert second["idempotent_replay"] is False
+        assert SignalReport.objects.filter(team=self.team).count() == 2
 
     def test_report_emit_and_edit_enqueue_configured_slack_destination_after_commit(self) -> None:
         run = _make_run(self.team)
@@ -940,8 +994,11 @@ class TestScoutReportAPI(APIBaseTest):
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="pipeline report")
         with (
             patch(
-                "products.signals.backend.scout_harness.tools.report._owner_logins",
-                side_effect=[set(), {"octocat"}],
+                "products.signals.backend.scout_harness.tools.report._owner_identities",
+                side_effect=[
+                    ReviewerIdentitySet.empty(),
+                    ReviewerIdentitySet(user_uuids=frozenset(), github_logins=frozenset({"octocat"})),
+                ],
             ),
             patch(AUTOSTART_PATH, new=AsyncMock()),
         ):
@@ -1624,16 +1681,16 @@ class TestBuildSuggestedReviewers(APIBaseTest):
         assert result is not None
         assert [e.github_login for e in result.root] == ["dupe"]
 
-    @parameterized.expand([("not_an_org_member",), ("member_without_github_identity",)])
-    def test_unresolvable_user_uuid_raises(self, case: str) -> None:
-        if case == "member_without_github_identity":
-            orphan = User.objects.create(email="nogh@example.com")
-            OrganizationMembership.objects.create(user=orphan, organization=self.organization)
-            target = str(orphan.uuid)
-        else:
-            target = str(uuid4())
+    def test_non_member_user_uuid_raises(self) -> None:
         with pytest.raises(InvalidScoutReportError):
-            _build_suggested_reviewers(self.team, [ReviewerInput(user_uuid=target)])
+            _build_suggested_reviewers(self.team, [ReviewerInput(user_uuid=str(uuid4()))])
+
+    def test_member_without_github_identity_is_stored_by_uuid(self) -> None:
+        member = User.objects.create(email="nogh@example.com")
+        OrganizationMembership.objects.create(user=member, organization=self.organization)
+        result = _build_suggested_reviewers(self.team, [ReviewerInput(user_uuid=str(member.uuid))])
+        assert result is not None
+        assert [(e.user_uuid, e.github_login) for e in result.root] == [(str(member.uuid), None)]
 
     @parameterized.expand([("none", None), ("empty", [])])
     def test_no_entries_yields_none(self, _name: str, reviewers: list | None) -> None:

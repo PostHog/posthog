@@ -1,8 +1,8 @@
 import {
     ActivityLogItem,
+    ActivityLogUserName,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
 export function groupActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
@@ -15,9 +15,8 @@ export function groupActivityDescriber(logItem: ActivityLogItem, asNotification?
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>{' '}
-                    {logItem.detail?.changes?.[0]?.action || 'changed'} the <code>{logItem.detail?.name}</code>{' '}
-                    property.
+                    <ActivityLogUserName logItem={logItem} /> {logItem.detail?.changes?.[0]?.action || 'changed'} the{' '}
+                    <code>{logItem.detail?.name}</code> property.
                 </>
             ),
         }

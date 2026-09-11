@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 export const IMAGE_FETCH_BATCH_JOIN_TIMEOUT_MS = 500
-export const MAX_IMAGE_FETCH_BATCHES_PER_PASS = 4
+export const MAX_IMAGE_FETCH_BATCHES_PER_PASS = 16
 
 type BatchProcessor = (messages: Message[]) => Promise<void>
 

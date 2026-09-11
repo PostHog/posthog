@@ -30,7 +30,7 @@ from products.metrics.backend.metric_query_runner import (
     _pick_interval,
     attribute_field,
 )
-from products.metrics.backend.tests._seeder import seed_metric
+from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
 
 class TestPickInterval:
@@ -90,7 +90,7 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
 
     def test_rejects_unsupported_aggregation(self):
         with self.assertRaises(ValueError):
@@ -358,7 +358,7 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
 
     def test_query_requires_authentication(self):
         self.client.logout()
@@ -442,20 +442,20 @@ class TestAttributeField(ClickhouseTestMixin, APIBaseTest):
     """End-to-end tests for the `attribute_field` helper.
 
     The helper builds an AST node; correctness depends on what ClickHouse
-    actually returns, so we execute a real query against `posthog.metrics`
-    for each scope and assert the resolved value.
+    actually returns, so we execute a real query against `posthog.metric_series`
+    (where the label maps live) for each scope and assert the resolved value.
     """
 
     CLASS_DATA_LEVEL_SETUP = True
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
 
     def _select_attribute(self, expr: ast.Expr, metric_name: str) -> str | None:
         query = parse_select(
             """
-                SELECT {expr} AS value FROM posthog.metrics
+                SELECT {expr} AS value FROM posthog.metric_series
                 WHERE metric_name = {metric_name} LIMIT 1
             """,
             placeholders={"expr": expr, "metric_name": ast.Constant(value=metric_name)},
@@ -557,7 +557,7 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
 
     def _request(self, **overrides):
         anchor = timezone.now().replace(microsecond=0)
@@ -632,7 +632,7 @@ class TestMetricFilters(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
         self.anchor = timezone.now().replace(microsecond=0)
         seed_metric(
             team_id=self.team.id,
@@ -749,7 +749,7 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
         self.anchor = timezone.now().replace(microsecond=0, second=0)
         # env=prod has points in two buckets, env=dev only in the second —
         # exercises the shared-grid zero-fill.
@@ -813,7 +813,7 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
             self._run(interval="fortnight")
 
     def test_group_by_resource_scope(self):
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
         seed_metric(
             team_id=self.team.id,
             metric_name="req",
@@ -863,7 +863,7 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
         # Anchor on a minute boundary so bucket membership is deterministic.
         self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
 
@@ -1119,7 +1119,7 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
         self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
 
     def _seed_histogram(self, points_with_counts, temporality="cumulative", bounds=None, **kwargs):
@@ -1322,7 +1322,7 @@ class TestMultiClauseAndFormulas(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
         self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
         # errors: 2 then 4; requests: 10 then 20 (per-minute buckets)
         seed_metric(
@@ -1368,7 +1368,7 @@ class TestMultiClauseAndFormulas(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([p.value for p in series[0].points], [0.2, 0.2])
 
     def test_formula_matches_grouped_series_by_label_set(self):
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
         for env, errors, requests in [("prod", 1.0, 10.0), ("dev", 3.0, 6.0)]:
             seed_metric(
                 team_id=self.team.id,
@@ -1401,7 +1401,7 @@ class TestMultiClauseAndFormulas(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(by_env, {"prod": [0.1], "dev": [0.5]})
 
     def test_formula_broadcasts_ungrouped_clause(self):
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
         for env, errors in [("prod", 2.0), ("dev", 6.0)]:
             seed_metric(
                 team_id=self.team.id,
@@ -1481,7 +1481,7 @@ class TestMetricTypeIsolation(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
         self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
         # The same name recorded as a delta counter (5) and as a gauge (42).
         seed_metric(
@@ -1576,7 +1576,7 @@ class TestNonFiniteAggregates(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
         self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
 
     def _seed_huge(self, count: int) -> None:

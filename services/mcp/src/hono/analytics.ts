@@ -19,6 +19,7 @@ import { resolveScopePreset } from '@/lib/scope-preset'
 import type { SkillInvocation } from '@/tools/exec-learn'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
+import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { buildMCPSessionAnalyticsProperties, getEffectiveMCPClientIdentity } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
@@ -373,6 +374,20 @@ function serializeSpanState(value: unknown): string | undefined {
     }
 }
 
+function omitAppData(output: unknown): unknown {
+    if (typeof output !== 'object' || output === null || Array.isArray(output)) {
+        return output
+    }
+    const result = output as Record<string, unknown>
+    const meta = result._meta
+    if (typeof meta !== 'object' || meta === null || Array.isArray(meta) || !(APP_DATA_META_KEY in meta)) {
+        return output
+    }
+    const sanitizedMeta: Record<string, unknown> = { ...meta }
+    delete sanitizedMeta[APP_DATA_META_KEY]
+    return { ...result, _meta: sanitizedMeta }
+}
+
 /**
  * Captures an `$ai_span` for a tool call, joining the same MCP-session trace as
  * the execute-sql `$ai_generation` events. Trace-target online evaluations then
@@ -392,7 +407,9 @@ export async function trackToolSpan(toolName: string, state: ResolvedState, meta
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
         const toolCategory = getToolCategory(toolName)
         const inputState = serializeSpanState(meta.input)
-        const outputState = serializeSpanState(meta.output)
+        const outputState = serializeSpanState(
+            state.clientProfile.consumer === 'posthog_ai' ? omitAppData(meta.output) : meta.output
+        )
 
         getPostHogClient().capture({
             distinctId: state.distinctId,

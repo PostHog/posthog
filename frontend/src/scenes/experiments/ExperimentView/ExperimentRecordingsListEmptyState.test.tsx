@@ -8,7 +8,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { HideViewedRecordingsOptions, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
     DEFAULT_RECORDING_FILTERS,
     SessionRecordingPlaylistLogicProps,
@@ -302,6 +302,38 @@ describe('ExperimentRecordingsListEmptyState', () => {
 
         logic.unmount()
     })
+
+    // The server removes the recordings this setting hides before it answers, so they never reach
+    // the browser, `hiddenRecordingsCount` stays zero, and the reason reads as if nothing were
+    // hidden. The note is the only thing that tells the viewer otherwise. 'any-user' hides what the
+    // whole project watched, so copy about this viewer's own watching would be false there.
+    it.each([
+        ['current-user', 214, 'Recordings you have already watched are hidden'],
+        ['any-user', 215, 'Recordings anyone on your team has already watched are hidden'],
+    ] as [HideViewedRecordingsOptions, number, string][])(
+        'notes the %s setting next to the reason it could account for',
+        async (mode, experimentId, copy) => {
+            teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+            playerSettingsLogic.actions.setHideViewedRecordings(mode)
+            const experiment = {
+                ...EXPERIMENT,
+                id: experimentId,
+                start_date: daysAgo(10),
+                end_date: daysAgo(2),
+            } as Experiment
+            const logic = experimentReplayTabLogic({ experiment })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            renderEmptyState(experiment)
+
+            const emptyState = screen.getByTestId('experiment-recordings-empty-state')
+            expect(emptyState).toHaveTextContent('A session can be missing for a few reasons')
+            expect(emptyState).toHaveTextContent(copy)
+
+            logic.unmount()
+        }
+    )
 
     it('answers with the hidden recordings instead of a reason when the list only looks empty', async () => {
         teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)

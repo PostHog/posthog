@@ -756,8 +756,11 @@ const FeedItem = memo(function FeedItem({
   const canStop = taskData?.taskRunEnvironment === "cloud" && isActive;
   const starter = channelTaskStarter(task);
   const prompt = useMemo(
-    () => stripContextBlocks(xmlToPlainText(task.description ?? "")),
-    [task.description],
+    () =>
+      stripContextBlocks(
+        xmlToPlainText(task.description_preview ?? task.description ?? ""),
+      ),
+    [task.description_preview, task.description],
   );
   const prUrls = useMemo(
     () =>
