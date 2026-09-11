@@ -59,7 +59,7 @@ const MY_THRESHOLD_SEGMENTS = [{ value: MY_THRESHOLD_DEFAULT_VALUE, label: 'Defa
 
 const PR_STATE_SEGMENTS = [
     { value: 'draft', label: 'Draft' },
-    { value: 'ready', label: 'Ready' },
+    { value: 'ready', label: 'Ready for review' },
 ]
 const MY_PR_STATE_DEFAULT_VALUE = '__default__'
 const MY_PR_STATE_SEGMENTS = [{ value: MY_PR_STATE_DEFAULT_VALUE, label: 'Default' }, ...PR_STATE_SEGMENTS]
@@ -545,7 +545,7 @@ function PullRequestStateRows(): JSX.Element {
     return (
         <div className="flex flex-col gap-2 px-2.5 py-1.5">
             <div className="flex flex-col gap-1">
-                <span className="text-xs text-secondary">PRs open as</span>
+                <span className="text-xs text-secondary">Self-driving PRs open as</span>
                 <LemonSegmentedButton
                     size="xsmall"
                     fullWidth
@@ -556,12 +556,12 @@ function PullRequestStateRows(): JSX.Element {
                     onChange={(next) => patchTeamConfig({ default_open_pull_request_ready: next === 'ready' })}
                 />
                 <p className="text-[11px] text-tertiary leading-snug mb-0">
-                    Ready runs the full CI matrix from the start, and again on every push. It also asks CODEOWNERS for
-                    review. Draft runs a narrower set of checks.
+                    Ready for review can run more checks and request reviews. Your repository settings control these
+                    actions. Draft lets your team inspect the change first.
                 </p>
             </div>
             <div className="flex flex-col gap-1">
-                <span className="text-xs text-secondary">My PRs open as</span>
+                <span className="text-xs text-secondary">PRs for my review open as</span>
                 <LemonSegmentedButton
                     size="xsmall"
                     fullWidth
@@ -580,8 +580,8 @@ function PullRequestStateRows(): JSX.Element {
                     }
                 />
                 <p className="text-[11px] text-tertiary leading-snug mb-0">
-                    Overrides the project setting for reports that suggest you as reviewer. It applies across all your
-                    projects. A PR somebody puts back into draft stays draft.
+                    This choice applies to all projects where reports suggest you as a reviewer. It overrides each
+                    project setting. A PR stays in draft if someone moves it back to draft.
                 </p>
             </div>
         </div>
