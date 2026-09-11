@@ -158,7 +158,7 @@ export AZURE_CLIENT_ID="xxx"
 export AZURE_CLIENT_SECRET="xxx"
 ```
 
-They authenticate an Entra app registration that holds the `Artifact Signing Certificate Profile Signer` role on the `posthog-desktop` account (West US 2, certificate profile `posthog-desktop-public`). CI reads them from the `DESKTOP_AZURE_CODESIGN_*` repository secrets. Without them the build packages unsigned, which is what fork PRs and local builds get.
+They authenticate an Entra app registration that holds the `Artifact Signing Certificate Profile Signer` role on the `posthog-desktop` account (West US 2, certificate profile `posthog-desktop-public`). CI reads them from the `DESKTOP_AZURE_CODESIGN_*` repository secrets. Without them the build packages unsigned, which is what pull request builds, fork PRs and local builds get. A manual run of the `desktop-build-test` workflow signs and verifies the result, which is how to check the pipeline before a release.
 
 electron-builder installs the `TrustedSigning` PowerShell module on the build machine and signs every executable through it, so signing only runs on Windows. Nothing is downloaded: Microsoft issues a short-lived certificate inside the service and returns only the signature.
 
