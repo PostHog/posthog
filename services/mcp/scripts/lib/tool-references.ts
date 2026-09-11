@@ -99,6 +99,23 @@ function didYouMean(suggestions: string[]): string {
     return suggestions.length > 0 ? ` — did you mean ${suggestions.join(' or ')}?` : ''
 }
 
+// The phrase that marks a reference as already explained, and the wording the fix asks for.
+const BUILT_IN_SKILL_PHRASE = 'built-in PostHog skill'
+
+/**
+ * Whether a reference to a built-in skill says how to load one.
+ *
+ * `skill-get` reads the project skills store, which has never held a built-in PostHog skill, so
+ * "load the X skill" on its own sends an agent there for a 404. Either naming `learn posthog:X`
+ * or calling it a built-in skill is enough to keep it out of the store.
+ *
+ * Scope is the whole text the caller scanned, normally one definitions file, so one description
+ * that explains the distinction covers the rest of that file.
+ */
+function explainsBuiltInSkill(text: string, name: string): boolean {
+    return text.includes(`learn posthog:${name}`) || text.includes(BUILT_IN_SKILL_PHRASE)
+}
+
 export function checkReferencesInText(
     text: string,
     source: string,
@@ -124,16 +141,23 @@ export function checkReferencesInText(
     for (const match of text.matchAll(PHRASE_REFERENCE)) {
         const name = match[1]!
         const kind = match[2] as ReferenceKind
+        // The match begins at the optional leading backtick, then the name.
+        const nameOffset = match.index + (match[0].startsWith('`') ? 1 : 0)
         if (isValidReference(name, kind, toolNames, skillNames)) {
+            if (kind.startsWith('skill') && skillNames.has(name) && !explainsBuiltInSkill(text, name)) {
+                report(
+                    nameOffset,
+                    name,
+                    `'${name}' is a ${BUILT_IN_SKILL_PHRASE}, not a skill in the project skills store — say \`learn posthog:${name}\` or "${BUILT_IN_SKILL_PHRASE}", or an agent loads it with skill-get and gets a 404`
+                )
+            }
             continue
         }
         const registry = kind === 'skill' || kind === 'skills' ? skillNames : toolNames
         const suggestions = referenceSuggestions(name, registry)
         if (suggestions.length > 0) {
-            // The match begins at the optional leading backtick, then the name.
-            const offset = match.index + (match[0].startsWith('`') ? 1 : 0)
             report(
-                offset,
+                nameOffset,
                 name,
                 `'${name}' looks like a ${kind.replace(/s$/, '')} but none exists${didYouMean(suggestions)}`
             )
