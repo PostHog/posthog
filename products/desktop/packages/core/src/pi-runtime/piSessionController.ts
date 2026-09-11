@@ -196,6 +196,10 @@ export class PiSessionController {
     string,
     {
       events: TextEvent[];
+      /** Source ids held in this batch. They reach `session.events` only at
+       * flush, so without them a repeat delivery inside one window would pass
+       * the dedup guard and mutate turn state. */
+      sourceIds: Set<string>;
       timer: ReturnType<typeof setTimeout>;
     }
   >();
@@ -883,19 +887,25 @@ export class PiSessionController {
       this.handleEvent(taskId, event, context);
       return;
     }
-    if (event.sourceId && this.sourceIndex(taskId).ids.has(event.sourceId))
+    const pending = this.pendingText.get(taskId);
+    if (
+      event.sourceId &&
+      (this.sourceIndex(taskId).ids.has(event.sourceId) ||
+        pending?.sourceIds.has(event.sourceId))
+    )
       return;
     // Track activity immediately so navigation cannot dispose a pending batch.
     this.applyTurnEvent(taskId, event, context?.isLive ?? true);
     if (!this.getSession(taskId).status?.isStreaming) {
       this.setTurnStreaming(taskId, true);
     }
-    const pending = this.pendingText.get(taskId);
     if (pending) {
       pending.events.push(event);
+      if (event.sourceId) pending.sourceIds.add(event.sourceId);
     } else {
       this.pendingText.set(taskId, {
         events: [event],
+        sourceIds: new Set(event.sourceId ? [event.sourceId] : []),
         timer: setTimeout(() => this.flushText(taskId), STREAM_BATCH_MS),
       });
     }

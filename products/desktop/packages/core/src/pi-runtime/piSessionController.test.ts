@@ -143,6 +143,52 @@ describe("PiSessionController", () => {
     );
   });
 
+  it("keeps a cancelled turn cancelled when a buffered chunk is redelivered", async () => {
+    vi.useFakeTimers();
+    const session = createSession();
+    let receive: (
+      event: AgentConversationEvent,
+      context?: PiConversationEventContext,
+    ) => void = () => {};
+    vi.mocked(session.onConversationEvent).mockImplementation((handler) => {
+      receive = handler;
+      return () => {};
+    });
+    const notifier = { notify: vi.fn() };
+    const controller = createController(
+      session,
+      undefined,
+      undefined,
+      notifier,
+    );
+    await controller.connect("task-1");
+    await controller.submit("task-1", "continue", false, "steer");
+    controller.setNotificationContext("task-1", { taskTitle: "Cancel me" });
+
+    const chunk: AgentConversationEvent = {
+      type: "assistant_message_chunk",
+      timestamp: 1,
+      sourceId: "chunk-0",
+      content: { type: "text", text: "part" },
+    };
+    // The chunk opens an active turn and sits in the 16 ms batch, unflushed.
+    receive(chunk, { isLive: true });
+    // The user cancels while the chunk is still buffered.
+    await controller.abort("task-1");
+    // A redelivery of the same still-buffered chunk must not reopen the turn:
+    // if it reaches applyTurnEvent it discards the "cancelled" stop reason.
+    receive(chunk, { isLive: true });
+    receive({ type: "turn_completed", timestamp: 2 }, { isLive: true });
+    vi.advanceTimersByTime(16);
+
+    expect(notifier.notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "turn_completed",
+        stopReason: "cancelled",
+      }),
+    );
+  });
+
   it("cancels buffered text on disconnect without repopulating released history", async () => {
     vi.useFakeTimers();
     const session = createSession();
