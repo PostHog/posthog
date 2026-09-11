@@ -279,9 +279,11 @@ for (const adapter of ADAPTERS) {
           meta: meta(),
         });
         const askToUseTool =
-          "Before doing anything else, you MUST call the request_user_input tool " +
+          "If the request_user_input tool is available, call it once " +
           "to ask the user a single question: whether to proceed with approach A " +
-          "or approach B. Ask exactly that one question via the tool, then stop.";
+          "or approach B. After the answer, reply in one sentence and stop. " +
+          "If the tool is unavailable, say so in one sentence and stop. " +
+          "Do not call other tools or propose an implementation plan.";
         const questionCount = () =>
           s.capture
             .approvals()
