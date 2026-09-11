@@ -208,6 +208,43 @@ class EmptyAgentTurnError(RuntimeError):
         self.printed_lines = printed_lines
 
 
+# The agent categories that mean "upstream refused this request", mirrored from
+# RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS in
+# products/desktop/packages/agent/src/adapters/error-classification.ts, which is the source of
+# truth. A category added there must be added here too, or a retryable failure reads as a
+# permanent one on this side.
+UPSTREAM_RETRYABLE_ERROR_CATEGORIES = frozenset(
+    {
+        "upstream_stream_terminated",
+        "upstream_connection_error",
+        "upstream_timeout",
+        "upstream_provider_failure",
+    }
+)
+
+
+class AgentTurnFailed(RuntimeError):
+    """The sandbox agent reported a terminal error for the turn.
+
+    Carries the agent's own classification of the failure, because the message alone collapses
+    causes that need opposite responses: a provider outage is worth retrying, a spend-limit stop
+    and a broken agent body are not. Callers branch on `category` (and `retryable_upstream`)
+    instead of matching the message text, and record it as an analytics dimension so a fleet's
+    failure rate splits by cause.
+
+    `category` is None when the agent build emitted no `errorCategory`.
+    """
+
+    def __init__(self, message: str, *, category: str | None, agent_message: str) -> None:
+        super().__init__(message)
+        self.category = category
+        self.agent_message = agent_message
+
+    @property
+    def retryable_upstream(self) -> bool:
+        return self.category in UPSTREAM_RETRYABLE_ERROR_CATEGORIES
+
+
 async def create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
@@ -676,9 +713,11 @@ async def _drain_final_log(
             cause_text = agent_error.describe()
             # Persist the real cause so the TaskRun stops showing "Activity task failed".
             await _persist_task_run_error_message(str(task_run.id), cause_text)
-            raise RuntimeError(
+            raise AgentTurnFailed(
                 f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status} "
-                f"(cause: {cause_text})"
+                f"(cause: {cause_text})",
+                category=agent_error.category,
+                agent_message=agent_error.message,
             )
     reason = "end_turn with empty response" if final_state.empty_end_turn else "no agent message"
     cause = f" (cause: {error_message})" if error_message else ""

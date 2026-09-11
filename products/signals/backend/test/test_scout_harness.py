@@ -74,6 +74,7 @@ from products.signals.backend.temporal.agentic.scout_scheduler import (
 )
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.agents import AgentTurnFailed
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable
 
 if TYPE_CHECKING:
@@ -2043,15 +2044,51 @@ async def test_successful_run_captures_run_started_event(ateam, aerrors_skill):
     assert props["scout_config_id"] == str(config.id)
 
 
+@pytest.mark.parametrize(
+    "failure,expected_error_type,expected_error_message,expected_error_category",
+    [
+        (
+            RuntimeError("sandbox refused to start"),
+            "RuntimeError",
+            "sandbox refused to start",
+            None,
+        ),
+        # The agent classified its own failure. Without `error_category` a provider outage, a
+        # spend-limit stop and a broken scout body all read as one `AgentTurnFailed` population.
+        (
+            AgentTurnFailed(
+                "TaskRun reached terminal status=failed (cause: upstream_provider_failure: API Error: 429)",
+                category="upstream_provider_failure",
+                agent_message="API Error: 429",
+            ),
+            "AgentTurnFailed",
+            "TaskRun reached terminal status=failed (cause: upstream_provider_failure: API Error: 429)",
+            "upstream_provider_failure",
+        ),
+        # Older agent build: no classification to carry, so the event stays as it is today.
+        (
+            AgentTurnFailed(
+                "TaskRun reached terminal status=failed (cause: API Error: 429)",
+                category=None,
+                agent_message="API Error: 429",
+            ),
+            "AgentTurnFailed",
+            "TaskRun reached terminal status=failed (cause: API Error: 429)",
+            None,
+        ),
+    ],
+)
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_failed_run_captures_run_finished_event(ateam, aerrors_skill):
+async def test_failed_run_captures_run_finished_event(
+    ateam, aerrors_skill, failure, expected_error_type, expected_error_message, expected_error_category
+):
     TaskRun = apps.get_model("tasks", "TaskRun")
     with (
         patch(
             "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
             new_callable=AsyncMock,
-            side_effect=RuntimeError("sandbox refused to start"),
+            side_effect=failure,
         ),
         # A routed model must survive onto the failed event too — timeouts and crashes are
         # exactly the outcomes a model trial slices by.
@@ -2087,8 +2124,9 @@ async def test_failed_run_captures_run_finished_event(ateam, aerrors_skill):
     # Failure reason rides on the event so the failure rate is breakable down by cause
     # without digging into worker logs — the bulk of scout failures fail here, before the
     # process-task workflow's own task_run_failed event fires.
-    assert props["error_type"] == "RuntimeError"
-    assert props["error_message"] == "sandbox refused to start"
+    assert props["error_type"] == expected_error_type
+    assert props["error_message"] == expected_error_message
+    assert props.get("error_category") == expected_error_category
 
 
 @contextmanager
