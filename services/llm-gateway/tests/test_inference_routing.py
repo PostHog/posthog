@@ -172,14 +172,16 @@ async def test_flag_opts_into_modal_at_fraction_zero() -> None:
 @pytest.mark.parametrize(
     ("send_fn", "endpoint"), [(row[0], f"baseten_{row[2].removeprefix('cloudflare_')}") for row in SURFACES]
 )
-async def test_baseten_flag_routes_each_surface(send_fn: Any, endpoint: str) -> None:
+async def test_configured_baseten_serves_public_glm_on_each_surface(send_fn: Any, endpoint: str) -> None:
+    # Public GLM goes to Baseten on configuration alone, so the route must not depend on (or pay
+    # for) a remote flag evaluation.
     handle = AsyncMock(return_value={"ok": True})
     settings = _settings(baseten_api_key="baseten-key")
 
-    _, evaluate = await _send(settings, handle, flag=True, send_fn=send_fn)
+    _, evaluate = await _send(settings, handle, send_fn=send_fn)
 
     assert handle.call_args.kwargs["provider_config"].endpoint_name == endpoint
-    evaluate.assert_awaited_once_with("tasks-glm-baseten-inference", "d-1")
+    evaluate.assert_not_called()
 
 
 @pytest.mark.parametrize("model", [DEEPSEEK_MODEL, GLM53_MODEL, GLM53_FLASH_MODEL])
@@ -248,30 +250,15 @@ async def test_modal_flag_is_evaluated_without_baseten_credentials() -> None:
     evaluate.assert_awaited_once_with("tasks-glm-modal-inference", "d-1")
 
 
-async def test_baseten_flag_does_not_rewrite_other_cloudflare_models() -> None:
+async def test_configured_baseten_does_not_capture_other_cloudflare_models() -> None:
     handle = AsyncMock(return_value={"ok": True})
     request = {"model": KIMI_MODEL, "messages": [{"role": "user", "content": "hi"}]}
 
-    _, evaluate = await _send(_settings(baseten_api_key="baseten-key"), handle, flag=True, request_data=request)
+    _, evaluate = await _send(_settings(baseten_api_key="baseten-key"), handle, request_data=request)
 
     assert _called_providers(handle) == ["cloudflare"]
     assert handle.call_args.kwargs["model"] == KIMI_MODEL
     evaluate.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    ("settings", "expected_provider"),
-    [
-        (_settings(baseten_api_key="baseten-key"), "cloudflare"),
-        (_settings(baseten_api_key="baseten-key", glm_modal_traffic_fraction=1.0), "modal"),
-    ],
-)
-async def test_baseten_flag_off_preserves_existing_routing(settings: Settings, expected_provider: str) -> None:
-    handle = AsyncMock(return_value={"ok": True})
-
-    await _send(settings, handle, flag=False)
-
-    assert _called_providers(handle) == [expected_provider]
 
 
 async def test_forwarded_flag_header_cannot_force_modal() -> None:
@@ -284,14 +271,14 @@ async def test_forwarded_flag_header_cannot_force_modal() -> None:
 
 
 @pytest.mark.parametrize(
-    ("settings", "flag", "expected_provider"),
+    ("settings", "expected_provider"),
     [
-        (_settings(glm_modal_traffic_fraction=1.0), None, "modal"),
-        (_settings(baseten_api_key="baseten-key"), True, "baseten"),
+        (_settings(glm_modal_traffic_fraction=1.0), "modal"),
+        (_settings(baseten_api_key="baseten-key"), "baseten"),
     ],
 )
 async def test_provider_failure_propagates_without_cross_backend_retry(
-    settings: Settings, flag: bool | None, expected_provider: str
+    settings: Settings, expected_provider: str
 ) -> None:
     handle = AsyncMock(
         side_effect=ProviderError(
@@ -299,7 +286,7 @@ async def test_provider_failure_propagates_without_cross_backend_retry(
         )
     )
     with pytest.raises(HTTPException) as exc_info:
-        await _send(settings, handle, flag=flag)
+        await _send(settings, handle)
     assert exc_info.value.status_code == 502
     assert _called_providers(handle) == [expected_provider]
 
