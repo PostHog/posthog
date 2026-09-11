@@ -43,6 +43,7 @@ from posthog.api.tagged_item import (
     TaggedItemViewSetMixin,
     set_tags_on_object,
 )
+from posthog.comment.formatting import trim_rich_content
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -147,6 +148,19 @@ class TicketFullEmailSerializer(serializers.Serializer):
     content = serializers.CharField(read_only=True, help_text="Full inbound email body in Markdown.")
 
 
+def _validate_rich_content(value: object) -> object:
+    """Check the size of a TipTap doc and remove its leading and trailing blank space."""
+    if value is None:
+        return value
+    try:
+        serialized = json.dumps(value)
+    except (TypeError, ValueError) as e:
+        raise serializers.ValidationError("Rich content must be JSON-serializable.") from e
+    if len(serialized) > 100_000:
+        raise serializers.ValidationError("Rich content too large (max 100KB).")
+    return trim_rich_content(value) if isinstance(value, dict) else value
+
+
 class TicketNoteUpdateRequestSerializer(serializers.Serializer):
     """Payload for updating a private note on a ticket."""
 
@@ -169,15 +183,7 @@ class TicketNoteUpdateRequestSerializer(serializers.Serializer):
         return value.strip()
 
     def validate_rich_content(self, value: object) -> object:
-        if value is None:
-            return value
-        try:
-            serialized = json.dumps(value)
-        except (TypeError, ValueError) as e:
-            raise serializers.ValidationError("Rich content must be JSON-serializable.") from e
-        if len(serialized) > 100_000:
-            raise serializers.ValidationError("Rich content too large (max 100KB).")
-        return value
+        return _validate_rich_content(value)
 
 
 class TicketReplyRequestSerializer(serializers.Serializer):
@@ -206,15 +212,7 @@ class TicketReplyRequestSerializer(serializers.Serializer):
         return value.strip()
 
     def validate_rich_content(self, value: object) -> object:
-        if value is None:
-            return value
-        try:
-            serialized = json.dumps(value)
-        except (TypeError, ValueError) as e:
-            raise serializers.ValidationError("Rich content must be JSON-serializable.") from e
-        if len(serialized) > 100_000:
-            raise serializers.ValidationError("Rich content too large (max 100KB).")
-        return value
+        return _validate_rich_content(value)
 
 
 class AiFeedbackRequestSerializer(serializers.Serializer):
@@ -267,15 +265,7 @@ class ComposeTicketSerializer(serializers.Serializer):
         return value.strip()
 
     def validate_rich_content(self, value: object) -> object:
-        if value is None:
-            return value
-        try:
-            serialized = json.dumps(value)
-        except (TypeError, ValueError) as e:
-            raise serializers.ValidationError("Rich content must be JSON-serializable.") from e
-        if len(serialized) > 100_000:
-            raise serializers.ValidationError("Rich content too large (max 100KB).")
-        return value
+        return _validate_rich_content(value)
 
 
 class ComposeTicketResponseSerializer(serializers.Serializer):
