@@ -4,7 +4,7 @@ import ObservationRecording from './ObservationRecording'
 
 const mockSeekToTime = jest.fn()
 const mockPlayer = jest.fn<JSX.Element, [unknown]>(() => <div data-attr="recording-player" />)
-let mockSessionPlayerData: { start: { valueOf: () => number }; end: { valueOf: () => number } } | null
+let mockSessionPlayerData: { start: { valueOf: () => number } | null; end: { valueOf: () => number } | null } | null
 
 jest.mock('kea', () => ({
     useValues: () => ({ sessionPlayerData: mockSessionPlayerData }),
@@ -45,6 +45,14 @@ describe('ObservationRecording', () => {
         rerender(<ObservationRecording {...props} pendingSeek={pendingSeek} />)
         expect(mockSeekToTime).not.toHaveBeenCalled()
 
+        mockSessionPlayerData = { start: { valueOf: () => 1000 }, end: null }
+        rerender(<ObservationRecording {...props} pendingSeek={pendingSeek} />)
+        expect(mockSeekToTime).not.toHaveBeenCalled()
+
+        mockSessionPlayerData = { start: null, end: { valueOf: () => 9000 } }
+        rerender(<ObservationRecording {...props} pendingSeek={pendingSeek} />)
+        expect(mockSeekToTime).not.toHaveBeenCalled()
+
         mockSessionPlayerData = { start: { valueOf: () => 1000 }, end: { valueOf: () => 9000 } }
         rerender(<ObservationRecording {...props} pendingSeek={pendingSeek} />)
         expect(mockSeekToTime).toHaveBeenCalledTimes(1)
@@ -54,11 +62,15 @@ describe('ObservationRecording', () => {
         rerender(<ObservationRecording {...props} pendingSeek={pendingSeek} />)
         expect(mockSeekToTime).toHaveBeenCalledTimes(1)
 
-        rerender(<ObservationRecording {...props} pendingSeek={{ ms: 7000, trigger: 2 }} />)
+        rerender(<ObservationRecording {...props} pendingSeek={{ ms: 5000, trigger: 2 }} />)
         expect(mockSeekToTime).toHaveBeenCalledTimes(2)
+        expect(mockSeekToTime).toHaveBeenLastCalledWith(5000)
+
+        rerender(<ObservationRecording {...props} pendingSeek={{ ms: 7000, trigger: 3 }} />)
+        expect(mockSeekToTime).toHaveBeenCalledTimes(3)
         expect(mockSeekToTime).toHaveBeenLastCalledWith(7000)
 
         rerender(<ObservationRecording {...props} pendingSeek={null} />)
-        expect(mockSeekToTime).toHaveBeenCalledTimes(2)
+        expect(mockSeekToTime).toHaveBeenCalledTimes(3)
     })
 })

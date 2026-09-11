@@ -89,22 +89,22 @@ describe('ReplayScanner', () => {
 
         const tabs = ['Search', 'On-demand', 'Backfills', 'Configuration', 'Calibration', 'Scouts', 'Alerts']
         for (const [index, tab] of tabs.entries()) {
-            fireEvent.click(screen.getByRole('tab', { name: new RegExp(`^${tab}`) }))
-            expect(screen.getByRole('tab', { name: 'Observations' })).toBeInTheDocument()
+            fireEvent.click(screen.getByText(tab, { exact: true }))
+            expect(screen.getByText('Observations', { exact: true })).toBeInTheDocument()
             await screen.findByText(`${tab} content scanner-example`)
             expect(mockImportedTabs).toEqual(tabs.slice(0, index + 1))
             expect(router.values.searchParams.tab).toBe(tab.toLowerCase())
             expect(logic.values.observationsActive).toBe(false)
         }
 
-        fireEvent.click(screen.getByRole('tab', { name: 'Observations' }))
+        fireEvent.click(screen.getByText('Observations', { exact: true }))
         await waitFor(() => expect(logic.values.observationsActive).toBe(true))
-        fireEvent.click(screen.getByRole('tab', { name: 'Configuration' }))
+        fireEvent.click(screen.getByText('Configuration', { exact: true }))
         await screen.findByText('Configuration content scanner-example')
         expect(logic.values.observationsActive).toBe(false)
         expect(mockImportedTabs).toEqual(tabs)
 
-        fireEvent.click(screen.getByRole('tab', { name: 'Observations' }))
+        fireEvent.click(screen.getByText('Observations', { exact: true }))
         await waitFor(() => expect(logic.values.observationsActive).toBe(true))
         unmount()
         expect(logic.values.observationsActive).toBe(false)

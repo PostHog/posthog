@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 
 import { useMocks } from '~/mocks/jest'
@@ -113,5 +113,25 @@ describe('ReplayObservation', () => {
                 pendingSeek: null,
             })
         )
+
+        fireEvent.click(screen.getByText('Recording'))
+        for (const seconds of [0, 5.25]) {
+            act(() => router.actions.push('/replay-vision/observations/observation-shared', { t: seconds }))
+            await waitFor(() =>
+                expect(mockRecordingRendered).toHaveBeenLastCalledWith({
+                    playerKey: 'vision-observation-observation-shared',
+                    sessionRecordingId: 'session-observation-shared',
+                    pendingSeek: { ms: seconds * 1000, trigger: expect.any(Number) },
+                })
+            )
+            fireEvent.click(screen.getByText('Recording'))
+            expect(screen.queryByTestId('observation-recording')).not.toBeInTheDocument()
+        }
+
+        for (const timestamp of ['-1', 'invalid']) {
+            act(() => router.actions.push('/replay-vision/observations/observation-shared', { t: timestamp }))
+            expect(screen.queryByTestId('observation-recording')).not.toBeInTheDocument()
+            expect(screen.getByText('Watch the recording')).toBeInTheDocument()
+        }
     })
 })
