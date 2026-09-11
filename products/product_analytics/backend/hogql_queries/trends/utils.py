@@ -17,7 +17,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.property import action_to_expr, group_property_chain, property_to_expr
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -39,12 +39,7 @@ def get_properties_chain(
         return ["session", breakdown_field]
 
     if breakdown_type == "group" and group_type_index is not None:
-        group_type_index_int = int(group_type_index)
-        if breakdown_field.startswith("$virt_"):
-            # Virtual properties exist as expression fields on the groups table
-            return [f"group_{group_type_index_int}", breakdown_field]
-        else:
-            return [f"group_{group_type_index_int}", "properties", breakdown_field]
+        return group_property_chain(int(group_type_index), breakdown_field)
     elif breakdown_type == "group" and group_type_index is None:
         raise Exception("group_type_index missing from params")
 
