@@ -354,6 +354,57 @@ class TestBackfillThreadReplies(BaseTest):
         assert complete_inbound_event(first) is False
         assert complete_inbound_event(second) is True
 
+    @patch(f"{MODULE}.renew_inbound_lease", side_effect=Exception("db down"))
+    @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
+    @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Alice", "email": "a@x.com", "avatar": None})
+    @patch(f"{MODULE}.extract_slack_files", return_value=[])
+    def test_backfill_finishes_when_lease_renew_raises(self, _mock_files, _mock_user, _mock_bot, _mock_renew):
+        claim = self._claimed_receipt()
+        client = MagicMock()
+        client.conversations_replies.side_effect = [
+            {
+                "messages": [
+                    _make_slack_reply(PARENT_TS, text="parent"),
+                    _make_slack_reply("1700000000.000200", text="first"),
+                ],
+                "response_metadata": {"next_cursor": "c1"},
+            },
+            {"messages": [_make_slack_reply("1700000000.000300", text="second")]},
+        ]
+
+        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS, slack_team_id="T123", claim=claim)
+
+        assert client.conversations_replies.call_count == 2
+        comments = Comment.objects.filter(item_id=str(self.ticket.id)).order_by("created_at")
+        assert [comment.content for comment in comments] == ["first", "second"]
+
+    @patch(f"{MODULE}.BACKFILL_THREAD_MAX_PAGES", 2)
+    @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
+    @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Alice", "email": "a@x.com", "avatar": None})
+    @patch(f"{MODULE}.extract_slack_files", return_value=[])
+    def test_stops_at_page_cap_and_keeps_fetched_replies(self, _mock_files, _mock_user, _mock_bot):
+        client = MagicMock()
+        client.conversations_replies.side_effect = [
+            {
+                "messages": [
+                    _make_slack_reply(PARENT_TS, text="parent"),
+                    _make_slack_reply("1700000000.000200", text="first"),
+                ],
+                "response_metadata": {"next_cursor": "c1"},
+            },
+            {
+                "messages": [_make_slack_reply("1700000000.000300", text="second")],
+                "response_metadata": {"next_cursor": "c2"},
+            },
+            {"messages": [_make_slack_reply("1700000000.000400", text="third")]},
+        ]
+
+        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS, slack_team_id="T123")
+
+        assert client.conversations_replies.call_count == 2
+        comments = Comment.objects.filter(item_id=str(self.ticket.id)).order_by("created_at")
+        assert [comment.content for comment in comments] == ["first", "second"]
+
     @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
     @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Bob", "email": "b@x.com", "avatar": "http://av"})
     @patch(f"{MODULE}.extract_slack_files", return_value=[])

@@ -76,9 +76,9 @@ Keep the legacy task names registered until payload tasks from the old endpoint 
 Live queue gauges (backlog, oldest ready age, last-sweep timestamp) are pushed through `pushed_metrics_registry`.
 Do not emit a ClickHouse event for each sweep.
 
-Slack thread backfill paginates `conversations.replies`.
+Slack thread backfill paginates `conversations.replies`, up to 25 pages (5,000 replies).
 Workers call `renew_inbound_lease` between pages, once more before comment writes, and every 25 replies during comment construction.
-A failed renewal is logged. The worker finishes the backfill anyway: the replacement worker skips backfill once the ticket exists, so aborting would drop the rest of the thread.
+A failed renewal (fencing miss or database error) is logged. The worker finishes the backfill anyway: the replacement worker skips backfill once the ticket exists, so aborting would drop the rest of the thread.
 Fencing still stops the stale worker settling the receipt.
 
 ## Outbound email (already in Postgres)

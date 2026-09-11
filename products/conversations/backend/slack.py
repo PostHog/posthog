@@ -72,6 +72,8 @@ from .support_slack import (
 logger = structlog.get_logger(__name__)
 SLACK_DOWNLOAD_TIMEOUT_SECONDS = 10
 MAX_REDIRECTS = 5
+# 200 replies per page. Stop so a runaway next_cursor cannot hold the worker.
+BACKFILL_THREAD_MAX_PAGES = 25
 
 # Slack message subtypes that carry real, user-authored content and may open or update a
 # ticket. A normal message has no subtype at all; these few subtypes also count as content
@@ -1291,7 +1293,7 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
 
 
 def _renew_backfill_lease(claim: InboundClaim | None) -> InboundClaim | None:
-    """Extend the inbound lease. On fencing failure return None and keep going.
+    """Extend the inbound lease. On fencing failure or renew error return None and keep going.
 
     create_or_update_slack_ticket returns None to losers so they do not backfill.
     This worker already created the ticket, so aborting here would drop the rest of
@@ -1299,8 +1301,20 @@ def _renew_backfill_lease(claim: InboundClaim | None) -> InboundClaim | None:
     """
     if claim is None:
         return None
-    if renew_inbound_lease(claim):
-        return claim
+    try:
+        if renew_inbound_lease(claim):
+            return claim
+    except Exception as exc:
+        capture_exception(
+            exc,
+            {"inbound_event_id": str(claim.event.id), "fencing_token": claim.event.fencing_token},
+        )
+        logger.warning(
+            "inbound_event_lease_renew_error",
+            inbound_event_id=str(claim.event.id),
+            fencing_token=claim.event.fencing_token,
+        )
+        return None
     logger.warning(
         "inbound_event_lease_renew_rejected",
         inbound_event_id=str(claim.event.id),
@@ -1330,7 +1344,7 @@ def _backfill_thread_replies(
     active_claim = claim if claim is not None else get_current_inbound_claim()
     replies: list[dict] = []
     cursor: str | None = None
-    while True:
+    for _ in range(BACKFILL_THREAD_MAX_PAGES):
         kwargs: dict[str, Any] = {"channel": channel, "ts": thread_ts, "limit": 200}
         if cursor is not None:
             kwargs["cursor"] = cursor
@@ -1345,6 +1359,13 @@ def _backfill_thread_replies(
             break
         cursor = next_cursor
         active_claim = _renew_backfill_lease(active_claim)
+    else:
+        logger.warning(
+            "slack_support_reaction_backfill_page_cap",
+            channel=channel,
+            thread_ts=thread_ts,
+            max_pages=BACKFILL_THREAD_MAX_PAGES,
+        )
 
     thread_replies = [
         r for r in replies if r.get("ts") != thread_ts and (after_ts is None or (r.get("ts") or "") > after_ts)
