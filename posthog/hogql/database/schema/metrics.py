@@ -22,9 +22,6 @@ class MetricsTable(Table):
     workload: Workload | None = Workload.LOGS  # reuse LOGS workload for now
 
     fields: dict[str, FieldOrTable] = {
-        "uuid": StringDatabaseField(
-            name="uuid", nullable=False, description="Unique identifier of this data point row."
-        ),
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
         "series_fingerprint": IntegerDatabaseField(
             name="series_fingerprint",
