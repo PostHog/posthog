@@ -22,6 +22,7 @@ type StoryArgs = {
     ssoEnforcement: 'none' | 'google-oauth2' | 'github' | 'gitlab' | 'saml'
     generalError: 'none' | 'invalid_credentials' | 'code_based_verification_sent'
     pendingOAuthConnection: boolean
+    codeVerification: boolean
 }
 
 const meta: Meta<StoryArgs> = {
@@ -49,6 +50,7 @@ const meta: Meta<StoryArgs> = {
             options: ['none', 'invalid_credentials', 'code_based_verification_sent'],
         },
         pendingOAuthConnection: { control: 'boolean', name: 'Pending OAuth connection' },
+        codeVerification: { control: 'boolean', name: 'Waiting on the emailed login code' },
     },
     args: {
         cloud: true,
@@ -60,6 +62,7 @@ const meta: Meta<StoryArgs> = {
         ssoEnforcement: 'none',
         generalError: 'none',
         pendingOAuthConnection: false,
+        codeVerification: false,
     },
 }
 export default meta
@@ -74,6 +77,7 @@ const Template: StoryFn<StoryArgs> = ({
     ssoEnforcement,
     generalError,
     pendingOAuthConnection,
+    codeVerification,
 }) => {
     const enforcement = ssoEnforcement === 'none' ? null : ssoEnforcement
     // Set synchronously: the scene reads the cookie while it mounts during this same render.
@@ -120,6 +124,14 @@ const Template: StoryFn<StoryArgs> = ({
         }
     }, [generalError])
 
+    useEffect(() => {
+        if (codeVerification) {
+            loginLogic.actions.setCodeVerificationRequired('test@posthog.com')
+        } else {
+            loginLogic.actions.exitCodeVerification()
+        }
+    }, [codeVerification])
+
     return <Login />
 }
 
@@ -146,3 +158,6 @@ PendingOAuthConnection.args = { pendingOAuthConnection: true }
 
 export const EmailVerification: StoryFn<StoryArgs> = Template.bind({})
 EmailVerification.args = { generalError: 'code_based_verification_sent' }
+
+export const CodeVerification: StoryFn<StoryArgs> = Template.bind({})
+CodeVerification.args = { codeVerification: true }
