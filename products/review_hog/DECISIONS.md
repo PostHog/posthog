@@ -205,6 +205,11 @@ Reading order is now claim (title) → what the issue is (description) → why i
 Applied in both renderers (`_format_issue_comment` in `publish_review.py`, `_render_off_diff_section` in `prepare_validation_markdown.py`); the order tests in both suites flipped with it.
 Template-level and reversible, same as the original move.
 
+- **Follow-up from review (2026-09-11).** The validator prompt, the `argumentation` field description, and the
+  regenerated `issue_validation/schema.json` now describe the description as sitting _above_ the verdict, and keep
+  the "bullets stand on their own" rule on its order-independent reason (a reader can expand them alone, and later
+  pipeline steps read them without the description).
+
 ### ✅ BUILT 2026-08-27 — reviewer tier by PR origin and Signals priority (agent PRs review cheaper; branch-only inbox reviews retired; resolver on Opus 5)
 
 - **What.** The reviewer's effort is no longer one fleet-wide pin. Each `ReviewReport` is placed in a **review
