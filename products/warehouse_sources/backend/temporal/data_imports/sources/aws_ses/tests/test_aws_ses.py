@@ -209,16 +209,28 @@ class TestErrorClassification:
             "Amazon SES request failed: BadRequestException - bad (table account, GET /v2/email/account)"
         )
 
-    def test_a_bodyless_bad_request_is_explained_instead_of_trailing_off_after_the_dash(self) -> None:
-        # SESv2 declares BadRequestException with zero members, so the body carries no message.
-        response = make_response(
-            400, {}, headers={"x-amzn-ErrorType": "BadRequestException:http://internal.amazon.example/coral/"}
-        )
+    # A zero-member exception model constrains the members, not the wire body, so SES can answer
+    # with an empty JSON object or with no bytes at all.
+    @pytest.mark.parametrize("content", [b"{}", b"", b"  \n "])
+    def test_a_bodyless_bad_request_is_explained_instead_of_trailing_off_after_the_dash(self, content: bytes) -> None:
+        response = requests.Response()
+        response.status_code = 400
+        response.headers["x-amzn-ErrorType"] = "BadRequestException:http://internal.amazon.example/coral/"
+        response._content = content
 
         message = str(error_for_response(response, "multi_region_endpoints", "/v2/email/multi-region-endpoints"))
 
         assert f"BadRequestException - {aws_ses._BAD_REQUEST_EXPLANATION}" in message
         assert message.endswith("(table multi_region_endpoints, GET /v2/email/multi-region-endpoints)")
+
+    def test_a_bodyless_error_that_is_not_a_bad_request_reports_its_status(self) -> None:
+        response = requests.Response()
+        response.status_code = 502
+        response._content = b""
+
+        assert "Amazon SES returned HTTP 502 with no message." in str(
+            error_for_response(response, "account", "/v2/email/account")
+        )
 
     def test_an_email_identity_in_the_path_is_masked(self) -> None:
         response = make_response(400, {"message": "bad"})

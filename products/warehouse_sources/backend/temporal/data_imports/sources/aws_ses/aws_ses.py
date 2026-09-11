@@ -164,10 +164,15 @@ def error_for_response(response: requests.Response, endpoint: str, path: str) ->
         parsed = response.json()
     except ValueError:
         parsed = None
-    if not isinstance(parsed, dict):
-        return AwsSesError(_error_code(response, {}), response.text[:500], endpoint, path)
-    code = _error_code(response, parsed)
-    return AwsSesError(code, _error_message(response, parsed, code), endpoint, path)
+    body = parsed if isinstance(parsed, dict) else {}
+    code = _error_code(response, body)
+    # A body that is not JSON carries the message as text, unless there is no text at all. A
+    # zero-member exception model constrains the members, not the wire body, so a bodyless
+    # response has to reach the explanation rather than trail off after the dash.
+    text = "" if isinstance(parsed, dict) else response.text.strip()
+    if text:
+        return AwsSesError(code, text[:500], endpoint, path)
+    return AwsSesError(code, _error_message(response, body, code), endpoint, path)
 
 
 def make_session(secret_access_key: str, session_token: Optional[str]) -> requests.Session:
