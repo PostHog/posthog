@@ -5,7 +5,7 @@ import datetime as dt
 import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
-from uuid import uuid4
+from uuid import uuid4, uuid5
 
 import pytest
 import unittest
@@ -149,7 +149,26 @@ class TestNotifiedAlertCollection(APIBaseTest):
         assert notified[0].threshold_count == 100
         assert notified[0].threshold_operator == "above"
         assert notified[0].window_minutes == 5
-        assert notified[0].filters == {"serviceNames": ["checkout"]}
+        assert notified[0].filters == {}
+        assert notified[0].idempotency_key == str(uuid5(alert.id, "firing:2025-01-01T00:00:00+00:00"))
+
+    def test_signal_idempotency_key_is_stable_for_retries_and_unique_per_evaluation(self):
+        alert = self._make_alert()
+        dispatched = self._dispatched(alert, NotificationAction.FIRE, False)
+        later = dataclasses.replace(
+            dispatched,
+            evaluation=dataclasses.replace(
+                dispatched.evaluation,
+                date_to=dispatched.evaluation.date_to + timedelta(minutes=5),
+            ),
+        )
+
+        first = _build_notified_from_saved([dispatched])[0]
+        retried = _build_notified_from_saved([dispatched])[0]
+        next_evaluation = _build_notified_from_saved([later])[0]
+
+        assert first.idempotency_key == retried.idempotency_key
+        assert first.idempotency_key != next_evaluation.idempotency_key
 
     def test_build_notified_from_saved_keeps_a_bounded_rolling_deploy_fallback(self):
         alert = self._make_alert()
@@ -224,6 +243,7 @@ class TestEmitAlertSignalsActivity(NonAtomicBaseTest):
             result_count=result_count,
             consecutive_failures=consecutive_failures,
             filters={},
+            idempotency_key=f"{alert_id}:{action}:2025-01-01T00:00:00+00:00",
         )
 
     def test_emits_one_signal_per_notified_alert(self):
@@ -258,6 +278,10 @@ class TestEmitAlertSignalsActivity(NonAtomicBaseTest):
         assert {c.kwargs["team"].id for c in mock_emit.call_args_list} == {self.team.id}
         assert {c.kwargs["source_product"] for c in mock_emit.call_args_list} == {"logs"}
         assert sorted(c.kwargs["weight"] for c in mock_emit.call_args_list) == [1.0, 1.0]
+        assert {c.kwargs["idempotency_key"] for c in mock_emit.call_args_list} == {
+            f"{first_alert.id}:firing:2025-01-01T00:00:00+00:00",
+            f"{second_alert.id}:broken:2025-01-01T00:00:00+00:00",
+        }
         extras_by_source = {c.kwargs["source_id"]: c.kwargs["extra"] for c in mock_emit.call_args_list}
         assert extras_by_source[f"{first_alert.id}:firing"]["alert_name"] == "Checkout failures"
         assert extras_by_source[f"{first_alert.id}:firing"]["filters"] == {"serviceNames": ["checkout"]}

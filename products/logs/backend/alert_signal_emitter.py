@@ -54,6 +54,9 @@ class NotifiedAlert:
     result_count: int | None
     consecutive_failures: int
     filters: dict
+    # Stable for one evaluated transition so retrying the emit activity cannot
+    # start duplicate signal workflows. None keeps old workflow histories valid.
+    idempotency_key: str | None = None
 
 
 def signal_action_and_weight(notification: NotificationAction) -> tuple[AlertSignalAction, float] | None:
@@ -116,6 +119,7 @@ async def emit_alert_state_change_signal(team: Team, na: NotifiedAlert) -> bool:
             description=description,
             weight=na.weight,
             extra=extra,
+            idempotency_key=na.idempotency_key,
         )
         return True
     except Exception:
