@@ -584,6 +584,18 @@ class TestConversation(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.json()["id"], str(conversation.id))
 
+            # The mirror links a private task to the chat; a LangGraph chat stays readable by link anyway.
+            private_task = Task.objects.create(
+                team=self.team,
+                title="copy",
+                description="",
+                origin_product=Task.OriginProduct.POSTHOG_AI,
+                created_by=self.other_user,
+            )
+            Conversation.objects.filter(id=conversation.id).update(task=private_task)
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def test_retrieve_other_teams_conversation_fails(self):
         """Test that user cannot retrieve conversation from another team"""
         conversation = Conversation.objects.create(

@@ -327,8 +327,11 @@ class ConversationViewSet(
         if self.action != "retrieve":
             queryset = queryset.filter(user=self.request.user)
         else:
+            # A LangGraph conversation stays readable by link even once the mirror has linked a task
+            # to it: the task is a copy, not the source, and must not narrow who can read the chat.
             queryset = queryset.filter(
                 Q(task_id__isnull=True)
+                | Q(agent_runtime=Conversation.AgentRuntime.LANGGRAPH)
                 | (
                     Q(task__team_id=self.team_id, task__deleted=False)
                     & tasks_facade.visible_tasks_q(self.request.user.id, relation="task")
