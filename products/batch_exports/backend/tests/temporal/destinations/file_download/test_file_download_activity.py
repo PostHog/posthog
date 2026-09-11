@@ -17,17 +17,13 @@ from products.batch_exports.backend.temporal.destinations.file_download_batch_ex
     export_to_file_download_bucket_with_temporary_credentials,
     generate_file_downloads,
 )
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
-    COMPRESSION_EXTENSIONS,
-    FILE_FORMAT_EXTENSIONS,
-    SUPPORTED_COMPRESSIONS,
-    s3_default_fields,
-)
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import s3_default_fields
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
+    SUPPORTED_FILE_FORMAT_COMPRESSIONS,
     TEST_S3_MODELS,
     assert_clickhouse_records_in_s3,
     has_valid_credentials,
@@ -43,9 +39,8 @@ pytestmark = [
 ]
 
 
-@pytest.mark.parametrize("compression", COMPRESSION_EXTENSIONS.keys(), indirect=True)
+@pytest.mark.parametrize(("file_format", "compression"), SUPPORTED_FILE_FORMAT_COMPRESSIONS, indirect=["compression"])
 @pytest.mark.parametrize("model", TEST_S3_MODELS)
-@pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys())
 async def test_export_to_file_download_bucket_puts_data_into_s3(
     clickhouse_client,
     activity_environment: ActivityEnvironment,
@@ -68,9 +63,6 @@ async def test_export_to_file_download_bucket_puts_data_into_s3(
     S3InsertInputs, and delegates to insert_into_s3_from_stage. We verify
     the data ends up in the expected S3 location and matches what ClickHouse produces.
     """
-    if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
-        pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
-
     batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
     if isinstance(model, BatchExportModel):
