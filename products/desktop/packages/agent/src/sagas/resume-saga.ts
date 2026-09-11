@@ -346,8 +346,13 @@ function readToolCall(update: Record<string, unknown>): PartialToolCall {
   const claudeMeta = meta?.claudeCode as Record<string, unknown> | undefined;
   const posthogMeta = meta?.posthog as Record<string, unknown> | undefined;
 
-  let result = firstDefined(update.rawOutput, claudeMeta?.toolResponse);
-  if (result === undefined) result = toolContentText(update.content);
+  // A null rawOutput is an absent one: the Codex app-server serializes absent
+  // optional `CallToolResult` fields as JSON null, and a failed call keeps its
+  // error text in the content blocks the null would otherwise win over.
+  const result =
+    update.rawOutput ??
+    claudeMeta?.toolResponse ??
+    toolContentText(update.content);
 
   return {
     toolCallId: firstString(update.toolCallId, claudeMeta?.toolCallId) ?? "",

@@ -431,6 +431,42 @@ describe("ResumeSaga", () => {
       });
     });
 
+    it("keeps the error text of a failed MCP call that reports a null raw output", async () => {
+      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
+        createTaskRun(),
+      );
+      (
+        mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([
+        createAcpToolCall("call-1", {
+          title: "posthog/exec",
+          toolName: "mcp__posthog__exec",
+          rawInput: { command: "call skill-get" },
+        }),
+        createAcpToolCallUpdate("call-1", {
+          rawOutput: null,
+          text: "skill not found",
+        }),
+      ]);
+
+      const saga = new ResumeSaga(mockLogger);
+      const result = await saga.run({
+        taskId: "task-1",
+        runId: "run-1",
+        repositoryPath: repo.path,
+        apiClient: mockApiClient,
+      });
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+
+      expect(result.data.conversation[0].toolCalls?.[0]).toMatchObject({
+        toolCallId: "call-1",
+        toolName: "mcp__posthog__exec",
+        result: "skill not found",
+      });
+    });
+
     it.each([
       {
         name: "a later snapshot replaces the opening empty input",
