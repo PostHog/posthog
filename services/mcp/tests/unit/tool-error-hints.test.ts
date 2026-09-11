@@ -79,6 +79,22 @@ describe('handleToolError recovery hints', () => {
         expect(content?.text).toContain('Narrow the query and retry')
     })
 
+    it('reports the request path without the upstream host', () => {
+        const error = new PostHogApiError({
+            status: 404,
+            statusText: 'Not Found',
+            body: '{"detail":"Not found."}',
+            url: 'https://internal.example.com/api/projects/2/insights/?limit=1',
+            method: 'GET',
+        })
+
+        const result = handleToolError(error, 'insight-get')
+        const [content] = result.content as Array<{ type: string; text: string }>
+
+        expect(content?.text).toContain('Path: GET /api/projects/2/insights/?limit=1')
+        expect(content?.text).not.toContain('internal.example.com')
+    })
+
     it('appends the hint even when the typed error is hidden behind Error.cause', () => {
         const original = new PostHogApiError({
             status: 503,

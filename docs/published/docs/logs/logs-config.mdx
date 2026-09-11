@@ -44,6 +44,8 @@ The list can't be empty.
 
 JSON keys whose value is the message text that log patterns are derived from. Default: `["message", "msg", "event"]`.
 
+In **Settings > Project > Logs > Pattern message extraction**, add or remove keys, drag them into priority order, and select **Save**. Project admins can edit this setting. Clear all keys and save to turn message extraction off.
+
 When a log body is a JSON object, PostHog looks up these keys in order and uses the first one whose value is a non-empty string as the text to build the pattern from. A key whose value is a number, an object, or an empty string is skipped, and the search continues down the list.
 
 If no key matches, the pattern is built from the object's set of top-level key names instead, so records with the same shape group together.
