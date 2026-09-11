@@ -13,13 +13,29 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.charts impo
     render_charts,
     validate_chart,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import StepChart
+from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import BoxPlotColumns, StepChart
 
 _CHARTS = "products.exports.backend.temporal.subscriptions.ai_subscription.charts"
 
 _LINE = StepChart(display="ActionsLineGraph", x_column="day", y_columns=["signups"])
 _BAR = StepChart(display="ActionsBar", x_column="day", y_columns=["signups"])
+_BOX_PLOT = StepChart(
+    display="BoxPlot",
+    x_column="day",
+    box_plot=BoxPlotColumns(
+        min_column="low",
+        p25_column="p25",
+        median_column="median",
+        mean_column="mean",
+        p75_column="p75",
+        max_column="high",
+    ),
+)
 _ROWS = [["2026-08-01", 1], ["2026-08-02", 2], ["2026-08-03", 3]]
+_BOX_PLOT_ROWS = [
+    ["2026-08-01", 1, 2, 3, 3, 4, 5],
+    ["2026-08-02", 2, 3, 4, 4, 5, 6],
+]
 
 
 def _response(rows=None, columns=("day", "signups")):
@@ -133,6 +149,52 @@ def test_the_export_context_wraps_the_executed_sql_for_the_renderer():
     assert source["display"] == "ActionsLineGraph"
     assert source["chartSettings"]["xAxis"] == {"column": "day"}
     assert source["chartSettings"]["yAxis"] == [{"column": "signups"}]
+
+
+def test_a_box_plot_uses_its_statistic_column_mappings():
+    response = {
+        "results": _BOX_PLOT_ROWS,
+        "columns": ["day", "low", "p25", "median", "mean", "p75", "high"],
+        "types": [
+            ["day", "Date"],
+            ["low", "Float64"],
+            ["p25", "Float64"],
+            ["median", "Float64"],
+            ["mean", "Float64"],
+            ["p75", "Float64"],
+            ["high", "Float64"],
+        ],
+    }
+
+    chart, reason = _validate(_BOX_PLOT, response)
+
+    assert reason is None
+    assert chart is not None
+    settings = build_export_context(chart)["source"]["chartSettings"]
+    assert settings["boxPlot"] == {
+        "xAxisColumn": "day",
+        "seriesColumn": None,
+        "minColumn": "low",
+        "p25Column": "p25",
+        "medianColumn": "median",
+        "meanColumn": "mean",
+        "p75Column": "p75",
+        "maxColumn": "high",
+        "excludeOutliers": True,
+    }
+
+
+def test_a_box_plot_requires_numeric_statistic_columns():
+    response = {
+        "results": _BOX_PLOT_ROWS,
+        "columns": ["day", "low", "p25", "median", "mean", "p75", "high"],
+        "types": [["day", "Date"], ["low", "Float64"], ["p25", "String"]],
+    }
+
+    chart, reason = _validate(_BOX_PLOT, response)
+
+    assert chart is None
+    assert reason == ChartFailureReason.NON_NUMERIC_SERIES
 
 
 @parameterized.expand(

@@ -108,8 +108,6 @@ def validate_chart(
 
     if spec.display not in ALLOWED_CHART_DISPLAYS:
         return None, ChartFailureReason.UNSUPPORTED_DISPLAY
-    if not spec.y_columns or len(spec.y_columns) > MAX_CHART_SERIES:
-        return None, ChartFailureReason.UNSUPPORTED_SERIES_COUNT
     if response.get("hasMore"):
         return None, ChartFailureReason.TRUNCATED_RESULT
 
@@ -117,15 +115,35 @@ def validate_chart(
     if not isinstance(columns, list):
         return None, ChartFailureReason.MISSING_COLUMNS
     column_names = [str(column) for column in columns]
-    if not {spec.x_column, *spec.y_columns}.issubset(set(column_names)):
-        return None, ChartFailureReason.MISSING_COLUMNS
-
-    if spec.x_column in spec.y_columns:
-        return None, ChartFailureReason.X_AND_Y_IDENTICAL
-
-    numeric_columns = _numeric_column_names(response.get("types"))
-    if numeric_columns is not None and not set(spec.y_columns).issubset(numeric_columns):
-        return None, ChartFailureReason.NON_NUMERIC_SERIES
+    if spec.display == "BoxPlot":
+        if spec.box_plot is None:
+            return None, ChartFailureReason.MISSING_COLUMNS
+        statistic_columns = {
+            spec.box_plot.min_column,
+            spec.box_plot.p25_column,
+            spec.box_plot.median_column,
+            spec.box_plot.mean_column,
+            spec.box_plot.p75_column,
+            spec.box_plot.max_column,
+        }
+        required_columns = {spec.x_column, *statistic_columns}
+        if spec.box_plot.series_column:
+            required_columns.add(spec.box_plot.series_column)
+        if not required_columns.issubset(set(column_names)):
+            return None, ChartFailureReason.MISSING_COLUMNS
+        numeric_columns = _numeric_column_names(response.get("types"))
+        if numeric_columns is not None and not statistic_columns.issubset(numeric_columns):
+            return None, ChartFailureReason.NON_NUMERIC_SERIES
+    else:
+        if not spec.y_columns or len(spec.y_columns) > MAX_CHART_SERIES:
+            return None, ChartFailureReason.UNSUPPORTED_SERIES_COUNT
+        if not {spec.x_column, *spec.y_columns}.issubset(set(column_names)):
+            return None, ChartFailureReason.MISSING_COLUMNS
+        if spec.x_column in spec.y_columns:
+            return None, ChartFailureReason.X_AND_Y_IDENTICAL
+        numeric_columns = _numeric_column_names(response.get("types"))
+        if numeric_columns is not None and not set(spec.y_columns).issubset(numeric_columns):
+            return None, ChartFailureReason.NON_NUMERIC_SERIES
 
     if spec.display in CONTINUOUS_CHART_DISPLAYS:
         if len(rows) < MIN_CHART_ROWS:
@@ -160,12 +178,28 @@ def _distinct_count(rows: list[Any], index: int) -> int:
 
 
 def build_export_context(chart: ValidatedChart) -> dict:
-    chart_settings: dict[str, Any] = {
-        "xAxis": {"column": chart.spec.x_column},
-        "yAxis": [{"column": column} for column in chart.spec.y_columns],
-    }
-    if len(chart.spec.y_columns) > 1:
-        chart_settings["showLegend"] = True
+    if chart.spec.display == "BoxPlot":
+        assert chart.spec.box_plot is not None  # validated before rendering
+        chart_settings: dict[str, Any] = {
+            "boxPlot": {
+                "xAxisColumn": chart.spec.x_column,
+                "seriesColumn": chart.spec.box_plot.series_column,
+                "minColumn": chart.spec.box_plot.min_column,
+                "p25Column": chart.spec.box_plot.p25_column,
+                "medianColumn": chart.spec.box_plot.median_column,
+                "meanColumn": chart.spec.box_plot.mean_column,
+                "p75Column": chart.spec.box_plot.p75_column,
+                "maxColumn": chart.spec.box_plot.max_column,
+                "excludeOutliers": True,
+            }
+        }
+    else:
+        chart_settings = {
+            "xAxis": {"column": chart.spec.x_column},
+            "yAxis": [{"column": column} for column in chart.spec.y_columns],
+        }
+        if len(chart.spec.y_columns) > 1:
+            chart_settings["showLegend"] = True
     return {
         "limit_context": "posthog_ai",
         "title": chart.title,
