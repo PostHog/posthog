@@ -7,10 +7,12 @@ import {
   GitPullRequestIcon,
   MagnifyingGlassIcon,
   PlusIcon,
+  ReceiptIcon,
   TerminalIcon,
   UsersThreeIcon,
   XIcon,
 } from "@phosphor-icons/react";
+import { deriveReportVerdict } from "@posthog/core/inbox/reportVerdict";
 import { Button } from "@posthog/quill";
 import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
 import { InboxDetailFrameView } from "@posthog/ui/features/inbox/components/InboxDetailFrameView";
@@ -18,6 +20,7 @@ import {
   inboxStoryReport,
   inboxStorySignal,
 } from "@posthog/ui/features/inbox/components/inboxStoryFixtures";
+import { ReportVerdictCallout } from "@posthog/ui/features/inbox/components/ReportVerdictCallout";
 import { SignalsList } from "@posthog/ui/features/inbox/components/SignalsList";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ReactNode } from "react";
@@ -34,7 +37,7 @@ const signals = [
 ];
 
 const pageAt = (width: number) => (Story: () => ReactNode) => (
-  <div className="min-h-[760px] bg-gray-1" style={{ width }}>
+  <div className="min-h-[760px] w-full bg-gray-1" style={{ maxWidth: width }}>
     <Story />
   </div>
 );
@@ -46,8 +49,6 @@ const meta: Meta<typeof InboxDetailFrameView> = {
   decorators: [pageAt(1360)],
   args: {
     report,
-    backTo: "/inbox/reports",
-    backLabel: "Back to reports",
     fallbackTitle: "Untitled report",
     primaryAction: (
       <>
@@ -65,12 +66,11 @@ const meta: Meta<typeof InboxDetailFrameView> = {
         </Button>
       </>
     ),
-    showMetadata: false,
-    summarySection: { Icon: FileTextIcon, title: "Report summary" },
+    showMetadata: true,
+    summarySection: { Icon: FileTextIcon, title: "Summary" },
     evidenceSection: { Icon: MagnifyingGlassIcon, title: "Evidence" },
     evidenceCount: signals.length,
     evidenceContent: <SignalsList signals={signals} />,
-    runRepository: "PostHog/posthog",
     belowSummary: (
       <div className="flex select-none flex-col gap-3 rounded-lg border border-(--amber-6) bg-(--amber-2) p-4">
         <div className="flex flex-col gap-1">
@@ -97,6 +97,9 @@ const meta: Meta<typeof InboxDetailFrameView> = {
           </Button>
         </div>
       </div>
+    ),
+    footer: (
+      <p className="m-0 text-[13px] text-gray-11">Was this report useful?</p>
     ),
     children: (
       <>
@@ -155,6 +158,31 @@ type Story = StoryObj<typeof InboxDetailFrameView>;
 
 export const EvidenceFirst: Story = {};
 
+export const LikelyAlreadyFixed: Story = {
+  args: {
+    report: inboxStoryReport({ already_addressed: true }),
+    belowSummary: (
+      <ReportVerdictCallout
+        verdict={deriveReportVerdict(
+          inboxStoryReport({ already_addressed: true }),
+          { hasExistingPr: false },
+        )}
+      >
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Button variant="outline">
+            <ChatCircleIcon />
+            Ask about it
+          </Button>
+          <Button variant="outline">
+            <EyeSlashIcon />
+            Dismiss…
+          </Button>
+        </div>
+      </ReportVerdictCallout>
+    ),
+  },
+};
+
 export const WaitingForInput: Story = {
   args: {
     report: inboxStoryReport({
@@ -209,5 +237,38 @@ export const LongTitle: Story = {
 };
 
 export const Narrow: Story = {
-  decorators: [pageAt(720)],
+  decorators: [pageAt(520)],
+};
+
+export const WithPullRequest: Story = {
+  args: {
+    report: inboxStoryReport({
+      implementation_pr_url: "https://github.com/example/project/pull/42",
+    }),
+    primaryAction: (
+      <>
+        <Button variant="outline" size="sm">
+          Open in GitHub
+        </Button>
+        <Button variant="outline" size="sm">
+          <ChatCircleIcon />
+          Chat
+        </Button>
+        <Button variant="outline" size="sm">
+          <EyeSlashIcon />
+          Dismiss
+        </Button>
+        <Button variant="outline" size="sm">
+          <ReceiptIcon />
+          Refund
+        </Button>
+      </>
+    ),
+    summarySection: { Icon: FileTextIcon, title: "Summary" },
+    secondaryTab: {
+      label: "Changed code",
+      content: <p>Changed files appear here.</p>,
+    },
+    belowSummary: null,
+  },
 };
