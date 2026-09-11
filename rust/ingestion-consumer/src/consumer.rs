@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{
-    Charge, GroupCompletion, Offset, Partition, Rejection, TopicOffsetLedger, TopicPartition,
+    Charge, Offset, Partition, Rejection, TopicOffsetLedger, TopicPartition,
 };
 use futures::StreamExt;
 use lifecycle::Handle;
@@ -15,7 +15,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
-use crate::batcher::{make_batch_id, Batcher, BatcherOutputs};
+use crate::batcher::{make_batch_id, Batcher, BatcherOutputs, PollEvent};
 use crate::config::Config;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::discovery::DiscoveryMode;
@@ -100,9 +100,6 @@ pub struct IngestionConsumer {
     /// from. Shared with the consumer's [`SentinelContext`], which forgets
     /// partitions on rebalance.
     topic_offset_ledger: Arc<TopicOffsetLedger>,
-    /// Partitions revoked since the loop last looked, fed by the rebalance
-    /// callback. Only populated under the key-table scheduler.
-    revoked_partitions: Arc<Mutex<Vec<TopicPartition>>>,
 }
 
 impl IngestionConsumer {
@@ -129,15 +126,11 @@ impl IngestionConsumer {
             options.deferred_flush_timeout,
             options.parked_retry_interval,
         );
-        let revoked_partitions: Arc<Mutex<Vec<TopicPartition>>> = Arc::new(Mutex::new(Vec::new()));
-        consumer
-            .context()
-            .set_revoke_hook(batcher.revoke_hook(Arc::clone(&revoked_partitions)));
+        consumer.context().set_revoke_hook(batcher.revoke_hook());
         Self {
             commit_sentinel,
             debug_recorder: options.debug_recorder,
             topic_offset_ledger,
-            revoked_partitions,
             consumer: Arc::new(consumer),
             batcher,
             outputs: Some(outputs),
@@ -190,8 +183,7 @@ impl IngestionConsumer {
             Arc::clone(&topic_offset_ledger),
         );
         context.set_assignment_epoch(transport.assignment_epoch());
-        let revoked_partitions: Arc<Mutex<Vec<TopicPartition>>> = Arc::new(Mutex::new(Vec::new()));
-        context.set_revoke_hook(batcher.revoke_hook(Arc::clone(&revoked_partitions)));
+        context.set_revoke_hook(batcher.revoke_hook());
         let consumer: StreamConsumer<SentinelContext> =
             client_config.create_with_context(context)?;
         consumer.subscribe(&[&config.ingestion_consumer_consume_topic])?;
@@ -210,7 +202,6 @@ impl IngestionConsumer {
             commit_sentinel,
             debug_recorder,
             topic_offset_ledger,
-            revoked_partitions,
             batcher,
             outputs: Some(outputs),
             transport,
@@ -229,7 +220,7 @@ impl IngestionConsumer {
     pub async fn process(mut self) {
         let _guard = self.handle.process_scope();
         let BatcherOutputs {
-            mut completions,
+            mut events,
             mut errors,
         } = self.outputs.take().expect("process is called once");
 
@@ -265,7 +256,6 @@ impl IngestionConsumer {
         let mut accepting_new_batches = true;
 
         while accepting_new_batches || !in_flight_polls.is_empty() {
-            self.drop_revoked_polls(&mut in_flight_polls);
             // Consumer-level concurrency: how many Kafka batches are being
             // processed in parallel, bounded by `max_in_flight_batches`.
             gauge!("ingestion_consumer_in_flight_batches").set(in_flight_polls.len() as f64);
@@ -306,7 +296,7 @@ impl IngestionConsumer {
             }
 
             if let Err(err) = self
-                .complete_oldest_poll(&mut in_flight_polls, &mut completions, &mut errors)
+                .complete_oldest_poll(&mut in_flight_polls, &mut events, &mut errors)
                 .await
             {
                 self.fail_batch_processing(err);
@@ -367,15 +357,13 @@ impl IngestionConsumer {
     async fn complete_oldest_poll(
         &self,
         in_flight_polls: &mut InFlightPolls,
-        completions: &mut mpsc::UnboundedReceiver<GroupCompletion>,
+        events: &mut mpsc::UnboundedReceiver<PollEvent>,
         errors: &mut mpsc::UnboundedReceiver<String>,
     ) -> anyhow::Result<()> {
         let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
         loop {
-            // A rebalance can drop the front poll (its partitions were
-            // revoked and its purged messages will never complete), so
-            // re-resolve it every pass instead of waiting on it forever.
-            self.drop_revoked_polls(in_flight_polls);
+            // A revocation can drop the front poll, so re-resolve it every
+            // pass instead of waiting on it forever.
             let Some(front) = in_flight_polls.front() else {
                 return Ok(());
             };
@@ -383,9 +371,14 @@ impl IngestionConsumer {
                 break;
             }
             tokio::select! {
-                completion = completions.recv() => match completion {
-                    Some(completion) => in_flight_polls.apply_completion(completion),
-                    None => anyhow::bail!("batcher completion channel closed"),
+                event = events.recv() => match event {
+                    Some(PollEvent::Completion(completion)) => {
+                        in_flight_polls.apply_completion(completion)
+                    }
+                    Some(PollEvent::Revoked(revoked)) => {
+                        strip_revoked(in_flight_polls, &revoked)
+                    }
+                    None => anyhow::bail!("batcher event channel closed"),
                 },
                 failure = errors.recv() => match failure {
                     Some(message) => anyhow::bail!(message),
@@ -418,26 +411,6 @@ impl IngestionConsumer {
         self.handle.report_healthy();
 
         Ok(())
-    }
-
-    /// Drop in-flight polls holding a revoked partition. The key table
-    /// purges those partitions' queued messages, so such a poll can never be
-    /// covered; its offsets stay uncommitted and replay under the new
-    /// assignment, and its late completions are discarded as stale.
-    fn drop_revoked_polls(&self, in_flight_polls: &mut InFlightPolls) {
-        let revoked: Vec<TopicPartition> =
-            std::mem::take(&mut *self.revoked_partitions.lock().unwrap());
-        if revoked.is_empty() {
-            return;
-        }
-        let stripped = in_flight_polls.strip_revoked(&revoked);
-        if stripped > 0 {
-            counter!("ingestion_consumer_polls_dropped_on_revoke_total").increment(stripped);
-            info!(
-                stripped,
-                "Removed revoked partitions' messages from in-flight polls"
-            );
-        }
     }
 
     fn fail_batch_processing(&self, err: anyhow::Error) {
@@ -911,6 +884,21 @@ fn parse_now_ms(value: &str) -> Option<i64> {
     chrono::DateTime::parse_from_rfc3339(value)
         .ok()
         .map(|dt| dt.timestamp_millis())
+}
+
+/// Remove revoked partitions from the in-flight polls. The key table purged
+/// their queued messages, so a poll holding one can never be covered; its
+/// offsets stay uncommitted and replay under the new assignment, and its
+/// late completions are discarded as stale.
+fn strip_revoked(in_flight_polls: &mut InFlightPolls, revoked: &[TopicPartition]) {
+    let stripped = in_flight_polls.strip_revoked(revoked);
+    if stripped > 0 {
+        counter!("ingestion_consumer_polls_dropped_on_revoke_total").increment(stripped);
+        info!(
+            stripped,
+            "Removed revoked partitions' messages from in-flight polls"
+        );
+    }
 }
 
 fn emit_latest_processed_timestamp_metrics(

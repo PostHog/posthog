@@ -1,7 +1,8 @@
 //! The worker batcher: the dispatch orchestration behind one boundary.
 //!
 //! The consumer loop submits one [`Accumulator`] per poll, in poll order, and
-//! receives one [`GroupCompletion`] per group back. Everything in between is
+//! receives one [`PollEvent`] per group completion back, interleaved with the
+//! revocations the rebalance callback reports. Everything in between is
 //! an implementation detail of this module: assignment, the scatter over the
 //! worker streams with its send resolution, and the serialized oldest-first
 //! deferred flush. No batch identity crosses the boundary: the batcher
@@ -16,7 +17,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{AssignmentEpoch, GroupCompletion, Offset, Partition, TopicPartition};
@@ -35,11 +36,18 @@ use crate::types::Accumulator;
 use crate::types::SerializedKafkaMessage;
 use crate::worker_registry::WorkerId;
 
+/// The rebalance callback sends `Revoked` after the scheduler purge, so every
+/// completion sent before the revoke precedes it on the channel.
+pub enum PollEvent {
+    Completion(GroupCompletion),
+    /// Only sent under the key-table scheduler, whose purge leaves the
+    /// partitions' polls uncoverable.
+    Revoked(Vec<TopicPartition>),
+}
+
 /// The batcher's output channels, held by the consumer loop.
 pub struct BatcherOutputs {
-    /// One event per group: its partition, assignment epoch, offsets, and
-    /// accepted count.
-    pub completions: mpsc::UnboundedReceiver<GroupCompletion>,
+    pub events: mpsc::UnboundedReceiver<PollEvent>,
     /// Fatal orchestration failures. The consumer fails the process on the
     /// first message.
     pub errors: mpsc::UnboundedReceiver<String>,
@@ -83,7 +91,7 @@ struct BatcherInner {
     /// assignment by the consumer's rebalance context.
     assignment_epoch: AssignmentEpoch,
     accepted_messages: AtomicU64,
-    completions: mpsc::UnboundedSender<GroupCompletion>,
+    events: mpsc::UnboundedSender<PollEvent>,
     errors: mpsc::UnboundedSender<String>,
 }
 
@@ -102,7 +110,7 @@ impl BatcherInner {
 /// the tail groups, so the poll fails its accepted check and the process
 /// exits and replays.
 fn send_group_completions(
-    completions: &mpsc::UnboundedSender<GroupCompletion>,
+    events: &mpsc::UnboundedSender<PollEvent>,
     groups: Vec<CompletionGroup>,
     assignment_epoch: u64,
     accepted: u32,
@@ -114,12 +122,12 @@ fn send_group_completions(
         counter!("ingestion_consumer_group_completions_total").increment(1);
         counter!("ingestion_consumer_group_completion_accepted_messages_total")
             .increment(group_accepted as u64);
-        let _ = completions.send(GroupCompletion {
+        let _ = events.send(PollEvent::Completion(GroupCompletion {
             partition: group.partition,
             assignment_epoch,
             offsets: group.offsets,
             accepted: group_accepted,
-        });
+        }));
     }
 }
 
@@ -140,7 +148,7 @@ impl Batcher {
         deferred_flush_timeout: Duration,
         parked_retry_interval: Duration,
     ) -> (Self, BatcherOutputs) {
-        let (completions_tx, completions_rx) = mpsc::unbounded_channel();
+        let (events_tx, events_rx) = mpsc::unbounded_channel();
         let (errors_tx, errors_rx) = mpsc::unbounded_channel();
         let assignment_epoch = transport.assignment_epoch();
         let inner = Arc::new(BatcherInner {
@@ -148,7 +156,7 @@ impl Batcher {
             transport,
             assignment_epoch,
             accepted_messages: AtomicU64::new(0),
-            completions: completions_tx,
+            events: events_tx,
             errors: errors_tx,
         });
         let (flush_queue, flush_rx) = mpsc::unbounded_channel();
@@ -168,7 +176,7 @@ impl Batcher {
         (
             Self { inner, flush_queue },
             BatcherOutputs {
-                completions: completions_rx,
+                events: events_rx,
                 errors: errors_rx,
             },
         )
@@ -182,19 +190,19 @@ impl Batcher {
 
     /// The rebalance callback's revocation hook. Drops the scheduler's queued
     /// messages for the revoked partitions; under the key-table scheduler it
-    /// also reports them on `revoked`, so the consumer loop can strip them
-    /// from its in-flight polls.
-    pub fn revoke_hook(&self, revoked: Arc<Mutex<Vec<TopicPartition>>>) -> RevokeHook {
+    /// then reports them as a [`PollEvent::Revoked`].
+    pub fn revoke_hook(&self) -> RevokeHook {
         let dispatcher = Arc::clone(&self.inner.dispatcher);
-        let revoked = (dispatcher.scheduler_kind() == SchedulerKind::KeyTable).then_some(revoked);
+        let events = (dispatcher.scheduler_kind() == SchedulerKind::KeyTable)
+            .then(|| self.inner.events.clone());
         Box::new(move |partitions| {
             dispatcher.purge_revoked(partitions);
-            if let Some(list) = &revoked {
-                list.lock().unwrap().extend(
-                    partitions
-                        .iter()
-                        .map(|(topic, partition)| TopicPartition::new(topic, *partition)),
-                );
+            if let Some(events) = &events {
+                let revoked = partitions
+                    .iter()
+                    .map(|(topic, partition)| TopicPartition::new(topic, *partition))
+                    .collect();
+                let _ = events.send(PollEvent::Revoked(revoked));
             }
         })
     }
@@ -348,7 +356,7 @@ async fn await_settled(
             );
             inner.dispatcher.record_send_outcome(&worker, false);
             send_group_completions(
-                &inner.completions,
+                &inner.events,
                 groups,
                 run_epoch.unwrap_or(batch_epoch),
                 accepted,
@@ -686,9 +694,16 @@ mod tests {
         );
     }
 
+    fn completion(event: Option<PollEvent>) -> GroupCompletion {
+        match event {
+            Some(PollEvent::Completion(completion)) => completion,
+            _ => panic!("expected a completion"),
+        }
+    }
+
     #[tokio::test]
     async fn send_group_completions_apportions_an_under_reported_accepted_count() {
-        let (completions_tx, mut completions_rx) = mpsc::unbounded_channel();
+        let (events_tx, mut events_rx) = mpsc::unbounded_channel();
 
         let groups = vec![
             CompletionGroup {
@@ -700,15 +715,15 @@ mod tests {
                 offsets: vec![Offset(3), Offset(4)],
             },
         ];
-        send_group_completions(&completions_tx, groups, 5, 3);
+        send_group_completions(&events_tx, groups, 5, 3);
 
-        let first = completions_rx.recv().await.expect("first completion");
+        let first = completion(events_rx.recv().await);
         assert_eq!(first.assignment_epoch, 5);
         assert_eq!(first.offsets, vec![Offset(1), Offset(2)]);
         assert_eq!(first.accepted, 2);
         // The worker under-reported by one, so the tail group is shorted and
         // the consumer's accepted check fails the poll.
-        let second = completions_rx.recv().await.expect("second completion");
+        let second = completion(events_rx.recv().await);
         assert_eq!(second.offsets, vec![Offset(3), Offset(4)]);
         assert_eq!(second.accepted, 1);
     }
