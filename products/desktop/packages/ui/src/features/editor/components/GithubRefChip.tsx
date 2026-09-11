@@ -34,7 +34,10 @@ function splitRefNumber(label: ReactNode): [string, string] | null {
     return null;
   }
   const match = label.match(/^(.*)(#\d+)$/);
-  return match ? [match[1], match[2]] : null;
+  if (!match) {
+    return null;
+  }
+  return [match[1], match[2]];
 }
 
 /**
@@ -62,6 +65,11 @@ export const GithubRefChipLink = forwardRef<
   // The number lives in its own span that cannot shrink, so a truncating label
   // keeps the whole number readable instead of ellipsizing one end of it.
   const split = preservePrNumber ? splitRefNumber(children) : null;
+  // ch because the unit scales with the label's own font: the preserved number
+  // keeps roughly this many digits readable at any text size, and the label
+  // span's max-width subtracts the same width so a long number cannot push the
+  // chip past its cap.
+  const numberCh = split ? split[1].length : 0;
   return (
     <Button
       ref={ref}
@@ -80,7 +88,10 @@ export const GithubRefChipLink = forwardRef<
       }
       {...buttonProps}
       className={cn(
-        "cli-file-mention focus-visible:-outline-offset-1 mx-0.5 inline-block max-w-full cursor-pointer! select-text whitespace-nowrap pl-1.5 align-baseline leading-[1.375rem] no-underline",
+        // overflow-hidden: nothing in the content box shrinks below its
+        // content size, so a long preserved number would otherwise paint past
+        // the chip edge.
+        "cli-file-mention focus-visible:-outline-offset-1 mx-0.5 inline-block max-w-full cursor-pointer! select-text overflow-hidden whitespace-nowrap pl-1.5 align-baseline leading-[1.375rem] no-underline",
         buttonProps.className,
       )}
     >
@@ -94,12 +105,13 @@ export const GithubRefChipLink = forwardRef<
       />
       <span
         // 1rem is the icon and its margin, which share the chip's content box
-        // with the label. Without that subtraction the label paints past the
-        // chip edge in a narrow panel instead of truncating.
-        className={cn(
-          "inline-block max-w-[min(16rem,calc(100%-1rem))] truncate align-top",
-          toneClass,
-        )}
+        // with the label; numberCh is the preserved number's width. Without
+        // those subtractions the label paints past the chip edge in a narrow
+        // panel instead of truncating.
+        className={cn("inline-block truncate align-top", toneClass)}
+        style={{
+          maxWidth: `min(16rem, calc(100% - 1rem - ${numberCh}ch))`,
+        }}
       >
         {split ? split[0] : children}
       </span>
