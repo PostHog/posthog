@@ -2963,6 +2963,115 @@ describe('runStreamLogic', () => {
     })
 
     describe('_posthog/progress handling', () => {
+        it('folds a failed follow-up delivery into the preceding error card', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('session/update', {
+                        update: {
+                            sessionUpdate: 'error',
+                            errorType: 'agent_error',
+                            message: 'The agent stopped before completing this request: Model at capacity.',
+                        },
+                    })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/error', { message: 'Model at capacity.' }))
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/progress', {
+                        step: 'followup_delivery',
+                        status: 'failed',
+                        label: "Couldn't deliver your message",
+                        group: 'followup-delivery:m1',
+                        detail: 'send_followup failed: Model at capacity.',
+                    })
+                )
+            })
+            expect(logic.values.threadItems).toEqual([
+                {
+                    id: 'error-0',
+                    type: 'error',
+                    errorMessage: 'Model at capacity.',
+                    variant: 'error',
+                    undeliveredMessage: true,
+                },
+            ])
+        })
+
+        it('folds an earlier undelivered follow-up into the error that arrives after it', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/progress', {
+                        step: 'followup_delivery',
+                        status: 'failed',
+                        label: "Couldn't deliver your message",
+                        group: 'followup-delivery:m3',
+                        detail: 'send_followup failed: Internal error: bad model',
+                    })
+                )
+                logic.actions.ingestAcpFrame(
+                    notification('session/update', {
+                        update: { sessionUpdate: 'agent_message', content: { type: 'text', text: 'bad model' } },
+                    })
+                )
+                logic.actions.ingestAcpFrame(
+                    notification('session/update', {
+                        update: {
+                            sessionUpdate: 'error',
+                            errorType: 'agent_error',
+                            message: 'Internal error: bad model',
+                        },
+                    })
+                )
+            })
+            expect(logic.values.threadItems.filter((item) => item.type === 'error')).toEqual([
+                {
+                    id: 'error-1',
+                    type: 'error',
+                    errorMessage: 'Internal error: bad model',
+                    variant: 'error',
+                    undeliveredMessage: true,
+                },
+            ])
+        })
+
+        it('gives an error the trace id of the turn that completes after it, and none when no turn completes', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { traceId: 'trace-earlier' }))
+                logic.actions.ingestAcpFrame(notification('_posthog/error', { message: 'mid-run' }))
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { traceId: 'trace-of-error' }))
+                logic.actions.ingestAcpFrame(
+                    notification('session/update', {
+                        update: { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'again' } },
+                    })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/error', { message: 'stopped' }))
+            })
+            const errors = logic.values.threadItems.filter((item) => item.type === 'error')
+            expect(errors.map((item) => logic.values.errorTraceIds.get(item.id))).toEqual(['trace-of-error', undefined])
+        })
+
+        it('turns a failed follow-up delivery on a run without an error into its own card', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/progress', {
+                        step: 'followup_delivery',
+                        status: 'failed',
+                        label: "Couldn't deliver your message",
+                        group: 'followup-delivery:m2',
+                        detail: 'There is an issue with the selected model.',
+                    })
+                )
+            })
+            expect(logic.values.threadItems).toEqual([
+                {
+                    id: 'error-0',
+                    type: 'error',
+                    errorMessage: 'There is an issue with the selected model.',
+                    variant: 'undelivered',
+                    undeliveredMessage: true,
+                },
+            ])
+        })
+
         it('renders the emitter label as current progress and stores a progress thread item', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(
