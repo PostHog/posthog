@@ -1,6 +1,6 @@
 """
 Run inference for an autoresearch pipeline: score the population and emit
-autoresearch_prediction events into ClickHouse via capture_internal.
+autoresearch_prediction events through capture.
 
 Usage:
     python manage.py autoresearch_score --pipeline-id <uuid>
@@ -10,7 +10,7 @@ Requires:
     - Demo data generated (python manage.py generate_demo_data or similar)
     - A champion model in place (run autoresearch_train first)
 
-The events will appear in the team's events table under the event name
+The events appear in the team's events table under the event name
 'autoresearch_prediction' with properties prefixed '$autoresearch_*'.
 """
 
@@ -18,11 +18,18 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 from django.utils import timezone
 
 from posthog.models.scoping import team_scope
+from posthog.models.user import User
 
-from products.autoresearch.backend.inference.scoring import _fetch_feature_rows, _score_rows, run_inference_for_pipeline
+from products.autoresearch.backend.inference.scoring import (
+    ScoredPopulation,
+    _summarize_scores,
+    run_inference_for_pipeline,
+    score_population,
+)
 from products.autoresearch.backend.management.scoping import resolve_pipeline
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
 from products.autoresearch.backend.training.artifacts import ArtifactBundle, bundle_prefix, write_bundle
@@ -36,9 +43,15 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--pipeline-id", type=str, required=True, help="UUID of the pipeline to score.")
         parser.add_argument(
+            "--user-id",
+            type=int,
+            default=None,
+            help="Run the queries as this user. Defaults to the pipeline's creator.",
+        )
+        parser.add_argument(
             "--dry-run",
             action="store_true",
-            help="Fetch and score users but do not emit events (useful for debugging feature SQL).",
+            help="Score the population through the champion's normal path but do not emit events.",
         )
         parser.add_argument(
             "--seed-fixture-bundle",
@@ -48,14 +61,15 @@ class Command(BaseCommand):
                 "model at it, then score via the sandbox path. For proving inference-in-sandbox locally."
             ),
         )
-        parser.add_argument(
+        dates = parser.add_mutually_exclusive_group()
+        dates.add_argument(
             "--prediction-date",
             type=str,
             default=None,
-            help="Backfill: score as-of this past date (YYYY-MM-DD) instead of today. Features are "
-            "computed as-of that date and events emitted with that date's timestamp.",
+            help="Backfill: score as of this past date (YYYY-MM-DD) instead of today. Features are "
+            "computed as of that date and events are emitted with that date's timestamp.",
         )
-        parser.add_argument(
+        dates.add_argument(
             "--backfill-days",
             type=int,
             default=None,
@@ -65,10 +79,21 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         pipeline = resolve_pipeline(options["pipeline_id"])
+        user = self._resolve_user(options["user_id"])
+        prediction_dates = self._resolve_prediction_dates(options)
         with team_scope(pipeline.team_id):
-            self._run(pipeline, options)
+            self._run(pipeline, user, prediction_dates, options)
 
-    def _run(self, pipeline: AutoresearchPipeline, options):
+    @staticmethod
+    def _resolve_user(user_id: int | None) -> User | None:
+        if user_id is None:
+            return None
+        try:
+            return User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            raise CommandError(f"User {user_id} not found.")
+
+    def _run(self, pipeline: AutoresearchPipeline, user: User | None, prediction_dates: list[date], options):
         champion: AutoresearchModel | None
         if options["seed_fixture_bundle"]:
             champion = self._seed_fixture_bundle(pipeline)
@@ -93,44 +118,39 @@ class Command(BaseCommand):
         self.stdout.write(f"  Output prop    : {pipeline.output_person_property}")
         self.stdout.write("")
 
-        if options["dry_run"]:
-            self.stdout.write(self.style.WARNING("Dry-run mode: fetching features but not emitting events.\n"))
-            rows = _fetch_feature_rows(team=pipeline.team, pipeline=pipeline, model=champion)
-            self.stdout.write(f"Feature rows fetched : {len(rows)}")
-            if rows:
-                self.stdout.write(f"Sample columns       : {list(rows[0].keys())}")
-                scored = _score_rows(feature_rows=rows, recipe=champion.model_recipe)
-                scores = [r["p_y"] for r in scored]
-                if scores:
-                    self.stdout.write(f"Score range          : {min(scores):.4f} – {max(scores):.4f}")
-                    self.stdout.write(f"Score mean           : {sum(scores) / len(scores):.4f}")
-            return
-
-        prediction_dates = self._resolve_prediction_dates(options)
         if len(prediction_dates) > 1:
             self.stdout.write(
-                f"Backfilling {len(prediction_dates)} dates: {prediction_dates[0]} … {prediction_dates[-1]}\n"
+                f"Backfilling {len(prediction_dates)} dates: {prediction_dates[0]} to {prediction_dates[-1]}\n"
             )
+        labelled = len(prediction_dates) > 1 or options.get("prediction_date")
+
+        if options["dry_run"]:
+            self.stdout.write(self.style.WARNING("Dry run: scoring through the champion's path, not emitting.\n"))
+            for prediction_date in prediction_dates:
+                scored = score_population(
+                    team=pipeline.team, pipeline=pipeline, model=champion, prediction_date=prediction_date, user=user
+                )
+                self._print_scores(scored, label=f"[{prediction_date}] " if labelled else "")
+            return
 
         for prediction_date in prediction_dates:
-            run = run_inference_for_pipeline(pipeline=pipeline, model=champion, prediction_date=prediction_date)
-
-            label = f"[{prediction_date}] " if len(prediction_dates) > 1 or options.get("prediction_date") else ""
+            run = run_inference_for_pipeline(
+                pipeline=pipeline, model=champion, prediction_date=prediction_date, user=user
+            )
+            label = f"[{prediction_date}] " if labelled else ""
             self.stdout.write(f"{label}Run ID         : {run.pk}")
             self.stdout.write(f"{label}Status         : {run.status}")
             self.stdout.write(f"{label}Rows scored    : {run.rows_scored}")
-
             if run.metrics.get("score_distribution"):
                 dist = run.metrics["score_distribution"]
                 self.stdout.write(
                     f"  dist: count={dist.get('count')} mean={dist.get('mean')} "
                     f"p10={dist.get('p10')} p50={dist.get('p50')} p90={dist.get('p90')}"
                 )
-
             if run.status == "completed":
-                self.stdout.write(self.style.SUCCESS(f"  ✓ Emitted {run.rows_scored} autoresearch_prediction events."))
+                self.stdout.write(self.style.SUCCESS(f"  Emitted {run.rows_scored} autoresearch_prediction events."))
             else:
-                self.stdout.write(self.style.ERROR(f"  ✗ Run failed: {run.error}"))
+                self.stdout.write(self.style.ERROR(f"  Run failed: {run.error}"))
 
         self.stdout.write(
             f"\nQuery in PostHog: SELECT distinct_id, properties.$autoresearch_p_y "
@@ -138,39 +158,62 @@ class Command(BaseCommand):
             f"AND properties.$autoresearch_pipeline_id = '{pipeline.pk}' ORDER BY timestamp DESC LIMIT 20"
         )
 
+    def _print_scores(self, scored: ScoredPopulation, *, label: str) -> None:
+        self.stdout.write(f"{label}Rows scored    : {len(scored.rows)}")
+        if not scored.rows:
+            return
+        self.stdout.write(f"{label}Columns        : {[k for k in scored.rows[0].keys() if k != 'p_y']}")
+        dist = _summarize_scores([row["p_y"] for row in scored.rows])
+        self.stdout.write(
+            f"{label}Scores         : min={dist['min']} p50={dist['p50']} max={dist['max']} mean={dist['mean']}"
+        )
+        if scored.holdout_auc is not None:
+            self.stdout.write(f"{label}Holdout AUC    : {scored.holdout_auc}")
+
     @staticmethod
     def _resolve_prediction_dates(options: dict) -> list[date]:
-        """Resolve which prediction dates to score: a backfill window, a single past date, or today."""
-        if options.get("backfill_days"):
-            n = options["backfill_days"]
-            today = date.today()
+        """The dates to score: a backfill window ending yesterday, one past date, or today."""
+        today = date.today()
+        backfill_days = options.get("backfill_days")
+        if backfill_days is not None:
+            if backfill_days < 1:
+                raise CommandError("--backfill-days must be at least 1.")
             # Oldest first so online validation reads a chronological history.
-            return [today - timedelta(days=d) for d in range(n, 0, -1)]
-        if options.get("prediction_date"):
-            return [date.fromisoformat(options["prediction_date"])]
-        return [date.today()]
+            return [today - timedelta(days=d) for d in range(backfill_days, 0, -1)]
+        raw_date = options.get("prediction_date")
+        if raw_date:
+            try:
+                prediction_date = date.fromisoformat(raw_date)
+            except ValueError:
+                raise CommandError(f"--prediction-date must be YYYY-MM-DD, got {raw_date!r}.")
+            if prediction_date > today:
+                raise CommandError(f"--prediction-date {prediction_date} is in the future; scoring runs as of today.")
+            return [prediction_date]
+        return [today]
 
     def _seed_fixture_bundle(self, pipeline: AutoresearchPipeline) -> AutoresearchModel:
-        """Upload the reference fixture bundle and point a fresh champion model at it."""
+        """Upload the reference fixture bundle and make a fresh model pointing at it the champion."""
         bundle = ArtifactBundle.from_dir(_FIXTURE_BUNDLE_DIR)
-        now = timezone.now()
-
-        AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION).update(
-            role=AutoresearchModel.Role.ARCHIVED, archived_at=now
-        )
-
+        # The upload happens before any champion is archived, so a storage failure leaves
+        # the pipeline with the champion it had.
         model = AutoresearchModel.objects.create(
             pipeline=pipeline,
-            role=AutoresearchModel.Role.CHAMPION,
+            role=AutoresearchModel.Role.CHALLENGER,
             recipe_hash="fixture",
             model_recipe={},
             agent_description="fixture bundle (slice 1)",
             is_preliminary=True,
-            promoted_at=now,
         )
         prefix = bundle_prefix(team_id=pipeline.team_id, pipeline_id=str(pipeline.pk), training_run_id=str(model.pk))
         write_bundle(prefix, bundle)
-        model.artifact_prefix = prefix
-        model.save(update_fields=["artifact_prefix"])
+        now = timezone.now()
+        with transaction.atomic():
+            AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION).update(
+                role=AutoresearchModel.Role.ARCHIVED, archived_at=now
+            )
+            model.role = AutoresearchModel.Role.CHAMPION
+            model.artifact_prefix = prefix
+            model.promoted_at = now
+            model.save(update_fields=["role", "artifact_prefix", "promoted_at"])
         self.stdout.write(self.style.SUCCESS(f"Seeded fixture bundle at {prefix}"))
         return model

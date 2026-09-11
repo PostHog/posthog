@@ -15,8 +15,9 @@ Every command calls the same functions the API and the Temporal activities call.
   With `--create` it creates the pipeline first. With `--stub` it runs `../training/stub.py` (deterministic, free); without it, the real Claude agent runs in a sandbox and costs roughly a dollar.
   **Use `--stub` for anything that isn't specifically testing the agent.**
 - `autoresearch_score` — load the champion, score the inference population, emit `autoresearch_prediction` events.
-  `--pipeline-id --dry-run --seed-fixture-bundle --prediction-date --backfill-days`
-  `--prediction-date` / `--backfill-days` backdate the emitted events, which is the only way to get matured predictions for online validation without waiting out the horizon.
+  `--pipeline-id --user-id --dry-run --seed-fixture-bundle --prediction-date --backfill-days`
+  `--prediction-date` / `--backfill-days` backdate the emitted events, which is the only way to get matured predictions for online validation without waiting out the horizon. They are mutually exclusive; a future date or a non-positive window is refused before anything runs.
+  `--dry-run` scores through the champion's real path (sandbox or recipe) and prints the distribution without emitting. `--user-id` is the person HogQL applies access control for; without it the queries run as the pipeline's creator.
 - `autoresearch_validate` — pre-flight target viability, before committing to a run.
   `--team-id --target --horizon --user-id`
   `--user-id` is the person HogQL applies access control for; without it the counts run fail-closed. Note there is no `--mode` flag. Note also that `autoresearch_train` does **not** call this, so a target that fails here still trains.
@@ -42,7 +43,7 @@ The env var is needed because flox only sources `.env` on first activation, so t
 - **Check the team id.** Demo data does not reliably live on team 1 or team 2; confirm before targeting.
 - **Pick a target with volume.** Conversion-shaped events are rare by nature. Engagement events give far more positives, and autoresearch only trains on identified users, so raw event counts overstate what is available.
 - **`autoresearch_score` on a fresh pipeline emits nothing** if there is no champion yet — train first.
-- **Backdated events vanish silently** when the team has `drop_events_older_than_seconds` set; ingestion drops them as too old.
+- **A backfill older than the team's `drop_events_older_than` is refused**, because ingestion would accept and then drop the events.
 - A large `--backfill-days` run emits N × population events into Kafka in a tight loop and can knock over a local ingestion consumer. Prefer 10–15 days at a time.
 - Ad-hoc scripts that call `sync_execute` directly raise `UntaggedQueryError` — wrap with `tag_queries(product="autoresearch", ...)`. These commands already tag themselves.
 

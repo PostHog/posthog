@@ -1,12 +1,12 @@
 """
-Inference: load the champion model recipe, score the inference population via
-HogQL, and emit autoresearch_prediction events per (user, pipeline, model).
+Inference: load the champion, score the inference population, and emit one
+autoresearch_prediction event per person.
 
-Architecture:
-- This module contains the pure activity functions.
-- The Temporal inference workflow (temporal/workflows.py) calls these functions.
-- The management command (management/commands/autoresearch_score.py) also calls
-  them directly for local headless testing.
+- ``run_inference_for_pipeline()`` is the entry point for the Temporal activity
+  (temporal/workflows.py) and for ``autoresearch_score``: it records an
+  AutoresearchRun, scores, and emits.
+- ``score_population()`` is the scoring half on its own, for a dry run that wants
+  the scores without the events.
 
 Event shape:
     event: autoresearch_prediction
@@ -17,9 +17,10 @@ Event shape:
         $autoresearch_model_role:      "champion" | "challenger"
         $autoresearch_target_event:    str
         $autoresearch_horizon_days:    int
-        $autoresearch_p_y:             float  ← the score
+        $autoresearch_p_y:             float  (the score)
         $autoresearch_prediction_date: str (YYYY-MM-DD)
-        $autoresearch_features_hash:   str (SHA-256 of feature row)
+        $autoresearch_features_hash:   str (SHA-256 prefix of the feature row)
+        $autoresearch_person_id:       str (the person_id every row is keyed on)
 """
 
 import json
@@ -27,8 +28,6 @@ import math
 import uuid
 import hashlib
 import importlib
-from collections.abc import Sequence
-from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -39,42 +38,48 @@ import structlog
 
 from posthog.schema import HogQLQuery
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import capture_batch_internal
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.autoresearch.backend.dataset.labeling import (
+    LABELER_QUERY_MODIFIERS,
+    PREDICTION_EVENT_NAME,
     _build_population_conditions,
     _build_population_kind_conditions,
     _identified_users_and_clause,
+    _own_events_excluded_clause,
     _target_condition_for,
     build_inference_features_sql,
-    build_target_condition,
     build_training_features_sql,
 )
-from products.autoresearch.backend.inference.sandbox import _MATERIALIZE_ROW_LIMIT, score_via_sandbox
+from products.autoresearch.backend.inference.sandbox import (
+    _FOLD_COL,
+    _HOLDOUT_FOLD,
+    _LABEL_COL,
+    _MATERIALIZE_ROW_LIMIT,
+    SandboxInferenceError,
+    _num,
+    _numeric_feature_cols,
+    _resolve_acting_user,
+    count_inference_anchors,
+    score_via_sandbox,
+    validate_runnable_feature_sql,
+)
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
-from products.autoresearch.backend.query import run_hogql, run_hogql_rows
-from products.autoresearch.backend.training.recipe_validation import validate_model_class
+from products.autoresearch.backend.query import HogQLResult, run_hogql
+from products.autoresearch.backend.training.recipe_validation import (
+    RecipeValidationError,
+    validate_model_class,
+    validate_unique_distinct_ids,
+)
 
 logger = structlog.get_logger(__name__)
 
 EVENT_SOURCE = "autoresearch_inference"
-PREDICTION_EVENT_NAME = "autoresearch_prediction"
-
-# Batch size for ClickHouse feature queries — keeps memory bounded
-FEATURE_QUERY_LIMIT = 10_000
-
-# Anchors-style feature SQL contract marker (see labeling.py + Step B validator).
-# Presence routes through _score_via_anchors; absence falls back to the legacy
-# transductive path for older recipes.
-_ANCHORS_PLACEHOLDER = "{anchors}"
-
-# Internal columns added by labeling.build_training_features_sql.
-_LABEL_COL = "__label"
-_FOLD_COL = "__fold"
-# Reserve fold == 0 as the holdout slice; folds 1..N-1 are training.
-_HOLDOUT_FOLD = 0
 
 
 class InferenceRunError(Exception):
@@ -98,60 +103,67 @@ def _prediction_event_uuid(*, pipeline_id: str, model_id: str, prediction_date: 
     return str(uuid.uuid5(_PREDICTION_UUID_NAMESPACE, f"{pipeline_id}:{model_id}:{prediction_date}:{person_id}"))
 
 
-@dataclass(frozen=True, kw_only=True)
-class _ScoreEmitResult:
+@frozen
+class ScoredPopulation:
+    """One scored row per person; each row keeps its feature columns plus ``p_y``."""
+
+    rows: list[dict[str, Any]]
+    # The holdout AUC the serving model advertises: computed on the fly for a recipe-only
+    # champion, read from the model row for a bundle.
+    holdout_auc: float | None
+
+
+@frozen
+class _EmitResult:
     rows_emitted: int
     score_distribution: dict[str, Any]
-    holdout_auc: float | None
-    emit_errors: int
 
 
 def run_inference_for_pipeline(
     pipeline: AutoresearchPipeline,
     model: AutoresearchModel,
     prediction_date: date | None = None,
+    user: User | None = None,
 ) -> AutoresearchRun:
     """
     Top-level inference entry point. Creates an AutoresearchRun, scores users,
     emits prediction events, and records metrics.
 
-    ``prediction_date`` defaults to today (live daily scoring). Pass a past date
-    to backfill: features are computed as-of that date and prediction events are
-    emitted with that date's timestamp, so online validation can score it once
-    the horizon has elapsed instead of waiting for real time to pass.
+    ``prediction_date`` defaults to today (live scoring). Pass a past date to
+    backfill: features are computed as of that date and the events carry that
+    date's timestamp, so online validation can score them once the horizon has
+    elapsed. A future date fails the run.
 
-    Called by:
-    - AutoresearchPipelineViewSet.run_inference (API)
-    - autoresearch_score management command
-    - AutoresearchInferenceWorkflow Temporal activity
+    ``user`` is who HogQL applies access control for; it defaults to the
+    pipeline's creator.
     """
     prediction_date = prediction_date or date.today()
-    now = django_timezone.now()
     run = AutoresearchRun.objects.create(
         pipeline=pipeline,
         model=model,
         run_type=AutoresearchRun.RunType.INFERENCE,
         status=AutoresearchRun.Status.RUNNING,
-        started_at=now,
+        started_at=django_timezone.now(),
     )
 
     try:
         team = pipeline.team
-        result = _score_and_emit(
-            team=team,
-            pipeline=pipeline,
-            model=model,
-            prediction_date=prediction_date,
+        _check_prediction_date(team=team, pipeline=pipeline, prediction_date=prediction_date)
+        acting_user = _acting_user(team=team, pipeline=pipeline, user=user)
+        scored = score_population(
+            team=team, pipeline=pipeline, model=model, prediction_date=prediction_date, user=acting_user
+        )
+        emitted = _emit_predictions(
+            team=team, pipeline=pipeline, model=model, scored=scored, prediction_date=prediction_date, user=acting_user
         )
 
         run.status = AutoresearchRun.Status.COMPLETED
-        run.rows_scored = result.rows_emitted
+        run.rows_scored = emitted.rows_emitted
         run.metrics = {
-            "score_distribution": result.score_distribution,
-            "stub": (model.model_recipe or {}).get("stub", False),
+            "score_distribution": emitted.score_distribution,
+            "stub": bool((model.model_recipe or {}).get("stub", False)),
             "sandbox": bool(model.artifact_prefix),
-            "holdout_auc": result.holdout_auc,
-            "emit_errors": result.emit_errors,
+            "holdout_auc": scored.holdout_auc,
         }
         run.completed_at = django_timezone.now()
         run.save(update_fields=["status", "rows_scored", "metrics", "completed_at"])
@@ -166,7 +178,7 @@ def run_inference_for_pipeline(
             "autoresearch_inference_complete",
             pipeline_id=str(pipeline.pk),
             model_id=str(model.pk),
-            rows_scored=result.rows_emitted,
+            rows_scored=emitted.rows_emitted,
         )
         return run
 
@@ -179,18 +191,68 @@ def run_inference_for_pipeline(
         raise
 
 
-def _score_and_emit(
+def _acting_user(*, team: Team, pipeline: AutoresearchPipeline, user: User | None) -> User:
+    try:
+        return _resolve_acting_user(team=team, pipeline=pipeline, user=user)
+    except SandboxInferenceError as exc:
+        raise InferenceRunError(str(exc)) from exc
+
+
+def _check_prediction_date(*, team: Team, pipeline: AutoresearchPipeline, prediction_date: date) -> None:
+    """
+    Refuse the dates that would complete a run with events nobody can use.
+
+    A future date reads as live, so it would compute today's features, stamp a future
+    prediction date on them, and advance the cadence. A backfill older than the team's
+    ingestion threshold is accepted by capture and then dropped, so the run would record
+    every row as scored with no event behind it. A backfill of a population filtered on
+    person properties evaluates those properties as they are today, not as they were on
+    that date, so the historical membership it claims is fiction.
+    """
+    today = date.today()
+    if prediction_date > today:
+        raise InferenceRunError(f"Cannot score a future prediction date ({prediction_date.isoformat()})")
+    if prediction_date >= today:
+        return
+    threshold = team.drop_events_older_than
+    if threshold is not None and django_timezone.now() - _backfill_timestamp(prediction_date) > threshold:
+        raise InferenceRunError(
+            f"Cannot backfill {prediction_date.isoformat()}: ingestion drops this team's events older than "
+            f"{threshold}, so the predictions would never be stored"
+        )
+    properties = (pipeline.inference_population or {}).get("properties") or []
+    if any(str(prop.get("type", "person")) == "person" for prop in properties if isinstance(prop, dict)):
+        raise InferenceRunError(
+            "Cannot backfill a population filtered on person properties: membership would be decided on "
+            "today's property values, not the values as of the prediction date"
+        )
+
+
+def _backfill_timestamp(prediction_date: date) -> datetime:
+    # Noon UTC so the event lands in that day's window in every project timezone.
+    return datetime(prediction_date.year, prediction_date.month, prediction_date.day, 12, tzinfo=UTC)
+
+
+def score_population(
+    *,
     team: Team,
     pipeline: AutoresearchPipeline,
     model: AutoresearchModel,
     prediction_date: date,
-) -> _ScoreEmitResult:
-    """Fetch feature rows, compute scores, emit prediction events."""
-    holdout_auc: float | None = None
+    user: User | None = None,
+) -> ScoredPopulation:
+    """
+    Score the inference population with ``model`` and return the rows without emitting.
 
-    # Backfill vs live: a past prediction_date computes features as-of that day's
-    # start (leak-free, mirrors the labeler's T0 contract) and stamps the emitted
-    # events at that date so they land in the right window for online validation.
+    A bundle-backed champion runs its ``predict.py`` in a sandbox against the persisted
+    ``model.pkl``. A recipe-only champion has no persisted model: a stub recipe scores by
+    a fixed engagement formula, and an agent recipe fits its allowlisted sklearn class on
+    the anchored training population and predicts on the inference anchors, in process.
+    The agent recipe's SQL goes through the same runnable-SQL validator as a bundle, so a
+    recipe with a trailing LIMIT or with ``{anchors}`` only in a comment fails here
+    instead of producing a query that runs without a cutoff.
+    """
+    acting_user = _acting_user(team=team, pipeline=pipeline, user=user)
     is_backfill = prediction_date < date.today()
     cutoff_ts = (
         int(datetime(prediction_date.year, prediction_date.month, prediction_date.day, tzinfo=UTC).timestamp())
@@ -198,250 +260,264 @@ def _score_and_emit(
         else None
     )
 
-    # Artifact-bundle models run fit + predict in a sandbox and fully own scoring;
-    # this bypasses both the anchors and legacy in-process paths. Failures raise
-    # (no stub fallback) so the run fails loudly rather than emitting noise.
     if model.artifact_prefix:
-        result = score_via_sandbox(team=team, pipeline=pipeline, model=model, cutoff_ts=cutoff_ts)
-        scored = result.scored_rows
-        holdout_auc = result.holdout_auc
-    else:
-        recipe = model.model_recipe or {}
-        feature_sql = recipe.get("feature_sql", "")
+        result = score_via_sandbox(team=team, pipeline=pipeline, model=model, cutoff_ts=cutoff_ts, user=acting_user)
+        return ScoredPopulation(rows=result.scored_rows, holdout_auc=result.holdout_auc)
 
-        # Route based on the recipe contract. New anchors-style recipes get the
-        # leak-free path: features and labels both live in time strictly before
-        # each user's cutoff_ts, training cohort != scoring cohort, fit happens
-        # on training-fold rows only. Legacy recipes fall through to the
-        # transductive path until they're regenerated.
-        if _ANCHORS_PLACEHOLDER in feature_sql:
-            scored = _score_via_anchors(team=team, pipeline=pipeline, recipe=recipe, cutoff_ts=cutoff_ts)
-        else:
-            if is_backfill:
-                # The legacy path has no cutoff to apply: features and labels both evaluate
-                # at now(), so a past prediction_date would stamp today's data on that date
-                # and hand online validation a lookahead-contaminated score.
-                raise InferenceRunError(
-                    "This champion's recipe predates the {anchors} cutoff contract, so it cannot be "
-                    "backfilled to a past date. Retrain the pipeline before backfilling."
-                )
-            feature_rows = _fetch_feature_rows(team=team, pipeline=pipeline, model=model)
-            if not feature_rows:
-                logger.warning(
-                    "autoresearch_no_feature_rows",
-                    pipeline_id=str(pipeline.pk),
-                    team_id=team.pk,
-                )
-                return _ScoreEmitResult(rows_emitted=0, score_distribution={}, holdout_auc=holdout_auc, emit_errors=0)
-            if recipe.get("stub"):
-                scored = _score_rows(feature_rows=feature_rows, recipe=recipe)
-            else:
-                positive_ids = _fetch_label_distinct_ids(team=team, pipeline=pipeline)
-                scored = _fit_and_score(feature_rows=feature_rows, positive_ids=positive_ids, recipe=recipe)
+    recipe = model.model_recipe or {}
+    if recipe.get("stub"):
+        if is_backfill:
+            # The stub's SQL evaluates at now(), so a past prediction date would stamp
+            # today's data on that date and hand online validation a lookahead score.
+            raise InferenceRunError(
+                "A stub champion evaluates its features at now(), so it cannot be backfilled to a past date"
+            )
+        rows = _fetch_stub_feature_rows(team=team, pipeline=pipeline, recipe=recipe, user=acting_user)
+        return ScoredPopulation(rows=_score_rows(rows), holdout_auc=model.holdout_score)
 
-    if not scored:
-        logger.warning(
-            "autoresearch_no_scored_rows",
-            pipeline_id=str(pipeline.pk),
-            team_id=team.pk,
-        )
-        return _ScoreEmitResult(rows_emitted=0, score_distribution={}, holdout_auc=holdout_auc, emit_errors=0)
+    feature_sql = str(recipe.get("feature_sql") or "")
+    try:
+        validate_runnable_feature_sql(feature_sql, source="Champion recipe feature_sql")
+    except SandboxInferenceError as exc:
+        raise InferenceRunError(str(exc)) from exc
+    return _score_via_anchors(team=team, pipeline=pipeline, recipe=recipe, cutoff_ts=cutoff_ts, user=acting_user)
 
-    scores = [s["p_y"] for s in scored]
-    score_distribution = _summarize_scores(scores)
 
-    token = team.api_token
+def _emit_predictions(
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    model: AutoresearchModel,
+    scored: ScoredPopulation,
+    prediction_date: date,
+    user: User,
+) -> _EmitResult:
+    """
+    Send one prediction event per scored row in one batch. Any failed event fails the run:
+    the event UUIDs are deterministic, so the retry re-sends every row and ingestion keeps
+    one copy, whereas completing with a partial batch would advance the cadence past the
+    people who never received their prediction or output property.
+    """
+    if not scored.rows:
+        logger.warning("autoresearch_no_scored_rows", pipeline_id=str(pipeline.pk), team_id=team.pk)
+        return _EmitResult(rows_emitted=0, score_distribution={})
+
+    is_backfill = prediction_date < date.today()
     prediction_date_str = prediction_date.isoformat()
-    # Live runs stamp now(); backfills stamp the prediction date (noon UTC) so the
-    # events land in that day's window rather than today's.
-    emit_timestamp = (
-        datetime(prediction_date.year, prediction_date.month, prediction_date.day, 12, tzinfo=UTC)
-        if is_backfill
-        else django_timezone.now()
-    )
+    emit_timestamp = _backfill_timestamp(prediction_date) if is_backfill else django_timezone.now()
 
-    # Live runs attach each prediction to the real person — emit with a real distinct_id,
-    # process the person profile, and $set the output property so it lands on the person.
-    # Backfills stay person-less (they exist only for online validation, which keys on the
-    # $autoresearch_person_id property) so past-dated $set values can't clobber live scores.
+    _require_still_champion(model)
+    # Live runs attach each prediction to the real person: a real distinct_id, a processed
+    # person profile, and a $set of the output property. Backfills stay person-less (they
+    # exist for online validation, which keys on $autoresearch_person_id) so a past-dated
+    # $set cannot clobber a live score.
     distinct_id_by_person = (
-        {} if is_backfill else _resolve_distinct_ids(team, pipeline, [str(s["distinct_id"]) for s in scored])
+        {}
+        if is_backfill
+        else _resolve_distinct_ids(
+            team=team, pipeline=pipeline, person_ids=[str(row["distinct_id"]) for row in scored.rows], user=user
+        )
     )
     output_property = pipeline.output_person_property
 
-    emitted = 0
-    errors = 0
-    for row in scored:
+    events: list[dict[str, Any]] = []
+    for row in scored.rows:
         # Every row is keyed on person_id (the feature/score SQL aliases it "distinct_id").
         person_id = str(row["distinct_id"])
         real_distinct_id = distinct_id_by_person.get(person_id)
-        attach_to_person = bool(real_distinct_id)  # only when we found a real distinct_id (live only)
-        try:
-            features_hash = hashlib.sha256(
-                json.dumps({k: v for k, v in row.items() if k != "p_y"}, sort_keys=True).encode()
-            ).hexdigest()[:16]
-
-            props = {
-                "$autoresearch_pipeline_id": str(pipeline.pk),
-                "$autoresearch_model_id": str(model.pk),
-                "$autoresearch_model_role": model.role,
-                "$autoresearch_target_event": pipeline.target_event,
-                "$autoresearch_horizon_days": pipeline.horizon_days,
-                "$autoresearch_p_y": row["p_y"],
-                "$autoresearch_prediction_date": prediction_date_str,
-                "$autoresearch_features_hash": features_hash,
-                "$autoresearch_person_id": person_id,
-            }
-            if attach_to_person and output_property:
-                props["$set"] = {output_property: row["p_y"]}
-            response = capture_internal(
-                token=token,
-                event_name=PREDICTION_EVENT_NAME,
-                event_source=EVENT_SOURCE,
-                distinct_id=real_distinct_id or person_id,
-                timestamp=emit_timestamp,
-                properties=props,
-                process_person_profile=attach_to_person,
-                event_uuid=_prediction_event_uuid(
+        attach_to_person = bool(real_distinct_id)
+        # Feature values can be datetimes, Decimals, or UUIDs the model ignored; default=str
+        # keeps the hash stable for them instead of failing the whole batch.
+        features_hash = hashlib.sha256(
+            json.dumps({k: v for k, v in row.items() if k != "p_y"}, sort_keys=True, default=str).encode()
+        ).hexdigest()[:16]
+        props: dict[str, Any] = {
+            "$autoresearch_pipeline_id": str(pipeline.pk),
+            "$autoresearch_model_id": str(model.pk),
+            "$autoresearch_model_role": model.role,
+            "$autoresearch_target_event": pipeline.target_event,
+            "$autoresearch_horizon_days": pipeline.horizon_days,
+            "$autoresearch_p_y": row["p_y"],
+            "$autoresearch_prediction_date": prediction_date_str,
+            "$autoresearch_features_hash": features_hash,
+            "$autoresearch_person_id": person_id,
+        }
+        if attach_to_person and output_property:
+            props["$set"] = {output_property: row["p_y"]}
+        events.append(
+            {
+                "event": PREDICTION_EVENT_NAME,
+                "distinct_id": real_distinct_id or person_id,
+                "timestamp": emit_timestamp,
+                "properties": props,
+                "options": {"process_person_profile": attach_to_person},
+                "event_uuid": _prediction_event_uuid(
                     pipeline_id=str(pipeline.pk),
                     model_id=str(model.pk),
                     prediction_date=prediction_date_str,
                     person_id=person_id,
                 ),
-            )
-            response.raise_for_status()
-            emitted += 1
-        except Exception:
-            errors += 1
-            logger.exception(
-                "autoresearch_prediction_emit_failed",
-                pipeline_id=str(pipeline.pk),
-                person_id=person_id,
-            )
+            }
+        )
 
-    if errors:
+    try:
+        # The batch-level flag is a safety rail that forces every event person-less when
+        # False; a live run needs it on so each event's own option decides.
+        result = capture_batch_internal(
+            events=events,
+            token=team.api_token,
+            event_source=EVENT_SOURCE,
+            process_person_profile=not is_backfill,
+        )
+    except Exception as exc:
+        logger.exception("autoresearch_prediction_emit_failed", pipeline_id=str(pipeline.pk))
+        raise InferenceRunError(f"Prediction events could not be sent: {exc}") from exc
+    if not result.succeeded():
         logger.warning(
             "autoresearch_prediction_emit_partial",
             pipeline_id=str(pipeline.pk),
-            emitted=emitted,
-            errors=errors,
+            dropped=len(result.dropped),
+            retried=len(result.retried),
+            unaccounted=len(result.unaccounted),
+            error=result.error,
         )
-    # Zero events out of a scored population means capture is down, not a data gap —
-    # fail so last_scored_at does not advance and the coordinator retries. Partial
-    # failures still complete, with the error count recorded in the run's metrics.
-    if emitted == 0:
-        raise InferenceRunError(f"All {errors} prediction event emits failed; failing the run so it is retried")
+        raise InferenceRunError(
+            f"Prediction events were not all accepted ({len(result.dropped)} dropped, "
+            f"{len(result.retried)} exhausted retries, {len(result.unaccounted)} unaccounted"
+            f"{', ' + str(result.error.get('error')) if result.error else ''}); failing the run so it is retried"
+        )
 
-    return _ScoreEmitResult(
-        rows_emitted=emitted, score_distribution=score_distribution, holdout_auc=holdout_auc, emit_errors=errors
+    return _EmitResult(
+        rows_emitted=len(events), score_distribution=_summarize_scores([row["p_y"] for row in scored.rows])
     )
 
 
-def _fetch_feature_rows(
-    team: Team,
-    pipeline: AutoresearchPipeline,
-    model: AutoresearchModel,
+def _require_still_champion(model: AutoresearchModel) -> None:
+    """
+    Promotion can swap the champion while a run is scoring with the old one. Re-reading the
+    role right before the events go out stops a superseded model from writing its scores
+    over the new champion's; the window between this read and capture is the residue.
+    """
+    if model.role != AutoresearchModel.Role.CHAMPION:
+        return
+    if not AutoresearchModel.objects.filter(pk=model.pk, role=AutoresearchModel.Role.CHAMPION).exists():
+        raise InferenceRunError(
+            f"Model {model.pk} stopped being the champion while this run was scoring; the new champion's next "
+            "cadence supersedes it"
+        )
+
+
+# ── Queries ────────────────────────────────────────────────────────────────────────
+
+
+def _query(*, team: Team, sql: str, values: dict[str, Any], user: User | None, what: str) -> HogQLResult:
+    """
+    Run a person-keyed query as the acting user, fresh, bounded at ``_MATERIALIZE_ROW_LIMIT``.
+
+    HogQL caps a bare SELECT at 100 rows without an error, so every query here carries an
+    explicit bound, and a result that fills it is treated as truncated: completing would
+    advance the cadence past the people beyond the cap. The persons-on-events modifiers
+    are what make ``person.is_identified`` resolve, and the always-calculate mode stops a
+    cadence reusing a cached population at a stale cutoff.
+    """
+    bounded_sql = sql.rstrip().rstrip(";") + f"\nLIMIT {_MATERIALIZE_ROW_LIMIT}"
+    try:
+        tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
+        result = run_hogql(
+            team=team,
+            query=HogQLQuery(query=bounded_sql, values=values, modifiers=LABELER_QUERY_MODIFIERS),
+            user=user,
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        )
+    except Exception as exc:
+        logger.exception("autoresearch_inference_query_failed", team_id=team.pk, what=what)
+        raise InferenceRunError(
+            f"{what} query failed; failing the run rather than completing it against a partial or unrestricted "
+            "population"
+        ) from exc
+    if result.has_more or len(result.rows) >= _MATERIALIZE_ROW_LIMIT:
+        raise InferenceRunError(
+            f"{what} query hit the {_MATERIALIZE_ROW_LIMIT}-row limit; the population is likely truncated, "
+            "refusing to score a partial population"
+        )
+    return result
+
+
+def _person_rows(result: HogQLResult) -> list[dict[str, Any]]:
+    """Rows as dicts with the person key coerced to str, so it is JSON-serializable and joins to str-keyed sets."""
+    if not result.rows or not result.columns:
+        return []
+    rows = result.as_dicts()
+    for row in rows:
+        if row.get("distinct_id") is not None:
+            row["distinct_id"] = str(row["distinct_id"])
+    return rows
+
+
+def _require_one_row_per_person(rows: list[dict[str, Any]], *, source: str, expected_count: int | None) -> None:
+    try:
+        validate_unique_distinct_ids(rows, source=source, expected_count=expected_count)
+    except RecipeValidationError as exc:
+        raise InferenceRunError(str(exc)) from exc
+
+
+def _feature_lookback_days(pipeline: AutoresearchPipeline) -> int:
+    # Same window as sandbox._feature_lookback_days: 4x horizon, at least 30 days.
+    return max(30, pipeline.horizon_days * 4)
+
+
+def _fetch_stub_feature_rows(
+    *, team: Team, pipeline: AutoresearchPipeline, recipe: dict[str, Any], user: User
 ) -> list[dict[str, Any]]:
     """
-    Run the recipe's feature SQL via HogQL and return a list of dicts,
-    one per user with column names as keys.
+    Run a stub recipe's feature SQL and restrict the rows to the inference population.
 
-    For the stub recipe the SQL is a templated aggregate query. In a real
-    implementation the recipe compiler would validate and sanitize the SQL
-    before running it here.
+    The stub's SQL is templated in ``training/stub.py``, evaluates at now(), and carries
+    no ``{anchors}``, so it does not go through the anchors builders; the population
+    filter is applied afterwards on the returned person ids.
     """
-    recipe = model.model_recipe
-    feature_sql = recipe.get("feature_sql", "")
-
+    feature_sql = str(recipe.get("feature_sql") or "")
     if not feature_sql:
         logger.warning("autoresearch_empty_feature_sql", pipeline_id=str(pipeline.pk))
         return []
-
-    # Substitute {lookback_days} with a concrete integer before passing to HogQL.
-    # Agents write this placeholder to parameterize the feature window; we use
-    # 4× the horizon as a reasonable lookback (minimum 30 days).
-    lookback_days = max(30, pipeline.horizon_days * 4)
+    lookback_days = _feature_lookback_days(pipeline)
     feature_sql = feature_sql.replace("{lookback_days}", str(lookback_days))
+    rows = _person_rows(_query(team=team, sql=feature_sql, values={}, user=user, what="Feature"))
+    _require_one_row_per_person(rows, source="stub feature_sql", expected_count=None)
 
-    # Append LIMIT directly rather than wrapping in a subquery — HogQL loses
-    # the events table context when it sees SELECT * FROM (inner_hogql).
-    bounded_sql = feature_sql.rstrip().rstrip(";") + f"\nLIMIT {FEATURE_QUERY_LIMIT}"
-
-    try:
-        tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
-        result = run_hogql(team=team, query=HogQLQuery(query=bounded_sql))
-
-        if not result.rows or not result.columns:
-            return []
-
-        rows = result.as_dicts()
-        # Feature SQL keys rows on person_id (a UUID); coerce to str so the value is
-        # JSON-serializable for event emission and matches the str-keyed label set.
-        for r in rows:
-            if r.get("distinct_id") is not None:
-                r["distinct_id"] = str(r["distinct_id"])
-
-    except Exception as exc:
-        logger.exception(
-            "autoresearch_feature_query_failed",
-            pipeline_id=str(pipeline.pk),
-            model_id=str(model.pk),
-        )
-        raise InferenceRunError(
-            "Feature query failed; failing the run rather than completing it as an empty population"
-        ) from exc
-
-    # Apply inference population filter — restrict to users matching the pipeline's
-    # defined scoring population (e.g. signed up in last 30 days) and, under the v1
-    # identified-only scope, to identified users. _fetch_population_distinct_ids returns
-    # None (no restriction) only when neither applies — a configured filter that fails
-    # to resolve raises instead, failing the run — so calling it unconditionally is cheap.
-    lookback_days = max(30, pipeline.horizon_days * 4)
     allowed_ids = _fetch_population_distinct_ids(
         team=team,
         population=pipeline.inference_population,
         lookback_days=lookback_days,
         target_event=pipeline.target_event,
         target_definition=pipeline.target_definition,
+        user=user,
     )
     if allowed_ids is not None:
         before = len(rows)
-        rows = [r for r in rows if r.get("distinct_id") in allowed_ids]
+        rows = [row for row in rows if row.get("distinct_id") in allowed_ids]
         logger.info(
-            "autoresearch_population_filter_applied",
-            pipeline_id=str(pipeline.pk),
-            before=before,
-            after=len(rows),
+            "autoresearch_population_filter_applied", pipeline_id=str(pipeline.pk), before=before, after=len(rows)
         )
-
     return rows
 
 
 def _fetch_population_distinct_ids(
+    *,
     team: Team,
-    population: dict[str, Any],
+    population: dict[str, Any] | None,
     lookback_days: int,
     target_event: str = "",
     target_definition: dict[str, Any] | None = None,
+    user: User | None = None,
 ) -> frozenset[str] | None:
     """
-    Return the set of person_ids that match the inference_population filter, further
-    restricted to identified users under the v1 identified-only scope. Returns None
-    when nothing restricts the population (empty filter and identified-only disabled =
-    score all users).
+    The person_ids matching the inference population, restricted to identified users
+    under the v1 scope. None only when nothing restricts the population.
 
-    Queries the events table using person property conditions so the eligible set
-    is consistent with the feature SQL lookback window — users with no recent
-    events have no feature rows and wouldn't be scored anyway.
-
-    When a restriction is configured and the lookup fails, raises InferenceRunError
-    (fail closed): a transient query failure must not widen scoring to everyone and
-    write person properties outside the configured population.
-
-    Supports person and event property types with common operators (exact, is_not,
-    icontains, not_icontains, gt/gte/lt/lte, is_set, is_not_set), and semantic
-    population kinds from templates (compiled via _build_population_kind_conditions;
-    an uncompilable kind raises rather than widening the population).
+    A configured filter that cannot be compiled raises, and a query failure raises: a
+    transient failure must not widen scoring to everyone and write person properties
+    outside the configured population.
     """
     properties = (population or {}).get("properties", [])
     parts, values = _build_population_conditions(properties)
@@ -454,69 +530,36 @@ def _fetch_population_distinct_ids(
     values.update(compiled_kind.values)
     identified_clause = _identified_users_and_clause()
 
-    # Nothing to enforce: no population filter and identified-only disabled.
     if not parts and not identified_clause:
         return None
 
     values["lookback"] = lookback_days
-    where_clause = f"timestamp >= now() - toIntervalDay({{lookback}})"
+    where_clause = f"timestamp >= now() - toIntervalDay({{lookback}}){_own_events_excluded_clause()}"
     if parts:
         where_clause += " AND " + " AND ".join(parts)
     where_clause += identified_clause
-    sql = _bounded_sql(f"SELECT DISTINCT person_id FROM events WHERE {where_clause}")
-
-    try:
-        tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
-        rows = run_hogql_rows(team=team, query=HogQLQuery(query=sql, values=values))
-        _raise_if_truncated(rows, "Population filter")
-        return frozenset(str(row[0]) for row in rows if row[0])
-    except Exception as exc:
-        logger.exception("autoresearch_population_query_failed", team_id=team.pk)
-        raise InferenceRunError(
-            "Population filter query failed; failing the run rather than scoring an unrestricted population"
-        ) from exc
-
-
-def _fetch_label_distinct_ids(
-    team: Team,
-    pipeline: AutoresearchPipeline,
-) -> frozenset[str]:
-    """
-    Return distinct_ids that performed the pipeline's target (event or action) in
-    the last horizon_days — used as positive labels when fitting the model.
-    """
-    # Key on person_id to match the feature SQL (one row per person_id); feature rows
-    # are str(person_id), so labels must be str(person_id) too or nothing matches.
-    target_cond, target_values = build_target_condition(
-        target_event=pipeline.target_event, target_definition=pipeline.target_definition, team=team
+    result = _query(
+        team=team,
+        sql=f"SELECT DISTINCT person_id FROM events WHERE {where_clause}",
+        values=values,
+        user=user,
+        what="Population filter",
     )
-    label_sql = _bounded_sql(
-        f"SELECT DISTINCT person_id FROM events WHERE {target_cond} AND timestamp >= now() - toIntervalDay({{horizon}})"
-    )
-    values: dict[str, Any] = {"horizon": pipeline.horizon_days, **target_values}
-    try:
-        tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
-        rows = run_hogql_rows(team=team, query=HogQLQuery(query=label_sql, values=values))
-        _raise_if_truncated(rows, "Target label")
-        return frozenset(str(row[0]) for row in rows if row[0])
-    except Exception as exc:
-        logger.exception("autoresearch_label_query_failed", pipeline_id=str(pipeline.pk))
-        raise InferenceRunError(
-            "Target label query failed; failing the run rather than fitting on an empty positive set"
-        ) from exc
+    return frozenset(str(row[0]) for row in result.rows if row[0])
 
 
-def _resolve_distinct_ids(team: Team, pipeline: AutoresearchPipeline, person_ids: list[str]) -> dict[str, str]:
+def _resolve_distinct_ids(
+    *, team: Team, pipeline: AutoresearchPipeline, person_ids: list[str], user: User
+) -> dict[str, str]:
     """
-    Map each person_id to a real, most-recent distinct_id for that person.
+    Map each person_id to that person's most recent real distinct_id.
 
-    The pipeline keys every row on person_id (a user may have many distinct_ids), but
-    events associate to a person via distinct_id. To attach a live prediction to the real
-    person we emit with one of their real distinct_ids, not the person UUID. Persons with
-    no resolvable distinct_id are omitted (caller falls back to person-less emission).
+    Every row is keyed on person_id, but a live event attaches to a person through a
+    distinct_id, so the event goes out under one of the person's real ids rather than the
+    person UUID. A person with no resolvable id is emitted person-less by the caller.
     """
-    # events.person_id is a UUID column, so a row keyed on anything else cannot resolve —
-    # and passing it to the query would fail the whole batch on a parse error.
+    # events.person_id is a UUID column, so a row keyed on anything else cannot resolve,
+    # and passing it to the query would fail the whole lookup on a parse error.
     resolvable = [p for p in person_ids if _is_uuid(p)]
     if len(resolvable) != len(person_ids):
         logger.warning(
@@ -526,21 +569,22 @@ def _resolve_distinct_ids(team: Team, pipeline: AutoresearchPipeline, person_ids
         )
     if not resolvable:
         return {}
-    sql = (
-        "SELECT person_id, argMax(distinct_id, timestamp) AS did"
-        " FROM events"
-        " WHERE person_id IN {person_ids} AND distinct_id != toString(person_id)"
-        " GROUP BY person_id"
+    result = _query(
+        team=team,
+        sql=(
+            "SELECT person_id, argMax(distinct_id, timestamp) AS did"
+            " FROM events"
+            " WHERE person_id IN {person_ids} AND distinct_id != toString(person_id)"
+            " GROUP BY person_id"
+        ),
+        values={"person_ids": resolvable},
+        user=user,
+        what="Identity resolution",
     )
-    try:
-        tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
-        rows = run_hogql_rows(team=team, query=HogQLQuery(query=sql, values={"person_ids": resolvable}))
-        return {str(row[0]): str(row[1]) for row in rows if row[0] and row[1]}
-    except Exception as exc:
-        logger.exception("autoresearch_distinct_id_resolution_failed", pipeline_id=str(pipeline.pk))
-        raise InferenceRunError(
-            "Identity resolution query failed; failing the run rather than emitting person-less predictions"
-        ) from exc
+    return {str(row[0]): str(row[1]) for row in result.rows if row[0] and row[1]}
+
+
+# ── Recipe-only champions ─────────────────────────────────────────────────────────
 
 
 def _score_via_anchors(
@@ -548,87 +592,39 @@ def _score_via_anchors(
     team: Team,
     pipeline: AutoresearchPipeline,
     recipe: dict[str, Any],
-    cutoff_ts: int | None = None,
-) -> list[dict[str, Any]]:
+    cutoff_ts: int | None,
+    user: User,
+) -> ScoredPopulation:
     """
-    Anchors-style scoring (the leak-free path).
+    Score with an agent recipe that has no bundle.
 
-    The agent's feature_sql contains `{anchors}` and reads events with
-    `e.timestamp < fromUnixTimestamp(a.cutoff_ts)`. Same SQL runs against two
-    different anchor tables:
-      - training anchors: per-user random T0 + labels + fold (from labeling.py)
-      - inference anchors: (person_id, cutoff_ts = now(), or the backdated
-        ``cutoff_ts`` instant when backfilling) for users to score
-
-    We fit on training rows where fold != 0, evaluate on fold == 0 for a
-    real holdout AUC, then predict on the inference rows. Falls back to stub
-    scoring if anything in the train path fails — that lets a half-broken
-    recipe still emit (zero-information) predictions instead of nothing.
+    The recipe's feature SQL runs twice: against the labeled training anchors (per-user
+    random T0, label, fold) and against the inference anchors (cutoff now(), or the
+    backfill instant). The model fits on the training folds, reports a holdout AUC on
+    fold 0, and predicts on the inference rows. Without training rows the stub formula
+    scores the inference rows, so a half-broken recipe still emits zero-information
+    predictions instead of nothing.
     """
-    feature_sql = recipe.get("feature_sql", "")
-    if not feature_sql:
-        logger.warning("autoresearch_empty_feature_sql", pipeline_id=str(pipeline.pk))
-        return []
-
-    # Substitute {lookback_days} consistently — same value at train and inference
-    # so the feature window has the same width in both phases.
-    lookback_days = max(30, pipeline.horizon_days * 4)
-    feature_sql_resolved = feature_sql.replace("{lookback_days}", str(lookback_days))
-
-    training_rows = _fetch_training_rows(team=team, pipeline=pipeline, feature_sql=feature_sql_resolved)
+    feature_sql = str(recipe.get("feature_sql") or "").replace("{lookback_days}", str(_feature_lookback_days(pipeline)))
+    training_rows = _fetch_training_rows(team=team, pipeline=pipeline, feature_sql=feature_sql, user=user)
     inference_rows = _fetch_inference_rows(
-        team=team, pipeline=pipeline, feature_sql=feature_sql_resolved, cutoff_ts=cutoff_ts
+        team=team, pipeline=pipeline, feature_sql=feature_sql, cutoff_ts=cutoff_ts, user=user
     )
     if not inference_rows:
-        logger.warning(
-            "autoresearch_no_inference_rows",
-            pipeline_id=str(pipeline.pk),
-        )
-        return []
+        logger.warning("autoresearch_no_inference_rows", pipeline_id=str(pipeline.pk))
+        return ScoredPopulation(rows=[], holdout_auc=None)
     if not training_rows:
-        logger.warning(
-            "autoresearch_no_training_rows_anchored_fallback_stub",
-            pipeline_id=str(pipeline.pk),
-        )
-        return _score_rows(inference_rows, recipe)
-
+        logger.warning("autoresearch_no_training_rows_anchored_fallback_stub", pipeline_id=str(pipeline.pk))
+        return ScoredPopulation(rows=_score_rows(inference_rows), holdout_auc=None)
     return _fit_on_training_predict_on_inference(
-        training_rows=training_rows,
-        inference_rows=inference_rows,
-        recipe=recipe,
-        pipeline_id=str(pipeline.pk),
+        training_rows=training_rows, inference_rows=inference_rows, recipe=recipe, pipeline_id=str(pipeline.pk)
     )
-
-
-def _bounded_sql(sql: str) -> str:
-    # Without an explicit LIMIT, HogQL silently caps results at 100 rows. Bound the
-    # composite anchors queries the same way the sandbox path bounds materialization.
-    return sql.rstrip().rstrip(";") + f"\nLIMIT {_MATERIALIZE_ROW_LIMIT}"
-
-
-def _raise_if_truncated(rows: Sequence[Any], what: str) -> None:
-    # A result that fills the bound is almost certainly truncated — scoring a partial
-    # population would silently skip users while last_scored_at advances. Pagination
-    # for larger populations is follow-up work; until then, fail loudly.
-    if len(rows) >= _MATERIALIZE_ROW_LIMIT:
-        raise InferenceRunError(
-            f"{what} query hit the {_MATERIALIZE_ROW_LIMIT}-row limit; "
-            "the population is likely truncated, refusing to score a partial population"
-        )
 
 
 def _fetch_training_rows(
-    *,
-    team: Team,
-    pipeline: AutoresearchPipeline,
-    feature_sql: str,
+    *, team: Team, pipeline: AutoresearchPipeline, feature_sql: str, user: User
 ) -> list[dict[str, Any]]:
-    """
-    Run the composite training-features SQL: build the labeled_anchors CTE
-    from the random-T0 labeler, substitute it into the agent's feature_sql,
-    JOIN back to bring __label + __fold onto each row. One row per eligible
-    user.
-    """
+    """The recipe's feature SQL against the labeled anchors: one row per person with ``__label`` and ``__fold``."""
     sql, values = build_training_features_sql(
         feature_sql=feature_sql,
         target_event=pipeline.target_event,
@@ -638,66 +634,33 @@ def _fetch_training_rows(
         lookback_days=pipeline.training_lookback_days,
         training_population=pipeline.training_population,
     )
-    try:
-        tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
-        result = run_hogql(team=team, query=HogQLQuery(query=_bounded_sql(sql), values=values))
-        if not result.rows or not result.columns:
-            return []
-        rows = result.as_dicts()
-        for r in rows:
-            if r.get("distinct_id") is not None:
-                r["distinct_id"] = str(r["distinct_id"])
-    except Exception:
-        logger.exception(
-            "autoresearch_training_features_query_failed",
-            pipeline_id=str(pipeline.pk),
-        )
-        return []
-    _raise_if_truncated(rows, "training features")
-    return rows
+    return _person_rows(_query(team=team, sql=sql, values=values, user=user, what="Training features"))
 
 
 def _fetch_inference_rows(
-    *,
-    team: Team,
-    pipeline: AutoresearchPipeline,
-    feature_sql: str,
-    cutoff_ts: int | None = None,
+    *, team: Team, pipeline: AutoresearchPipeline, feature_sql: str, cutoff_ts: int | None, user: User
 ) -> list[dict[str, Any]]:
     """
-    Run the inference-features SQL: substitute {anchors} in the agent's
-    feature_sql with the inference anchors (cutoff_ts = now() per user, or the
-    backdated ``cutoff_ts`` instant when backfilling).
-    Returns one row per eligible scoring user, no labels.
+    The recipe's feature SQL against the inference anchors: one row per eligible person.
+
+    The row count is checked against the anchor count, because feature SQL that inner
+    joins or filters a joined table drops people without any row looking wrong.
     """
-    lookback_days = max(30, pipeline.horizon_days * 4)
     sql, values = build_inference_features_sql(
         feature_sql=feature_sql,
-        lookback_days=lookback_days,
+        lookback_days=_feature_lookback_days(pipeline),
         inference_population=pipeline.inference_population,
         cutoff_ts=cutoff_ts,
         target_event=pipeline.target_event,
         target_definition=pipeline.target_definition,
         team=team,
     )
+    rows = _person_rows(_query(team=team, sql=sql, values=values, user=user, what="Inference features"))
     try:
-        tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
-        result = run_hogql(team=team, query=HogQLQuery(query=_bounded_sql(sql), values=values))
-        if not result.rows or not result.columns:
-            return []
-        rows = result.as_dicts()
-        for r in rows:
-            if r.get("distinct_id") is not None:
-                r["distinct_id"] = str(r["distinct_id"])
-    except Exception as exc:
-        logger.exception(
-            "autoresearch_inference_features_query_failed",
-            pipeline_id=str(pipeline.pk),
-        )
-        raise InferenceRunError(
-            "Inference feature query failed; failing the run rather than completing it as an empty population"
-        ) from exc
-    _raise_if_truncated(rows, "inference features")
+        expected = count_inference_anchors(team=team, pipeline=pipeline, cutoff_ts=cutoff_ts, user=user)
+    except SandboxInferenceError as exc:
+        raise InferenceRunError(str(exc)) from exc
+    _require_one_row_per_person(rows, source="inference feature_sql", expected_count=expected)
     return rows
 
 
@@ -707,248 +670,128 @@ def _fit_on_training_predict_on_inference(
     inference_rows: list[dict[str, Any]],
     recipe: dict[str, Any],
     pipeline_id: str,
-) -> list[dict[str, Any]]:
+) -> ScoredPopulation:
     """
-    Fit the recipe's sklearn model on training rows (fold != 0), evaluate on
-    the holdout slice (fold == 0) for a real holdout AUC, predict on
-    inference rows. Falls back to stub scoring on any failure so we still
-    emit predictions (zero-information rather than nothing).
+    Fit the recipe's allowlisted sklearn class on the training folds, score the holdout
+    fold for the AUC the run records, and predict on the inference rows. A fit or predict
+    failure falls back to the stub formula so the cadence still emits.
     """
-    feature_cols = sorted(
-        col
-        for col in training_rows[0]
-        if col not in {"distinct_id", _LABEL_COL, _FOLD_COL}
-        and isinstance(training_rows[0].get(col), (int, float, type(None)))
-    )
+    feature_cols = _numeric_feature_cols(training_rows)
     if not feature_cols:
         logger.warning("autoresearch_no_numeric_features", pipeline_id=pipeline_id)
-        return _score_rows(inference_rows, recipe)
+        return ScoredPopulation(rows=_score_rows(inference_rows), holdout_auc=None)
 
     train_rows = [r for r in training_rows if (r.get(_FOLD_COL) or 0) != _HOLDOUT_FOLD]
     holdout_rows = [r for r in training_rows if (r.get(_FOLD_COL) or 0) == _HOLDOUT_FOLD]
-
     if not train_rows:
         logger.warning("autoresearch_no_train_fold_rows", pipeline_id=pipeline_id)
-        return _score_rows(inference_rows, recipe)
+        return ScoredPopulation(rows=_score_rows(inference_rows), holdout_auc=None)
 
-    X_train = np.array(
-        [[float(r.get(c) or 0) for c in feature_cols] for r in train_rows],
-        dtype=np.float64,
-    )
-    y_train = np.array(
-        [int(r.get(_LABEL_COL) or 0) for r in train_rows],
-        dtype=np.int32,
-    )
+    X_train = _matrix(train_rows, feature_cols)
+    y_train = _labels(train_rows)
     n_pos = int(y_train.sum())
     n_neg = int(len(y_train) - n_pos)
     if n_pos < 5 or n_neg < 5:
-        logger.warning(
-            "autoresearch_insufficient_labels",
-            pipeline_id=pipeline_id,
-            n_pos=n_pos,
-            n_neg=n_neg,
-        )
-        return _score_rows(inference_rows, recipe)
+        logger.warning("autoresearch_insufficient_labels", pipeline_id=pipeline_id, n_pos=n_pos, n_neg=n_neg)
+        return ScoredPopulation(rows=_score_rows(inference_rows), holdout_auc=None)
 
     model_class_path = recipe.get("model_class", "sklearn.linear_model.LogisticRegression")
     model_params = recipe.get("model_params", {})
     try:
-        # This is the in-process legacy path: model_class is resolved via importlib,
-        # an arbitrary-code surface. Gate it on the allowlist here, at the execution
-        # point (iteration recording no longer does — the agent's real model runs in
-        # the sandboxed bundle, where any class is fine).
+        # The one in-process importlib surface: the allowlist is the only defense here,
+        # because a recipe-only champion has no sandbox around its model class.
         validate_model_class(model_class_path)
         module_path, class_name = model_class_path.rsplit(".", 1)
-        module = importlib.import_module(module_path)
-        ModelClass = getattr(module, class_name)
-        estimator = ModelClass(**model_params)
+        estimator = getattr(importlib.import_module(module_path), class_name)(**model_params)
         estimator.fit(X_train, y_train)
     except Exception:
-        logger.exception(
-            "autoresearch_anchored_fit_failed",
-            pipeline_id=pipeline_id,
-            model_class=model_class_path,
-        )
-        return _score_rows(inference_rows, recipe)
+        logger.exception("autoresearch_anchored_fit_failed", pipeline_id=pipeline_id, model_class=model_class_path)
+        return ScoredPopulation(rows=_score_rows(inference_rows), holdout_auc=None)
 
-    # Holdout AUC — informational. Logged so we can see the realized vs
-    # claimed AUC gap later. Skip silently if holdout is empty or single-class.
-    if holdout_rows:
-        try:
-            # Deferred to keep the heavy dependency off the import path.
-            from sklearn.metrics import roc_auc_score  # noqa: PLC0415
+    holdout_auc = _holdout_auc(estimator, holdout_rows, feature_cols, pipeline_id=pipeline_id)
 
-            X_holdout = np.array(
-                [[float(r.get(c) or 0) for c in feature_cols] for r in holdout_rows],
-                dtype=np.float64,
-            )
-            y_holdout = np.array(
-                [int(r.get(_LABEL_COL) or 0) for r in holdout_rows],
-                dtype=np.int32,
-            )
-            if len(set(y_holdout.tolist())) > 1:
-                p_holdout = estimator.predict_proba(X_holdout)[:, 1]
-                holdout_auc = float(roc_auc_score(y_holdout, p_holdout))
-                logger.info(
-                    "autoresearch_anchored_holdout_auc",
-                    pipeline_id=pipeline_id,
-                    holdout_auc=round(holdout_auc, 4),
-                    n_train=len(y_train),
-                    n_holdout=len(y_holdout),
-                    n_features=len(feature_cols),
-                )
-        except Exception:
-            logger.exception("autoresearch_holdout_auc_failed", pipeline_id=pipeline_id)
-
-    # Score inference rows
+    # A present non-numeric value in a fitted column fails the run: zero-filling it would
+    # emit a plausible wrong prediction, the same rule the sandbox path applies.
+    X_score = _matrix(inference_rows, feature_cols)
     try:
-        X_score = np.array(
-            [[float(r.get(c) or 0) for c in feature_cols] for r in inference_rows],
-            dtype=np.float64,
-        )
         proba = estimator.predict_proba(X_score)[:, 1]
     except Exception:
-        logger.exception(
-            "autoresearch_anchored_predict_failed",
-            pipeline_id=pipeline_id,
-            model_class=model_class_path,
-        )
-        return _score_rows(inference_rows, recipe)
-
-    scored: list[dict[str, Any]] = []
-    for row, p in zip(inference_rows, proba):
-        distinct_id = row.get("distinct_id")
-        if not distinct_id:
-            continue
-        scored.append({**row, "p_y": round(float(p), 4)})
-    return scored
-
-
-def _fit_and_score(
-    feature_rows: list[dict[str, Any]],
-    positive_ids: frozenset[str],
-    recipe: dict[str, Any],
-) -> list[dict[str, Any]]:
-    """
-    Fit a sklearn classifier on the current feature population with retrospective
-    labels, then score every row.
-
-    Label: 1 if the person triggered target_event in the last horizon_days.
-    Using the same rows for training and inference is transductive — pragmatic
-    for v1 given that the feature SQL isn't parameterized by a cutoff date.
-
-    Falls back to stub scoring when there are too few positives/negatives, when
-    the model class can't be resolved, or when fit/predict fails.
-    """
-    # Identify numeric feature columns (exclude distinct_id and non-numeric values)
-    sample = feature_rows[0]
-    feature_cols = [
-        col for col in sample if col != "distinct_id" and isinstance(sample.get(col), (int, float, type(None)))
-    ]
-
-    if not feature_cols:
-        logger.warning("autoresearch_no_numeric_features")
-        return _score_rows(feature_rows, recipe)
-
-    X = np.array(
-        [[float(row.get(col) or 0) for col in feature_cols] for row in feature_rows],
-        dtype=np.float64,
-    )
-    y = np.array(
-        [1 if row.get("distinct_id") in positive_ids else 0 for row in feature_rows],
-        dtype=np.int32,
-    )
-
-    n_pos = int(y.sum())
-    n_neg = int(len(y) - n_pos)
-    if n_pos < 5 or n_neg < 5:
-        logger.warning(
-            "autoresearch_insufficient_labels",
-            n_pos=n_pos,
-            n_neg=n_neg,
-        )
-        return _score_rows(feature_rows, recipe)
-
-    model_class_path = recipe.get("model_class", "sklearn.linear_model.LogisticRegression")
-    model_params = recipe.get("model_params", {})
-    try:
-        # Legacy in-process path — gate the importlib resolution on the allowlist
-        # (see the matching guard in _score_via_anchors).
-        validate_model_class(model_class_path)
-        module_path, class_name = model_class_path.rsplit(".", 1)
-        module = importlib.import_module(module_path)
-        ModelClass = getattr(module, class_name)
-        estimator = ModelClass(**model_params)
-        estimator.fit(X, y)
-    except Exception:
-        logger.exception("autoresearch_model_fit_failed", model_class=model_class_path)
-        return _score_rows(feature_rows, recipe)
-
-    try:
-        # Binary classification: column 1 is P(y=1). Multi-class would need
-        # a different event shape (one $autoresearch_p_<class> per column).
-        proba = estimator.predict_proba(X)[:, 1]
-    except Exception:
-        logger.exception("autoresearch_model_predict_failed", model_class=model_class_path)
-        return _score_rows(feature_rows, recipe)
+        logger.exception("autoresearch_anchored_predict_failed", pipeline_id=pipeline_id, model_class=model_class_path)
+        return ScoredPopulation(rows=_score_rows(inference_rows), holdout_auc=holdout_auc)
 
     logger.info(
-        "autoresearch_sklearn_fit_complete",
+        "autoresearch_anchored_fit_complete",
+        pipeline_id=pipeline_id,
         model_class=model_class_path,
-        n_train=len(y),
+        n_train=len(y_train),
         n_pos=n_pos,
         n_features=len(feature_cols),
+        holdout_auc=holdout_auc,
     )
-
-    scored = []
-    for row, p in zip(feature_rows, proba):
-        distinct_id = row.get("distinct_id")
-        if not distinct_id:
-            continue
-        scored.append({**row, "p_y": round(float(p), 4)})
-    return scored
+    scored = [{**row, "p_y": round(float(p), 4)} for row, p in zip(inference_rows, proba)]
+    return ScoredPopulation(rows=scored, holdout_auc=holdout_auc)
 
 
-def _score_rows(feature_rows: list[dict[str, Any]], recipe: dict[str, Any]) -> list[dict[str, Any]]:
+def _matrix(rows: list[dict[str, Any]], feature_cols: list[str]) -> np.ndarray:
+    try:
+        return np.array([[_num(r.get(c), col=c) for c in feature_cols] for r in rows], dtype=np.float64)
+    except SandboxInferenceError as exc:
+        raise InferenceRunError(str(exc)) from exc
+
+
+def _labels(rows: list[dict[str, Any]]) -> np.ndarray:
+    return np.array([int(r.get(_LABEL_COL) or 0) for r in rows], dtype=np.int32)
+
+
+def _holdout_auc(
+    estimator: Any, holdout_rows: list[dict[str, Any]], feature_cols: list[str], *, pipeline_id: str
+) -> float | None:
+    """AUC on fold 0, or None when the holdout is empty, single-class, or fails to score."""
+    if not holdout_rows:
+        return None
+    try:
+        # Deferred to keep the heavy dependency off the import path.
+        from sklearn.metrics import roc_auc_score  # noqa: PLC0415
+
+        y_holdout = _labels(holdout_rows)
+        if len(set(y_holdout.tolist())) < 2:
+            return None
+        p_holdout = estimator.predict_proba(_matrix(holdout_rows, feature_cols))[:, 1]
+        return round(float(roc_auc_score(y_holdout, p_holdout)), 4)
+    except Exception:
+        logger.exception("autoresearch_holdout_auc_failed", pipeline_id=pipeline_id)
+        return None
+
+
+def _score_rows(feature_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
-    Apply a scoring function to feature rows.
-
-    For the stub: normalize the total event count into a [0, 1] score
-    as a proxy for engagement probability. Real scoring fits a model
-    from the recipe's model_class + model_params on historical data.
+    The stub formula: a sigmoid of event volume against recency, as a proxy for engagement.
+    Serves stub champions, and any recipe-only champion whose fit could not run.
     """
     if not feature_rows:
         return []
 
-    # Stub scoring: sigmoid of normalised event_count
-    # Find the events_total column (name varies by lookback_days in the stub SQL)
+    # The stub SQL names the column by its window ("events_total_30d"); the fixture SQL
+    # names it "events_total".
     total_col = next(
         (col for col in feature_rows[0].keys() if col.startswith("events_total_") or col == "events_total"),
         None,
     )
-    days_col = next(
-        (col for col in feature_rows[0].keys() if "days_since_last" in col),
-        None,
-    )
+    days_col = next((col for col in feature_rows[0].keys() if "days_since_last" in col), None)
 
     def _sigmoid(x: float) -> float:
         return 1.0 / (1.0 + math.exp(-x))
 
     def _stub_score(row: dict[str, Any]) -> float:
-        activity = float(row.get(total_col, 0) or 0) if total_col else 0.0
-        recency = float(row.get(days_col, 30) or 30) if days_col else 30.0
-        # More activity + more recent → higher score
+        activity = float(row.get(total_col) or 0) if total_col else 0.0
+        # Zero days since the last event is the most recent a person can be; only an
+        # absent value falls back to a month.
+        recency_value = row.get(days_col) if days_col else None
+        recency = float(recency_value) if recency_value is not None else 30.0
         raw = (activity / 20.0) - (recency / 14.0)
         return round(_sigmoid(raw), 4)
 
-    scored = []
-    for row in feature_rows:
-        distinct_id = row.get("distinct_id")
-        if not distinct_id:
-            continue
-        scored.append({**row, "p_y": _stub_score(row)})
-
-    return scored
+    return [{**row, "p_y": _stub_score(row)} for row in feature_rows if row.get("distinct_id")]
 
 
 def _summarize_scores(scores: list[float]) -> dict[str, Any]:

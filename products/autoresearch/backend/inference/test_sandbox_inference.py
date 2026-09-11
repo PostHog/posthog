@@ -11,6 +11,7 @@ from django.test import SimpleTestCase
 import pandas as pd
 from parameterized import parameterized
 
+from posthog.api.capture import CaptureInternalResult
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.user import User
 
@@ -163,7 +164,10 @@ class TestMaterializeData(TeamScopedTestMixin, BaseTest):
 
     def test_score_data_is_inference_only_no_labels(self):
         pipeline = self._pipeline()
-        with patch.object(sandbox_inference, "_materialize_rows", return_value=_SCORE_ROWS) as run:
+        with (
+            patch.object(sandbox_inference, "count_inference_anchors", return_value=len(_SCORE_ROWS)),
+            patch.object(sandbox_inference, "_materialize_rows", return_value=_SCORE_ROWS) as run,
+        ):
             score_rows = _materialize_score_data(
                 team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}"
             )
@@ -172,9 +176,20 @@ class TestMaterializeData(TeamScopedTestMixin, BaseTest):
         assert run.call_count == 1
         assert [r["distinct_id"] for r in score_rows] == ["s1", "s2"]
 
-    def test_score_data_rejects_duplicate_persons(self):
+    @parameterized.expand(
+        [
+            ("duplicate_persons", [_SCORE_ROWS[0]] * 2, 1),
+            ("dropped_anchor", [_SCORE_ROWS[0]], 2),
+        ]
+    )
+    def test_score_data_rejects_rows_that_do_not_key_every_anchor_once(self, _name, rows, anchor_count):
+        # A dropped anchor is invisible in the rows themselves: an inner join in features.sql
+        # returns only valid-looking rows, and the person it lost is never scored again.
         pipeline = self._pipeline()
-        with patch.object(sandbox_inference, "_materialize_rows", return_value=[_SCORE_ROWS[0]] * 2):
+        with (
+            patch.object(sandbox_inference, "count_inference_anchors", return_value=anchor_count),
+            patch.object(sandbox_inference, "_materialize_rows", return_value=rows),
+        ):
             with self.assertRaises(SandboxInferenceError):
                 _materialize_score_data(team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}")
 
@@ -520,8 +535,8 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
                 score_via_sandbox(team=self.team, pipeline=pipeline, model=model)
             materialize.assert_not_called()
 
-            with self.assertRaises(SandboxInferenceError):  # no rows, after materialization ran as the user
-                score_via_sandbox(team=self.team, pipeline=pipeline, model=model, user=self.user)
+            result = score_via_sandbox(team=self.team, pipeline=pipeline, model=model, user=self.user)
+        assert result.scored_rows == []  # materialization ran, as the explicit user
         assert materialize.call_args.kwargs["user"] == self.user
 
     def test_predict_failure_raises_and_destroys_sandbox(self):
@@ -554,8 +569,11 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
         assert not fake.ran("predict.py")
         assert fake.destroyed is True
 
-    def test_empty_score_rows_raises_before_sandbox(self):
+    def test_empty_population_completes_with_no_rows_and_no_sandbox(self):
+        # A population that matches nobody is a real zero; the recipe path completes it too.
         pipeline, model = self._pipeline_and_model()
+        model.holdout_score = 0.61
+        model.save(update_fields=["holdout_score"])
         create_mock = MagicMock()
         with (
             patch.object(sandbox_inference, "read_bundle", return_value=self._bundle()),
@@ -564,9 +582,10 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
             patch.object(sandbox_inference, "_materialize_score_data", return_value=[]),
             patch.object(sandbox_inference.Sandbox, "create", create_mock),
         ):
-            with self.assertRaises(SandboxInferenceError):
-                score_via_sandbox(team=self.team, pipeline=pipeline, model=model)
-        create_mock.assert_not_called()  # cheap guard fires before paying for a sandbox
+            result = score_via_sandbox(team=self.team, pipeline=pipeline, model=model)
+        assert result.scored_rows == []
+        assert result.holdout_auc == 0.61
+        create_mock.assert_not_called()
 
     def test_fit_champion_model_trains_smoke_tests_predict_and_persists(self):
         pipeline, model = self._pipeline_and_model()
@@ -658,11 +677,15 @@ class TestInferenceRouting(TeamScopedTestMixin, BaseTest):
             n_train=2,
             n_features=2,
         )
-        emit = MagicMock()
-        emit.return_value.raise_for_status = MagicMock()
+        emit = MagicMock(
+            side_effect=lambda **kwargs: CaptureInternalResult(
+                status_code=200, ok=[e["event_uuid"] for e in kwargs["events"]]
+            )
+        )
         with (
             patch("products.autoresearch.backend.inference.scoring.score_via_sandbox", return_value=sandbox_result),
-            patch("products.autoresearch.backend.inference.scoring.capture_internal", emit),
+            patch("products.autoresearch.backend.inference.scoring._resolve_distinct_ids", return_value={}),
+            patch("products.autoresearch.backend.inference.scoring.capture_batch_internal", emit),
         ):
             run = run_inference_for_pipeline(pipeline=pipeline, model=model)
 
@@ -670,7 +693,8 @@ class TestInferenceRouting(TeamScopedTestMixin, BaseTest):
         assert run.rows_scored == 2
         assert run.metrics["sandbox"] is True
         assert run.metrics["holdout_auc"] == 0.71
-        assert emit.call_count == 2
+        assert emit.call_count == 1
+        assert len(emit.call_args.kwargs["events"]) == 2
 
     def test_sandbox_failure_marks_run_failed_with_error(self):
         pipeline, model = self._pipeline_and_bundle_model()

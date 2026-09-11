@@ -16,6 +16,7 @@ SELECT
 FROM {anchors} a
 LEFT JOIN events e
     ON e.person_id = a.person_id
+    AND e.event != 'autoresearch_prediction'
     AND e.timestamp <  fromUnixTimestamp(a.cutoff_ts)
     AND e.timestamp >= fromUnixTimestamp(a.cutoff_ts) - toIntervalDay({lookback_days})
 -- cutoff_ts is 1:1 with person_id; include it in GROUP BY so ClickHouse allows
