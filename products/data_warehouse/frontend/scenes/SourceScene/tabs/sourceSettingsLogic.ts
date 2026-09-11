@@ -1079,6 +1079,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     ...values.source?.job_inputs,
                     ...sanitizedPayload,
                 }
+                const shouldRefreshDirectSchemas =
+                    values.source?.access_method === 'direct' &&
+                    !objectsEqual(newJobInputs, values.source?.job_inputs ?? {})
 
                 // Read before the update, while `values.source` still holds the old config, so we can
                 // offer a resync when the user widens the history window (otherwise it's silently ignored).
@@ -1133,6 +1136,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     })
                     actions.loadSource()
                     lemonToast.success('Source updated')
+                    if (shouldRefreshDirectSchemas) {
+                        actions.refreshSchemas()
+                    }
 
                     if (nextLookbackDays > previousLookbackDays && schemasToResync.length > 0) {
                         LemonDialog.open({

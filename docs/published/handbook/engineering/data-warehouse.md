@@ -12,6 +12,12 @@ Looking to add a new source to data warehouse? [We have a detailed guide in the 
 
 > If you're a customer of PostHog Cloud and are looking to import data into your project, then you're likely looking for [this section of the docs instead](https://posthog.com/docs/cdp/sources)
 
+## Updating direct query sources
+
+Saving a direct query source validates and persists its connection settings before the frontend calls the `refresh_schemas` endpoint. Keep schema discovery and reconciliation out of the settings update request so slow upstream metadata queries cannot hold database locks while the source is being edited.
+
+Schema reconciliation is serialized per source with `schema_reconciliation_lock`. Do not replace it with a lock on the `ExternalDataSource` row: that row is also used by settings updates and referenced by schema rows.
+
 ## Importing your local Postgres instance
 
 1. Head to the [new source flow](http://localhost:8010/project/pipeline/new/source) in your local app, hit the link button next to Postgres
