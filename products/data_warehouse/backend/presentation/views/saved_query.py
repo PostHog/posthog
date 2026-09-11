@@ -1526,9 +1526,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         request_data = getattr(self.request, "data", {})
-        # The list action stays out: building a database selects every view in the team, SQL body
-        # included, and nothing the list serializes reads it.
-        should_include_database = self.action in {"create", "retrieve"} or (
+        # Read actions stay out: building a database selects every view in the team, SQL body
+        # included, and neither serializer reads it. Only the write paths below do, to check a
+        # name collision and to resolve a query's source tables.
+        should_include_database = self.action == "create" or (
             self.action in {"update", "partial_update"} and ("name" in request_data or "query" in request_data)
         )
 

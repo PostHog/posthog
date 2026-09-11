@@ -746,6 +746,35 @@ class TestSavedQuery(APIBaseTest):
         folder_selects = [q["sql"] for q in queries.captured_queries if f'FROM "{folder_table}"' in q["sql"]]
         self.assertEqual(folder_selects, [])
 
+    def test_retrieve_does_not_build_a_hogql_database(self):
+        # The SQL editor hits this route on every tab open and after every save. A HogQL database
+        # build selects every view in the team with its SQL body, and no field the detail
+        # serializer returns reads one.
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="view_a",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            columns={"event": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="view_b",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/",
+            )
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual([column["key"] for column in response.json()["columns"]], ["event"])
+        # The database build is the only reader that selects the team's views ordered by name.
+        table = DataWarehouseSavedQuery._meta.db_table
+        view_selects = [q["sql"] for q in queries.captured_queries if f'FROM "{table}"' in q["sql"]]
+        self.assertTrue(view_selects)
+        self.assertEqual([sql for sql in view_selects if f'ORDER BY "{table}"."name"' in sql], [])
+
     def test_get_deleted_query(self):
         query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
