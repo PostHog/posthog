@@ -70196,6 +70196,29 @@ export namespace Schemas {
       channel?: string | null;
     }
 
+    export interface PatchedTeamLogsConfig {
+      /** Legacy single-key alias — always the first entry of `logs_distinct_id_attribute_keys`. Read-only; write the plural field instead. */
+      readonly logs_distinct_id_attribute_key?: string;
+      /**
+         * Log attribute keys whose values should match a person's distinct_id — a log links to a person when any of these attributes equals one of their distinct IDs. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to ['posthogDistinctId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the person identifier under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_distinct_id_attribute_keys?: string[];
+      /**
+         * Ordered list of log attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_session_id_attribute_keys?: string[];
+      /**
+         * Ordered list of top-level JSON keys whose value is the message text that log patterns are derived from. Keys are matched literally at the top level of the log body; a dot in a key is part of the key name, not a path into nested objects. Selection checks keys in order; the first key whose value is a non-empty string wins. Defaults to ['message', 'msg', 'event']. An empty list turns message extraction off, so JSON log bodies group by their key set instead. The stored log body is never changed by this setting.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_pattern_message_keys?: string[];
+    }
+
     export interface PatchedTeamTracingConfig {
       /**
          * Span or resource attribute keys whose values should match a person's distinct_id — a span links to a person when any of these attributes holds one of their distinct IDs. Defaults to ['posthogDistinctId'], the key the posthog-js / posthog-react-native SDKs attach to the OTel signals they emit. Add keys only if your pipeline emits the person identifier under different attributes.
@@ -80347,6 +80370,19 @@ export namespace Schemas {
       started: boolean;
     }
 
+    /**
+     * Request body for an on-demand (`run now`) scout dispatch.
+     *
+     * Every field is optional: a plain trigger sends no body at all.
+     */
+    export interface SignalScoutManualRunRequest {
+      /**
+         * Optional steering for this run only, such as 'focus on the checkout regression' or 'skip the staging traffic today'. The agent reads it alongside the scout's durable notes and weighs it the same way: it directs attention, it never forces a finding. Use it instead of leaving a scout note that would also steer every later scheduled run. The note is kept on the run for history and is never read by another run. Because the agent reads it verbatim while holding privileged tools, a run that carries one needs `llm_skill:write` on top of `signal_scout:write`, plus editor access to skills, the same bar as leaving a note.
+         * @maxLength 1000
+         */
+      note?: string;
+    }
+
     export type SignalScoutRunDetailMetadataDerived = {
       has_emit_report: boolean;
       has_edit_report: boolean;
@@ -80372,6 +80408,7 @@ export namespace Schemas {
       network_access?: string;
       write_scopes?: string[];
       triggered_by?: string;
+      run_note?: string;
       derived?: SignalScoutRunDetailMetadataDerived;
       [key: string]: unknown;
      };
@@ -80470,6 +80507,7 @@ export namespace Schemas {
       network_access?: string;
       write_scopes?: string[];
       triggered_by?: string;
+      run_note?: string;
       derived?: SignalScoutRunSummaryMetadataDerived;
       [key: string]: unknown;
      };
@@ -88485,6 +88523,29 @@ export namespace Schemas {
       readonly email_sending_suspension_reason: string;
       /** The project's sending tier, what it allows, and how much of it has been used; null when the caller lacks project-wide workflow access. */
       readonly sending_allowance: EmailSendingAllowance | null;
+    }
+
+    export interface TeamLogsConfig {
+      /** Legacy single-key alias — always the first entry of `logs_distinct_id_attribute_keys`. Read-only; write the plural field instead. */
+      readonly logs_distinct_id_attribute_key: string;
+      /**
+         * Log attribute keys whose values should match a person's distinct_id — a log links to a person when any of these attributes equals one of their distinct IDs. Used by the person profile Logs tab and the `query-logs` MCP tool. Defaults to ['posthogDistinctId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the person identifier under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_distinct_id_attribute_keys: string[];
+      /**
+         * Ordered list of log attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'] — the convention documented at https://posthog.com/docs/logs/link-session-replay and the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_session_id_attribute_keys: string[];
+      /**
+         * Ordered list of top-level JSON keys whose value is the message text that log patterns are derived from. Keys are matched literally at the top level of the log body; a dot in a key is part of the key name, not a path into nested objects. Selection checks keys in order; the first key whose value is a non-empty string wins. Defaults to ['message', 'msg', 'event']. An empty list turns message extraction off, so JSON log bodies group by their key set instead. The stored log body is never changed by this setting.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      logs_pattern_message_keys: string[];
     }
 
     export const TeamMCPGatewayConfigMemberDefaultPreset = {...MCPPolicyPresetEnum,...BlankEnum,} as const
