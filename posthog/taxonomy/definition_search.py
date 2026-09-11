@@ -59,8 +59,9 @@ def _cached_search_plan(table: DefinitionTable, project_id: int, db_alias: str) 
         return cached
 
     with connections[db_alias].cursor() as cursor:
+        # Ordering by the index key keeps the probe on the project-scoped index; see `bounded_count_sql`.
         cursor.execute(
-            f"SELECT count(*) FROM (SELECT 1 FROM {table} WHERE COALESCE(project_id, team_id) = %(project_id)s LIMIT %(limit)s) bounded",
+            f"SELECT count(*) FROM (SELECT 1 FROM {table} WHERE COALESCE(project_id, team_id) = %(project_id)s ORDER BY name LIMIT %(limit)s) bounded",
             {"project_id": project_id, "limit": PROJECT_SCAN_MAX_DEFINITIONS + 1},
         )
         definition_count = cursor.fetchone()[0]
