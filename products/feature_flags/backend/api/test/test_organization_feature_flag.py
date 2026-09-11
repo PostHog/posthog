@@ -4113,6 +4113,30 @@ class TestOrganizationFeatureFlagCopyGroupTypes(APIBaseTest):
         copied_flag = FeatureFlag.objects.get(key=source_flag.key, team=self.team_3)
         self.assertEqual(copied_flag.filters["aggregation_group_type_index"], 1)
 
+    @patch(
+        "posthog.models.group_type_mapping._fetch_group_types_for_projects_via_personhog",
+        side_effect=RuntimeError("group type store unreachable"),
+    )
+    @patch(
+        "posthog.models.group_type_mapping._fetch_group_types_via_personhog",
+        side_effect=RuntimeError("group type store unreachable"),
+    )
+    def test_copy_flag_asks_for_a_retry_when_the_group_type_store_cannot_be_read(self, *_mocks: Any):
+        source_flag = self._create_source_flag(
+            "group-aggregated-flag",
+            {"aggregation_group_type_index": 1, "groups": [{"rollout_percentage": 100}]},
+        )
+
+        response = self._post_copy_flag(source_flag.key)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["success"], [])
+        error_message = response.json()["failed"][0]["error_message"]
+        self.assertIn("Try again in a moment", error_message)
+        self.assertNotIn("Send an event", error_message)
+        self.assertNotIn("Fix the flag's release conditions", error_message)
+        self.assertFalse(FeatureFlag.objects.filter(key=source_flag.key, team=self.team_2).exists())
+
     def test_copy_flag_remaps_group_type_index_in_a_copied_scheduled_change(self):
         source_flag = self._create_source_flag(
             "scheduled-group-flag",

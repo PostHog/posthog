@@ -23,7 +23,11 @@ from posthog.api.utils import ErrorResponseSerializer, action
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.filters.filter import Filter
-from posthog.models.group_type_mapping import get_group_types_for_project, invalidate_group_types_cache
+from posthog.models.group_type_mapping import (
+    GroupTypesUnavailable,
+    get_group_types_for_project,
+    get_group_types_for_projects,
+)
 from posthog.rate_limit import CopyFlagsBurstRateThrottle, CopyFlagsSustainedRateThrottle
 from posthog.user_permissions import UserPermissions
 from posthog.utils import safe_int
@@ -1481,28 +1485,46 @@ class OrganizationFeatureFlagView(
         self, source_indexes: set[int], source_team: Team, target_team: Team
     ) -> dict[int, int]:
         try:
-            return self._map_group_type_indexes(source_indexes, source_team, target_team)
+            return self._map_group_type_indexes(
+                source_indexes,
+                get_group_types_for_project(source_team.project_id, caller_tag="flags/copy-flags"),
+                get_group_types_for_project(target_team.project_id, caller_tag="flags/copy-flags"),
+            )
         except ValueError:
-            # Group types are cached per project for minutes, and one created by event ingestion
-            # does not invalidate that cache, so an index that does not resolve can just mean the
-            # read is stale. Read once more before we tell the user the group type is missing.
-            invalidate_group_types_cache(source_team.project_id)
-            invalidate_group_types_cache(target_team.project_id)
-            return self._map_group_type_indexes(source_indexes, source_team, target_team)
+            # The cached read holds a snapshot for minutes, and it reports an unreachable mapping
+            # store as an empty list, so an index that does not resolve can mean either. Confirm
+            # against the batch read, which reads past the cache and raises GroupTypesUnavailable
+            # instead of answering "missing" when the store cannot be read.
+            try:
+                confirmed_group_types = get_group_types_for_projects(
+                    [source_team.project_id, target_team.project_id], caller_tag="flags/copy-flags"
+                )
+            except GroupTypesUnavailable as error:
+                raise ValueError(
+                    "Couldn't read the group types needed to copy this flag. Try again in a moment."
+                ) from error
+            return self._map_group_type_indexes(
+                source_indexes,
+                confirmed_group_types[source_team.project_id],
+                confirmed_group_types[target_team.project_id],
+            )
 
-    def _map_group_type_indexes(self, source_indexes: set[int], source_team: Team, target_team: Team) -> dict[int, int]:
-        source_group_types = {
-            group_type["group_type_index"]: group_type["group_type"]
-            for group_type in get_group_types_for_project(source_team.project_id, caller_tag="flags/copy-flags")
+    def _map_group_type_indexes(
+        self,
+        source_indexes: set[int],
+        source_group_types: list[dict[str, Any]],
+        target_group_types: list[dict[str, Any]],
+    ) -> dict[int, int]:
+        source_group_types_by_index = {
+            group_type["group_type_index"]: group_type["group_type"] for group_type in source_group_types
         }
         target_indexes_by_group_type = {
-            group_type["group_type"]: group_type["group_type_index"]
-            for group_type in get_group_types_for_project(target_team.project_id, caller_tag="flags/copy-flags")
+            group_type["group_type"]: group_type["group_type_index"] for group_type in target_group_types
         }
 
         index_map: dict[int, int] = {}
         for source_index in sorted(source_indexes):
-            source_group_type = source_group_types.get(source_index)
+            source_group_type = source_group_types_by_index.get(source_index)
             if source_group_type is None:
                 raise ValueError(
                     "This flag aggregates by a group type that no longer exists in the source project "
