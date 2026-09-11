@@ -176,6 +176,7 @@ You don't have to open the UI for that: **`tasks-runs-session-logs-retrieve` ret
 Pass the run's `task_run_id` as `id` and its `task_id` (both are on the run row).
 
 The raw stream is large (hundreds of KB to a few MB) and will overflow inline, so **fetch it with `call --json` and let it spill to a file**, then run it through [`scripts/render_run_report.py`](#helper-scripts) rather than parsing it by hand.
+The tool returns 100 entries by default and at most 5000 per call, and its pagination state is not in the body, so pass `limit: 5000` and repeat with a growing `offset` until a page comes back short, then concatenate the pages before rendering; a single default page can drop the failure tail.
 
 ⚠️ **Do not reach for `exclude_types: "tool_call_update,…"` to slim it down.** It is tempting — the stream is dominated by incremental `tool_call_update` chunks — but each tool's **actual input lives only in those chunks**: the base `tool_call` event carries an empty `rawInput`, and the streamed updates build the input (and the final `rawOutput`) token by token.
 Excluding them leaves you with tool _names_ but no idea what the scout actually queried.
@@ -306,7 +307,7 @@ Produces the kind of detailed write-up you'd want when inspecting a single run: 
 ```bash
 # fetch (note --json), saving each to a file:
 #   call --json scout-runs-retrieve { "id": "<run_id>" }            -> run.json
-#   call --json tasks-runs-session-logs-retrieve { "id": "<task_run_id>", "task_id": "<task_id>", "offset": 0 }  -> log.json   (FULL — no exclude_types)
+#   call --json tasks-runs-session-logs-retrieve { "id": "<task_run_id>", "task_id": "<task_id>", "limit": 5000, "offset": 0 }  -> log.json   (FULL, no exclude_types; page with offset until short, then concatenate)
 #   (optional) call --json scout-scratchpad-search { ... }          -> mem.json
 #   (optional) call --json scout-config-list {}                     -> cfg.json
 python scripts/render_run_report.py --run run.json --log log.json \

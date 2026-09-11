@@ -49,7 +49,7 @@ One access rule covers everything here: scout rows live on the project's **canon
 The `description` on each row says what that scout watches — scan it to answer "which scout covers X?" without loading any skill bodies.
 (A row with an empty description is usually an orphan whose skill was since deleted — it can't run, so don't count it as coverage.)
 PostHog ships specialists for most product surfaces (error tracking, logs, web analytics, AI observability, experiments, feature flags, session replay, surveys, revenue, and more) plus a cross-product generalist, and teams add custom scouts beyond that (any skill name works; only the `signals-scout-` prefix gets a config auto-registered, so a scout named anything else comes in through `posthog:scout-create`).
-Each row also carries `scout_origin` (`canonical` or `custom`), which tells a PostHog-seeded scout from a team-authored one. It cannot tell you whether a canonical scout has been edited in place and so diverged from upstream: that row still reads `canonical`, so compare the body against the canonical version (`posthog:skill-get`) when divergence matters.
+Each row also carries `scout_origin` (`canonical` or `custom`), which tells a PostHog-seeded scout from a team-authored one. It cannot tell you whether a canonical scout has been edited in place and so diverged from upstream: that row still reads `canonical`. When divergence matters, compare the row's body with the canonical source in the PostHog repository (`products/signals/skills/<skill>/SKILL.md`); `posthog:skill-get` returns the team's live row, which is the edited copy.
 
 ## The working loop
 
@@ -113,7 +113,7 @@ When you want a scout to behave differently, climb this ladder from cheapest to 
    Right for: one wrong report, a known-noise pattern surfacing for the first time, a misrouted report.
 2. **Steer one run** (`posthog:scout-run-now` with a `note`).
    Right for: a one-off focus you want checked now ("look at the checkout regression") without leaving anything the scheduled runs will read later.
-   The note is read by that run only (up to 1,000 characters), it spends a run from the daily budget like any manual run, and it needs `llm_skill:write` on top of `signal_scout:write` plus skill-editor access on the project (a 403 otherwise). A caller without that access can still run the scout without a note.
+   The note steers that run only (up to 1,000 characters) and is never delivered to later runs as a note, though it stays visible in that run's metadata when a later run reads its history, so phrase it as a dated one-off ("today only: ..."). It spends a run from the daily budget like any manual run, and it needs `llm_skill:write` on top of `signal_scout:write` plus skill-editor access on the project (a 403 otherwise). A caller without that access can still run the scout without a note.
 3. **Leave a note** (`posthog:scout-notes-create`, per-scout or fleet-wide, optionally time-boxed with `expires_at`).
    Right for: feedback, pointers, and context with a shelf life — "the spike you keep flagging is known noise", "dig into EU signups this week", "new checkout shipped Tuesday".
    Notes are advisory: they direct attention but never lower the evidence bar or force a report.

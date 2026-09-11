@@ -90,7 +90,7 @@ Free and instant — refine the body, re-run the queries, repeat, until the logi
 
 Only once you're happy do you spend a real run.
 `posthog:scout-run-now {"id": <config_id>}` dispatches one run of the scout immediately, regardless of its schedule (get the `id` from `-config-list`) — the **initial real run**, the scout executing end-to-end in the harness.
-An optional `note` steers that run alone (read next to the durable notes, never by a later run; needs `llm_skill:write` and skill-editor access, like a durable note), so you can aim the first run at the case you dogfooded.
+An optional `note` steers that run alone (read next to the durable notes and never delivered to a later run as a note, though it stays visible in that run's metadata; needs `llm_skill:write` and skill-editor access, like a durable note), so you can aim the first run at the case you dogfooded.
 The run is **asynchronous**: the call returns a workflow id right away; poll `-runs-list` (pass `skill_name` to scope to this scout) / `-runs-retrieve` for the result.
 A disabled scout can still be run this way (test before enabling), and a manual run doesn't touch the schedule or `last_run_at`.
 It inherits the scheduled path's guards (403 not enabled, 429 over quota / daily run budget, 409 a run already in progress) and draws from the **same daily run budget** as scheduled runs — a dry-run (`emit=false`) counts too.

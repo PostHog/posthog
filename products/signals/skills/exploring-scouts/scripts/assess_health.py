@@ -138,21 +138,16 @@ def assess_scout(name: str, runs: list[dict], interval: float | None, mem_count:
 
     durations = [m for r in runs if (m := minutes_between(r.get("started_at"), r.get("completed_at"))) is not None]
     median_dur = round(statistics.median(durations), 1) if durations else None
-    # `failure_reason` is authoritative when the row carries one: a run that hit the wall says so,
-    # and a run that names a credential or tool failure is not a timeout however long it ran.
-    # The duration heuristic covers rows from before the field existed.
+    # A wall overrun is a failed run that ran to the budget AND whose `failure_reason`, when the
+    # row carries one, says it timed out. A named credential or tool failure is not a timeout
+    # however long it ran, and a fast upstream timeout is not over-investigation.
     timeouts = sum(
         1
         for r in runs
         if r.get("status") == "failed"
-        and (
-            _is_timeout_reason(r.get("failure_reason"))
-            or (
-                not r.get("failure_reason")
-                and (m := minutes_between(r.get("started_at"), r.get("completed_at"))) is not None
-                and m >= TIMEOUT_MINUTES
-            )
-        )
+        and (m := minutes_between(r.get("started_at"), r.get("completed_at"))) is not None
+        and m >= TIMEOUT_MINUTES
+        and (not r.get("failure_reason") or _is_timeout_reason(r.get("failure_reason")))
     )
 
     # cadence: consecutive gaps between run starts
@@ -238,6 +233,12 @@ def render(scouts: list[dict], window_note: str, has_mem: bool, *, art: bool = T
         elif s["stale_min"] is not None and s["interval"] and s["stale_min"] > STALL_FACTOR * s["interval"]:
             flags.append(f" * {s['name']}: last run {fmt_age(s['stale_min'])} ago vs a {int(s['interval'])}m cadence — may be drained from the flag.")
 
+    for s in scouts:
+        if s.get("cron"):
+            flags.append(
+                f" * {s['name']}: runs on a cron schedule, so cadence, stalls and staleness are NOT assessed here;"
+                " compare last_run_at and the newest run against its slots by hand."
+            )
     L += ["-" * 78, " worth a look", "-" * 78]
     L += sorted(set(flags)) if flags else [" (none — cadence, success, and memory all look nominal)"]
 
