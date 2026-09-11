@@ -1,9 +1,10 @@
 from typing import Any
 
-from posthog.test.base import TestMigrations
+from posthog.test.base import NonAtomicTestMigrations
 
 
-class ExperimentDormantV2AnalysisColumnsMigrationTest(TestMigrations):
+# Rewinding to migrate_from unapplies 0040's concurrent index DDL, which Postgres refuses inside a transaction.
+class ExperimentDormantV2AnalysisColumnsMigrationTest(NonAtomicTestMigrations):
     migrate_from = "0038_alter_experimentholdout_created_by_and_more"
     migrate_to = "0039_experiment_dormant_v2_analysis_columns"
 

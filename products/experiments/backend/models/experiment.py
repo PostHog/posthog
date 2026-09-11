@@ -159,6 +159,14 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     class Meta:
         db_table = "posthog_experiment"
+        constraints = [
+            # Rule IDs are UUIDs that no later experiment may reuse, so uniqueness is global, not per team.
+            models.UniqueConstraint(
+                fields=["feature_flag_rule_id"],
+                condition=models.Q(feature_flag_rule_id__isnull=False),
+                name="posthog_experiment_feature_flag_rule_id_uniq",
+            )
+        ]
 
     def __str__(self):
         return self.name or "Untitled"
