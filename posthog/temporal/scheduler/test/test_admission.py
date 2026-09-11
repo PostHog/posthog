@@ -312,6 +312,30 @@ class TestReserveSchedulerClaims(TestCase):
         )
         self.assertFalse(TemporalSchedulerPermitPool.objects.filter(tenant_key="team:1").exists())
 
+    @patch(
+        "posthog.temporal.scheduler.admission._sample_claim_state",
+        side_effect=RuntimeError("health query failed"),
+    )
+    def test_claim_health_failure_does_not_roll_back_admission(self, _sample_claim_state: MagicMock) -> None:
+        metrics = MagicMock(spec=SchedulerMetrics)
+
+        result = reserve_scheduler_claims(
+            scheduler=SCHEDULER,
+            region=REGION,
+            requests=[_request("team:1", "one")],
+            limits=_limits(),
+            metrics=metrics,
+        )
+
+        self.assertEqual(len(result.reservations), 1)
+        self.assertEqual(TemporalSchedulerClaim.objects.count(), 1)
+        self.assertEqual(
+            TemporalSchedulerPermitPool.objects.get(scheduler=SCHEDULER, region=REGION, tenant_key="").in_flight,
+            1,
+        )
+        metrics.set_permits_in_flight.assert_called_once_with(SCHEDULER, REGION, 1)
+        metrics.set_claim_state.assert_not_called()
+
     @patch("posthog.temporal.scheduler.admission.TemporalSchedulerClaim.objects.bulk_update")
     def test_reused_claim_write_failure_rolls_back_claim_and_permit_counters(self, bulk_update: MagicMock) -> None:
         request = _request("team:1", "one")
