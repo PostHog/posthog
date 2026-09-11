@@ -1,8 +1,7 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 
-import { LemonBanner, LemonCard, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { aiObservabilityTraceLogic } from '../aiObservabilityTraceLogic'
@@ -17,8 +16,6 @@ export function FeedbackViewDisplay(): JSX.Element {
     const { surveyEvents, surveyEventsLoading, surveys, surveysLoading, hasLoadingError } = useValues(
         feedbackViewLogic({ traceId })
     )
-    const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
 
     if (surveyEventsLoading || surveysLoading) {
         return <LemonSkeleton className="h-8" />
@@ -54,20 +51,6 @@ export function FeedbackViewDisplay(): JSX.Element {
                 <LemonBanner type="warning">
                     Some feedback on this trace points to a survey that isn't in this project, so it can't be shown.
                     Check that the <code>$survey_id</code> you send with <code>survey sent</code> matches a survey here.
-                </LemonBanner>
-            )}
-
-            {hasSurveyEvents && !currentTeam?.surveys_opt_in && (
-                <LemonBanner type="warning">
-                    <div className="flex items-center justify-between gap-2">
-                        <span>Surveys are disabled for this project. Your feedback surveys won't work.</span>
-                        <LemonSwitch
-                            checked={false}
-                            onChange={(checked) => updateCurrentTeam({ surveys_opt_in: checked })}
-                            label="Enable surveys"
-                            bordered
-                        />
-                    </div>
                 </LemonBanner>
             )}
 
