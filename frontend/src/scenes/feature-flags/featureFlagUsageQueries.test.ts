@@ -1,10 +1,12 @@
 import { Noun } from '~/models/groupsModel'
-import { DateRange } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, DateRange } from '~/queries/schema/schema-general'
 
 import {
     buildEnrichedUsageCharts,
     buildFlagCalledTotalVolumeChart,
     buildFlagCalledUniqueCallersChart,
+    buildFlagEvaluationsTotalVolumeChart,
+    buildFlagEvaluationsUniqueCallersChart,
     FlagUsageChart,
     FlagUsageQueryOptions,
 } from './featureFlagUsageQueries'
@@ -135,6 +137,59 @@ describe('featureFlagUsageQueries', () => {
             },
         ])
     })
+
+    it.each([
+        [
+            'buildFlagEvaluationsTotalVolumeChart',
+            (options: FlagUsageQueryOptions): FlagUsageChart<DataVisualizationNode> =>
+                buildFlagEvaluationsTotalVolumeChart(options),
+        ],
+        [
+            'buildFlagEvaluationsUniqueCallersChart',
+            (options: FlagUsageQueryOptions): FlagUsageChart<DataVisualizationNode> =>
+                buildFlagEvaluationsUniqueCallersChart(options),
+        ],
+    ])('%s reads flag_evaluations with the flag key and date range bound as parameters', (_name, build) => {
+        const { query } = build(personFlagOptions)
+
+        expect(query.kind).toEqual('DataVisualizationNode')
+        expect(query.source.kind).toEqual('HogQLQuery')
+        expect(query.source.query).toContain('FROM posthog.flag_evaluations')
+        // An inlined flag key would be a HogQL injection, and a missing date filter would scan
+        // the whole retention window whatever range the tab shows.
+        expect(query.source.query).toContain('flag_key = {flag_key}')
+        expect(query.source.query).toContain('{filters(timestamp AS timestamp)}')
+        expect(query.source.values?.flag_key).toEqual('alpha-feature')
+        expect(query.source.filters).toEqual({ dateRange })
+    })
+
+    it('buildFlagEvaluationsTotalVolumeChart breaks the line graph down by response over the date range interval', () => {
+        const { query } = buildFlagEvaluationsTotalVolumeChart({
+            ...personFlagOptions,
+            dateRange: { date_from: '-24h', date_to: null },
+        })
+
+        expect(query.display).toEqual('ActionsLineGraph')
+        expect(query.source.query).toContain("dateTrunc('hour', timestamp) AS period")
+        expect(query.chartSettings).toEqual({
+            xAxis: { column: 'period' },
+            yAxis: [{ column: 'total' }],
+            seriesBreakdownColumn: 'variant',
+        })
+    })
+
+    it.each([
+        ['person flag', personFlagOptions, 'uniq(person_id)', false],
+        ['group flag', groupFlagOptions, 'uniq(`$group_0`)', true],
+    ])(
+        'buildFlagEvaluationsUniqueCallersChart counts the callers of a %s',
+        (_name, options, expectedAggregation, expectsGroupFilter) => {
+            const { query } = buildFlagEvaluationsUniqueCallersChart(options)
+
+            expect(query.source.query).toContain(expectedAggregation)
+            expect(query.source.query.includes("`$group_0` != ''")).toEqual(expectsGroupFilter)
+        }
+    )
 
     it('buildEnrichedUsageCharts filters on the bare feature_flag property key with no breakdown', () => {
         // A wrong property key here silently produces an empty chart, so pin the exact key.

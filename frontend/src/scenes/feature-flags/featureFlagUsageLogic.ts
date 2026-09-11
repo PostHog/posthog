@@ -1,6 +1,8 @@
 import { LogicWrapper, MakeLogicType, actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { FeatureFlagsSet, featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { Noun, groupsModel } from '~/models/groupsModel'
@@ -15,6 +17,8 @@ import {
     buildEnrichedUsageCharts,
     buildFlagCalledTotalVolumeChart,
     buildFlagCalledUniqueCallersChart,
+    buildFlagEvaluationsTotalVolumeChart,
+    buildFlagEvaluationsUniqueCallersChart,
 } from './featureFlagUsageQueries'
 
 // The Usage tab only renders for persisted flags, so unlike featureFlagLogic this
@@ -27,10 +31,12 @@ export interface FeatureFlagUsageLogicProps {
 export interface featureFlagUsageLogicValues {
     featureFlag: FeatureFlagType // featureFlagLogic
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
+    featureFlags: FeatureFlagsSet // enabledFeaturesLogic
     aggregationGroupTypeIndex: number | null | undefined
     dateRange: DateRange
     flagKey: string
     hasEnrichedAnalytics: boolean | undefined
+    readsFlagEvaluationsTable: boolean
     usageCharts: FlagUsageChart[]
 }
 
@@ -52,11 +58,13 @@ export interface featureFlagUsageLogicMeta {
         flagKey: (featureFlag: FeatureFlagType) => string
         aggregationGroupTypeIndex: (featureFlag: FeatureFlagType) => number | null | undefined
         hasEnrichedAnalytics: (featureFlag: FeatureFlagType) => boolean | undefined
+        readsFlagEvaluationsTable: (featureFlags: FeatureFlagsSet) => boolean
         usageCharts: (
             flagKey: string,
             aggregationGroupTypeIndex: number | null | undefined,
             hasEnrichedAnalytics: boolean | undefined,
             dateRange: DateRange,
+            readsFlagEvaluationsTable: boolean,
             aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => FlagUsageChart[]
     }
@@ -74,7 +82,14 @@ export const featureFlagUsageLogic: LogicWrapper<featureFlagUsageLogicType> = ke
     key(({ id }) => id),
     path((key) => ['scenes', 'feature-flags', 'featureFlagUsageLogic', key]),
     connect((props: FeatureFlagUsageLogicProps) => ({
-        values: [featureFlagLogic(props), ['featureFlag'], groupsModel, ['aggregationLabel']],
+        values: [
+            featureFlagLogic(props),
+            ['featureFlag'],
+            groupsModel,
+            ['aggregationLabel'],
+            enabledFeaturesLogic,
+            ['featureFlags'],
+        ],
     })),
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -100,13 +115,30 @@ export const featureFlagUsageLogic: LogicWrapper<featureFlagUsageLogicType> = ke
             (s) => [s.featureFlag],
             (featureFlag: FeatureFlagType): boolean | undefined => featureFlag.has_enriched_analytics,
         ],
+        // Both flags are keyed by organization. The usage-tab flag alone is not enough: the
+        // flag_evaluations table is removed from the HogQL catalog of an organization that does not
+        // hold flag-evaluations-hogql-table, and a query against it fails to resolve there.
+        readsFlagEvaluationsTable: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.FLAG_EVALUATIONS_USAGE_TAB] &&
+                !!featureFlags[FEATURE_FLAGS.FLAG_EVALUATIONS_HOGQL_TABLE],
+        ],
         usageCharts: [
-            (s) => [s.flagKey, s.aggregationGroupTypeIndex, s.hasEnrichedAnalytics, s.dateRange, s.aggregationLabel],
+            (s) => [
+                s.flagKey,
+                s.aggregationGroupTypeIndex,
+                s.hasEnrichedAnalytics,
+                s.dateRange,
+                s.readsFlagEvaluationsTable,
+                s.aggregationLabel,
+            ],
             (
                 flagKey: string,
                 aggregationGroupTypeIndex: number | null | undefined,
                 hasEnrichedAnalytics: boolean | undefined,
                 dateRange: DateRange,
+                readsFlagEvaluationsTable: boolean,
                 aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
             ): FlagUsageChart[] => {
                 const options: FlagUsageQueryOptions = {
@@ -115,7 +147,11 @@ export const featureFlagUsageLogic: LogicWrapper<featureFlagUsageLogicType> = ke
                     callerNoun: aggregationLabel(aggregationGroupTypeIndex, true),
                     dateRange,
                 }
-                const charts = [buildFlagCalledTotalVolumeChart(options), buildFlagCalledUniqueCallersChart(options)]
+                // The enriched-analytics charts stay on the events table either way: $feature_view
+                // and $feature_interaction are not flag evaluations, so that table does not hold them.
+                const charts = readsFlagEvaluationsTable
+                    ? [buildFlagEvaluationsTotalVolumeChart(options), buildFlagEvaluationsUniqueCallersChart(options)]
+                    : [buildFlagCalledTotalVolumeChart(options), buildFlagCalledUniqueCallersChart(options)]
                 if (hasEnrichedAnalytics) {
                     charts.push(...buildEnrichedUsageCharts(options))
                 }
