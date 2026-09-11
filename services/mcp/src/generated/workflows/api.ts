@@ -881,6 +881,16 @@ export const HogFlowsInvocationResultRetrieveParams = () => zod.object({
         ),
 })
 
+export const HogFlowsInvocationResultRetrieveQueryParams = () => zod.object({
+    include_globals: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "Comma-separated top-level keys of the triggering payload to return in full, e.g. 'event,person'. Pass 'all' for the whole payload. Omitted, the response stays bounded and describes the payload in 'invocation_globals_summary' instead. The payload holds a raw event with person properties, groups and parked flow state, so ask only for the keys you need."
+        ),
+})
+
 export const HogFlowsInvocationsCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod

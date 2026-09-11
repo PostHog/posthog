@@ -5,6 +5,11 @@
             "description": "A UUID string identifying this hog flow.",
             "type": "string"
         },
+        "include_globals": {
+            "description": "Comma-separated top-level keys of the triggering payload to return in full, e.g. 'event,person'. Pass 'all' for the whole payload. Omitted, the response stays bounded and describes the payload in 'invocation_globals_summary' instead. The payload holds a raw event with person properties, groups and parked flow state, so ask only for the keys you need.",
+            "minLength": 1,
+            "type": "string"
+        },
         "invocation_id": {
             "type": "string"
         }
