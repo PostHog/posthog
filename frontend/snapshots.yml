@@ -4,10 +4,6 @@ config:
     team: '2'
     repo: 3d760a0a-0763-477d-89ee-f1e4e92cdd78
 snapshots:
-    scenes-app-customer-analytics-accounts--many-columns--dark:
-        hash: v1.k794b7964.bbcafae15f682dd892236c17af7ae5920df61f4a14f1c2b298977ba77b6bacb2.xumXP9yIhqUxrM69J_MjvUCNMHuL2PwIgLs3u3PbCP0
-    scenes-app-customer-analytics-accounts--many-columns--light:
-        hash: v1.k794b7964.41369848fe476522e301d6e10665de13e88a1a8a64c4a17a2adc81306f24b64e.kaZ8ldUFXD5oEmnfoaB6ag8wg77wYPwSi0dCsHVX6Lk
     ai-observability-create-prompt-experiment-modal--default--dark:
         hash: v1.k794b7964.af0ce5703adcc074ea6c3afc8715d537a646698123a78625e6ec847123b26ae2.ypACU5Xagre6WeI4z7UlQ6w7oY0ieM1C-GnZs93KDkY
     ai-observability-create-prompt-experiment-modal--default--light:
@@ -6624,6 +6620,10 @@ snapshots:
         hash: v1.k794b7964.4b8d5226ee154debdf333ff93d65a90ca766bcb25951e1baf36affb8b84b548d.dWZSHssPc83RkHVE-JPJA562bJR7MUim2yfqhjfNE50
     scenes-app-customer-analytics-accounts--feature-gate-off--light:
         hash: v1.k794b7964.e8b91bf6a0dd1b5d31064f4cbb94e9791e999c210831c455a498d0c7cc7e6bbb.IkZPJrJz33sKS8zzKwoy8V3s0GvmKpe5EGYTCIljhLs
+    scenes-app-customer-analytics-accounts--many-columns--dark:
+        hash: v1.k794b7964.bbcafae15f682dd892236c17af7ae5920df61f4a14f1c2b298977ba77b6bacb2.xumXP9yIhqUxrM69J_MjvUCNMHuL2PwIgLs3u3PbCP0
+    scenes-app-customer-analytics-accounts--many-columns--light:
+        hash: v1.k794b7964.41369848fe476522e301d6e10665de13e88a1a8a64c4a17a2adc81306f24b64e.kaZ8ldUFXD5oEmnfoaB6ag8wg77wYPwSi0dCsHVX6Lk
     scenes-app-customer-analytics-accounts--row-expanded-conversations--dark:
         hash: v1.k794b7964.8ff40502a6dee9453d8bdff2350aa96b20c7c241a7ce2d69325e2d0e754f4428.LP6kVjCyhWYU85XTY8Fi5v6H_pdS8hu27wxDUCv_yCc
     scenes-app-customer-analytics-accounts--row-expanded-conversations--light:
@@ -9160,6 +9160,18 @@ snapshots:
         hash: v1.k794b7964.8defefc8ee81d152212ad970ee03afd0170e149183c700875620b83c94041edb.1GgekWHSuFhNxSx6MSUDbX9I0RjLB_eJK_x9Y356OXU
     scenes-app-settings-environment--settings-environment-autocapture--light:
         hash: v1.k794b7964.397d4848babe9a8d2fd98b15ffe998d685521cb5135ff4ad1a70951e6062ec71.lHocWsuL-A9IGiBxs67-309ZaiJNT6VF4vCrp962Ctw
+    scenes-app-settings-environment--settings-environment-business-knowledge--dark:
+        hash: v1.k794b7964.5586d252a5eb24647941a90b6bbd9d628af2a35df5f14bd17aa2e93caa09e3ef.apMT0q-J0WoZsNH_1aVXVKrFhYqpdAlE7addg7Xghr4
+    scenes-app-settings-environment--settings-environment-business-knowledge--light:
+        hash: v1.k794b7964.017ef60c915abe5af18ff2ea6c8b0fe74b64b361af44ffdc7d539f52321fa080.6eSNCJU55Uc8UKgiaXLkHtLQcQEF2xF8C7nKjppvwQ8
+    scenes-app-settings-environment--settings-environment-business-knowledge-learning-on-support-off--dark:
+        hash: v1.k794b7964.393e91b7a84ce2b6b0f073ecef791c1bbc358158d0f8948ef635024c56c9ff0a.DeCfvpJABElFgyB43EAquTfjo1KSs2TANa6zqAjV9Ww
+    scenes-app-settings-environment--settings-environment-business-knowledge-learning-on-support-off--light:
+        hash: v1.k794b7964.7bca4f66387ac9bedac1cfefa52277e803db395cff6ad66d0216aed7393e05ae.b03F85h2PZxRpHBBBOPwK-LT0ArGV0MLxa6EENeOfM4
+    scenes-app-settings-environment--settings-environment-business-knowledge-support-off--dark:
+        hash: v1.k794b7964.4c2c028b55a99dff14a471143218cb10489e12932b58822e6d9942df87a3cc7b.y_Vb-xtAzak8fPX2sZtaxhPWz8Fk3wjoU0bKFzQfq0Y
+    scenes-app-settings-environment--settings-environment-business-knowledge-support-off--light:
+        hash: v1.k794b7964.46c607340f3e7a04e24ee661b4bfdfabc377aef8993cc13d28bcf0c2be0bb447.nKDKtowtpVTxZNXC-OA8L4MGTPJh1TPYGgU9FPuEc00
     scenes-app-settings-environment--settings-environment-csp-reporting--dark:
         hash: v1.k794b7964.3723594a81604be934dc679e9468874356486722c63ee6131f8058f00a0dff70.5xrmmv44yWNLB3iddpZGdJOsA5tRM1m7BwvZ01dANlA
     scenes-app-settings-environment--settings-environment-csp-reporting--light:
