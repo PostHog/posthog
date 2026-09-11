@@ -602,6 +602,7 @@ function SurveyStatusAction(): JSX.Element | null {
 function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void }): JSX.Element {
     const {
         survey,
+        dataTableQuery,
         isAnyResultsLoading,
         resultsRequeryInProgress,
         processedSurveyStats,
@@ -616,11 +617,34 @@ function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
     const isRefreshingResults = resultsRequeryInProgress || isAnyResultsLoading
 
+    const exportButton = (
+        <ExportButton
+            id="survey-responses-export"
+            type="secondary"
+            size="small"
+            icon={<IconDownload />}
+            buttonCopy="Export responses"
+            disabledReason={!dataTableQuery ? 'No responses to export yet.' : undefined}
+            items={
+                dataTableQuery
+                    ? [ExporterFormat.CSV, ExporterFormat.XLSX].map((format) => ({
+                          title: format === ExporterFormat.CSV ? 'Export as CSV' : 'Export as Excel',
+                          export_format: format,
+                          export_context: {
+                              source: dataTableQuery,
+                              filename: `survey-${survey.name}-responses`,
+                          },
+                      }))
+                    : []
+            }
+        />
+    )
+
     if (!isRefreshingResults && !atLeastOneResponse) {
         return (
             <div className="px-4 pb-4">
                 <div className="mx-auto w-full max-w-[1200px] space-y-6">
-                    <SurveyResultsFiltersBar />
+                    <SurveyResultsFiltersBar actions={exportButton} />
                     <SurveyStatsSummary />
                     <SurveyNoResponsesBanner
                         type="survey"
@@ -640,7 +664,7 @@ function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void
     return (
         <div className="px-4 pb-4">
             <div className="mx-auto w-full max-w-[1200px] space-y-6">
-                <SurveyResultsFiltersBar />
+                <SurveyResultsFiltersBar actions={exportButton} />
                 <SurveyResultsRefreshStatus visible={isRefreshingResults} />
                 <div
                     aria-busy={isRefreshingResults}
@@ -709,30 +733,7 @@ function SurveyResponsesContent(): JSX.Element {
 
     return (
         <div className="px-4 pb-4 space-y-6">
-            <SurveyResultsFiltersBar
-                actions={
-                    <ExportButton
-                        id="survey-responses-export"
-                        type="secondary"
-                        size="small"
-                        icon={<IconDownload />}
-                        buttonCopy="Export responses"
-                        disabledReason={!dataTableQuery ? 'No responses to export yet.' : undefined}
-                        items={
-                            dataTableQuery
-                                ? [ExporterFormat.CSV, ExporterFormat.XLSX].map((format) => ({
-                                      title: format === ExporterFormat.CSV ? 'Export as CSV' : 'Export as Excel',
-                                      export_format: format,
-                                      export_context: {
-                                          source: dataTableQuery,
-                                          filename: `survey-${survey.name}-responses`,
-                                      },
-                                  }))
-                                : []
-                        }
-                    />
-                }
-            />
+            <SurveyResultsFiltersBar />
             <SurveyResultsRefreshStatus visible={isRefreshingResults} />
             {isInitialSurveyLoad ? (
                 <LemonSkeleton />

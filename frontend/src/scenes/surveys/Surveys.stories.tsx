@@ -583,11 +583,11 @@ export const SurveyResults: Story = {
     ],
 }
 
-export const SurveyResponses: Story = {
+export const SurveySummaryExport: Story = {
     ...SurveyResults,
     parameters: {
         ...SurveyResults.parameters,
-        pageUrl: `${urls.survey(MOCK_SURVEY_WITH_RESULTS.id)}?tab=responses`,
+        pageUrl: `${urls.survey(MOCK_SURVEY_WITH_RESULTS.id)}?tab=summary`,
         testOptions: {
             waitForSelector: '#survey-responses-export',
         },
