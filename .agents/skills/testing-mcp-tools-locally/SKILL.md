@@ -22,7 +22,7 @@ The batch import support API and MCP tools require:
 Why both scopes: the backend accepts `batch_import_support:read` alone,
 but MCP tool discovery verifies staffness via `/api/users/@me/` and hides the tools (fail-closed) when the key cannot make that call.
 A `*` wildcard does **not** substitute for either — the discovery gate requires the hidden scope explicitly, and the backend's `INTERNAL` scope handling rejects wildcard keys outright.
-For the production setup flow, see [docs/support-mcp-tools.md](../../docs/support-mcp-tools.md).
+For the production setup flow, see [docs/support-mcp-tools.md](../../../products/managed_migrations/docs/support-mcp-tools.md).
 
 ## 1. Start the dev environment
 
