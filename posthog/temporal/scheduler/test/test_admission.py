@@ -5,7 +5,7 @@ from threading import Barrier
 
 from unittest.mock import MagicMock, patch
 
-from django.db import close_old_connections, connection
+from django.db import close_old_connections, connection, transaction
 from django.test import SimpleTestCase, TestCase, TransactionTestCase
 from django.utils import timezone
 
@@ -46,6 +46,48 @@ def _limits(global_limit: int = 3, tenant_limit: int = 2) -> SchedulerAdmissionL
 
 
 class TestReserveSchedulerClaims(TestCase):
+    def test_empty_request_refreshes_the_existing_permit_snapshot(self) -> None:
+        TemporalSchedulerPermitPool.objects.create(
+            scheduler=SCHEDULER,
+            region=REGION,
+            in_flight=2,
+        )
+        metrics = MagicMock(spec=SchedulerMetrics)
+
+        result = reserve_scheduler_claims(
+            scheduler=SCHEDULER,
+            region=REGION,
+            requests=[],
+            limits=_limits(),
+            metrics=metrics,
+        )
+
+        self.assertEqual(result.reservations, ())
+        self.assertEqual(result.already_claimed, 0)
+        self.assertEqual(result.deferred_for_capacity, 0)
+        metrics.set_permits_in_flight.assert_called_once_with(SCHEDULER, REGION, 2)
+
+    def test_empty_request_initializes_a_zero_permit_snapshot(self) -> None:
+        metrics = MagicMock(spec=SchedulerMetrics)
+
+        reserve_scheduler_claims(
+            scheduler=SCHEDULER,
+            region=REGION,
+            requests=[],
+            limits=_limits(),
+            metrics=metrics,
+        )
+
+        self.assertEqual(
+            TemporalSchedulerPermitPool.objects.get(
+                scheduler=SCHEDULER,
+                region=REGION,
+                tenant_key="",
+            ).in_flight,
+            0,
+        )
+        metrics.set_permits_in_flight.assert_called_once_with(SCHEDULER, REGION, 0)
+
     def test_restores_the_callers_lock_timeout_after_nested_transaction(self) -> None:
         with connection.cursor() as cursor:
             cursor.execute("SELECT set_config('lock_timeout', %s, TRUE)", ["17ms"])
@@ -645,6 +687,43 @@ class TestSchedulerAdmissionValidation(SimpleTestCase):
 
 class TestSchedulerAdmissionConcurrency(TransactionTestCase):
     reset_sequences = True
+
+    def test_empty_request_does_not_overwrite_a_concurrent_permit_update(self) -> None:
+        pool = TemporalSchedulerPermitPool.objects.create(
+            scheduler=SCHEDULER,
+            region=REGION,
+            in_flight=2,
+        )
+        lock_acquired = Barrier(2)
+        release_lock = Barrier(2)
+        metrics = MagicMock(spec=SchedulerMetrics)
+
+        def hold_pool_lock() -> None:
+            close_old_connections()
+            try:
+                with transaction.atomic():
+                    TemporalSchedulerPermitPool.objects.select_for_update().get(id=pool.id)
+                    lock_acquired.wait(timeout=5)
+                    release_lock.wait(timeout=5)
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            lock_holder = executor.submit(hold_pool_lock)
+            lock_acquired.wait(timeout=5)
+            try:
+                reserve_scheduler_claims(
+                    scheduler=SCHEDULER,
+                    region=REGION,
+                    requests=[],
+                    limits=_limits(),
+                    metrics=metrics,
+                )
+            finally:
+                release_lock.wait(timeout=5)
+            lock_holder.result(timeout=5)
+
+        metrics.set_permits_in_flight.assert_not_called()
 
     def test_two_reservers_cannot_claim_same_occurrence(self) -> None:
         barrier = Barrier(2)

@@ -1,9 +1,10 @@
+import warnings
 from collections.abc import Sequence
 
 import pytest
 from unittest.mock import patch
 
-from temporalio.converter import DataConverter
+from temporalio.converter import DataConverter, PayloadSizeWarning
 
 from posthog.temporal.common.client import build_data_converter
 from posthog.temporal.scheduler.payload import (
@@ -137,6 +138,21 @@ async def test_select_items_does_not_encode_the_full_oversized_candidate_page() 
 
     assert result.limited_by == "byte_limit"
     assert largest_built_prefix < 100
+
+
+@pytest.mark.asyncio
+async def test_select_items_does_not_warn_for_expected_oversized_probes() -> None:
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", PayloadSizeWarning)
+        result = await select_items_within_temporal_payload(
+            ["x" * 200_000 for _ in range(100)],
+            build_payload=_build_payload,
+            max_items=100,
+            data_converter=DataConverter.default,
+        )
+
+    assert result.limited_by == "byte_limit"
+    assert not [warning for warning in caught if issubclass(warning.category, PayloadSizeWarning)]
 
 
 @pytest.mark.asyncio
