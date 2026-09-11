@@ -1681,7 +1681,7 @@ class SignalReportViewSet(
             logger.exception("signals.enriched_context.source_products_failed", report_id=str(report.id))
             signal_meta_map = {}
         try:
-            pull_requests_map = fetch_implementation_prs_for_reports(report_ids)
+            pull_requests_map = fetch_implementation_prs_for_reports(report_ids, team_id=self.team_id)
             implementation_pr_by_report = {rid: primary_pull_request(prs) for rid, prs in pull_requests_map.items()}
         except Exception:
             logger.exception("signals.enriched_context.implementation_pr_failed", report_id=str(report.id))
@@ -2095,7 +2095,7 @@ class SignalReportViewSet(
 
         with tracer.start_as_current_span("signals.reports.list.fetch_implementation_prs"):
             try:
-                pull_requests_map = fetch_implementation_prs_for_reports(report_ids)
+                pull_requests_map = fetch_implementation_prs_for_reports(report_ids, team_id=self.team_id)
                 implementation_pr_by_report = {rid: primary_pull_request(prs) for rid, prs in pull_requests_map.items()}
             except Exception:
                 logger.exception("signals.reports.list.implementation_pr_failed", report_count=len(report_ids))
@@ -2891,7 +2891,7 @@ class SignalReportViewSet(
             # manually without a merged PR, so RESOLVED no longer implies the PR shipped. Asked about
             # the PR being refunded specifically — it's that PR the refund reverses the charge for,
             # and that PR which has to be closed if it never merged.
-            pr_merged = report_pr_is_merged(report.id, billable_run.pr_url)
+            pr_merged = report_pr_is_merged(report.id, billable_run.pr_url, team_id=self.team_id)
             billing_path = (
                 SignalReportRefund.BillingPath.EXCLUDED
                 if billable_run.created_at.astimezone(UTC).date() == now.astimezone(UTC).date()
@@ -3063,7 +3063,7 @@ class SignalReportViewSet(
     def _resolve_report_pr_reference(self, report: SignalReport) -> tuple[str, int] | None:
         """Resolve a report's implementation PR to ``(owner/repo, pr_number)``, or None if it has none
         (or the stored URL isn't a parseable GitHub PR URL)."""
-        prs = fetch_implementation_prs_for_reports([str(report.id)]).get(str(report.id), [])
+        prs = fetch_implementation_prs_for_reports([str(report.id)], team_id=report.team_id).get(str(report.id), [])
         requested_id = self.request.query_params.get("pull_request_id")
         if requested_id:
             pr = next((pr for pr in prs if pull_request_matches_id(pr, requested_id, report.team_id)), None)
@@ -3151,7 +3151,7 @@ class SignalReportViewSet(
             return self._pr_ci_statuses_response([])
 
         try:
-            prs_by_report = fetch_implementation_prs_for_reports(report_ids)
+            prs_by_report = fetch_implementation_prs_for_reports(report_ids, team_id=self.team_id)
         except Exception:
             # Decorative metadata: a lookup failure must leave the list unpainted, not broken.
             logger.exception("signals.reports.pr_ci_statuses.implementation_pr_lookup_failed")
@@ -4056,7 +4056,9 @@ def append_suggested_reviewers(
 
             # Only on an add: assignment is additive, so a removal leaves the pull request alone.
             if added_github_logins:
-                for pr in fetch_implementation_prs_for_reports([str(report_id)]).get(str(report_id), []):
+                for pr in fetch_implementation_prs_for_reports([str(report_id)], team_id=team.id).get(
+                    str(report_id), []
+                ):
                     schedule_reviewer_pr_assignment(
                         team_id=team.id,
                         report_id=str(report_id),

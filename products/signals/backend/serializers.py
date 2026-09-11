@@ -1057,7 +1057,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
             by_report = self.context.setdefault("resolved_pull_requests_map", {})
             report_id = str(obj.id)
             if report_id not in by_report:
-                by_report[report_id] = fetch_implementation_prs_for_reports([report_id]).get(report_id, [])
+                by_report[report_id] = fetch_implementation_prs_for_reports([report_id], team_id=obj.team_id).get(
+                    report_id, []
+                )
         return by_report.get(str(obj.id), [])
 
     def _get_primary_pull_request(self, obj: SignalReport) -> "ImplementationPr | None":

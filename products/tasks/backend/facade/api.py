@@ -125,7 +125,10 @@ from products.tasks.backend.models import (
     TaskThreadMessageMention,
     TaskWorkflowDispatch,
 )
-from products.tasks.backend.pr_urls import merge_pr_output
+from products.tasks.backend.pr_urls import (
+    merge_pr_output,
+    read_pr_urls as read_pr_urls,
+)
 from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
 from products.tasks.backend.repository_config_analytics import (
     capture_repository_config_changed,
@@ -294,6 +297,7 @@ __all__ = [
     "task_exists",
     "task_ids_with_pr_url_subquery",
     "get_pull_requests_for_tasks",
+    "read_pr_urls",
     "task_run_has_slack_mapping",
     "task_run_is_terminal",
     "task_run_matches_current_ownership",
@@ -981,10 +985,8 @@ def get_tasks_by_ids(task_ids: Iterable[str | UUID], team_ids: Iterable[int]) ->
 
 def get_pull_requests_for_tasks(
     team_id: int, task_ids: Iterable[str | UUID], *conditions: Q
-) -> dict[str, list[tuple[str, str]]]:
-    from products.tasks.backend.pr_urls import read_pr_urls
-
-    result: dict[str, list[tuple[str, str]]] = {}
+) -> dict[str, list[contracts.TaskPullRequest]]:
+    result: dict[str, list[contracts.TaskPullRequest]] = {}
     seen: set[tuple[str, str]] = set()
     for task_id, output in (
         TaskRun.objects.filter(
@@ -1005,7 +1007,9 @@ def get_pull_requests_for_tasks(
             state = "unknown"
             if url == output.get("pr_url"):
                 state = "merged" if output.get("pr_merged") else output.get("pr_state", "unknown")
-            result.setdefault(str(task_id), []).append((url, state))
+            result.setdefault(str(task_id), []).append(
+                contracts.TaskPullRequest(url=url, state=state if isinstance(state, str) else "unknown")
+            )
     return result
 
 

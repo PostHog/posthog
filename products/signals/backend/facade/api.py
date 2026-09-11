@@ -813,7 +813,7 @@ def get_outcomes_for_signal_source_slice(
         .exclude(status=SignalReport.Status.DELETED)
         .values_list("id", flat=True)
     ]
-    prs = fetch_implementation_prs_for_reports(report_ids)
+    prs = fetch_implementation_prs_for_reports(report_ids, team_id=team.id)
     pr_urls = {pr.url for report_prs in prs.values() for pr in report_prs}
     merged_pr_urls = {pr.url for report_prs in prs.values() for pr in report_prs if pr.merged}
     return SignalSourceSliceOutcomes(

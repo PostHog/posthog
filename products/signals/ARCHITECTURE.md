@@ -498,6 +498,7 @@ Attribution identifies the authenticated user plus coding-agent name, or the int
 
 **Pull requests.** `SignalReportPullRequest` stores GitHub identity and state per team; `pull_request` artefacts link it to reports and optional claims.
 Reads combine these links with legacy assignments and task outputs, while all new writes use artefacts and shared PR state.
+The shared PR reader requires a team ID and excludes reports and links outside that team.
 Only legacy assignments are backfilled; task-output PRs remain readable without a full backfill.
 `SignalReportAssignment` is a read-only fallback until backfilled; once claim history exists it cannot restore a released owner.
 GitHub-verified state takes precedence over imported snapshots, and merged is terminal.

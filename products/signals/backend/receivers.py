@@ -60,7 +60,7 @@ def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, 
             return
         output = instance.output if isinstance(instance.output, dict) else {}
         from products.signals.backend.pull_requests import apply_report_completion
-        from products.tasks.backend.pr_urls import read_pr_urls
+        from products.tasks.backend.facade.api import read_pr_urls
 
         pr_urls = read_pr_urls(output)
         if not pr_urls:

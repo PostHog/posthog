@@ -1244,7 +1244,9 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         if relationship == "implementation":
             assignment = SignalReportAssignment.objects.for_team(self.team.id).filter(report=self.report).first()
             self.assertEqual(assignment.actor_kind if assignment else None, actor_kind)
-            pr = fetch_implementation_pr_state_for_reports([str(self.report.id)])[str(self.report.id)]
+            pr = fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[
+                str(self.report.id)
+            ]
             self.assertEqual(pr.state, "merged" if merged else "closed")
             self.assertIs(pr.merged, merged)
 
@@ -1350,11 +1352,16 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.assignment.refresh_from_db()
         self.assertEqual(self.report.status, expected_status)
         self.assertEqual(
-            fetch_implementation_pr_state_for_reports([str(self.report.id)])[str(self.report.id)].state,
+            fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[
+                str(self.report.id)
+            ].state,
             expected_pr_state,
         )
         self.assertIs(
-            fetch_implementation_pr_state_for_reports([str(self.report.id)])[str(self.report.id)].merged, merged
+            fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[
+                str(self.report.id)
+            ].merged,
+            merged,
         )
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
@@ -1409,18 +1416,28 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.assertEqual(self.report.status, expected_status)
         self.assertEqual(second_report.status, expected_status)
         self.assertEqual(
-            fetch_implementation_pr_state_for_reports([str(self.report.id)])[str(self.report.id)].state,
+            fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[
+                str(self.report.id)
+            ].state,
             expected_pr_state,
         )
         self.assertEqual(
-            fetch_implementation_pr_state_for_reports([str(second_report.id)])[str(second_report.id)].state,
+            fetch_implementation_pr_state_for_reports([str(second_report.id)], team_id=self.team.id)[
+                str(second_report.id)
+            ].state,
             expected_pr_state,
         )
         self.assertIs(
-            fetch_implementation_pr_state_for_reports([str(self.report.id)])[str(self.report.id)].merged, merged
+            fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[
+                str(self.report.id)
+            ].merged,
+            merged,
         )
         self.assertIs(
-            fetch_implementation_pr_state_for_reports([str(second_report.id)])[str(second_report.id)].merged, merged
+            fetch_implementation_pr_state_for_reports([str(second_report.id)], team_id=self.team.id)[
+                str(second_report.id)
+            ].merged,
+            merged,
         )
         legacy_report.refresh_from_db()
         self.assertEqual(legacy_report.status, expected_status)
@@ -1477,7 +1494,10 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         other_assignment.refresh_from_db()
         self.assertEqual(self.report.status, SignalReport.Status.RESOLVED)
         self.assertEqual(
-            fetch_implementation_pr_state_for_reports([str(self.report.id)])[str(self.report.id)].state, "merged"
+            fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[
+                str(self.report.id)
+            ].state,
+            "merged",
         )
         self.assertEqual(other_report.status, SignalReport.Status.READY)
         self.assertEqual(other_assignment.pr_state, SignalReportAssignment.PrState.OPEN)
@@ -1505,9 +1525,16 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.assignment.refresh_from_db()
         self.assertEqual(self.report.status, SignalReport.Status.RESOLVED)
         self.assertEqual(
-            fetch_implementation_pr_state_for_reports([str(self.report.id)])[str(self.report.id)].state, "merged"
+            fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[
+                str(self.report.id)
+            ].state,
+            "merged",
         )
-        self.assertTrue(fetch_implementation_pr_state_for_reports([str(self.report.id)])[str(self.report.id)].merged)
+        self.assertTrue(
+            fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[
+                str(self.report.id)
+            ].merged
+        )
 
 
 class TestExternalPRWebhook(TestCase):

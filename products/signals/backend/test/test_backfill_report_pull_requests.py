@@ -125,11 +125,14 @@ class TestBackfillReportPullRequests(BaseTest):
             apply_report_completion(report)
         report.refresh_from_db()
         assert report.status == "ready"
-        prs = fetch_implementation_prs_for_reports([str(report.id)])[str(report.id)]
+        prs = fetch_implementation_prs_for_reports([str(report.id)], team_id=self.team.id)[str(report.id)]
         assert len(prs) == 2
         assert prs[0].state == "merged"
         assert prs[1].task_id == str(task.id)
-        assert prs[1].id == fetch_implementation_prs_for_reports([str(report.id)])[str(report.id)][1].id
+        assert (
+            prs[1].id
+            == fetch_implementation_prs_for_reports([str(report.id)], team_id=self.team.id)[str(report.id)][1].id
+        )
         from rest_framework.request import Request
         from rest_framework.test import APIRequestFactory
 
@@ -151,4 +154,4 @@ class TestBackfillReportPullRequests(BaseTest):
         report.refresh_from_db()
         assert report.status == "resolved"
         assert view._resolve_report_pr_reference(report) == ("example/sdk", 2)
-        assert len(fetch_implementation_prs_for_reports([str(report.id)])[str(report.id)]) == 2
+        assert len(fetch_implementation_prs_for_reports([str(report.id)], team_id=self.team.id)[str(report.id)]) == 2

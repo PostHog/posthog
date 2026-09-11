@@ -102,7 +102,7 @@ def assignment_snapshot(report: SignalReport, assignment: ReportClaim | None) ->
     from products.signals.backend.implementation_pr import fetch_implementation_pr_state_for_reports
 
     implementation_pr: PullRequestSnapshot | None = None
-    pr = fetch_implementation_pr_state_for_reports([str(report.id)]).get(str(report.id))
+    pr = fetch_implementation_pr_state_for_reports([str(report.id)], team_id=report.team_id).get(str(report.id))
     if pr is not None:
         parsed = GitHubIntegration.parse_pull_request_url(pr.url)
         implementation_pr = {
@@ -463,7 +463,9 @@ def update_assignments_for_pull_request(
             reports = SignalReport.objects.select_for_update().filter(team_id=team_id, id__in=report_ids).order_by("id")
             for report in reports:
                 import_report_pull_requests(report, notify_reviewers=True)
-                for pr in fetch_implementation_prs_for_reports([str(report.id)]).get(str(report.id), []):
+                for pr in fetch_implementation_prs_for_reports([str(report.id)], team_id=report.team_id).get(
+                    str(report.id), []
+                ):
                     parsed = GitHubIntegrationBase.parse_pull_request_url(pr.url)
                     if (
                         parsed

@@ -280,7 +280,9 @@ class TestCloseImplementationPrForReport(BaseTest):
         github.close_pull_request.assert_called_once_with("PostHog/posthog", 123)
         if source == "assignment":
             self.assignment.refresh_from_db()
-            pr = fetch_implementation_pr_state_for_reports([str(self.report.id)])[str(self.report.id)]
+            pr = fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[
+                str(self.report.id)
+            ]
             assert pr.state == "closed"
             assert pr.merged is False
 
@@ -459,7 +461,7 @@ class TestCloseImplementationPrForReport(BaseTest):
         github.comment_on_pull_request.assert_not_called()
         github.close_pull_request.assert_not_called()
         self.assignment.refresh_from_db()
-        pr = fetch_implementation_pr_state_for_reports([str(self.report.id)])[str(self.report.id)]
+        pr = fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[str(self.report.id)]
         assert pr.state == expected_state
         assert pr.merged is expected_merged
 

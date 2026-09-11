@@ -77,7 +77,8 @@ def _compute_inbox_notification_state(team_id: int, report_id: str) -> InboxNoti
     from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 
     pr_available = any(
-        pr.task_id in impl_task_ids for pr in fetch_implementation_prs_for_reports([report_id]).get(report_id, [])
+        pr.task_id in impl_task_ids
+        for pr in fetch_implementation_prs_for_reports([report_id], team_id=team_id).get(report_id, [])
     )
     # Most recent run across the report's implementation task(s).
     latest_run = max(

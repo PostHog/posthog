@@ -895,7 +895,9 @@ class SignalReportAssignment(TeamScopedRootMixin, UUIDModel):
 
         if any(
             pr.state in {self.PrState.UNKNOWN, self.PrState.DRAFT, self.PrState.OPEN}
-            for pr in fetch_implementation_prs_for_reports([str(self.report_id)]).get(str(self.report_id), [])
+            for pr in fetch_implementation_prs_for_reports([str(self.report_id)], team_id=self.team_id).get(
+                str(self.report_id), []
+            )
         ):
             return SignalReportWorkState.IN_REVIEW
         from products.signals.backend.report_claims import get_active_claim

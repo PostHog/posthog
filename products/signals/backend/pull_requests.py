@@ -113,7 +113,10 @@ def apply_report_completion(report: SignalReport) -> None:
     from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
     from products.signals.backend.report_assignments import _apply_pr_report_state
 
-    states = [pr.state for pr in fetch_implementation_prs_for_reports([str(report.id)]).get(str(report.id), [])]
+    states = [
+        pr.state
+        for pr in fetch_implementation_prs_for_reports([str(report.id)], team_id=report.team_id).get(str(report.id), [])
+    ]
     state = completion_state(states)
     if state is not None:
         _apply_pr_report_state(report, state)

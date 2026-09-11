@@ -863,3 +863,9 @@ class ComputeQuotaDenialReason(StrEnum):
 
     COMPUTE_QUOTA_EXHAUSTED = "posthog_code_billing_limit_exceeded"
     ORGANIZATION_DEACTIVATED = "organization_deactivated"
+
+
+@dataclass(frozen=True, kw_only=True)
+class TaskPullRequest:
+    url: str
+    state: str

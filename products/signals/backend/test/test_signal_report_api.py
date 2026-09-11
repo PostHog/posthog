@@ -895,7 +895,14 @@ class TestSignalReportListAPI(APIBaseTest):
         self._create_assignment(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
         self._create_assignment(report_without_pr)
 
-        result = fetch_implementation_pr_urls_for_reports([str(report_with_pr.id), str(report_without_pr.id)])
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        foreign_report = SignalReport.objects.create(team=other_team)
+        SignalReportAssignment.all_teams.create(
+            team=other_team, report=foreign_report, pr_url="https://github.com/example/private/pull/1"
+        )
+        result = fetch_implementation_pr_urls_for_reports(
+            [str(report_with_pr.id), str(report_without_pr.id), str(foreign_report.id)], team_id=self.team.id
+        )
 
         assert result == {str(report_with_pr.id): "https://github.com/org/repo/pull/42"}
 
@@ -910,16 +917,16 @@ class TestSignalReportListAPI(APIBaseTest):
 
         single = seed(1)
         with CaptureQueriesContext(connection) as for_one:
-            fetch_implementation_pr_state_for_reports(single)
+            fetch_implementation_pr_state_for_reports(single, team_id=self.team.id)
         baseline = len(for_one.captured_queries)
 
         page = single + seed(5)
         with CaptureQueriesContext(connection) as for_many:
-            result = fetch_implementation_pr_state_for_reports(page)
+            result = fetch_implementation_pr_state_for_reports(page, team_id=self.team.id)
 
         assert len(result) == 6
         assert len(for_many.captured_queries) == baseline
-        assert baseline == 5
+        assert baseline == 6
 
     # --- has_implementation_pr filter ---
 
