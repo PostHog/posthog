@@ -171,6 +171,9 @@ def build_billing_token(
         authorizer_actor = authorizer_actor or user
 
         payload["distinct_id"] = str(user.distinct_id)
+        # Billing's startup program checks read an email domain as evidence of who an applicant
+        # works for, and this is the only address it gets from us.
+        payload["email"] = user.email
         authorizer_role = _get_user_organization_role(authorizer_actor, organization)
 
         if authorizer_role:

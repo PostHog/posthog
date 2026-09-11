@@ -1,25 +1,28 @@
+import clsx from 'clsx'
+
 import * as businessEvolutionPng from '@posthog/brand/hoggies/png/business-evolution'
 import { IconGear, IconPin } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 
-import { AccountPropertyRow, AccountPropertyRowProps } from './AccountPropertyRow'
+import { AccountPropertyField, AccountPropertyFieldProps } from './AccountPropertyField'
 import type { AccountSidebarProperty } from './accountPropertyTypes'
 
 const HedgehogBusiness = pngHoggie(businessEvolutionPng)
 
 export interface AccountPinnedPropertiesProps {
     properties: AccountSidebarProperty[]
+    layout?: 'vertical' | 'horizontal'
     editingPropertyKey?: string | null
     savingPropertyKey?: string | null
-    availableMembers?: AccountPropertyRowProps['availableMembers']
+    availableMembers?: AccountPropertyFieldProps['availableMembers']
     membersLoading?: boolean
     onConfigure: () => void
     onEdit: (property: AccountSidebarProperty) => void
     onCancelEdit: () => void
-    onSaveCustomProperty: AccountPropertyRowProps['onSaveCustomProperty']
-    onSaveRelationship: AccountPropertyRowProps['onSaveRelationship']
+    onSaveCustomProperty: AccountPropertyFieldProps['onSaveCustomProperty']
+    onSaveRelationship: AccountPropertyFieldProps['onSaveRelationship']
 }
 
 export function AccountPinnedPropertiesEmptyState({ onConfigure }: { onConfigure: () => void }): JSX.Element {
@@ -42,6 +45,7 @@ export function AccountPinnedPropertiesEmptyState({ onConfigure }: { onConfigure
 
 export function AccountPinnedProperties({
     properties,
+    layout = 'vertical',
     editingPropertyKey = null,
     savingPropertyKey = null,
     availableMembers,
@@ -60,7 +64,7 @@ export function AccountPinnedProperties({
                     <LemonButton
                         size="xsmall"
                         icon={<IconGear />}
-                        className="ml-auto"
+                        className={layout === 'horizontal' ? 'ml-1' : 'ml-auto'}
                         tooltip="Choose pinned properties"
                         aria-label="Configure pinned properties"
                         onClick={onConfigure}
@@ -71,20 +75,33 @@ export function AccountPinnedProperties({
             {properties.length === 0 ? (
                 <AccountPinnedPropertiesEmptyState onConfigure={onConfigure} />
             ) : (
-                <div className="flex flex-col gap-4 min-h-0 overflow-y-auto px-4 pt-4 pb-5">
+                <div
+                    className={clsx(
+                        'flex gap-4 min-h-0 overflow-y-auto px-4 pt-4 pb-5',
+                        layout === 'horizontal' ? 'flex-wrap items-start' : 'flex-col'
+                    )}
+                >
                     {properties.map((property) => (
-                        <AccountPropertyRow
+                        <div
                             key={property.key}
-                            property={property}
-                            editing={editingPropertyKey === property.key}
-                            saving={savingPropertyKey === property.key}
-                            availableMembers={availableMembers}
-                            membersLoading={membersLoading}
-                            onEdit={() => onEdit(property)}
-                            onCancel={onCancelEdit}
-                            onSaveCustomProperty={onSaveCustomProperty}
-                            onSaveRelationship={onSaveRelationship}
-                        />
+                            className={clsx(
+                                'min-w-0',
+                                layout === 'horizontal' && 'max-w-64',
+                                layout === 'horizontal' && editingPropertyKey === property.key && 'w-64'
+                            )}
+                        >
+                            <AccountPropertyField
+                                property={property}
+                                editing={editingPropertyKey === property.key}
+                                saving={savingPropertyKey === property.key}
+                                availableMembers={availableMembers}
+                                membersLoading={membersLoading}
+                                onEdit={() => onEdit(property)}
+                                onCancel={onCancelEdit}
+                                onSaveCustomProperty={onSaveCustomProperty}
+                                onSaveRelationship={onSaveRelationship}
+                            />
+                        </div>
                     ))}
                 </div>
             )}

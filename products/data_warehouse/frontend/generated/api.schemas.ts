@@ -47,6 +47,11 @@ export interface DataModelingJobApi {
      * * `full_refresh` - Full refresh
      * * `incremental` - Incremental */
     readonly run_mode: DataModelingJobRunModeEnumApi | null
+    /**
+     * Why this run rebuilt the whole table instead of updating only new rows, for example first run, definition changed, or table missing. Null when the run was incremental.
+     * @nullable
+     */
+    readonly full_refresh_reason: string | null
     readonly rows_materialized: number
     /** @nullable */
     readonly error: string | null
@@ -1711,7 +1716,7 @@ export interface SavedQueryRunApi {
 export interface CheckIncrementalApi {
     /**
      * The HogQL query to check.
-     * @maxLength 65536
+     * @maxLength 262144
      */
     query: string
     /**
@@ -2243,6 +2248,7 @@ export interface CredentialApi {
  * * `Freshchat` - Freshchat
  * * `Freshservice` - Freshservice
  * * `Fulcrum` - Fulcrum
+ * * `GainsightCs` - GainsightCs
  * * `GainsightPx` - GainsightPx
  * * `GitBook` - GitBook
  * * `Glassfrog` - Glassfrog
@@ -3243,6 +3249,11 @@ export interface CredentialApi {
  * * `Tenjin` - Tenjin
  * * `Folk` - Folk
  * * `Cybersource` - Cybersource
+ * * `GoogleAdSense` - GoogleAdSense
+ * * `Sequenzy` - Sequenzy
+ * * `Skio` - Skio
+ * * `Smartlead` - Smartlead
+ * * `Substack` - Substack
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3580,6 +3591,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Freshchat: 'Freshchat',
     Freshservice: 'Freshservice',
     Fulcrum: 'Fulcrum',
+    GainsightCs: 'GainsightCs',
     GainsightPx: 'GainsightPx',
     GitBook: 'GitBook',
     Glassfrog: 'Glassfrog',
@@ -4580,6 +4592,11 @@ export const ExternalDataSourceTypeEnumApi = {
     Tenjin: 'Tenjin',
     Folk: 'Folk',
     Cybersource: 'Cybersource',
+    GoogleAdSense: 'GoogleAdSense',
+    Sequenzy: 'Sequenzy',
+    Skio: 'Skio',
+    Smartlead: 'Smartlead',
+    Substack: 'Substack',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

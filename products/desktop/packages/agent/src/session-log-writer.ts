@@ -1,12 +1,15 @@
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { serializeError } from "@posthog/shared";
+import {
+  isTranscriptNeutralNotificationMethod,
+  serializeError,
+} from "@posthog/shared";
 import type { PostHogAPIClient } from "./posthog-api";
 import type { StoredNotification } from "./types";
 import { isEmptyContentBlock } from "./utils/acp-content";
 import { Logger } from "./utils/logger";
-import { redactClaudeTokens } from "./utils/redact-claude-tokens";
+import { redactSecrets } from "./utils/redact-secrets";
 
 /**
  * Session context for a registered session.
@@ -74,31 +77,6 @@ interface SessionState {
   currentTurnMessages: string[];
   toolUpdateCache: Map<string, BufferedToolUpdate>;
   pendingRawInputSnapshots: Map<string, StoredNotification>;
-}
-
-function redactAuthorizationHeaders(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(redactAuthorizationHeaders);
-  }
-  if (value === null || typeof value !== "object") {
-    return redactClaudeTokens(value);
-  }
-
-  const record = value as Record<string, unknown>;
-  if (
-    typeof record.name === "string" &&
-    record.name.toLowerCase() === "authorization" &&
-    "value" in record
-  ) {
-    return { ...record, value: "[REDACTED]" };
-  }
-
-  return Object.fromEntries(
-    Object.entries(record).map(([key, nestedValue]) => [
-      key,
-      redactAuthorizationHeaders(nestedValue),
-    ]),
-  );
 }
 
 export class SessionLogWriter {
@@ -265,11 +243,15 @@ export class SessionLogWriter {
       if (this.isDirectAgentMessage(message) && session.chunkBuffer) {
         supersededChunks = session.chunkBuffer;
         session.chunkBuffer = undefined;
-      } else {
+      } else if (
+        !isTranscriptNeutralNotificationMethod(
+          message.method as string | undefined,
+        )
+      ) {
         this.emitCoalescedMessage(sessionId, session);
       }
 
-      message = redactAuthorizationHeaders(message) as Record<string, unknown>;
+      message = redactSecrets(message) as Record<string, unknown>;
       const nonChunkAgentText = this.extractAgentMessageText(message);
       if (nonChunkAgentText) {
         session.lastAgentMessage = nonChunkAgentText;
@@ -593,7 +575,7 @@ export class SessionLogWriter {
     if (!session.chunkBuffer) return;
 
     const { firstTimestamp, firstEventId, lastEventId } = session.chunkBuffer;
-    const text = redactClaudeTokens(session.chunkBuffer.text);
+    const text = redactSecrets(session.chunkBuffer.text);
     session.chunkBuffer = undefined;
     session.lastAgentMessage = text;
     session.currentTurnMessages.push(text);

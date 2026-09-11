@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 
 from django.test import SimpleTestCase
 
@@ -30,7 +30,7 @@ class TestActivityLogLookbackWindow(SimpleTestCase):
     def test_window_for_entitlement(self, _name: str, feature: dict, expected_days: int):
         organization = Organization(available_product_features=[{"key": "audit_logs", **feature}])
 
-        with freeze_time(NOW):
+        with time_machine.travel(NOW, tick=False):
             restriction = get_activity_log_lookback_restriction(organization)
 
         assert restriction is not None

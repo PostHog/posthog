@@ -159,6 +159,7 @@ def _github_api_request(
     repo: Repo,
     path: str,
     *,
+    params: dict[str, str | int] | None = None,
     json: Mapping[str, object] | None = None,
     timeout: int = 10,
 ) -> requests.Response:
@@ -174,7 +175,9 @@ def _github_api_request(
 
     github = get_github_integration_for_repo(repo)
 
-    response = github.api_request(method, f"/repos/{repo.repo_full_name}/{safe_path}", json_body=json, timeout=timeout)
+    response = github.api_request(
+        method, f"/repos/{repo.repo_full_name}/{safe_path}", params=params, json_body=json, timeout=timeout
+    )
 
     if response.status_code == 404 and repo.repo_external_id:
         new_full_name = _resolve_repo_by_id(github, repo.repo_external_id)
@@ -189,7 +192,7 @@ def _github_api_request(
             repo.save(update_fields=["repo_full_name"])
 
             response = github.api_request(
-                method, f"/repos/{new_full_name}/{safe_path}", json_body=json, timeout=timeout
+                method, f"/repos/{new_full_name}/{safe_path}", params=params, json_body=json, timeout=timeout
             )
 
     return response
