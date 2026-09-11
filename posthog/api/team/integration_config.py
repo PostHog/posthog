@@ -247,8 +247,11 @@ def handle_logs_config(request: request.Request, team: Team) -> response.Respons
 
 
 def handle_evaluation_context_suggestions(request: request.Request, team: Team) -> response.Response:
-    """Shared handler for the evaluation_context_suggestions action — exposed under both the
-    team/environment and project routers so /api/projects/ and /api/environments/ cannot drift apart.
+    """Handler for the evaluation_context_suggestions action on the team/environment router.
+
+    Unlike the other handlers here, this one is not shared: the project router calls its own
+    `team_evaluation_context_suggestions_view`, so a change here does not reach /api/projects/.
+    The import note at the top of `posthog/api/project.py` says why that copy stays local.
 
     Hide an evaluation context name from the flag editor's suggestion list, or restore it.
     POST hides the name; DELETE restores it. The underlying context row and any flags already
