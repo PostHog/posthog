@@ -4187,7 +4187,7 @@ async def test_claimed_subscription_refill_bounds_serial_admission_rounds(team, 
     for index in range(5):
         insight = await sync_to_async(Insight.objects.create)(
             team=team,
-            short_id=f"bounded-refill-{index}",
+            short_id=f"brefill-{index}",
             name=f"Bounded refill insight {index}",
         )
         subscriptions.append(await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user))
