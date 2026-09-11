@@ -20,8 +20,20 @@ Read two fields before you report anything:
 This call is a pure read and never starts a calculation, so the numbers can be stale.
 When `query_to` is old, or the user wants fresh numbers, call `experiment-metrics-recalculation-create` and then poll.
 
-A 404 means the experiment has no results yet.
-It usually has not run long enough.
+A 404 has two causes, and each one needs a different answer.
+
+- The experiment ID does not resolve in this project.
+  Call `experiment-get` to check the ID.
+  Say that the ID does not resolve.
+  Do not report that the experiment has no results.
+- The experiment resolves, but it has never completed a run.
+  Nothing starts the first run on its own.
+  Waiting produces nothing.
+  For a launched experiment, call `experiment-metrics-recalculation-create`, then poll.
+  For a draft experiment, say that results start after launch.
+
+This 404 does not mean that the experiment is too young.
+An experiment with results returns small numbers instead of a 404.
 
 ### Day-by-day history of one metric
 
