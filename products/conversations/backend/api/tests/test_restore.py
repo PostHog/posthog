@@ -10,8 +10,10 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from products.conversations.backend.api.widget import identity_widget_session_id
 from products.conversations.backend.models import ConversationRestoreToken, Ticket
 from products.conversations.backend.models.restore_token import hash_token
+from products.conversations.backend.services.identity import compute_identity_hash
 from products.conversations.backend.services.restore import RestoreService
 
 
@@ -627,6 +629,68 @@ class TestRestoreAPI(BaseTest):
         self.assertEqual(data["status"], "success")
         self.assertEqual(data["widget_session_id"], new_session_id)
         self.assertEqual(len(data["migrated_ticket_ids"]), 1)
+
+    @patch("products.conversations.backend.api.restore.RestoreRedeemThrottle.allow_request", return_value=True)
+    def test_restore_redeem_with_identity_binds_tickets_to_the_person(self, _mock_throttle):
+        # A verified viewer's list is keyed on the identity, so binding the tickets to this
+        # browser would restore them into a list nobody reads.
+        secret = "test_secret_key_for_hmac"
+        self.team.secret_api_token = secret
+        self.team.save()
+        identity_distinct_id = "user_123"
+        identity_hash = compute_identity_hash(identity_distinct_id, secret)
+
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=str(uuid.uuid4()),
+            distinct_id="anon_before_sign_in",
+            anonymous_traits={"email": self.customer_email},
+        )
+        _, raw_token = ConversationRestoreToken.create_token(team=self.team, recipient_email=self.customer_email)
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/restore",
+            {
+                "restore_token": raw_token,
+                "widget_session_id": self.widget_session_id,
+                "identity_distinct_id": identity_distinct_id,
+                "identity_hash": identity_hash,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        derived_session_id = identity_widget_session_id(identity_hash)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.widget_session_id, derived_session_id)
+        # The client stores this field as its browser credential, so it must come back unchanged.
+        self.assertEqual(response.json()["widget_session_id"], self.widget_session_id)
+
+        tickets_response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {"identity_distinct_id": identity_distinct_id, "identity_hash": identity_hash},
+            **self._get_headers(),
+        )
+        self.assertEqual(tickets_response.json()["count"], 1)
+
+    @patch("products.conversations.backend.api.restore.RestoreRedeemThrottle.allow_request", return_value=True)
+    def test_restore_redeem_rejects_an_invalid_identity_hash(self, _mock_throttle):
+        self.team.secret_api_token = "test_secret_key_for_hmac"
+        self.team.save()
+        _, raw_token = ConversationRestoreToken.create_token(team=self.team, recipient_email=self.customer_email)
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/restore",
+            {
+                "restore_token": raw_token,
+                "widget_session_id": self.widget_session_id,
+                "identity_distinct_id": "user_123",
+                "identity_hash": "0" * 64,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_restore_redeem_invalid_token(self):
         # Token must be 40-50 chars to pass validation, then fails lookup
