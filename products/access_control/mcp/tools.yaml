@@ -29,6 +29,7 @@ tools:
                     Project id. If omitted, uses the active project.
                 optional: true
                 fallback: projectId
+        feature_entitlement: access_control
     access-control-default-properties-list:
         operation: organizations_projects_access_control_default_properties_retrieve
         enabled: true
@@ -50,6 +51,7 @@ tools:
                     Project id. If omitted, uses the active project.
                 optional: true
                 fallback: projectId
+        feature_entitlement: access_control
     access-control-defaults-get:
         operation: organizations_projects_access_control_defaults_retrieve
         enabled: true
@@ -76,6 +78,7 @@ tools:
                     Project id. If omitted, uses the active project.
                 optional: true
                 fallback: projectId
+        feature_entitlement: access_control
         response:
             exclude:
                 - can_edit
@@ -107,6 +110,7 @@ tools:
             member_id:
                 description: |
                     The organization membership id, as `organization_membership_id` in access-control-members-list.
+        feature_entitlement: access_control
     access-control-member-properties-list:
         operation: organizations_projects_access_control_member_properties_retrieve
         enabled: true
@@ -135,6 +139,7 @@ tools:
             member_id:
                 description: |
                     The organization membership id, as `organization_membership_id` in access-control-members-list.
+        feature_entitlement: access_control
     access-control-members-list:
         operation: organizations_projects_access_control_members_retrieve
         enabled: true
@@ -168,6 +173,7 @@ tools:
             member_id:
                 description: |
                     Optional. Narrow the result to one member, by organization membership id.
+        feature_entitlement: access_control
         response:
             exclude:
                 - project.minimum
@@ -198,6 +204,7 @@ tools:
                 description: |
                     The role id, as `role_id` in access-control-roles-list or an entry of `role_ids` in
                     access-control-members-list.
+        feature_entitlement: role_based_access
     access-control-role-properties-list:
         operation: organizations_projects_access_control_role_properties_retrieve
         enabled: true
@@ -222,6 +229,7 @@ tools:
                 description: |
                     The role id, as `role_id` in access-control-roles-list or an entry of `role_ids` in
                     access-control-members-list.
+        feature_entitlement: role_based_access
     access-control-roles-list:
         operation: organizations_projects_access_control_roles_retrieve
         enabled: true
@@ -252,6 +260,7 @@ tools:
             role_id:
                 description: |
                     Optional. Narrow the result to one role, by role id.
+        feature_entitlement: role_based_access
         response:
             exclude:
                 - project.minimum

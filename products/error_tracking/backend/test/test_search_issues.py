@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     ClickhouseTestMixin,
     NonAtomicBaseTest,
@@ -34,7 +34,7 @@ from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
 
 
-@freeze_time("2025-01-15T12:00:00Z")
+@time_machine.travel("2025-01-15T12:00:00Z", tick=False)
 class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -102,7 +102,7 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         status=ErrorTrackingIssue.Status.ACTIVE,
     ):
         if timestamp:
-            with freeze_time(timestamp):
+            with time_machine.travel(timestamp, tick=False):
                 self.create_issue(issue_id, fingerprint, name=issue_name, status=status)
         else:
             self.create_issue(issue_id, fingerprint, name=issue_name, status=status)

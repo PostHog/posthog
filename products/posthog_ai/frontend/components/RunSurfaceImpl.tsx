@@ -90,6 +90,7 @@ function RunSurfaceRoot({
     const replayOnly = interaction !== 'live'
     // A pending surface (no run id) must supply `streamKey` to key on; `runId` is the key otherwise.
     const logicKey = streamKey ?? runId ?? ''
+    const { hasThreadItems } = useValues(runStreamLogic({ streamKey: logicKey, conversationId, replayOnly }))
 
     // The runtime and scout flag live on the task (not the run), so the surface owns loading it once and
     // exposing it to the slots. The runner already has the task loaded; an embed fetches it here.
@@ -113,7 +114,10 @@ function RunSurfaceRoot({
                 </LemonBanner>
             )
         }
-        return <RunLogSkeleton />
+        // A created task's metadata fetch must not replace its already visible optimistic thread.
+        if (!hasThreadItems) {
+            return <RunLogSkeleton />
+        }
     }
 
     if (task && isPiTaskRuntime(task.runtime)) {
@@ -189,7 +193,7 @@ function RunSurfaceThread({
     rowClassName,
 }: { className?: string; listClassName?: string; rowClassName?: string } = {}): JSX.Element {
     const { interaction, isScout, taskId, streamKey, runId } = useRunSurfaceContext()
-    const { bootstrapLoading, threadItems } = useValues(runStreamLogic)
+    const { bootstrapLoading, hasThreadItems } = useValues(runStreamLogic)
     // Feedback identity: always the task, matching `$ai_session_id` on other surfaces.
     const feedbackSessionId = taskId
     const collectsFeedback = interaction === 'live' && !isScout && !!feedbackSessionId
@@ -216,7 +220,7 @@ function RunSurfaceThread({
             ) : null,
         [feedbackSessionId, feedbackRun]
     )
-    const showSkeleton = bootstrapLoading && threadItems.length === 0
+    const showSkeleton = bootstrapLoading && !hasThreadItems
     if (showSkeleton) {
         return <RunLogSkeleton className={className} listClassName={listClassName} rowClassName={rowClassName} />
     }
@@ -236,12 +240,11 @@ function RunSurfaceThread({
 }
 
 /**
- * Input-region slot: owns prompt-vs-composer precedence and the null-bootstrap gate. While a permission /
+ * Input-region slot: owns prompt-vs-composer precedence and the bootstrap gate. While a permission /
  * question request is pending (and the run isn't terminal) it renders the approval prompt; otherwise it
  * renders the consumer's composer `children`. Renders nothing outside live mode, during the `null` bootstrap
- * window, or when no composer children are supplied (e.g. `ReadonlyRunSurface`). The composer thus shows for
- * any settled run status (active runs take a follow-up, terminal runs start a fresh run from the typed
- * message), is hidden during bootstrap, and is replaced by the prompt while a request is pending.
+ * window without an optimistic start, or when no composer children are supplied (e.g. `ReadonlyRunSurface`).
+ * The composer also shows during optimistic startup so follow-ups can queue before the agent is ready.
  */
 function RunSurfaceComposer({
     children,
@@ -251,7 +254,7 @@ function RunSurfaceComposer({
     isStopping?: boolean
 }): JSX.Element | null {
     const { interaction, streamKey } = useRunSurfaceContext()
-    const { pendingPermissionRequest, respondingToPermission, currentRunStatus } = useValues(runStreamLogic)
+    const { pendingPermissionRequest, respondingToPermission, currentRunStatus, runOpening } = useValues(runStreamLogic)
     if (interaction !== 'live') {
         return null
     }
@@ -272,7 +275,7 @@ function RunSurfaceComposer({
                     </div>
                 </div>
             )}
-            {children && currentRunStatus !== null && (
+            {children && (currentRunStatus !== null || runOpening) && (
                 <div
                     hidden={showApproval}
                     data-attr="composer"

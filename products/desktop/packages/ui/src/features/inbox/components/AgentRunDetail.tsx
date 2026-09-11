@@ -12,7 +12,14 @@ import {
   deriveHeadline,
   parsePrUrl,
 } from "@posthog/core/inbox/reportPresentation";
-import { Button } from "@posthog/quill";
+import {
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Text,
+} from "@posthog/quill";
 import {
   isTerminalStatus,
   type SignalReport,
@@ -39,6 +46,7 @@ import {
 } from "@posthog/ui/features/inbox/components/SignalsList";
 import { ForYouBadge } from "@posthog/ui/features/inbox/components/utils/ForYouBadge";
 import { InboxBadge } from "@posthog/ui/features/inbox/components/utils/InboxBadge";
+import { ReportTrackerIssueLink } from "@posthog/ui/features/inbox/components/utils/ReportTrackerIssueLink";
 import { SignalReportPriorityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportPriorityBadge";
 import { SignalReportSummaryMarkdown } from "@posthog/ui/features/inbox/components/utils/SignalReportSummaryMarkdown";
 import {
@@ -58,7 +66,6 @@ import {
   reportNavigationState,
 } from "@posthog/ui/router/reportNavigation";
 import { openTask } from "@posthog/ui/router/useOpenTask";
-import { DropdownMenu, Flex, Text } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
@@ -96,19 +103,11 @@ function RunOutputWidget({ report }: { report: SignalReport }) {
 
   if (report.status === "failed") {
     return (
-      <Flex
-        align="center"
-        gap="3"
-        className="rounded-(--radius-2) border border-(--red-5) bg-(--red-2) px-4 py-3.5"
-      >
-        <Flex
-          align="center"
-          justify="center"
-          className="h-9 w-9 shrink-0 rounded-full bg-(--red-3) ring-(--red-6) ring-1 ring-inset"
-        >
+      <div className="flex items-center gap-3 rounded-(--radius-2) border border-(--red-5) bg-(--red-2) px-4 py-3.5">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-(--red-3) ring-(--red-6) ring-1 ring-inset">
           <WarningIcon size={16} className="text-(--red-11)" />
-        </Flex>
-        <Flex direction="column" gap="0.5" className="min-w-0 flex-1">
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <Text className="font-medium text-[13px] text-gray-12">
             Run failed
           </Text>
@@ -116,8 +115,8 @@ function RunOutputWidget({ report }: { report: SignalReport }) {
             Research couldn't complete – check the task log below for the error.
             The agent may retry automatically.
           </Text>
-        </Flex>
-      </Flex>
+        </div>
+      </div>
     );
   }
 
@@ -268,7 +267,7 @@ function AgentRunDetailContent({ report }: { report: SignalReport }) {
   }, [reportTasks]);
 
   return (
-    <Flex direction="column" className="min-h-full">
+    <div className="flex min-h-full flex-col">
       <InboxDetailPageHeader
         backTo="/inbox/runs"
         backLabel="Back to runs"
@@ -363,7 +362,8 @@ function AgentRunDetailContent({ report }: { report: SignalReport }) {
 
       <div className="@container mx-auto w-full max-w-[calc(160ch+5rem)] px-6 py-5 text-[13px]">
         <div className="grid @4xl:grid-cols-[minmax(0,80ch)_minmax(0,1fr)] grid-cols-1 gap-5">
-          <Flex direction="column" gap="5" className="min-w-0">
+          <div className="flex min-w-0 flex-col gap-5">
+            <ReportTrackerIssueLink report={report} />
             <RunOutputWidget report={report} />
 
             <DetailSection
@@ -378,10 +378,10 @@ function AgentRunDetailContent({ report }: { report: SignalReport }) {
               }
             >
               {isLoadingReportTasks ? (
-                <Flex direction="column" gap="2">
+                <div className="flex flex-col gap-2">
                   <span className="h-4 w-36 animate-pulse rounded bg-(--gray-3)" />
                   <span className="h-28 w-full animate-pulse rounded-(--radius-2) bg-(--gray-2)" />
-                </Flex>
+                </div>
               ) : selectedTask ? (
                 <div className="h-[calc(100vh-22rem)] min-h-[420px] w-full overflow-hidden rounded-(--radius-2) border border-border bg-(--color-panel-solid)">
                   <TaskLogsPanel
@@ -391,11 +391,7 @@ function AgentRunDetailContent({ report }: { report: SignalReport }) {
                   />
                 </div>
               ) : (
-                <Flex
-                  direction="column"
-                  gap="2"
-                  className="rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5"
-                >
+                <div className="flex flex-col gap-2 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5">
                   <Text className="font-medium text-[13px] text-gray-12">
                     Waiting for the linked task
                   </Text>
@@ -404,12 +400,12 @@ function AgentRunDetailContent({ report }: { report: SignalReport }) {
                     show the same live log UI as the task detail page. No
                     separate mock log is shown here.
                   </Text>
-                </Flex>
+                </div>
               )}
             </DetailSection>
-          </Flex>
+          </div>
 
-          <Flex direction="column" gap="5" className="min-w-0">
+          <div className="flex min-w-0 flex-col gap-5">
             {(signals.length > 0 || report.signal_count > 0) && (
               <RightColumnSection
                 Icon={MagnifyingGlassIcon}
@@ -429,10 +425,10 @@ function AgentRunDetailContent({ report }: { report: SignalReport }) {
               </RightColumnSection>
             )}
             <ReportActivitySection reportId={report.id} />
-          </Flex>
+          </div>
         </div>
       </div>
-    </Flex>
+    </div>
   );
 }
 
@@ -454,29 +450,31 @@ function TaskLogRightSlot({
     );
   }
   return (
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger>
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 rounded-(--radius-1) px-1.5 py-0.5 font-medium text-[12px] text-gray-11 hover:bg-(--gray-3) hover:text-gray-12 focus-visible:bg-(--gray-3) focus-visible:outline-none"
-          aria-label="Switch task"
-        >
-          <TaskRunStatusDot
-            status={selectedEntry.task.latest_run?.status ?? "not_started"}
-          />
-          {selectedEntry.purposeLabel}
-          <CaretDownIcon size={12} className="text-gray-10" />
-        </button>
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Content align="end" sideOffset={4}>
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded-(--radius-1) px-1.5 py-0.5 font-medium text-[12px] text-gray-11 hover:bg-(--gray-3) hover:text-gray-12 focus-visible:bg-(--gray-3) focus-visible:outline-none"
+            aria-label="Switch task"
+          >
+            <TaskRunStatusDot
+              status={selectedEntry.task.latest_run?.status ?? "not_started"}
+            />
+            {selectedEntry.purposeLabel}
+            <CaretDownIcon size={12} className="text-gray-10" />
+          </button>
+        }
+      />
+      <DropdownMenuContent align="end" sideOffset={4}>
         {entries.map((entry) => {
           const status = entry.task.latest_run?.status ?? "not_started";
           return (
-            <DropdownMenu.Item
+            <DropdownMenuItem
               key={entry.task.id}
-              onSelect={() => onSelect(entry.task.id)}
+              onClick={() => onSelect(entry.task.id)}
             >
-              <Flex align="center" gap="2" className="min-w-[200px]">
+              <div className="flex min-w-[200px] items-center gap-2">
                 <TaskRunStatusDot status={status} />
                 <Text className="font-medium text-[12.5px]">
                   {entry.purposeLabel}
@@ -484,11 +482,11 @@ function TaskLogRightSlot({
                 <Text className="ml-auto font-mono text-[11px] text-gray-10">
                   {entry.task.id.slice(0, 8)}
                 </Text>
-              </Flex>
-            </DropdownMenu.Item>
+              </div>
+            </DropdownMenuItem>
           );
         })}
-      </DropdownMenu.Content>
-    </DropdownMenu.Root>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

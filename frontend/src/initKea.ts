@@ -65,6 +65,9 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadRuns', // The Wizard runs table shows a persistent stale-data banner; a poll failure must not toast every 10s
     'loadRunDetails', // The Wizard run drawer shows a stale-state banner with a retry
     'cancelRunRequest', // wizardRunDetailsLogic shows its own cancel-failure toast
+    'loadReplayComments', // The replay Comments tab renders its own retry state
+    'loadCoreMemory', // The PostHog AI memory setting renders its own load error banner with a retry
+    'updateCoreMemory', // maxSettingsLogic's updateCoreMemoryFailure listener shows its own save-failure toast
 ]
 
 /*

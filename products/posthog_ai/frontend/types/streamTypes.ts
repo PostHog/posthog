@@ -135,6 +135,9 @@ export interface ThreadItem {
     /** Stable id — message buffer id, tool call id, or a generated separator/error id. */
     id: string
     type: ThreadItemType
+    /** Recorded activity times in milliseconds; absent for imported or untimed history. */
+    startedAt?: number
+    endedAt?: number
     /** For `human_message`, `assistant_message`, and `assistant_thought` items. */
     text?: string
     /** Whether the assistant message buffer is finalized. */

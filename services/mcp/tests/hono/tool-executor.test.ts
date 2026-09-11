@@ -494,17 +494,16 @@ describe('ToolExecutor', () => {
             const result = await executor.handleToolsList(state)
             expect(result.tools.map((t) => t.name)).toEqual(['exec', 'render-ui'])
 
-            // The advertised schema is derived from the zod validation schema —
-            // pin the contract the agent writes calls against. The analytics
-            // client injects a required `context` intent parameter into every
-            // advertised tool (surfaced as `$mcp_intent`).
+            // Pin the complete advertised schema because clients generate
+            // render-ui calls from this list response.
             const renderUiEntry = result.tools[1]!
             const properties = renderUiEntry.inputSchema.properties as Record<string, Record<string, unknown>>
             expect(properties.tool_name!.enum).toEqual(['survey-get'])
             expect(properties.tool_name!.description).toBeTruthy()
             expect(properties.tool_input!.description).toBeTruthy()
             expect(properties.context!.description).toBeTruthy()
-            expect(renderUiEntry.inputSchema.required).toEqual(['tool_name', 'context'])
+            expect(properties.llm_model!.description).toBeTruthy()
+            expect(renderUiEntry.inputSchema.required).toEqual(['tool_name', 'context', 'llm_model'])
         })
 
         it('omits render-ui when render-ui is disabled, even with a UI-app tool available', async () => {
@@ -561,20 +560,30 @@ describe('ToolExecutor', () => {
                 useSingleExec: true,
                 renderUiEnabled: true,
                 expectStructuredContent: true,
+                posthogAi: false,
             },
             {
                 label: 'drops it for a CLI client without render-ui, which reads the table',
                 useSingleExec: true,
                 renderUiEnabled: false,
                 expectStructuredContent: false,
+                posthogAi: false,
             },
             {
                 label: 'drops it in tools mode, where a direct call may be the model',
                 useSingleExec: false,
                 renderUiEnabled: true,
                 expectStructuredContent: false,
+                posthogAi: false,
             },
-        ])('$label', async ({ useSingleExec, renderUiEnabled, expectStructuredContent }) => {
+            {
+                label: 'carries app data for native widgets without a UI resource',
+                useSingleExec: false,
+                renderUiEnabled: false,
+                expectStructuredContent: false,
+                posthogAi: true,
+            },
+        ])('$label', async ({ useSingleExec, renderUiEnabled, expectStructuredContent, posthogAi }) => {
             getToolByNameSpy = vi.spyOn(catalog, 'getToolByName').mockReturnValue({
                 build() {
                     return this.base
@@ -585,17 +594,25 @@ describe('ToolExecutor', () => {
                         results: [{ count: 28, label: '$pageview' }],
                         [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: formattedTable,
                     }),
-                    _meta: uiAppTool._meta,
+                    _meta: posthogAi ? undefined : uiAppTool._meta,
                 },
             } as any)
 
             const state = makeState([uiAppTool], { useSingleExec, renderUiEnabled })
             vi.mocked(state.clientProfile.isCliModeEnabled).mockReturnValue(true)
+            if (posthogAi) {
+                state.clientProfile = { ...state.clientProfile, consumer: 'posthog_ai' } as typeof state.clientProfile
+            }
 
             const result = (await executor.handleToolCall({ name: 'survey-get', arguments: {} }, state)) as any
 
             expect(result.content[0].text).toContain(formattedTable)
             expect('structuredContent' in result).toBe(expectStructuredContent)
+            if (posthogAi) {
+                expect(result._meta['com.posthog.mcp/app_data']).toEqual({
+                    results: [{ count: 28, label: '$pageview' }],
+                })
+            }
         })
     })
 })

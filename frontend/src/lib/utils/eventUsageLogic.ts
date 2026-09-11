@@ -47,7 +47,6 @@ import {
     isTrendsQuery,
     queryUsesDataWarehouse,
 } from '~/queries/utils'
-import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import {
     ChartDisplayType,
     CohortType,
@@ -78,8 +77,6 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
-import type { DashboardAddTileType } from 'products/dashboards/frontend/types'
-
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'
 
@@ -89,7 +86,6 @@ export enum DashboardEventSource {
     DashboardHeaderSaveDashboard = 'dashboard_header_save_dashboard',
     DashboardHeaderDiscardChanges = 'dashboard_header_discard_changes',
     DashboardHeaderExitFullscreen = 'dashboard_header_exit_fullscreen',
-    DashboardHeaderOverridesBanner = 'dashboard_header_overrides_banner',
     Hotkey = 'hotkey',
     InputEnter = 'input_enter',
     Toast = 'toast',
@@ -785,11 +781,11 @@ export interface eventUsageLogicActions {
         stepCount: number
     }
     reportDashboardAddMenuOpened: (
-        source: 'header' | 'inline',
+        source: 'header',
         dashboardId: number
     ) => {
         dashboardId: number
-        source: 'header' | 'inline'
+        source: 'header'
     }
     reportDashboardBreakdownColorsSaved: (
         dashboard: DashboardType<QueryBasedInsightModel> | null,
@@ -1022,21 +1018,6 @@ export interface eventUsageLogicActions {
         dashboardId: number | undefined
         ignored: boolean
         insightId: number | null
-    }
-    reportDashboardTileInsertedInline: (
-        tileType: DashboardAddTileType,
-        dashboardId: number,
-        tileId: number,
-        column: number,
-        row: number,
-        fullWidth: boolean
-    ) => {
-        column: number
-        dashboardId: number
-        fullWidth: boolean
-        row: number
-        tileId: number
-        tileType: DashboardAddTileType
     }
     reportDashboardTileRefreshed: (
         dashboardId: number,
@@ -2670,15 +2651,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomChannelTypeRulesUpdated: (numRules: number) => ({ numRules }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
-        reportDashboardAddMenuOpened: (source: 'header' | 'inline', dashboardId: number) => ({ source, dashboardId }),
-        reportDashboardTileInsertedInline: (
-            tileType: DashboardAddTileType,
-            dashboardId: number,
-            tileId: number,
-            column: number,
-            row: number,
-            fullWidth: boolean
-        ) => ({ tileType, dashboardId, tileId, column, row, fullWidth }),
+        reportDashboardAddMenuOpened: (source: 'header', dashboardId: number) => ({ source, dashboardId }),
         /** Dashboard created via PostHog web app from a template (new dashboard modal / template chooser). */
         reportWebDashboardCreatedFromTemplate: (payload: {
             dashboard_id: number
@@ -3376,6 +3349,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             breakpoint
         ) => {
             await breakpoint(500)
+            // Not a module-scope import: the taxonomy JSON is a quarter-MiB table and this logic boots every page.
+            const { PROPERTY_KEYS } = await import('~/taxonomy/taxonomy')
+            breakpoint()
 
             let custom_properties_count = 0
             let posthog_properties_count = 0
@@ -3853,16 +3829,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportDashboardAddMenuOpened: async ({ source, dashboardId }) => {
             posthog.capture('dashboard add menu opened', { source, dashboard_id: dashboardId })
-        },
-        reportDashboardTileInsertedInline: async ({ tileType, dashboardId, tileId, column, row, fullWidth }) => {
-            posthog.capture('dashboard tile inserted inline', {
-                tile_type: tileType,
-                dashboard_id: dashboardId,
-                tile_id: tileId,
-                column,
-                row,
-                full_width: fullWidth,
-            })
         },
         reportWebDashboardCreatedFromTemplate: async (payload) => {
             posthog.capture('dashboard created from template', {

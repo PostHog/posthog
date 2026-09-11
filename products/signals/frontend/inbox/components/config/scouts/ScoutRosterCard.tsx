@@ -7,17 +7,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import {
-    nextRunAt,
-    SCOUT_GROUP_LABEL,
-    scoutCadenceLabel,
-    ScoutRosterRow,
-    scoutSubtitle,
-} from '../../../utils/scoutGroups'
-import { prettifyScoutSkillName } from '../../../utils/scoutRunsWindow'
+import { nextRunAt, SCOUT_GROUP_LABEL, ScoutRosterRow, scoutSubtitle } from '../../../utils/scoutGroups'
+import { scoutDisplayName } from '../../../utils/scoutRunsWindow'
 import { inboxCardRowClassName } from '../../cards/inboxCardRowClassName'
 import { ScoutLifecycleBadge } from './ScoutBadges'
+import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
+import { ScoutCostLine } from './ScoutCostLine'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
 import { ScoutRunBoxes } from './ScoutRunBoxes'
 import { ScoutStatusDot } from './ScoutStatusDot'
@@ -41,11 +37,19 @@ function MetaSeparator(): JSX.Element {
  */
 export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
     const { config, group } = row
-    const { rollups, updatingScoutIds, scoutRunsLoadedOnce, scoutRunCosts } = useValues(scoutFleetLogic)
+    const {
+        rollups,
+        updatingScoutIds,
+        scoutRunsLoadedOnce,
+        scoutRunCosts,
+        scoutCostRollups,
+        expensiveRunCostThreshold,
+    } = useValues(scoutFleetLogic)
     const { updateScoutConfig } = useActions(scoutFleetLogic)
     const { currentTeam } = useValues(teamLogic)
     const now = new Date()
     const rollup = rollups.get(config.skill_name)
+    const costRollup = scoutCostRollups.get(config.skill_name)
     const runs = rollup?.runs ?? []
     const subtitle = scoutSubtitle(config, rollup, now)
     // Only enabled scouts have a next run; a paused one would otherwise carry an empty dash.
@@ -64,7 +68,7 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <span className="min-w-0 truncate text-sm font-semibold leading-snug">
-                            {prettifyScoutSkillName(config.skill_name)}
+                            {scoutDisplayName(config)}
                         </span>
                         <ScoutWriteAccessTag writeScopes={config.write_scopes} emit={config.emit} />
                         {config.auto_pause_exempt && group === 'watching' && (
@@ -82,7 +86,9 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
                     <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs leading-none text-tertiary select-none">
                         <span>{SCOUT_GROUP_LABEL[group]}</span>
                         <MetaSeparator />
-                        <span>{scoutCadenceLabel(config)}</span>
+                        <span>
+                            <ScoutCadenceLabel config={config} />
+                        </span>
                         {hasNextRun && (
                             <>
                                 <MetaSeparator />
@@ -92,13 +98,18 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
                             </>
                         )}
                     </div>
+                    {costRollup && (
+                        <div className="flex flex-wrap items-center text-xs leading-none text-tertiary select-none">
+                            <ScoutCostLine rollup={costRollup} />
+                        </div>
+                    )}
                 </div>
             </Link>
             <div className="flex shrink-0 items-center justify-between gap-4 @lg:justify-end @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
                 {/* A fixed strip width on wide rows keeps every row's newest run on one vertical line. */}
                 <div className="flex min-w-0 justify-end @lg:w-52">
                     {runs.length > 0 ? (
-                        <ScoutRunBoxes runs={runs} costs={scoutRunCosts} />
+                        <ScoutRunBoxes runs={runs} costs={scoutRunCosts} costThreshold={expensiveRunCostThreshold} />
                     ) : (
                         // Until the runs request has landed once, an empty rollup means "not
                         // loaded", not "never ran"; the poll retries a failed load on its own.
