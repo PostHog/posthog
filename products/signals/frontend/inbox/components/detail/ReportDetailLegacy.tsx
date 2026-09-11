@@ -18,6 +18,7 @@ import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { InboxTabKey, INBOX_TAB_LABEL, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
+import { inboxReportBackPath } from '../../utils/inboxReportUrls'
 import { canCreateImplementationPr } from '../../utils/reportActions'
 import {
     displayConventionalCommitTitle,
@@ -273,10 +274,9 @@ function InboxDetailFrameLegacy({
 }: InboxDetailFrameProps): JSX.Element {
     const { searchParams } = useValues(router)
     // A `?back=` internal path (set by surfaces embedding inbox cards, e.g. the customer analytics
-    // feed) redirects the back button there instead of the inbox list tab.
-    const rawBack = searchParams.back
-    const backOverride =
-        typeof rawBack === 'string' && rawBack.startsWith('/') && !rawBack.startsWith('//') ? rawBack : null
+    // feed, and by the scout surfaces that list reports) redirects the back button there instead of
+    // the inbox list tab.
+    const backOverride = inboxReportBackPath(searchParams)
     const logicProps = { reportId: report.id, report }
     const {
         reportSignals,

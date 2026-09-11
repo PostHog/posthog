@@ -6,13 +6,13 @@ import { IconCheckCircle, IconHide, IconReceipt, IconUndo } from '@posthog/icons
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { urls } from 'scenes/urls'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
+import { inboxReportReturnPath } from '../../utils/inboxReportUrls'
 import { canResolveReport } from '../../utils/reportActions'
 import { useReportDismiss } from '../cards/useReportDismiss'
 import { useReportRefund } from '../cards/useReportRefund'
@@ -40,7 +40,11 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     const { reportStateChanged } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
     const { loadSelectedReport } = useActions(inboxSceneLogic)
+    const { searchParams } = useValues(router)
     const [isRestoring, setIsRestoring] = useState(false)
+    // A verdict closes the report, so it leaves for wherever the report was opened from — the same
+    // path its back button takes.
+    const returnPath = inboxReportReturnPath(searchParams, activeTab)
 
     const isDismissed = report.status === SignalReportStatus.SUPPRESSED
     // Resolved reports are terminal – nothing to dismiss, restore, or resolve.
@@ -51,11 +55,11 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     const staysPutOnRefund = isResolved && report.implementation_pr_merged === true
 
     // Once a verdict persists, broadcast so every mounted list reconciles against the server (the
-    // report leaves Needs decision / Review and merge and joins Resolved or Dismissed), then return to
-    // the list.
-    const leaveForList = (): void => {
+    // report leaves Needs decision / Review and merge and joins Resolved or Dismissed), then leave
+    // the report.
+    const leaveForOrigin = (): void => {
         reportStateChanged()
-        router.actions.push(urls.inbox(activeTab))
+        router.actions.push(returnPath)
     }
 
     const { isDismissing, onDismissClick } = useReportDismiss({
@@ -63,24 +67,24 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         cardTitle: report.title ?? 'Untitled report',
         report,
         surface: 'detail_pane',
-        onDismissed: leaveForList,
+        onDismissed: leaveForOrigin,
     })
 
     const { isResolving, onResolveClick } = useReportResolve({
         report,
         surface: 'detail_pane',
-        onResolved: leaveForList,
+        onResolved: leaveForOrigin,
     })
 
     const { canRefund, refundDisabledReason, isRefunding, onRefundClick } = useReportRefund({
         report,
         surface: 'detail_pane',
         // Refunding dismisses the report server-side, so reconcile the lists the same way and
-        // return to the list — except for resolved reports, which stay where they are.
+        // leave the report — except for resolved reports, which stay where they are.
         onRefunded: () => {
             reportStateChanged()
             if (!staysPutOnRefund) {
-                router.actions.push(urls.inbox(activeTab))
+                router.actions.push(returnPath)
             } else {
                 // These reports stay on this page, so refetch: the fresh copy carries `refund`,
                 // which surfaces the Refunded badge and drops Refund from the actions.
@@ -109,7 +113,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         if (dismissedList) {
             // The list logic fires the `restore` analytics; just drive navigation here.
             dismissedList.actions.restoreReport(report.id, 'detail_pane')
-            router.actions.push(urls.inbox(activeTab))
+            router.actions.push(returnPath)
             return
         }
         // Fallback for a deep-linked detail with no mounted Dismissed list (e.g. cold load), and for
@@ -122,7 +126,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             // Broadcast so any mounted list (including that Archive instance) reconciles against the
             // server before we navigate back; nothing else in this path repairs its stale row + count.
             reportStateChanged()
-            router.actions.push(urls.inbox(activeTab))
+            router.actions.push(returnPath)
         } catch (error: any) {
             lemonToast.error(error?.detail || error?.message || 'Failed to restore report')
         } finally {

@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { captureScoutAction } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { SignalScoutRunSummary } from '../../../types'
+import { inboxReportDetailUrl } from '../../../utils/inboxReportUrls'
 import {
     deriveRunFailureKind,
     formatRunDuration,
@@ -87,6 +88,8 @@ const ScoutRunRow = memo(function ScoutRunRow({
     const reportActivityLabel = scoutReportActivityLabel(run)
     const { authored: authoredReportIds, edited: editedReportIds } = runReportActivity(run)
     const hasBody = Boolean(run.summary) || status === 'failed' || expanded
+    // This list only renders on the scout's own page, so a report opened from it returns there.
+    const backUrl = urls.inboxScout(skillName)
 
     return (
         <div className="flex flex-col border-b border-primary last:border-b-0">
@@ -153,7 +156,7 @@ const ScoutRunRow = memo(function ScoutRunRow({
                             {authoredReportIds.map((reportId) => (
                                 <Link
                                     key={reportId}
-                                    to={urls.inboxReport('reports', reportId)}
+                                    to={inboxReportDetailUrl(reportId, backUrl)}
                                     className="flex items-center gap-1 font-medium shrink-0"
                                     onClick={() => captureOpenLinkedReport(skillName, reportId, 'authored')}
                                 >
@@ -163,7 +166,7 @@ const ScoutRunRow = memo(function ScoutRunRow({
                             {editedReportIds.map((reportId) => (
                                 <Link
                                     key={reportId}
-                                    to={urls.inboxReport('reports', reportId)}
+                                    to={inboxReportDetailUrl(reportId, backUrl)}
                                     className="flex items-center gap-1 font-medium shrink-0"
                                     onClick={() => captureOpenLinkedReport(skillName, reportId, 'edited')}
                                 >

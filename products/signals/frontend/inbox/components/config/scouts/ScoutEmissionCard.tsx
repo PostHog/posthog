@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { captureScoutAction } from '../../../inboxAnalytics'
 import { LinkedSignalReport, SignalScoutEmission, SignalScoutRunSummary } from '../../../types'
+import { inboxReportDetailUrl } from '../../../utils/inboxReportUrls'
 import { prettifyScoutSkillName } from '../../../utils/scoutRunsWindow'
 import { SignalReportPriorityBadge } from '../../badges/SignalReportPriorityBadge'
 import { ScoutTimestamp } from './ScoutTimestamp'
@@ -44,6 +45,7 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
     report,
     isDeepLinked = false,
     showScout = false,
+    backUrl,
 }: {
     skillName: string
     emission: SignalScoutEmission
@@ -54,6 +56,8 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
     isDeepLinked?: boolean
     /** Cross-fleet listings set this to surface the scout (name in the header, "View scout" footer link). */
     showScout?: boolean
+    /** The surface listing this card, so the linked report returns here when it is read or given a verdict. */
+    backUrl?: string
 }): JSX.Element {
     const [expanded, setExpanded] = useState(isDeepLinked)
     const confidencePercent = Math.round((emission.confidence ?? 0) * 100)
@@ -151,7 +155,7 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
 
                 {report && (
                     <Link
-                        to={urls.inboxReport('reports', report.id)}
+                        to={inboxReportDetailUrl(report.id, backUrl)}
                         className="mt-2 inline-flex max-w-full items-center gap-1 rounded bg-primary-highlight px-2 py-0.5 text-xs font-medium text-primary"
                         onClick={() =>
                             captureScoutAction({
