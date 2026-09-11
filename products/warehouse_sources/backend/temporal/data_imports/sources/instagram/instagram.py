@@ -10,6 +10,8 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
+from posthog.exceptions_capture import capture_exception
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -688,8 +690,21 @@ def validate_credentials(
             "The Instagram connection is missing permissions this source needs. Reconnect it and grant "
             "access to your page, Instagram insights and comments."
         )
-    except Exception:
-        return False, "Could not reach the Instagram API with this connection."
+    except (InstagramRetryableError, InstagramRequestBudgetError):
+        return False, "Instagram is busy or temporarily unavailable. Wait a few minutes and try again."
+    except InstagramBadRequestError:
+        return False, (
+            "Instagram rejected the request for that account. Check the account is an Instagram "
+            "professional account linked to your Facebook page, then try again."
+        )
+    except Exception as e:
+        # Anything left is a transport failure or a bug on our side. The probe returns a message
+        # rather than raising, so nothing above the source would record it otherwise.
+        capture_exception(e)
+        return (
+            False,
+            "PostHog couldn't check this Instagram connection. Reconnect your Instagram account and try again.",
+        )
 
     if not body.get("id"):
         return False, "That account is not an Instagram professional account. Pick a different account."

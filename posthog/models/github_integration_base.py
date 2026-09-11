@@ -8,7 +8,7 @@ operations that are shared between :class:`GitHubIntegration` (team-scoped) and
 import json
 import time
 import uuid
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, TypedDict, cast
@@ -1550,23 +1550,34 @@ class GitHubIntegrationBase:
             return False
         return True
 
-    def _gh_graphql(self, query: str, variables: dict[str, Any], *, endpoint: str, timeout: int = 10) -> dict:
+    def _gh_graphql(
+        self,
+        query: str,
+        variables: dict[str, Any],
+        *,
+        endpoint: str,
+        timeout: int = 10,
+        retry_transient: bool = True,
+    ) -> dict:
         """Authenticated POST to the GitHub GraphQL API. Returns the ``data`` object.
 
         GraphQL queries are read-only, so a POST retry on transient failures is safe —
         hence ``retry_transient=True`` on the shared :meth:`api_request` lifecycle, plus an
         extra retry loop here for GitHub's 200-with-``errors`` transient server errors that
-        the status-code retry can't catch.
+        the status-code retry can't catch. A mutation passes ``retry_transient=False``: a
+        network error can arrive after GitHub already ran the write, so a repeat is the
+        caller's decision to make, not this method's.
         """
         errors: Any = None
-        for attempt in range(self._GRAPHQL_TRANSIENT_ATTEMPTS):
+        attempts = self._GRAPHQL_TRANSIENT_ATTEMPTS if retry_transient else 1
+        for attempt in range(attempts):
             response = self.api_request(
                 "POST",
                 "/graphql",
                 endpoint=endpoint,
                 json_body={"query": query, "variables": variables},
                 timeout=timeout,
-                retry_transient=True,
+                retry_transient=retry_transient,
             )
             if response.status_code != 200:
                 raise GitHubIntegrationError(
@@ -1585,7 +1596,7 @@ class GitHubIntegrationBase:
             # No data — a hard failure. Retry GitHub's transient server errors; raise the rest.
             if not self._graphql_errors_are_transient(errors):
                 break
-            if attempt < self._GRAPHQL_TRANSIENT_ATTEMPTS - 1:
+            if attempt < attempts - 1:
                 logger.info(
                     "GitHubIntegration: retrying transient GraphQL error",
                     endpoint=endpoint,
@@ -1677,6 +1688,104 @@ class GitHubIntegrationBase:
             "requested_reviewer_logins": reviewer_logins,
             "updated_at": pr.get("updatedAt"),
         }
+
+    # Labels are read alongside the draft state so one round trip answers both "is there anything to
+    # do" and "is the caller allowed to do it", instead of a second call between the read and the write.
+    _PR_READY_STATE_QUERY = """
+    query($owner: String!, $repo: String!, $number: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $number) {
+          id
+          isDraft
+          state
+          labels(first: 100) { nodes { name } }
+          timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT], first: 1) {
+            nodes { __typename }
+          }
+        }
+      }
+    }
+    """
+
+    _MARK_PR_READY_MUTATION = """
+    mutation($pullRequestId: ID!) {
+      markPullRequestReadyForReview(input: { pullRequestId: $pullRequestId }) {
+        pullRequest { isDraft }
+      }
+    }
+    """
+
+    def mark_pull_request_ready_for_review(
+        self, repository: str, pr_number: int, *, skip_labels: Collection[str] = ()
+    ) -> dict[str, Any]:
+        """Take a draft pull request out of draft. ``repository`` is ``owner/repo`` or a bare repo.
+
+        GraphQL rather than REST because REST cannot do it: ``PATCH /repos/{owner}/{repo}/pulls/{n}``
+        ignores ``draft``, and ``markPullRequestReadyForReview`` is the only endpoint that undrafts.
+
+        Only ever moves a pull request that has never left the draft state it opened in. A pull
+        request somebody already marked ready, or put back into draft, keeps whatever they chose,
+        however long the caller took to get here.
+
+        Returns ``{"success": True, "changed": ...}``. ``changed`` is False when there was nothing
+        to do, with ``reason`` naming which of the guards stopped it: ``not_draft`` for a pull
+        request already ready, ``closed`` for one that is closed or merged, ``draft_state_decided``
+        for one whose draft state a person has already moved, or ``label`` when it carries one of
+        ``skip_labels`` (matched case-insensitively). A pull request GitHub would not
+        return, and a mutation it rejected, come back as ``{"success": False, "error": ...}``;
+        transport failures raise :class:`GitHubIntegrationError`, and rate limits and a denied egress
+        budget raise, as everywhere else on this client.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        owner, _, repo = repo_path.partition("/")
+
+        data = self._gh_graphql(
+            self._PR_READY_STATE_QUERY,
+            {"owner": owner, "repo": repo, "number": pr_number},
+            endpoint="/graphql:pullRequestReadyState",
+        )
+        pr = ((data or {}).get("repository") or {}).get("pullRequest")
+        if not pr:
+            return {"success": False, "error": f"Pull request not found: {repo_path}#{pr_number}"}
+        if pr.get("state") != "OPEN":
+            return {"success": True, "changed": False, "reason": "closed"}
+        if not pr.get("isDraft"):
+            return {"success": True, "changed": False, "reason": "not_draft"}
+        # Somebody already moved this pull request between draft and ready, so its current draft
+        # state is a decision rather than the state it opened in. Reading the timeline is what makes
+        # that durable: a caller that queues this work cannot otherwise tell a pull request that was
+        # always a draft from one a person put back into draft while the call waited.
+        # Count the returned nodes, never `totalCount`: GitHub ignores the `itemTypes` filter when it
+        # computes that field, so it reports every timeline item and would match any busy pull request.
+        if (pr.get("timelineItems") or {}).get("nodes") or []:
+            return {"success": True, "changed": False, "reason": "draft_state_decided"}
+
+        unwanted = {label.casefold() for label in skip_labels}
+        if unwanted:
+            names = {
+                node["name"].casefold()
+                for node in ((pr.get("labels") or {}).get("nodes") or [])
+                if isinstance(node, dict) and isinstance(node.get("name"), str)
+            }
+            if names & unwanted:
+                return {"success": True, "changed": False, "reason": "label"}
+
+        node_id = pr.get("id")
+        if not isinstance(node_id, str):
+            return {"success": False, "error": f"Pull request has no node id: {repo_path}#{pr_number}"}
+
+        # No transient retry: a network error can land after GitHub already undrafted the pull
+        # request, and a repeat would then fight a reviewer who redrafted it in between.
+        result = self._gh_graphql(
+            self._MARK_PR_READY_MUTATION,
+            {"pullRequestId": node_id},
+            endpoint="/graphql:markPullRequestReadyForReview",
+            retry_transient=False,
+        )
+        marked = ((result or {}).get("markPullRequestReadyForReview") or {}).get("pullRequest")
+        if not marked:
+            return {"success": False, "error": f"Failed to mark pull request ready: {repo_path}#{pr_number}"}
+        return {"success": True, "changed": True}
 
     # Pull requests per aliased CI-rollup query. Each alias reads one PR and the check rollup of its
     # head commit, so a batch this size stays well inside GitHub's GraphQL node limit. A longer list
