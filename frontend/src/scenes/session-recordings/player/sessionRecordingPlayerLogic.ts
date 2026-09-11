@@ -169,7 +169,12 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     setPinned?: (pinned: boolean) => void
     playNextRecording?: (automatic: boolean) => void
     skipToFirstMatchingEvent?: boolean
+    // The experiment whose recordings list the player was opened from. Its first in-session exposure
+    // becomes a target for the initial skip, alongside any filtered events.
+    exposureSkipExperimentId?: number
 }
+
+export type MatchingEventSkipTarget = 'filtered-event' | 'experiment-exposure'
 
 // Positions less than this far before the next FullSnapshot are treated as
 // renderable: recordings routinely start a few ms before their first
@@ -622,6 +627,7 @@ export interface sessionRecordingPlayerLogicValues {
     leadingUnplayableMs: number
     logicProps: SessionRecordingPlayerLogicProps
     maskingWindow: boolean
+    matchingEventSkipTarget: MatchingEventSkipTarget
     pauseForced: boolean
     playNextAnimationInterrupted: boolean
     playNextRecording: ((automatic: boolean) => void) | undefined
@@ -970,8 +976,12 @@ export interface sessionRecordingPlayerLogicActions {
     setSkippingInactivity: (isSkippingInactivity: boolean) => {
         isSkippingInactivity: boolean
     }
-    setSkippingToMatchingEvent: (isSkippingToMatchingEvent: boolean) => {
+    setSkippingToMatchingEvent: (
+        isSkippingToMatchingEvent: boolean,
+        target?: MatchingEventSkipTarget
+    ) => {
         isSkippingToMatchingEvent: boolean
+        target: MatchingEventSkipTarget
     }
     setWasMarkedViewed: (wasMarkedViewed: boolean) => {
         wasMarkedViewed: boolean
@@ -1231,7 +1241,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         clearPlayerError: true,
         retryLoadingSnapshots: true,
         setSkippingInactivity: (isSkippingInactivity: boolean) => ({ isSkippingInactivity }),
-        setSkippingToMatchingEvent: (isSkippingToMatchingEvent: boolean) => ({ isSkippingToMatchingEvent }),
+        setSkippingToMatchingEvent: (
+            isSkippingToMatchingEvent: boolean,
+            target: MatchingEventSkipTarget = 'filtered-event'
+        ) => ({ isSkippingToMatchingEvent, target }),
         syncPlayerSpeed: true,
         setCurrentTimestamp: (timestamp: number) => ({ timestamp }),
         setScale: (scale: number) => ({ scale }),
@@ -1432,6 +1445,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         isSkippingToMatchingEvent: [
             false,
             { setSkippingToMatchingEvent: (_, { isSkippingToMatchingEvent }) => isSkippingToMatchingEvent },
+        ],
+        // Held past the skip so the overlay keeps naming the right target while the skip animates.
+        // Only a start carries a target; the matching stop leaves the last one in place.
+        matchingEventSkipTarget: [
+            'filtered-event' as MatchingEventSkipTarget,
+            {
+                setSkippingToMatchingEvent: (state, { isSkippingToMatchingEvent, target }) =>
+                    isSkippingToMatchingEvent ? target : state,
+            },
         ],
         scale: [
             1,
