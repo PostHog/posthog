@@ -5,7 +5,7 @@ from threading import Barrier
 
 from unittest.mock import MagicMock, patch
 
-from django.db import close_old_connections
+from django.db import close_old_connections, connection
 from django.test import SimpleTestCase, TestCase, TransactionTestCase
 from django.utils import timezone
 
@@ -49,6 +49,23 @@ def _limits(global_limit: int = 3, tenant_limit: int = 2) -> SchedulerAdmissionL
 
 
 class TestReserveSchedulerClaims(TestCase):
+    def test_restores_the_callers_lock_timeout_after_nested_transaction(self) -> None:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT set_config('lock_timeout', %s, TRUE)", ["17ms"])
+
+        reserve_scheduler_claims(
+            scheduler=SCHEDULER,
+            region=REGION,
+            requests=[_request("team:1", "one")],
+            limits=_limits(),
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute("SHOW lock_timeout")
+            restored_timeout = cursor.fetchone()[0]
+
+        self.assertEqual(restored_timeout, "17ms")
+
     def test_preserves_order_while_enforcing_global_and_tenant_capacity(self) -> None:
         requests = [
             _request("team:1", "one"),
@@ -584,12 +601,12 @@ class TestSchedulerClaimLifecycle(TestCase):
         )
         self.assertEqual(self._global_in_flight(), 1)
 
-    def test_recovery_deferral_sets_a_transaction_local_lock_timeout(self) -> None:
+    def test_recovery_deferral_scopes_a_transaction_local_lock_timeout(self) -> None:
         expected_lease = TemporalSchedulerClaim.objects.get(id=self.reservation.claim_id).lease_expires_at
         assert expected_lease is not None
 
         metrics = MagicMock()
-        with patch("posthog.temporal.scheduler.admission._set_scheduler_lock_timeout") as set_lock_timeout:
+        with patch("posthog.temporal.scheduler.admission._scheduler_lock_timeout") as lock_timeout:
             self.assertTrue(
                 defer_scheduler_claim_recovery(
                     self.reservation.claim_id,
@@ -602,7 +619,7 @@ class TestSchedulerClaimLifecycle(TestCase):
                 )
             )
 
-        set_lock_timeout.assert_called_once_with()
+        lock_timeout.assert_called_once_with()
         metrics.record_claim_transition.assert_called_once_with(SCHEDULER, REGION, "recovery_deferred")
 
     def test_recovery_deferral_is_not_counted_as_a_lease_renewal(self) -> None:
