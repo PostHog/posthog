@@ -14,7 +14,7 @@ How scouts get discovered, scheduled, and dispatched; the two distribution paths
   Config responses also carry the scout's `description`, read live from the skill's frontmatter (not a config field you set), plus `scout_origin` (`canonical` or `custom`) and `owners`.
 - **Coordinator.** A periodic Temporal workflow ticks (~every 30 min).
   Each tick it bounds candidates to projects enrolled via the `signals-scout` feature-flag allowlist, then dispatches every **enabled** scout whose schedule is **due**, most-overdue first, capped per tick.
-  On a rolling interval, due means `last_run_at is None` (a never-run scout is maximally overdue) or `now - last_run_at ≥ run_interval_minutes`.
+  On a rolling interval, due means `last_run_at is None` (a never-dispatched scout is maximally overdue; manual runs do not set the stamp) or `now - last_run_at ≥ run_interval_minutes`.
   On a cron schedule, due means the first slot after the latest of `last_run_at`, the last schedule edit, and the config's creation has passed, so a fresh or re-scheduled cron scout waits for its next slot instead of firing at once.
   There is no sampling — every due scout runs.
   `last_run_at` advances for everything dispatched.

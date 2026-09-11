@@ -186,9 +186,9 @@ def assess_scout(name: str, runs: list[dict], interval: float | None, mem_count:
 
     return {
         "name": name, "runs": n, "completed": completed, "failed": failed, "timeouts": timeouts,
-        "success_pct": pct(completed, len(settled)), "median_dur": median_dur, "median_gap": median_gap,
-        "interval": interval, "adherence": adherence, "stalls": stalls,
-        "wrote": wrote, "wrote_pct": pct(wrote, n), "mem_count": mem_count,
+        "settled": len(settled), "success_pct": pct(completed, len(settled)), "median_dur": median_dur,
+        "median_gap": median_gap, "interval": interval, "adherence": adherence, "stalls": stalls,
+        "wrote": wrote, "wrote_pct": pct(wrote, len(settled)), "mem_count": mem_count,
         "stale_min": stale_min, "dispatch_stale_min": dispatch_stale_min,
         "run_stale_min": run_stale_min, "dispatch_run_gap_min": dispatch_run_gap_min,
     }
@@ -221,7 +221,7 @@ def render(scouts: list[dict], window_note: str, has_mem: bool, *, art: bool = T
     flags: list[str] = []
     for s in scouts:
         if s["failed"] and s["completed"] == 0:
-            flags.append(f" * {s['name']}: EVERY run failed ({s['failed']}/{s['runs']}) — broken, not quiet.")
+            flags.append(f" * {s['name']}: EVERY settled run failed ({s['failed']}/{s['settled']}) — broken, not quiet.")
         elif s["timeouts"]:
             flags.append(f" * {s['name']}: {s['timeouts']} timeout-shaped failure(s) (>={int(TIMEOUT_MINUTES)}m) — likely over-investigation; read the session log.")
         if s["stalls"]:
@@ -249,8 +249,9 @@ def render(scouts: list[dict], window_note: str, has_mem: bool, *, art: bool = T
 
     L += ["", "-" * 78, " column key", "-" * 78,
           " runs      runs in the window; (NF) = N of them failed",
-          " ok        success rate — % of runs that reached a clean 'completed' status",
-          " wrote     report rate — % of runs that wrote or edited an inbox report (from",
+          " ok        success rate — % of settled runs (completed or failed; cancelled and",
+          "           in-flight rows are excluded) that reached a clean 'completed' status",
+          " wrote     report rate — % of settled runs that wrote or edited an inbox report (from",
           "           emitted_report_ids / edited_report_ids on the run row; legacy",
           "           signal-channel emits count too). Most healthy scouts write rarely —",
           "           judge signal-to-noise against the report statuses in inbox-reports-list.",
