@@ -120,9 +120,10 @@ const SCAN_TIMEOUT: Duration = Duration::from_secs(10);
 /// Postgres cannot compute), so it reads the whole live-mark set — the
 /// partial mark index contains nothing but live marks — and filters
 /// in-process with the same partition function request validation uses.
-/// The join to `lifecycle_op` for the op type costs a lookup per row, so
-/// this is not an index-only read; it stays cheap because the live-mark
-/// set is small while ops complete. Merge targets are claimed but never
+/// The mark index covers `op_id` and `role`, so the mark side is an
+/// index-only scan. The join to `lifecycle_op` for the op type still
+/// costs a lookup per row; the scan stays cheap because the live-mark set
+/// is small while ops complete. Merge targets are claimed but never
 /// fenced, so they are excluded.
 ///
 /// The partition's existing entries are dropped first, so a re-warm
