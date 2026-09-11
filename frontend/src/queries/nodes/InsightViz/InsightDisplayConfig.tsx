@@ -8,7 +8,7 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/datetime'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
@@ -16,7 +16,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
 import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
-import { RetentionBreakdownFilter } from 'scenes/retention/RetentionBreakdownFilter'
 
 import { hasBreakdownFilter, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
@@ -24,8 +23,10 @@ import { ChartDisplayType } from '~/types'
 import { FunnelBinsPicker } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelBinsPicker'
 import { FunnelDisplayLayoutPicker } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelDisplayLayoutPicker'
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
+import { RetentionBreakdownFilter } from 'products/product_analytics/frontend/insights/retention/filters/RetentionBreakdownFilter'
 
 import { useInsightDisplayOptions } from './insightDisplayOptions'
+import { InsightDisplayOptionsPanel } from './InsightDisplayOptionsPanel'
 
 export function InsightDisplayConfig(): JSX.Element {
     const { insightProps, canEditInsight, editingDisabledReason } = useValues(insightLogic)
@@ -69,7 +70,7 @@ export function InsightDisplayConfig(): JSX.Element {
         isLifecycle ||
         ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
 
-    const { items: advancedOptions, count: advancedOptionsCount } = useInsightDisplayOptions()
+    const { tabs: displayOptionTabs, count: advancedOptionsCount } = useInsightDisplayOptions()
 
     return (
         <div
@@ -117,9 +118,13 @@ export function InsightDisplayConfig(): JSX.Element {
                 )}
             </div>
             <div className="flex items-center gap-x-2">
-                {advancedOptions.length > 0 && (
+                {displayOptionTabs.length > 0 && (
                     <>
-                        <LemonMenu items={advancedOptions} closeOnClickInside={false} placement="bottom-end">
+                        <LemonDropdown
+                            overlay={<InsightDisplayOptionsPanel tabs={displayOptionTabs} />}
+                            closeOnClickInside={false}
+                            placement="bottom-end"
+                        >
                             <LemonButton
                                 size="small"
                                 disabledReason={editingDisabledReason}
@@ -135,8 +140,12 @@ export function InsightDisplayConfig(): JSX.Element {
                                     ) : null}
                                 </span>
                             </LemonButton>
-                        </LemonMenu>
-                        <LemonMenu items={advancedOptions} closeOnClickInside={false} placement="bottom-end">
+                        </LemonDropdown>
+                        <LemonDropdown
+                            overlay={<InsightDisplayOptionsPanel tabs={displayOptionTabs} />}
+                            closeOnClickInside={false}
+                            placement="bottom-end"
+                        >
                             <LemonButton
                                 size="small"
                                 disabledReason={editingDisabledReason}
@@ -144,7 +153,7 @@ export function InsightDisplayConfig(): JSX.Element {
                                 aria-label="Options"
                                 className="hidden @max-[780px]:flex order-[999]"
                             />
-                        </LemonMenu>
+                        </LemonDropdown>
                     </>
                 )}
                 {supportsDisplay && (
