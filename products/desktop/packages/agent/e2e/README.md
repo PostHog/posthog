@@ -7,6 +7,9 @@ host/UI client (a recording `sessionUpdate`, an auto-allow `requestPermission`,
 and real file read/write against a throwaway git repo). Nothing in the
 agent/model/tool path is stubbed.
 
+The test host answers questions and approves tools, but declines plan implementation handoffs so tests do not start extra model turns.
+The startup test waits for its Claude processes to exit before removing their temporary configuration.
+
 ## What it covers
 
 Four suites. The two adapter-parametrized ones loop with `describe.skipIf` over
