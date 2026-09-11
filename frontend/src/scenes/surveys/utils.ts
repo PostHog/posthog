@@ -535,6 +535,13 @@ export function canQuestionSkipSubmitButton(
     )
 }
 
+// posthog-js only displays popover and widget surveys itself, and that automatic display is what
+// the project-wide surveys opt-in controls. API surveys are rendered by the customer's own code and
+// external surveys by PostHog's hosted page, so neither one needs the setting to reach respondents.
+export function needsSurveysOptIn(surveyType: SurveyType): boolean {
+    return surveyType !== SurveyType.API && surveyType !== SurveyType.ExternalSurvey
+}
+
 // Some fields can only be edited in the full editor — opening such a survey
 // in the wizard would hide those values from the user, so we route them to
 // the full editor regardless of their general editor preference. Keep this

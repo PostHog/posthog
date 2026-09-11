@@ -20,6 +20,7 @@ import { urls } from 'scenes/urls'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SurveyMatchType, SurveyQuestionBranchingType, SurveyType } from '~/types'
 
+import { EnableSurveysCheckbox } from '../components/EnableSurveysCheckbox'
 import { HostedSurveyRespondentHint } from '../components/HostedSurveyRespondentHint'
 import { SdkVersionWarnings } from '../components/SdkVersionWarnings'
 import { SurveyPublicContentNotice } from '../components/SurveyPublicContentNotice'
@@ -29,7 +30,12 @@ import { getEventPropertyFilterCount } from '../SurveyEventTrigger'
 import { surveyLogic } from '../surveyLogic'
 import { surveysLogic } from '../surveysLogic'
 import { getSurveyWithTranslatedContent } from '../surveyTranslationUtils'
-import { canUseSurveyWizard, doesSurveyHaveDisplayConditions, getSurveyAudienceSummaryValue } from '../utils'
+import {
+    canUseSurveyWizard,
+    doesSurveyHaveDisplayConditions,
+    getSurveyAudienceSummaryValue,
+    needsSurveysOptIn,
+} from '../utils'
 import { MaxTip } from './MaxTip'
 import { AppearanceStep } from './steps/AppearanceStep'
 import { QuestionsStep } from './steps/QuestionsStep'
@@ -250,11 +256,13 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         return summary
     }
 
-    const showLaunchConfirmation = (onConfirm: () => void): void => {
+    const showLaunchConfirmation = (): void => {
         const isHostedSurvey = survey.type === SurveyType.ExternalSurvey
         const hasConditions = !isHostedSurvey && doesSurveyHaveDisplayConditions(survey)
         const conditionsSummary = isHostedSurvey ? [] : getConditionsSummary()
         const hasAudienceConditions = conditionsSummary.length > 0
+        const needsOptIn = !currentTeam?.surveys_opt_in && needsSurveysOptIn(survey.type)
+        let enableSurveys = true
 
         LemonDialog.open({
             title: 'Launch this survey?',
@@ -283,46 +291,24 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                     ) : (
                         <p className="text-secondary">The survey will immediately start displaying to all users.</p>
                     )}
+                    {needsOptIn && <EnableSurveysCheckbox onChange={(enabled) => (enableSurveys = enabled)} />}
                 </div>
             ),
             primaryButton: {
                 children: 'Launch',
                 type: 'primary',
-                onClick: onConfirm,
+                onClick: () => {
+                    if (needsOptIn && enableSurveys) {
+                        updateCurrentTeam({ surveys_opt_in: true })
+                    }
+                    launchSurvey()
+                },
             },
             secondaryButton: {
                 children: 'Cancel',
                 type: 'tertiary',
             },
         })
-    }
-
-    const handleLaunchClick = (): void => {
-        if (!currentTeam?.surveys_opt_in) {
-            LemonDialog.open({
-                title: 'Enable surveys?',
-                content: (
-                    <p className="text-secondary">
-                        Surveys are currently disabled for this project. Would you like to enable them and launch your
-                        survey?
-                    </p>
-                ),
-                primaryButton: {
-                    children: 'Enable & continue',
-                    type: 'primary',
-                    onClick: () => {
-                        updateCurrentTeam({ surveys_opt_in: true })
-                        showLaunchConfirmation(launchSurvey)
-                    },
-                },
-                secondaryButton: {
-                    children: 'Cancel',
-                    type: 'tertiary',
-                },
-            })
-        } else {
-            showLaunchConfirmation(launchSurvey)
-        }
     }
 
     const handleSaveClick = (): void => {
@@ -433,7 +419,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                                     loading={surveyLaunching}
                                     disabled={surveySaving}
                                     disabledReason={currentStepHasErrors ? 'Fix errors before launching' : undefined}
-                                    onClick={handleLaunchClick}
+                                    onClick={showLaunchConfirmation}
                                 >
                                     Launch survey
                                 </LemonButton>
@@ -490,7 +476,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                                             disabledReason={
                                                 currentStepHasErrors ? 'Fix errors before launching' : undefined
                                             }
-                                            onClick={handleLaunchClick}
+                                            onClick={showLaunchConfirmation}
                                         >
                                             Launch survey
                                         </LemonButton>
