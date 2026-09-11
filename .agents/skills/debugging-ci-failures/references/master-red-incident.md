@@ -3,30 +3,97 @@
 You are answering one open master-red incident, started by the "Master-red diagnosis" workflow when the DevEx alerter posted its incident message in #alerts-devex.
 One run is one answer: work out what broke, post a single reply in that Slack thread, and stop.
 
-The parent `SKILL.md` owns the method: the classification table and the base-rate check.
-This file only adds what is different about running unattended, starting with the fact that its first step does not exist here.
+The parent `SKILL.md` owns the classification method and base-rate check.
+This reference replaces only its first step for an unattended run.
 
 Setting the workflow up is `master-red-workflow-setup.md` in this directory.
 
-## You have no digest, so start from the MCP tools
+## Execution contract
 
-The parent skill says to start with `hogli ci:insights`. That command cannot run here.
-This sandbox is a shallow clone with no hogli installed, and the digest needs a credential that only a browser sign-in writes, which you cannot complete.
-Do not try it, and do not report its absence as the reason you could not answer.
+Emit no plan, preamble, or progress update.
+The first output must be tool calls.
+The run is complete when every alerted lane has a current-state verdict or a specific evidence gap, the reply gives one safe next action, and every factual claim has cited evidence.
+Return only that reply, then stop.
 
-Get the cross-run history from the PostHog MCP instead. The run's token already carries `engineering_analytics:read`, and the MCP is bound to the project that holds this data.
+## Start by resolving the failing run
 
-| Tool                                     | Use it for                                                           |
-| ---------------------------------------- | -------------------------------------------------------------------- |
-| `engineering-analytics-run-failure-logs` | one run id, every failed job's error region, already thinned         |
-| `engineering-analytics-broken-tests`     | which tests are failing on master now                                |
-| `engineering-analytics-flaky-tests`      | whether this test has a flake history, which decides a flaky verdict |
-| `engineering-analytics-ci-failure-logs`  | one PR number, across every run it has pushed                        |
+Do not call `hogli ci:insights` in this task sandbox.
+If the alert shows the broad-failure signals from the parent's platform-outage gate, check GitHub and Depot status before reading run logs.
+Otherwise, make the first tool turn one parallel batch:
 
-These are bounded by GitHub's log retention, so fall back to `gh` for anything older than about 90 days.
-If one of them is not in your tool list, say which one in the reply's last line and work from `gh` for that part, rather than dropping the cross-run question.
+- Fetch the newest `master` commit.
+- Fetch the newest 10 runs for every alerted lane.
 
-The digest's grouped master-failures view has no MCP tool yet. Rebuild the part you need with `gh run list --branch master --workflow <name> --json conclusion,headSha,createdAt`, which is also how you get the denominator for a rate.
+The triggering event's `workflows` entries can include the workflow file, event, and observed failing run.
+Use those values as lookup keys and starting evidence, but verify them against GitHub because they describe when the alert opened.
+Older events can contain bare workflow names instead; remove `(scheduled)` and use `schedule`, otherwise use `push`.
+If the alert has only a commit streak, list runs for its `latest_commit_sha` instead of inventing a lane:
+
+```bash
+gh run list --repo PostHog/posthog --branch master --commit <latest-commit-sha> --limit 40 --json databaseId,status,conclusion,createdAt,headSha,url,workflowName,event
+```
+
+Fetch the commit with:
+
+```bash
+gh api repos/PostHog/posthog/commits/master --jq '{sha, createdAt: .commit.committer.date}'
+```
+
+Fetch each lane directly by workflow file when supplied, which avoids resolving a display name through the repository's full workflow list:
+
+```bash
+gh api "repos/PostHog/posthog/actions/workflows/<workflow-file>/runs?branch=master&event=<push-or-schedule>&per_page=10" --jq '[.workflow_runs[] | {databaseId: .id, status, conclusion, createdAt: .created_at, headSha: .head_sha, url: .html_url, workflowName: .name}]'
+```
+
+For an older event with only a display name, use `gh run list` with the same branch, event, fields, and limit.
+
+Do not filter by status because the raw page head is the freshness signal.
+Compare its first run's `createdAt` with the newest commit time before filtering it.
+Treat a push page as stale when it trails the commit by more than three hours, and a scheduled page as stale after six hours.
+Retry a stale page twice, with 15 seconds between attempts.
+If it remains stale, do not diagnose from it; report the unresolved evidence and the freshness check as the next probe.
+
+On a fresh page, discard runs that are not completed and runs whose conclusion is `cancelled` or `skipped`.
+Select the newest remaining run.
+Only `failure` and `timed_out` are failing conclusions for this alert.
+If the newest remaining run has another conclusion, find the first preceding run with either failing conclusion and take the recovered fast path below.
+Expand the page from 10 to 40 only when the first page does not contain that preceding failure or the evidence gate needs an older green/red boundary.
+If no run remains, report the missing evidence instead of choosing a different lane.
+
+## Evidence budget
+
+For an active failing lane, use `posthog:engineering-analytics-run-failure-logs` first when it is available.
+It returns every failed job's thinned error region in one request.
+If it is unavailable or has expired data, use one `gh run view --log-failed` fallback.
+Read a full job log only when the thinned output does not contain the first causal error.
+
+Use at most one additional cross-run or attribution lookup per lane.
+Choose it from the verdict evidence you still need:
+
+| Tool                                            | Use it for                                             |
+| ----------------------------------------------- | ------------------------------------------------------ |
+| `posthog:engineering-analytics-broken-tests`    | grouped pytest failures and their current triage state |
+| `posthog:engineering-analytics-flaky-tests`     | same-commit recovery or known flakiness                |
+| `posthog:engineering-analytics-ci-failure-logs` | failure evidence across one PR's pushes                |
+| The parent's job base-rate query                | transient infrastructure versus a standing outage      |
+| GitHub compare or commit history                | a first-bad boundary or candidate regression           |
+
+For an infrastructure signature, spend this lookup on the parent's base-rate check unless a status page already confirms an outage.
+If the rate is unavailable, classify the infrastructure evidence but do not call it transient; name the missing rate as an evidence gap.
+If a needed MCP tool is exposed, inspect its schema once before calling it.
+Do not spend a tool call searching for a missing optional tool; use the `gh` fallback.
+Do not call every tool, repeat a failed access path, or inspect commit history for an infrastructure verdict.
+Stop as soon as the verdict gate and next action are supported.
+After one thinned-log fallback and one corroborating lookup, report any material gap instead of continuing to search.
+Do not ask for clarification during this run.
+
+## Recovered fast path
+
+When the newest settled run is not failing, report **recovered before diagnosis** and link both that run and the preceding failure.
+Use at most one thinned-log lookup to name the failed job and an obvious cause.
+Do not inspect commit history unless a candidate fix is already evident and proving it changes the next action.
+A green run proves recovery, not a fix.
+Use "fixed" only when an identified change addresses the exact failure and is present in the passing run.
 
 ## Non-negotiable rules
 
@@ -37,35 +104,47 @@ The digest's grouped master-failures view has no MCP tool yet. Rebuild the part 
 
 ## What you are given
 
-The alert text, which names the failing workflows, how long each has been red, and the newest commit on master.
-It does not carry run ids, so start by resolving the alert's workflow names to their latest failing runs on master, then follow the parent skill from there.
+The alert text names the failing workflows, how long each has been red, and the newest commit on master.
+Its `workflows` data normally carries the workflow file, event, and observed failing run ID, URL, creation time, and SHA.
+These identify the incident without proving it is still active; the first-step lookup detects recovery and verifies currentness.
 
 A name with a `(scheduled)` suffix is not a separate workflow.
 It is the cron-triggered master run of the workflow before the suffix, which the alerter tracks apart from that workflow's master-push runs because the two run different jobs.
-`Backend CI (scheduled)` means the hourly full test matrices, so resolve it to Backend CI's newest failing `schedule` run rather than its push runs.
+`Backend CI (scheduled)` means the hourly full test matrices, so use Backend CI's `schedule` runs in the first-step lookup rather than its push runs.
 
-## The verdict
+## Verdict gates
 
-Classify with the parent skill's table, then reduce it to one of three answers a reader can act on: **infrastructure** (no code change fixes it), **flaky test**, or **real regression**.
+Choose the first verdict whose evidence gate is satisfied:
 
-Confirm a flaky verdict against master history rather than asserting it, and pin a regression to the commit that introduced it.
-Then find the smallest thing a person can act on: the failing job name, the failing test or step, and the commit or PR behind it.
+- **Recovered before diagnosis:** the newest settled run is not `failure` or `timed_out` and a preceding failing run is visible.
+- **Flaky test:** the same test failed and passed on the same SHA, or the flakiness tool confirms matching history.
+- **Real regression:** a deterministic lint, migration, codegen, or test failure is tied directly to committed state, or a first-bad boundary and relevant change support attribution.
+- **Infrastructure:** the evidence names a platform, runner, network, or external-service failure before application tests ran, or corroborating history shows the same infrastructure signature outside the code change.
+
+A pass on an older SHA does not prove flakiness.
+A single green run after a failure does not prove a fix.
+When no gate is satisfied, say that you could not determine the cause instead of forcing a verdict.
+Then name the smallest useful evidence a person can act on: the failing job and step or test, plus the commit or PR only when attribution is supported.
 
 ## The reply
 
-Four short lines, in this order. No preamble, no restating the alert.
+For each workflow, choose the form the evidence supports:
 
-1. The verdict, in one sentence, with the failing job named.
-2. The evidence, in one line. Link the run.
-3. What a person should do next, or that nothing needs doing because no code change fixes it.
-4. What you could not settle, and the one probe that would settle it.
+- For an active classified failure, write one verdict line with the failing job, then one evidence line with the failing run.
+- For a recovered lane, write one verdict line and one evidence line linking both the passing run and preceding failure.
+- If required evidence is unavailable, start with `I could not determine the cause for <workflow>.` Then name the unresolved gap and the specific probe that would settle it. Do not invent a job name or run link.
 
-Keep it under about 80 words. Somebody is reading it while master is broken.
+After covering every workflow in the alert, add one shared action line.
+Say what a person should do next, or that no action is safe until the named probe completes.
+Mention uncertainty only when it changes the verdict or action.
 
-Do not recommend a rerun for a failure you classified as a real regression, and do not recommend a code change for one you classified as infrastructure.
+Keep a single-workflow reply under about 80 words.
+Keep each line short when the alert names several workflows.
+Somebody is reading it while master is broken.
 
-Line 4 is one clause for the gap and one for the probe, and it replaces the bare "could not check" rather than adding to it. "Unconfirmed: whether the shard rebalance landed first" is the whole line.
-Name the probe as a fact, never as an offer. "Let me know if you need more" is filler, and so is any sentence about what you would be happy to do.
+Do not recommend a rerun for a real regression or a code change for infrastructure.
+Name a probe as a fact, never as an offer.
+Do not add "Let me know if you need more" or say what you would be happy to do.
 
-A reply in the thread reaches you and buys another full run, which is why the probe is worth naming at all.
-Treat the first answer as the opening of a conversation rather than a report you defend.
+A human reply can continue the same task while it remains open.
+Answer the follow-up directly; repeat investigation steps only when its question needs newer evidence.

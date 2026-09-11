@@ -32,7 +32,7 @@ from posthog.tasks.alerts.utils import (
 from posthog.temporal.ai.anomaly_investigation.charts import png_to_b64, render_series_chart
 from posthog.temporal.ai.anomaly_investigation.event_provenance import alerted_series_event, describe_event_provenance
 from posthog.temporal.ai.anomaly_investigation.metric_definition import describe_metric_definition
-from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_notebook
+from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_markdown
 from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 from posthog.temporal.ai.anomaly_investigation.runner import run_investigation
@@ -44,6 +44,7 @@ from posthog.utils import absolute_uri
 from products.alerts.backend.investigation_episode import EpisodeInvestigations, episode_investigations
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.notebooks.backend.facade import api as notebooks
+from products.notebooks.backend.facade.content import build_markdown_notebook_content
 from products.signals.backend.facade import api as signals
 
 if TYPE_CHECKING:
@@ -194,7 +195,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         await _mark_failed(alert_check, f"Agent run failed: {err}")
         raise
 
-    notebook_content = build_investigation_notebook(
+    notebook_markdown = build_investigation_markdown(
         NotebookRenderContext(
             alert=alert,
             alert_check=alert_check,
@@ -206,8 +207,8 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     notebook = await sync_to_async(notebooks.create_notebook, thread_sensitive=False)(
         team.id,
         title=f"Investigation — {alert.name or 'anomaly alert'}",
-        content=notebook_content,
-        text_content=result.report.summary,
+        content=build_markdown_notebook_content(notebook_markdown),
+        text_content=notebook_markdown,
         created_by_id=user.id,
         last_modified_by_id=user.id,
         creation_source=notebooks.NotebookCreationSource.TEMPORAL_AGENT,

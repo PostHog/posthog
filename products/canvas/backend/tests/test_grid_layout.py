@@ -23,7 +23,7 @@ from products.canvas.backend.presentation.views import CanvasViewSet
 from products.canvas.backend.source import has_errors, validate_source_project
 from products.canvas.backend.tests.test_canvas_api import CanvasAPIBaseTest
 from products.canvas.backend.tests.test_component_store import COMPONENT_META
-from products.tasks.backend.models import Channel
+from products.tasks.backend.models import Channel, Task
 
 
 def layout(**overrides) -> dict[str, Any]:
@@ -107,6 +107,106 @@ class TestGridLayoutApi(GridLayoutAPIBaseTest):
         assert read.json()["layout"]["placements"][0]["component"] == component_id
         assert read.json()["current_version_id"] == version_id
         self.enqueue.assert_not_called()
+
+    @parameterized.expand(["layout/?include_components=true", "view/"])
+    def test_layout_include_components_returns_renderable_builds_for_visible_components_only(
+        self, endpoint: str
+    ) -> None:
+        grid_id = self._create_grid()
+        component_id = self._create_component()
+        with team_scope(self.team.id):
+            build = CanvasBuild.objects.for_team(self.team.id).get(canvas_id=component_id)
+            build.manifest = {
+                "entryHtml": "index.html",
+                "assets": [],
+                "dependencies": {},
+                "canvasSdkVersion": "0.1.0",
+                "capabilities": {},
+            }
+            build.save(update_fields=["manifest"])
+            # A component filed in another user's personal channel: placeable
+            # only by them, so its entry must be omitted for this caller.
+            other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
+            private_channel = Channel.objects.create(
+                team=self.team, name="me", channel_type=Channel.ChannelType.PERSONAL, created_by=other_user
+            )
+            private_component = Canvas.objects.create(
+                team=self.team, channel=private_channel, name="Private", kind=Canvas.KIND_COMPONENT
+            )
+        doc = layout(
+            placements=[
+                placement(id="p1", status="live", component=component_id),
+                placement(id="p2", status="live", component=str(private_component.id), x=2),
+            ]
+        )
+        with patch("products.canvas.backend.presentation.views._layout_diagnostics", return_value=[]):
+            assert self._publish_layout(grid_id, doc).status_code == status.HTTP_200_OK
+
+        url = f"/api/projects/{self.team.id}/canvases/{grid_id}/{endpoint}"
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        lifecycles = response.json()["component_lifecycles"]
+        assert [entry["canvas_id"] for entry in lifecycles] == [component_id]
+        entry = lifecycles[0]
+        assert entry["published_build_id"] == str(build.id)
+        assert entry["requested_version_id"] is None
+        assert entry["builds"][0]["artifact_url"].endswith("/index.html")
+
+        etag = response["ETag"]
+        assert self.client.get(url, HTTP_IF_NONE_MATCH=f"W/{etag}").status_code == status.HTTP_304_NOT_MODIFIED
+        with team_scope(self.team.id):
+            replacement = CanvasBuild.objects.for_team(self.team.id).create(
+                team=self.team,
+                canvas_id=component_id,
+                source_version=build.source_version,
+                status=CanvasBuild.STATUS_READY,
+                artifact_object_prefix=f"canvas_artifact/team_{self.team.id}/{component_id}/replacement",
+                manifest=build.manifest,
+            )
+            Canvas.objects.for_team(self.team.id).filter(pk=component_id).update(published_build=replacement)
+        changed = self.client.get(url, HTTP_IF_NONE_MATCH=etag)
+        assert changed.status_code == status.HTTP_200_OK
+        assert changed.json()["component_lifecycles"][0]["published_build_id"] == str(replacement.id)
+
+        with team_scope(self.team.id):
+            Canvas.objects.for_team(self.team.id).filter(pk=component_id).update(channel=private_channel)
+        hidden = self.client.get(url, HTTP_IF_NONE_MATCH=changed["ETag"])
+        assert hidden.status_code == status.HTTP_200_OK
+        assert hidden.json()["component_lifecycles"] == []
+
+        self.client.force_login(other_user)
+        visible = self.client.get(url, HTTP_IF_NONE_MATCH=hidden["ETag"])
+        assert visible.status_code == status.HTTP_200_OK
+        assert {entry["canvas_id"] for entry in visible.json()["component_lifecycles"]} == {
+            component_id,
+            str(private_component.id),
+        }
+
+        without = self._get_layout(grid_id)
+        assert "component_lifecycles" not in without.json()
+
+        task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=other_user,
+            title="Read a grid",
+            description="Read component builds",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        sandbox = self._sandbox_client(task.id, user=other_user)
+        direct = sandbox.get(
+            f"/api/projects/{self.team.id}/canvases/{component_id}/", HTTP_X_POSTHOG_TASK_ID=str(task.id)
+        )
+        assert direct.status_code == status.HTTP_404_NOT_FOUND
+        restricted = sandbox.get(url, HTTP_IF_NONE_MATCH=visible["ETag"], HTTP_X_POSTHOG_TASK_ID=str(task.id))
+        assert restricted.status_code == status.HTTP_200_OK
+        assert restricted.json()["component_lifecycles"] == []
+
+        with team_scope(self.team.id):
+            Canvas.objects.for_team(self.team.id).filter(pk=component_id).update(created_by=other_user)
+        owned = sandbox.get(url, HTTP_IF_NONE_MATCH=restricted["ETag"], HTTP_X_POSTHOG_TASK_ID=str(task.id))
+        assert owned.status_code == status.HTTP_200_OK
+        assert [entry["canvas_id"] for entry in owned.json()["component_lifecycles"]] == [component_id]
 
     def test_unpublished_grid_returns_default_layout(self):
         grid_id = self._create_grid()

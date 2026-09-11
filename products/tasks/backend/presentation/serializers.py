@@ -608,18 +608,42 @@ class TaskSerializer(DataclassSerializer):
         ]
 
 
+TASK_DESCRIPTION_PREVIEW_LENGTH = 1000
+TASK_DESCRIPTION_PREVIEW_HELP_TEXT = (
+    f"First {TASK_DESCRIPTION_PREVIEW_LENGTH} characters of the description, so a summary "
+    "surface can show a prompt snippet without the full body. Open the task for the complete text."
+)
+
+
+@extend_schema_serializer(component_name="TaskBasic")
 class TaskBasicSerializer(TaskSerializer):
     """Basic list response for a task, returned when the list is asked for ``basic=true``.
 
     A surface that renders only a summary of each task asks for the basic payload and gets this
-    smaller shape. It currently drops ``description``, which dominates the list payload; more
-    heavy fields may follow. The default list response keeps every field, and ``retrieve``
-    always returns the description. A client uses the ``search`` query parameter to match
-    description text server-side.
+    smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+    replaces it with ``description_preview`` (the first characters) so a feed can still show a
+    prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+    always returns it. A client uses the ``search`` query parameter to match description text
+    server-side.
     """
 
+    description_preview = serializers.SerializerMethodField(
+        help_text=TASK_DESCRIPTION_PREVIEW_HELP_TEXT,
+    )
+
     class Meta(TaskSerializer.Meta):
-        fields = [field for field in TaskSerializer.Meta.fields if field != "description"]
+        fields = [field for field in TaskSerializer.Meta.fields if field != "description"] + ["description_preview"]
+
+    @extend_schema_field(serializers.CharField(help_text=TASK_DESCRIPTION_PREVIEW_HELP_TEXT))
+    def get_description_preview(self, obj: TaskDetailDTO) -> str:
+        return (obj.description or "")[:TASK_DESCRIPTION_PREVIEW_LENGTH]
+
+
+TaskListItemSerializer = PolymorphicProxySerializer(
+    component_name="TaskListItem",
+    serializers=[TaskSerializer, TaskBasicSerializer],
+    resource_type_field_name=None,
+)
 
 
 class TaskWriteSerializer(serializers.Serializer):
@@ -2029,9 +2053,9 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text=(
-            "Return a basic payload with heavy fields dropped, for surfaces that render only a summary "
-            "of each task. Defaults to false. Currently this omits the description body, which dominates "
-            "the list payload; the search parameter still matches description text server-side."
+            "With true, return basic list rows for summary surfaces: each row omits the full description "
+            "and includes description_preview, its first 1000 characters. Defaults to false, which returns "
+            "full task rows with description. The search parameter still matches description text server-side."
         ),
     )
     search = serializers.CharField(

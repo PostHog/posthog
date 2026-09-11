@@ -363,13 +363,18 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
     # ------------------------------------------------------------------
 
     @contextmanager
-    def connect(self, config: MSSQLSourceConfig) -> Iterator[pymssql.Connection]:
+    def connect(self, config: MSSQLSourceConfig, *, team_id: int | None = None) -> Iterator[pymssql.Connection]:
         """Open a pymssql connection for the duration of the context.
 
         Opens the SSH tunnel (if configured) once, then connects with the
         MSSQL-wide conventions: 5s login timeout.
+
+        The hostname goes to pymssql as is. `pymssql.connect` takes one `server`, which FreeTDS
+        uses both to dial and as the login server name, so there is no way to dial a pinned
+        address and log in as the configured host. The tunnel layer's host check is the control
+        on this path.
         """
-        with self._ssh_tunnel_endpoint(config) as (host, port):
+        with self._ssh_tunnel_endpoint(config, team_id) as (host, port):
             with pymssql.connect(
                 server=host,
                 # pymssql requires port to be str
@@ -382,7 +387,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                 yield conn
 
     @contextmanager
-    def _ssh_tunnel_endpoint(self, config: MSSQLSourceConfig) -> Iterator[tuple[str, int]]:
+    def _ssh_tunnel_endpoint(self, config: MSSQLSourceConfig, team_id: int | None) -> Iterator[tuple[str, int]]:
         """Yield the `(host, port)` to connect to, going through the SSH tunnel if configured.
 
         Translates a bare paramiko handshake `EOFError` into `_SSH_HANDSHAKE_EOF_ERROR`. The
@@ -391,7 +396,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
         """
         with ExitStack() as stack:
             try:
-                host, port = stack.enter_context(open_ssh_tunnel(config))
+                host, port = stack.enter_context(open_ssh_tunnel(config, team_id))
             except EOFError as e:
                 raise Exception(_SSH_HANDSHAKE_EOF_ERROR) from e
             yield host, port
@@ -900,7 +905,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
         enabled_columns = inputs.enabled_columns
         row_filters = inputs.row_filters
 
-        with self.connect(config) as connection:
+        with self.connect(config, team_id=inputs.team_id) as connection:
             with connection.cursor() as cursor:
                 primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
                 full_table = self.get_table_metadata(cursor, schema, table_name)
@@ -936,7 +941,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
 
         def get_rows() -> Iterator[Any]:
             binary_reporter = BinaryColumnReporter(logger)
-            with self.connect(config) as streaming_connection:
+            with self.connect(config, team_id=inputs.team_id) as streaming_connection:
                 with streaming_connection.cursor() as cursor:
                     query, args = _build_query(
                         schema,

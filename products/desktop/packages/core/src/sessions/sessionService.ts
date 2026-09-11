@@ -38,6 +38,7 @@ import {
   isJsonRpcResponse,
   isPersistedOptionSupported,
   isRateLimitError,
+  isTranscriptNeutralNotificationMethod,
   isTransientUpstreamError,
   isTurnEndedWithoutResponseError,
   leadingSlashCommand,
@@ -68,7 +69,10 @@ import {
 } from "@posthog/shared/domain-types";
 import type { SendCommandOutput } from "../cloud-task/schemas";
 import type { CommentTarget } from "../comments/anchors";
-import type { AgentSessionNotification } from "../notification/agentSessionNotifications";
+import type {
+  AgentSessionNotification,
+  AgentSessionNotificationTrigger,
+} from "../notification/agentSessionNotifications";
 import { extractPostHogObjectReferences } from "../posthog-objects/references";
 import type { SpeechKind, SpeechSource } from "../speech/identifiers";
 import {
@@ -1494,6 +1498,14 @@ function isSessionPromptEvent(event: AcpMessage): boolean {
   );
 }
 
+/** Matches SessionLogWriter, which keeps one chunk buffer across these. */
+function isTranscriptNeutralEvent(event: AcpMessage): boolean {
+  return (
+    isJsonRpcNotification(event.message) &&
+    isTranscriptNeutralNotificationMethod(event.message.method)
+  );
+}
+
 function finishAgentMessageChunkRun(position: AgentMessagePosition): void {
   if (!position.chunkRunActive) return;
   position.messageIndex += 1;
@@ -1512,6 +1524,7 @@ function discardChunksSupersededByHydratedMessages(
   };
   for (const event of hydratedTurn.events) {
     if (isSessionPromptEvent(event)) continue;
+    if (isTranscriptNeutralEvent(event)) continue;
     const updateKind = agentMessageUpdateKind(event);
     if (updateKind === "ignored") continue;
     if (updateKind === "chunk") {
@@ -1548,6 +1561,9 @@ function discardChunksSupersededByHydratedMessages(
     let keep = true;
     if (isSessionPromptEvent(event)) {
       discardChunkRun = false;
+    } else if (isTranscriptNeutralEvent(event)) {
+      // The writer's chunk buffer stays open across these, so the live
+      // position must not advance either.
     } else {
       const updateKind = agentMessageUpdateKind(event);
       if (updateKind === "chunk") {
@@ -3555,6 +3571,7 @@ export class SessionService {
                 taskRunId,
                 session,
                 stopReason,
+                "cloud_turn_complete",
                 turnStartedAtTs ? acpMsg.ts - turnStartedAtTs : undefined,
               );
             }
@@ -3647,12 +3664,18 @@ export class SessionService {
     taskRunId: string,
     session: NotifiableAgentSession,
     stopReason: string,
+    trigger: Extract<
+      AgentSessionNotificationTrigger,
+      "local_prompt_response" | "cloud_turn_complete"
+    >,
     durationMs?: number,
   ): void {
     this.d.notifyAgentSession({
       kind: "turn_completed",
+      trigger,
       taskTitle: session.taskTitle,
       taskId: session.taskId,
+      taskRunId,
       stopReason,
       durationMs,
       isTaskAuthor: session.isTaskAuthor,
@@ -3663,11 +3686,17 @@ export class SessionService {
   private notifyNeedsInput(
     taskRunId: string,
     session: NotifiableAgentSession,
+    trigger: Extract<
+      AgentSessionNotificationTrigger,
+      "local_permission_request" | "cloud_permission_request"
+    >,
   ): void {
     this.d.notifyAgentSession({
       kind: "needs_input",
+      trigger,
       taskTitle: session.taskTitle,
       taskId: session.taskId,
+      taskRunId,
       isTaskAuthor: session.isTaskAuthor,
       agentSpoke: this.agentSpokeSinceTurnStarted(
         taskRunId,
@@ -3747,6 +3776,7 @@ export class SessionService {
           taskRunId,
           session,
           stopReason,
+          "local_prompt_response",
           turnStartedAtTs ? acpMsg.ts - turnStartedAtTs : undefined,
         );
       }
@@ -3992,7 +4022,7 @@ export class SessionService {
 
     this.d.store.setPendingPermissions(taskRunId, newPermissions);
     this.d.taskViewedApi.markActivity(session.taskId);
-    this.notifyNeedsInput(taskRunId, session);
+    this.notifyNeedsInput(taskRunId, session, "local_permission_request");
   }
 
   private handleCloudPermissionRequest(
@@ -4049,7 +4079,7 @@ export class SessionService {
 
     this.d.store.setPendingPermissions(taskRunId, newPermissions);
     this.d.taskViewedApi.markActivity(session.taskId);
-    this.notifyNeedsInput(taskRunId, session);
+    this.notifyNeedsInput(taskRunId, session, "cloud_permission_request");
   }
 
   private surfacePersistedPendingPermissions(
