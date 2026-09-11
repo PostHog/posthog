@@ -153,14 +153,25 @@ function asScoutDetailTab(value: string | undefined): ScoutDetailTab | null {
         : null
 }
 
+/** The pane a scout URL's path states on its own: a finding is addressed within Signals. */
+function panePathImplies(findingId: string | null): ScoutDetailTab | null {
+    return findingId ? 'signals' : null
+}
+
+/** The pane a scout URL opens: the one its `tab` names, or the one its path implies. */
+function scoutUrlPane(tab: ScoutDetailTab | null, findingId: string | null): ScoutDetailTab | null {
+    return tab ?? panePathImplies(findingId)
+}
+
 /**
  * The search params a scout-page navigation should carry: whatever is on the URL now, with `tab`
- * set to the open pane, or dropped when the page is on its default pane so the plain scout URL
- * stays clean.
+ * set to the open pane, or dropped when the path already states that pane. A bare scout URL states
+ * the default pane and a finding URL states Signals, so both stay clean, and every other pane is
+ * named in the URL so it survives a reload.
  */
-function scoutTabSearchParams(tab: ScoutDetailTab | null): Record<string, any> {
+function scoutTabSearchParams(pane: ScoutDetailTab | null, findingId: string | null): Record<string, any> {
     const { tab: _ignored, ...rest } = router.values.searchParams
-    return tab ? { ...rest, tab } : rest
+    return pane && pane !== panePathImplies(findingId) ? { ...rest, tab: pane } : rest
 }
 
 /** Whether a URL segment is one of the current layout's page tabs. */
@@ -702,10 +713,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             null as ScoutDetailTab | null,
             {
                 setScoutDetailTab: (_, { tab }) => tab,
-                // A finding deep-link is asking for that finding, which lives on Signals. Otherwise
-                // the pane is the one the navigation named: a route passes the tab its URL carries,
-                // and a roster click passes nothing, which opens the page on its default pane.
-                setSelectedScoutSkillName: (_, { findingId, tab }) => (findingId ? 'signals' : tab),
+                // The pane the navigation named wins: a route passes the tab its URL carries, so a
+                // finding link that names another pane opens that one. A roster click passes
+                // nothing, which leaves the page on the pane its path implies.
+                setSelectedScoutSkillName: (_, { findingId, tab }) => scoutUrlPane(tab, findingId),
             },
         ],
     }),
@@ -1053,16 +1064,13 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         ],
         setSelectedScoutSkillName: ({ findingId }) => [
             inboxSurfaceUrl(values),
-            // A finding is addressed by its own path segment, which already says the pane is
-            // Signals, so a `tab` param would restate it and make a deep link differ from the URL
-            // it was opened from.
-            scoutTabSearchParams(findingId ? null : values.scoutDetailTab),
+            scoutTabSearchParams(values.scoutDetailTab, findingId),
             router.values.hashParams,
             { replace: false },
         ],
         setScoutDetailTab: () => [
             inboxSurfaceUrl(values),
-            scoutTabSearchParams(values.scoutDetailTab),
+            scoutTabSearchParams(values.scoutDetailTab, values.selectedScoutFindingId),
             router.values.hashParams,
             // A tab switch is not a navigation step — Back should leave the scout, not walk its tabs.
             { replace: true },
@@ -1216,17 +1224,22 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     actions.setScoutDetailTab(tab)
                 }
             },
-            [urls.inboxScout(':skillName', ':findingId')]: ({
-                skillName,
-                findingId,
-            }: {
-                skillName?: string
-                findingId?: string
-            }) => {
+            [urls.inboxScout(':skillName', ':findingId')]: (
+                { skillName, findingId }: { skillName?: string; findingId?: string },
+                searchParams: Record<string, string | undefined>
+            ) => {
                 const name = skillName ?? null
                 const finding = findingId ?? null
+                // A finding opens on Signals, where it is highlighted, but the reader can move to
+                // another pane without leaving the finding behind. The URL records that move, so it
+                // has to be read back here rather than reset to Signals.
+                const tab = asScoutDetailTab(searchParams.tab)
                 if (values.selectedScoutSkillName !== name || values.selectedScoutFindingId !== finding) {
-                    actions.setSelectedScoutSkillName(name, finding)
+                    actions.setSelectedScoutSkillName(name, finding, tab)
+                }
+                const pane = scoutUrlPane(tab, finding)
+                if (values.scoutDetailTab !== pane) {
+                    actions.setScoutDetailTab(pane)
                 }
             },
             [urls.inboxReport(':tab', ':reportId')]: (

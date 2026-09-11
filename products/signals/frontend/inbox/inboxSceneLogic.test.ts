@@ -252,6 +252,11 @@ describe('inboxSceneLogic routing', () => {
         it.each<[string, string, Record<string, string> | undefined]>([
             ['a tab deep link', urls.inboxScout('signals-scout-web-vitals'), { tab: 'runs' }],
             ['a finding deep link', urls.inboxScout('signals-scout-web-vitals', 'finding-1'), undefined],
+            [
+                'a finding link on another pane',
+                urls.inboxScout('signals-scout-web-vitals', 'finding-1'),
+                { tab: 'runs' },
+            ],
         ])('opens %s with one history entry', (_name, path, searchParams) => {
             mountWithRedesign(true)
             const push = jest.spyOn(router.actions, 'push')
@@ -264,6 +269,24 @@ describe('inboxSceneLogic routing', () => {
             mountWithRedesign(true)
             router.actions.push(urls.inboxScout('signals-scout-web-vitals', 'finding-1'))
             expect(logic.values.scoutDetailTab).toBe('signals')
+        })
+
+        // A finding opens on Signals, but the reader can move to another pane and share that URL.
+        it('opens the pane a finding URL names instead of resetting to Signals', () => {
+            mountWithRedesign(true)
+            router.actions.push(urls.inboxScout('signals-scout-web-vitals', 'finding-1'), { tab: 'runs' })
+            expect(logic.values.scoutDetailTab).toBe('runs')
+            expect(logic.values.selectedScoutFindingId).toBe('finding-1')
+        })
+
+        it('records a pane move on a finding page, and drops the param back on Signals', () => {
+            mountWithRedesign(true)
+            router.actions.push(urls.inboxScout('signals-scout-web-vitals', 'finding-1'))
+            logic.actions.setScoutDetailTab('runs')
+            expect(router.values.location.pathname.endsWith('/finding-1')).toBe(true)
+            expect(router.values.searchParams.tab).toBe('runs')
+            logic.actions.setScoutDetailTab('signals')
+            expect(router.values.searchParams.tab).toBeUndefined()
         })
     })
 
