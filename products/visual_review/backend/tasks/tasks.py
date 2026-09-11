@@ -232,8 +232,8 @@ def send_visual_review_debt_digests() -> None:
     """
     from ..logic import debt_digest  # noqa: PLC0415 — avoids the logic/tasks circular import
 
-    for repo in debt_digest.repos_in_scope():
-        send_visual_review_debt_digest.delay(repo.team_id, str(repo.id))
+    for team_id, repo_id in debt_digest.repos_in_scope():
+        send_visual_review_debt_digest.delay(team_id, str(repo_id))
 
 
 @shared_task(

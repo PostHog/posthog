@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from posthog_owners.schema import TeamEntry
 
-from posthog.team_notifications.slack import SlackChannel, SlackPostRefused
+from posthog.team_notifications.slack import MAX_SECTION_CHARS, SlackChannel, SlackPostRefused
 
 from products.engineering_analytics.backend.facade.contracts import PathOwnership
 from products.visual_review.backend.facade.contracts import (
@@ -30,7 +30,7 @@ _STORY_ID = "scenes-app-button--primary"
 _IDENTIFIER = f"{_STORY_ID}--light"
 _ABSENT_IDENTIFIER = "scenes-app-gone--primary--light"
 _GITHUB_RUN_ID = "98765"
-_INDEX = story_index.StoryIndex(github_run_id=_GITHUB_RUN_ID, path_by_story_id={_STORY_ID: _SOURCE_PATH})
+_INDEX = story_index.StoryIndex(path_by_story_id={_STORY_ID: _SOURCE_PATH})
 
 _PLACED = debt_digest.Attribution(kind=debt_digest.AttributionKind.PLACED, source_path=_SOURCE_PATH)
 _STORY_ABSENT = debt_digest.Attribution(kind=debt_digest.AttributionKind.STORY_ABSENT)
@@ -64,8 +64,8 @@ def _triage_digest() -> debt_digest.TeamDigest:
         expiring_quarantines=[],
         variant_pileups=[],
         triage=[
-            debt_digest.TriageGroup(reason=debt_digest.TriageReason.UNOWNED_FILE, items=[_item(_PLACED)]),
-            debt_digest.TriageGroup(reason=debt_digest.TriageReason.UNAVAILABLE, items=[_item(_UNAVAILABLE)]),
+            debt_digest.TriageGroup(kind=debt_digest.AttributionKind.PLACED, items=[_item(_PLACED)]),
+            debt_digest.TriageGroup(kind=debt_digest.AttributionKind.UNAVAILABLE, items=[_item(_UNAVAILABLE)]),
         ],
     )
 
@@ -131,7 +131,7 @@ class TestRendering:
         assert len(line) <= debt_digest._MAX_LINE_CHARS
         assert settings.SITE_URL in line
         assert ("/snapshots/" in line) == links_to_the_snapshot
-        assert all(len(text) <= debt_digest._MAX_SECTION_CHARS for text in texts)
+        assert all(len(text) <= MAX_SECTION_CHARS for text in texts)
 
     def test_splits_the_thread_when_one_group_runs_long(self) -> None:
         long_item = _item(_PLACED, line="x" * 2000)
@@ -142,7 +142,7 @@ class TestRendering:
         texts = debt_digest.thread_texts(digest)
 
         assert len(texts) > 1
-        assert all(len(text) <= debt_digest._MAX_SECTION_CHARS for text in texts)
+        assert all(len(text) <= MAX_SECTION_CHARS for text in texts)
         assert texts[-1].endswith(debt_digest._FOOTER)
 
     def test_the_lead_holds_triage_apart_from_what_the_team_owns(self) -> None:
@@ -159,8 +159,8 @@ class TestRendering:
     def test_the_thread_groups_triage_under_one_header_per_reason(self) -> None:
         thread = "\n".join(debt_digest.thread_texts(_triage_digest()))
 
-        assert debt_digest._TRIAGE_HEADERS[debt_digest.TriageReason.UNOWNED_FILE] in thread
-        assert debt_digest._TRIAGE_HEADERS[debt_digest.TriageReason.UNAVAILABLE] in thread
+        assert debt_digest._TRIAGE_HEADERS[debt_digest.AttributionKind.PLACED] in thread
+        assert debt_digest._TRIAGE_HEADERS[debt_digest.AttributionKind.UNAVAILABLE] in thread
         # The path stays on the line, because it is what an owners entry is written for.
         assert f"a line · {_SOURCE_PATH}" in thread
         assert f"a line · the Storybook build artifact for run {_GITHUB_RUN_ID} was not read" in thread
@@ -182,20 +182,11 @@ class TestSplitByTeam:
         # The maintainers hold the other item without it counting as debt of their own.
         assert by_slug["team-devex"].variant_pileups == []
         assert by_slug["team-devex"].triage == [
-            debt_digest.TriageGroup(reason=debt_digest.TriageReason.STORY_ABSENT, items=[absent])
+            debt_digest.TriageGroup(kind=debt_digest.AttributionKind.STORY_ABSENT, items=[absent])
         ]
 
-    @pytest.mark.parametrize(
-        "attribution,reason",
-        [
-            (_PLACED, debt_digest.TriageReason.UNOWNED_FILE),
-            (_STORY_ABSENT, debt_digest.TriageReason.STORY_ABSENT),
-            (_UNAVAILABLE, debt_digest.TriageReason.UNAVAILABLE),
-        ],
-    )
-    def test_keeps_the_three_unowned_outcomes_apart(
-        self, attribution: debt_digest.Attribution, reason: debt_digest.TriageReason
-    ) -> None:
+    @pytest.mark.parametrize("attribution", [_PLACED, _STORY_ABSENT, _UNAVAILABLE])
+    def test_keeps_the_three_unowned_outcomes_apart(self, attribution: debt_digest.Attribution) -> None:
         item = _item(attribution)
         debt = debt_digest.RepoDebt(expiring_quarantines=[item], variant_pileups=[])
 
@@ -203,7 +194,7 @@ class TestSplitByTeam:
 
         assert [d.team_slug for d in digests] == ["team-devex"]
         assert digests[0].expiring_quarantines == []
-        assert digests[0].triage == [debt_digest.TriageGroup(reason=reason, items=[item])]
+        assert digests[0].triage == [debt_digest.TriageGroup(kind=attribution.kind, items=[item])]
 
     def test_drops_an_item_nobody_owns(self) -> None:
         debt = debt_digest.RepoDebt(expiring_quarantines=[_item(_STORY_ABSENT)], variant_pileups=[])

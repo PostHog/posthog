@@ -33,6 +33,7 @@ from dataclasses import field
 from datetime import datetime
 from enum import StrEnum
 from urllib.parse import quote
+from uuid import UUID
 
 from django.conf import settings
 from django.utils import timezone
@@ -41,16 +42,20 @@ import structlog
 from posthog_owners.resolver import Purpose, team_channel
 from posthog_owners.schema import Producer, TeamEntry
 
+from posthog.comment.formatting import escape_slack_mrkdwn
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user import User
 from posthog.team_notifications.slack import (
+    MAX_SECTION_CHARS,
     SlackChannel,
     SlackPostRefused,
+    clip_text,
     fetch_channel_map,
     find_channel,
     post_message,
     post_with_join,
+    section_block,
 )
 
 from products.engineering_analytics.backend.facade.api import resolve_path_owners
@@ -58,7 +63,7 @@ from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM
 
 from ..facade.contracts import VARIANT_PILEUP_MIN
 from ..facade.enums import RunType
-from ..models import QuarantinedIdentifier, Repo
+from ..models import QuarantinedIdentifier, Repo, Run
 from . import quarantine, run_queries, story_index, toleration
 
 logger = structlog.get_logger(__name__)
@@ -77,11 +82,7 @@ _PRODUCT_PATH = "products/visual_review/"
 # Said of a run type whose items have no default-branch run to attribute against.
 _NO_BASELINE_RUN_DETAIL = "there is no default branch run to read"
 
-# Slack rejects a section block over 3000 characters. The margin covers the mrkdwn escaping, which
-# can turn one character into five.
-_MAX_SECTION_CHARS = 2900
-# One line's own cap, under half the section cap so two bounded lines always share a block.
-_MAX_LINE_CHARS = 1400
+_MAX_LINE_CHARS = MAX_SECTION_CHARS // 2
 # The full identifier still goes into the URL, so a cut display costs the reader nothing.
 _MAX_IDENTIFIER_CHARS = 160
 _MAX_REASON_CHARS = 200
@@ -106,26 +107,13 @@ class AttributionKind(StrEnum):
     UNAVAILABLE = "unavailable"  # there is no index to ask for this run type today
 
 
-class TriageReason(StrEnum):
-    """Why an item has no owning team, and therefore sits with the visual review maintainers.
-
-    The three are kept apart everywhere, because each asks for a different fix: an owners entry, a
-    look at what happened to the story, or nothing at all.
-    """
-
-    UNOWNED_FILE = "unowned_file"
-    STORY_ABSENT = "story_absent"
-    UNAVAILABLE = "unavailable"
-
-
-_TRIAGE_HEADERS: dict[TriageReason, str] = {
-    TriageReason.UNOWNED_FILE: (
-        "*Nobody owns the file yet.* Add an owners entry for the path at the end of each line."
-    ),
-    TriageReason.STORY_ABSENT: (
+# Each outcome asks the reader for a different fix. A placed path in triage is one no owners entry covers.
+_TRIAGE_HEADERS: dict[AttributionKind, str] = {
+    AttributionKind.PLACED: "*Nobody owns the file yet.* Add an owners entry for the path at the end of each line.",
+    AttributionKind.STORY_ABSENT: (
         "*The story is not in the Storybook index.* Check whether it moved, was renamed, or was deleted."
     ),
-    TriageReason.UNAVAILABLE: (
+    AttributionKind.UNAVAILABLE: (
         "*Ownership could not be worked out today.* Nothing to do, the digest tries again tomorrow."
     ),
 }
@@ -170,9 +158,9 @@ class RepoDebt:
 
 @frozen
 class TriageGroup:
-    """The items that share one reason for having no owning team."""
+    """The items that share one attribution outcome, and so one reason for having no owning team."""
 
-    reason: TriageReason
+    kind: AttributionKind
     items: list[DebtItem]
 
 
@@ -195,23 +183,6 @@ class Delivery:
     channel_id: str
     channel_name: str
     lead_prefix: str
-
-
-def _escape_mrkdwn(text: str) -> str:
-    """Neutralize Slack mrkdwn control characters in text a contributor wrote.
-
-    A quarantine reason and a snapshot identifier are both user input. Escaping `&`, `<` and `>`
-    stops one from smuggling a `<!channel>` mention or breaking out of a link; Slack renders the
-    escaped entities back as the literal characters.
-    """
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
-def _ellipsize(text: str, limit: int) -> str:
-    """Cut display text down to `limit` characters, marking that something was cut."""
-    if len(text) <= limit:
-        return text
-    return text[: max(limit - 1, 0)] + "…"
 
 
 def _snapshot_url(repo: Repo, run_type: str, identifier: str) -> str:
@@ -238,7 +209,7 @@ def _linked_line(repo: Repo, body: str, run_type: str, identifier: str) -> str:
     if len(line) <= _MAX_LINE_CHARS:
         return line
     listed = f" · listed under the repo's snapshots: {_repo_snapshots_url(repo)}"
-    return f"{_ellipsize(body, _MAX_LINE_CHARS - len(listed))}{listed}"
+    return f"{clip_text(body, _MAX_LINE_CHARS - len(listed))}{listed}"
 
 
 def _quarantine_line(repo: Repo, entry: QuarantinedIdentifier, authors: dict[int, str], now: datetime) -> str:
@@ -246,8 +217,8 @@ def _quarantine_line(repo: Repo, entry: QuarantinedIdentifier, authors: dict[int
     who = authors.get(entry.created_by_id or 0, "someone")
     body = (
         f"Quarantine expires in {days} days"
-        f" · {_escape_mrkdwn(_ellipsize(entry.identifier, _MAX_IDENTIFIER_CHARS))} ({entry.run_type})"
-        f' · opened by {_escape_mrkdwn(who)} for "{_escape_mrkdwn(_ellipsize(entry.reason, _MAX_REASON_CHARS))}"'
+        f" · {escape_slack_mrkdwn(clip_text(entry.identifier, _MAX_IDENTIFIER_CHARS))} ({entry.run_type})"
+        f' · opened by {escape_slack_mrkdwn(who)} for "{escape_slack_mrkdwn(clip_text(entry.reason, _MAX_REASON_CHARS))}"'
     )
     return _linked_line(repo, body, entry.run_type, entry.identifier)
 
@@ -255,7 +226,7 @@ def _quarantine_line(repo: Repo, entry: QuarantinedIdentifier, authors: dict[int
 def _pileup_line(repo: Repo, run_type: str, identifier: str, count: int) -> str:
     body = (
         f"{count} accepted variants of the current baseline"
-        f" · {_escape_mrkdwn(_ellipsize(identifier, _MAX_IDENTIFIER_CHARS))} ({run_type})"
+        f" · {escape_slack_mrkdwn(clip_text(identifier, _MAX_IDENTIFIER_CHARS))} ({run_type})"
     )
     return _linked_line(repo, body, run_type, identifier)
 
@@ -269,54 +240,54 @@ def _display_names(user_ids: set[int]) -> dict[int, str]:
     }
 
 
-@frozen
-class RunTypeAttribution:
-    """What one run type can be attributed against today: a story index, or why there is none."""
+def _workflow_run_id(run: Run) -> str | None:
+    """The GitHub workflow run that produced one run, or None when the run records none.
 
-    index: story_index.StoryIndex | None
-    detail: str
+    Read on a query of its own because the shared default-branch universe defers `metadata`. Every
+    other reader of that universe needs the run ids alone, so it stays lean for the pages that use
+    it.
+    """
+    metadata = Run.objects.filter(id=run.id).values_list("metadata", flat=True).first()
+    github_run_id = (metadata or {}).get("github_run_id")
+    return github_run_id if isinstance(github_run_id, str) and github_run_id else None
 
 
-def _attribution_sources(repo: Repo, run_types: set[str]) -> dict[str, RunTypeAttribution]:
-    """Read the story index of the run behind the current baseline, for each run type in play.
+def _attribution_sources(
+    repo: Repo, run_types: set[str], newest_run_by_type: Mapping[str, Run]
+) -> dict[str, story_index.StoryIndex | str]:
+    """What each run type in play can be attributed against: a story index, or why there is none.
 
     One artifact read per run type, not per item. A run type nothing owes today is never read, so a
     repo with no Storybook debt costs no download at all.
     """
-    if not run_types:
-        return {}
-    newest_by_run_type = run_queries.newest_run_by_run_type(run_queries.latest_default_branch_runs(repo.id))
-    sources: dict[str, RunTypeAttribution] = {}
+    sources: dict[str, story_index.StoryIndex | str] = {}
     for run_type in run_types:
         if run_type != RunType.STORYBOOK:
-            sources[run_type] = RunTypeAttribution(index=None, detail=f"{run_type} runs are not supported yet")
+            sources[run_type] = f"{run_type} runs are not supported yet"
             continue
-        run = newest_by_run_type.get(run_type)
+        run = newest_run_by_type.get(run_type)
         if run is None:
-            sources[run_type] = RunTypeAttribution(index=None, detail=_NO_BASELINE_RUN_DETAIL)
+            sources[run_type] = _NO_BASELINE_RUN_DETAIL
             continue
-        github_run_id = (run.metadata or {}).get("github_run_id")
-        if not isinstance(github_run_id, str) or not github_run_id:
-            sources[run_type] = RunTypeAttribution(
-                index=None, detail="the run behind the baseline records no workflow run"
-            )
+        github_run_id = _workflow_run_id(run)
+        if github_run_id is None:
+            sources[run_type] = "the run behind the baseline records no workflow run"
             continue
         index = story_index.fetch_story_index(repo, github_run_id)
-        sources[run_type] = RunTypeAttribution(
-            index=index,
-            detail="" if index is not None else f"the Storybook build artifact for run {github_run_id} was not read",
+        sources[run_type] = (
+            index if index is not None else f"the Storybook build artifact for run {github_run_id} was not read"
         )
     return sources
 
 
-def _attribution(sources: Mapping[str, RunTypeAttribution], run_type: str, identifier: str) -> Attribution:
+def _attribution(sources: Mapping[str, story_index.StoryIndex | str], run_type: str, identifier: str) -> Attribution:
     """Where one snapshot's story lives, or why the index cannot say."""
     source = sources.get(run_type)
     if source is None:
         return Attribution(kind=AttributionKind.UNAVAILABLE, detail=_NO_BASELINE_RUN_DETAIL)
-    if source.index is None:
-        return Attribution(kind=AttributionKind.UNAVAILABLE, detail=source.detail)
-    path = story_index.story_path(source.index, identifier)
+    if isinstance(source, str):
+        return Attribution(kind=AttributionKind.UNAVAILABLE, detail=source)
+    path = story_index.story_path(source, identifier)
     if path is None:
         return Attribution(kind=AttributionKind.STORY_ABSENT)
     return Attribution(kind=AttributionKind.PLACED, source_path=path)
@@ -324,11 +295,14 @@ def _attribution(sources: Mapping[str, RunTypeAttribution], run_type: str, ident
 
 def collect_debt(repo: Repo, now: datetime) -> RepoDebt:
     """Evaluate both conditions against current data, attribute each item, and render its line."""
+    newest_run_by_type = run_queries.newest_run_by_run_type(run_queries.latest_default_branch_runs(repo.id))
     expiring = quarantine.list_expiring_quarantines(repo.id, now=now)
     quarantined_keys = quarantine.active_quarantine_keys(repo.id, now=now)
     piled_up = {
         key: count
-        for key, count in toleration.count_active_variants_against_current_baseline(repo.id, now=now).items()
+        for key, count in toleration.count_active_variants_against_current_baseline(
+            repo.id, now=now, newest_run_by_type=newest_run_by_type
+        ).items()
         # Any live quarantine, expiring or not, already says somebody knows the snapshot is
         # unreliable, so asking them about the variants underneath it is a second reminder about
         # one problem.
@@ -336,7 +310,7 @@ def collect_debt(repo: Repo, now: datetime) -> RepoDebt:
     }
 
     run_types = {entry.run_type for entry in expiring} | {run_type for run_type, _ in piled_up}
-    sources = _attribution_sources(repo, run_types)
+    sources = _attribution_sources(repo, run_types, newest_run_by_type)
     authors = _display_names({entry.created_by_id for entry in expiring if entry.created_by_id})
 
     return RepoDebt(
@@ -374,15 +348,6 @@ def _owning_team(item: DebtItem, ownership: PathOwnership) -> str:
     return ownership.team_by_path.get(item.attribution.source_path, UNOWNED_TEAM)
 
 
-def _triage_reason(item: DebtItem) -> TriageReason:
-    """Why an item nobody owns is in triage. A placed path with no owner needs an owners entry."""
-    if item.attribution.kind == AttributionKind.PLACED:
-        return TriageReason.UNOWNED_FILE
-    if item.attribution.kind == AttributionKind.STORY_ABSENT:
-        return TriageReason.STORY_ABSENT
-    return TriageReason.UNAVAILABLE
-
-
 def split_by_team(debt: RepoDebt, ownership: PathOwnership) -> list[TeamDigest]:
     """Group a repo's debt by the team that owns each item's story file.
 
@@ -393,7 +358,7 @@ def split_by_team(debt: RepoDebt, ownership: PathOwnership) -> list[TeamDigest]:
     fallback = ownership.team_by_path.get(_PRODUCT_PATH, UNOWNED_TEAM)
     expiring_by_team: dict[str, list[DebtItem]] = {}
     pileups_by_team: dict[str, list[DebtItem]] = {}
-    triage_by_reason: dict[TriageReason, list[DebtItem]] = {}
+    triage_by_kind: dict[AttributionKind, list[DebtItem]] = {}
     for items, bucket in ((debt.expiring_quarantines, expiring_by_team), (debt.variant_pileups, pileups_by_team)):
         for item in items:
             team = _owning_team(item, ownership)
@@ -408,14 +373,10 @@ def split_by_team(debt: RepoDebt, ownership: PathOwnership) -> list[TeamDigest]:
                     source_path=item.attribution.source_path,
                 )
                 continue
-            triage_by_reason.setdefault(_triage_reason(item), []).append(item)
+            triage_by_kind.setdefault(item.attribution.kind, []).append(item)
 
     # Declaration order, so the three groups always read in the same order.
-    triage = [
-        TriageGroup(reason=reason, items=triage_by_reason[reason])
-        for reason in TriageReason
-        if reason in triage_by_reason
-    ]
+    triage = [TriageGroup(kind=kind, items=triage_by_kind[kind]) for kind in AttributionKind if kind in triage_by_kind]
     teams = expiring_by_team.keys() | pileups_by_team.keys()
     if triage:
         teams = teams | {fallback}
@@ -433,13 +394,7 @@ def split_by_team(debt: RepoDebt, ownership: PathOwnership) -> list[TeamDigest]:
 def _unavailable_details(digest: TeamDigest) -> list[str]:
     """Every distinct reason ownership could not be worked out for this digest's triage items."""
     return sorted(
-        {
-            item.attribution.detail
-            for group in digest.triage
-            if group.reason == TriageReason.UNAVAILABLE
-            for item in group.items
-            if item.attribution.detail
-        }
+        {item.attribution.detail for group in digest.triage for item in group.items if item.attribution.detail}
     )
 
 
@@ -465,7 +420,7 @@ def lead_text(digest: TeamDigest, repo: Repo) -> str:
     if details:
         sentences.append(
             "Ownership could not be worked out for some of them today, because "
-            f"{_escape_mrkdwn('; '.join(details))}. The digest tries again tomorrow."
+            f"{escape_slack_mrkdwn('; '.join(details))}. The digest tries again tomorrow."
         )
     return " ".join(sentences)
 
@@ -473,9 +428,9 @@ def lead_text(digest: TeamDigest, repo: Repo) -> str:
 def _triage_line(item: DebtItem) -> str:
     """One triage item's line, carrying what its group's header asks the reader to act on."""
     if item.attribution.kind == AttributionKind.PLACED:
-        return f"{item.line} · {_escape_mrkdwn(item.attribution.source_path)}"
+        return f"{item.line} · {escape_slack_mrkdwn(item.attribution.source_path)}"
     if item.attribution.kind == AttributionKind.UNAVAILABLE:
-        return f"{item.line} · {_escape_mrkdwn(item.attribution.detail)}"
+        return f"{item.line} · {escape_slack_mrkdwn(item.attribution.detail)}"
     return item.line
 
 
@@ -486,25 +441,21 @@ def thread_texts(digest: TeamDigest) -> list[str]:
         *(item.line for item in digest.variant_pileups),
     ]
     for group in digest.triage:
-        lines.append(_TRIAGE_HEADERS[group.reason])
+        lines.append(_TRIAGE_HEADERS[group.kind])
         lines.extend(_triage_line(item) for item in group.items)
     lines.append(_FOOTER)
     # A cut line costs one reader one path; a line Slack refuses costs the team the rest of the thread.
-    lines = [_ellipsize(line, _MAX_SECTION_CHARS) for line in lines]
+    lines = [clip_text(line, MAX_SECTION_CHARS) for line in lines]
     messages: list[str] = []
     current: list[str] = []
     for line in lines:
-        if current and len("\n".join([*current, line])) > _MAX_SECTION_CHARS:
+        if current and len("\n".join([*current, line])) > MAX_SECTION_CHARS:
             messages.append("\n".join(current))
             current = []
         current.append(line)
     if current:
         messages.append("\n".join(current))
     return messages
-
-
-def _blocks(text: str) -> list[dict]:
-    return [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
 
 
 def resolve_channel(
@@ -580,14 +531,14 @@ def send_debt_digest(repo: Repo, mode: str | None = None) -> list[str]:
     ownership = resolve_path_owners(repo.repo_full_name, paths_to_resolve(debt))
     digests = split_by_team(debt, ownership)
 
-    integration: Integration | None = None
-    channels_by_name: dict[str, SlackChannel] = {}
-    if mode != MODE_PREVIEW:
-        integration = Integration.objects.filter(team_id=repo.team_id, kind="slack").first()
-        if integration is None:
-            logger.info("visual_review.debt_digest_no_slack_integration", team_id=repo.team_id)
-            return []
-        channels_by_name = fetch_channel_map(integration)
+    if mode == MODE_PREVIEW:
+        return [_preview_one(repo, digest, ownership.registry) for digest in digests]
+
+    integration = Integration.objects.filter(team_id=repo.team_id, kind="slack").first()
+    if integration is None:
+        logger.info("visual_review.debt_digest_no_slack_integration", team_id=repo.team_id)
+        return []
+    channels_by_name = fetch_channel_map(integration)
 
     rendered: list[str] = []
     for digest in digests:
@@ -605,38 +556,44 @@ def send_debt_digest(repo: Repo, mode: str | None = None) -> list[str]:
     return rendered
 
 
+def _preview_one(repo: Repo, digest: TeamDigest, registry: Mapping[str, TeamEntry]) -> str:
+    """Render one team's digest and log it, without reading Slack at all."""
+    rendered = "\n".join([lead_text(digest, repo), *thread_texts(digest)])
+    # Preview holds no channel map, because fetching one needs the integration it deliberately does
+    # not touch. So the routing here only ever reports the team's own opt-out.
+    resolved = resolve_channel(digest, registry, {})
+    logger.info(
+        "visual_review.debt_digest_preview",
+        repo_id=str(repo.id),
+        team_slug=digest.team_slug,
+        channel_name=resolved.channel_name if resolved is not None else None,
+        item_count=len(digest.expiring_quarantines) + len(digest.variant_pileups),
+        triage_count=sum(len(group.items) for group in digest.triage),
+        rendered=rendered,
+    )
+    return rendered
+
+
 def _send_one(
     repo: Repo,
     digest: TeamDigest,
     registry: Mapping[str, TeamEntry],
     channels_by_name: Mapping[str, SlackChannel],
-    integration: Integration | None,
+    integration: Integration,
     mode: str,
 ) -> str:
     lead = lead_text(digest, repo)
     thread = thread_texts(digest)
-    if mode == MODE_PREVIEW:
-        resolved = resolve_channel(digest, registry, channels_by_name)
-        rendered = "\n".join([lead, *thread])
-        logger.info(
-            "visual_review.debt_digest_preview",
-            repo_id=str(repo.id),
-            team_slug=digest.team_slug,
-            channel_name=resolved.channel_name if resolved is not None else None,
-            item_count=len(digest.expiring_quarantines) + len(digest.variant_pileups),
-            triage_count=sum(len(group.items) for group in digest.triage),
-            rendered=rendered,
-        )
-        return rendered
-
     delivery = deliver(digest, registry, channels_by_name, mode)
-    if delivery is None or integration is None:
+    if delivery is None:
         return ""
 
     slack = SlackIntegration(integration)
     lead = f"{delivery.lead_prefix}{lead}"
     try:
-        thread_ts = post_with_join(slack, delivery.channel_id, _blocks(lead), lead, channel_name=delivery.channel_name)
+        thread_ts = post_with_join(
+            slack, delivery.channel_id, section_block(lead), lead, channel_name=delivery.channel_name
+        )
     except SlackPostRefused as e:
         logger.warning("visual_review.debt_digest_post_refused", team_slug=digest.team_slug, error=str(e))
         return ""
@@ -644,14 +601,18 @@ def _send_one(
     # posts, which is the noise the thread exists to remove.
     if thread_ts is not None:
         for text in thread:
-            post_message(slack, delivery.channel_id, _blocks(text), text, thread_ts=thread_ts)
+            post_message(slack, delivery.channel_id, section_block(text), text, thread_ts=thread_ts)
     return "\n".join([lead, *thread])
 
 
-def repos_in_scope() -> list[Repo]:
-    """The repos the digest is configured for, by `owner/name`."""
+def repos_in_scope() -> list[tuple[int, UUID]]:
+    """The `(team_id, repo_id)` of each repo the digest is configured for, by `owner/name`.
+
+    The fan-out task only routes, so it never needs a hydrated row.
+    """
     configured: Sequence[str] = settings.VISUAL_REVIEW_DEBT_DIGEST_REPOS
     if not configured:
         return []
     # nosemgrep: idor-lookup-without-team — cross-team beat sweep over a settings allowlist
-    return list(Repo.objects.unscoped().filter(repo_full_name__in=list(configured)).order_by("created_at"))
+    configured_repos = Repo.objects.unscoped().filter(repo_full_name__in=list(configured)).order_by("created_at")
+    return list(configured_repos.values_list("team_id", "id"))

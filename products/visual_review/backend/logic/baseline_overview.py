@@ -28,7 +28,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
       - 1 query for the universe runs (one row per run_type, indexed)
       - 1 query for the universe rows (with thumbnail + artifact prefetch)
       - 2 grouped queries for tolerate counts (30d + 90d)
-      - 3 queries for the accepted variants standing against the current baseline
+      - 2 queries for the accepted variants standing against the current baseline
       - 1 grouped query for active quarantines
       - 1 grouped query for lifetime baseline-flip count
       - 2 queries for the recent-drift average (resolve last-N runs, aggregate)
@@ -126,7 +126,9 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
 
     # 3a-bis. Accepted variants still standing against each baseline's current hash. Scoped to the
     # whole universe rather than the truncated slice, because the totals below read it too.
-    active_variants_by_key = toleration.count_active_variants_against_current_baseline(repo_id, now=now)
+    active_variants_by_key = toleration.count_active_variants_against_current_baseline(
+        repo_id, now=now, newest_run_by_type=run_queries.newest_run_by_run_type(universe_runs)
+    )
 
     # 3b. Active quarantines for this repo, scoped to the universe identifiers
     # AND the run_types they live on (quarantine is per (repo, run_type, id)).

@@ -15,7 +15,6 @@ from products.visual_review.backend.logic import errors, story_index
 _ARTIFACT_NAME = "storybook-build"
 
 _INDEX = story_index.StoryIndex(
-    github_run_id="98765",
     path_by_story_id={
         "scenes-app-button--primary": "frontend/src/scenes/Button.stories.tsx",
         # A story of its own whose name happens to be a viewport width name.
@@ -88,7 +87,6 @@ class TestFetchStoryIndex:
             index = story_index.fetch_story_index(_repo(), "98765")
 
         assert index is not None
-        assert index.github_run_id == "98765"
         assert dict(index.path_by_story_id) == {"scenes-app-button--primary": "frontend/src/scenes/Button.stories.tsx"}
 
     # Nothing here needs the database, but the product's autouse package fixture builds it, and it

@@ -46,9 +46,8 @@ _CACHE_TTL_SECONDS = 2 * 24 * 60 * 60
 
 @frozen
 class StoryIndex:
-    """The story-to-file map of one Storybook build, and the workflow run it was read from."""
+    """The story-to-file map of one Storybook build."""
 
-    github_run_id: str
     path_by_story_id: Mapping[str, str]
 
 
@@ -170,7 +169,7 @@ def fetch_story_index(repo: Repo, github_run_id: str) -> StoryIndex | None:
     cache_key = f"visual_review_story_index:{repo.id}:{github_run_id}"
     cached = cache.get(cache_key)
     if isinstance(cached, dict):
-        return StoryIndex(github_run_id=github_run_id, path_by_story_id=cached)
+        return StoryIndex(path_by_story_id=cached)
 
     try:
         raw = _fetch_index_member(repo, github_run_id)
@@ -188,4 +187,4 @@ def fetch_story_index(repo: Repo, github_run_id: str) -> StoryIndex | None:
         return None
 
     cache.set(cache_key, paths, timeout=_CACHE_TTL_SECONDS)
-    return StoryIndex(github_run_id=github_run_id, path_by_story_id=paths)
+    return StoryIndex(path_by_story_id=paths)

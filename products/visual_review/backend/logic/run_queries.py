@@ -174,9 +174,7 @@ def latest_default_branch_runs(repo_id: UUID) -> list[Run]:
         )
         .order_by("repo_id", "branch", "run_type", "-created_at")
         .distinct("repo_id", "branch", "run_type")
-        # `metadata` rides along because a caller that anchors on these runs reads the workflow run
-        # id off them; deferring it costs one extra query per run.
-        .only("id", "run_type", "completed_at", "created_at", "metadata")
+        .only("id", "run_type", "completed_at", "created_at")
     )
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from uuid import UUID
 
@@ -88,7 +89,9 @@ def mark_snapshot_as_tolerated(
     return snapshot
 
 
-def count_active_variants_against_current_baseline(repo_id: UUID, *, now: datetime) -> dict[tuple[str, str], int]:
+def count_active_variants_against_current_baseline(
+    repo_id: UUID, *, now: datetime, newest_run_by_type: Mapping[str, Run] | None = None
+) -> dict[tuple[str, str], int]:
     """How many accepted variants each `(run_type, identifier)` still carries against the baseline
     it would be compared against right now.
 
@@ -102,8 +105,11 @@ def count_active_variants_against_current_baseline(repo_id: UUID, *, now: dateti
 
     Keys carry the run type because the same identifier under two run types is two baselines.
     Only non-zero counts are returned.
+
+    A caller that already holds the default-branch run universe passes it as `newest_run_by_type`,
+    so the same page or digest run does not read it twice.
     """
-    baseline_hash_by_key = _current_baseline_hashes(repo_id)
+    baseline_hash_by_key = _current_baseline_hashes(repo_id, newest_run_by_type)
     if not baseline_hash_by_key:
         return {}
 
@@ -130,13 +136,16 @@ def count_active_variants_against_current_baseline(repo_id: UUID, *, now: dateti
     return counts
 
 
-def _current_baseline_hashes(repo_id: UUID) -> dict[tuple[str, str], str]:
+def _current_baseline_hashes(
+    repo_id: UUID, newest_run_by_type: Mapping[str, Run] | None = None
+) -> dict[tuple[str, str], str]:
     """The baseline hash each `(run_type, identifier)` would be compared against right now.
 
     values_list rather than model hydration: the universe runs to thousands of rows and nothing
     here needs anything else off them.
     """
-    newest_run_by_type = run_queries.newest_run_by_run_type(run_queries.latest_default_branch_runs(repo_id))
+    if newest_run_by_type is None:
+        newest_run_by_type = run_queries.newest_run_by_run_type(run_queries.latest_default_branch_runs(repo_id))
     run_type_by_run_id = {run.id: run_type for run_type, run in newest_run_by_type.items()}
     if not run_type_by_run_id:
         return {}
