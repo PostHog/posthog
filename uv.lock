@@ -1866,18 +1866,6 @@ wheels = [
 ]
 
 [[package]]
-name = "django-deprecate-fields"
-version = "0.2.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "django" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/3a/dc/281214543a8e3ebd67294e6a2765d425481726834bf6fe662013dff56eed/django_deprecate_fields-0.2.3.tar.gz", hash = "sha256:d3898d46abe8f338c870e9ef5040dd2f27f3f205e34f5aa2536427d7ffad8aad", size = 7579, upload-time = "2026-01-20T17:50:34.322Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/fe/f7/352dee1616b5653ff09f2b0035f07573accb98954a85c009c08bc7625217/django_deprecate_fields-0.2.3-py3-none-any.whl", hash = "sha256:8510a4bfa23ea7c9d5dddcf7593fa5c8dcc4defcbfad97bf6c4b6deed6abc311", size = 8428, upload-time = "2026-01-20T17:50:33.058Z" },
-]
-
-[[package]]
 name = "django-extensions"
 version = "4.1"
 source = { registry = "https://pypi.org/simple" }
@@ -5581,7 +5569,6 @@ dependencies = [
     { name = "django-admin-inline-paginator" },
     { name = "django-axes", extra = ["ipware"] },
     { name = "django-cors-headers" },
-    { name = "django-deprecate-fields" },
     { name = "django-extensions" },
     { name = "django-filter" },
     { name = "django-loginas" },
@@ -5863,7 +5850,6 @@ requires-dist = [
     { name = "django-admin-inline-paginator", specifier = "===0.4.0" },
     { name = "django-axes", extras = ["ipware"], specifier = "==8.3.1" },
     { name = "django-cors-headers", specifier = "~=4.9.0" },
-    { name = "django-deprecate-fields", specifier = "==0.2.3" },
     { name = "django-extensions", specifier = "~=4.1.0" },
     { name = "django-filter", specifier = "~=26.1" },
     { name = "django-loginas", specifier = "==0.3.14" },
@@ -5950,7 +5936,7 @@ requires-dist = [
     { name = "polars", specifier = "==1.37.1" },
     { name = "posthog-hogland", specifier = "==0.4.1" },
     { name = "posthog-owners", editable = "tools/owners" },
-    { name = "posthoganalytics", specifier = "==7.49.0" },
+    { name = "posthoganalytics", specifier = "==7.51.2" },
     { name = "protobuf", specifier = "~=5.29.6" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.10" },
@@ -6128,7 +6114,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "posthoganalytics"
-version = "7.49.0"
+version = "7.51.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6136,9 +6122,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ed/e6/fff8dffa299e041d2c5d62334db5ac9d793028d38d26b3e4d2f48adbc01b/posthoganalytics-7.49.0.tar.gz", hash = "sha256:9f1611e4de3bc1b034f036172c669d2343e973f325751ba60686f8edc365b54a", size = 521355, upload-time = "2026-09-10T08:09:25.591Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3d/28/03df114b66050f20feef6ced44fdb2fadf984758c619f3b5ed8dd5c0bb77/posthoganalytics-7.51.2.tar.gz", hash = "sha256:d04c50617a5cc9085fd3925d3d2990ad575940498735868d2b9b396b16cc0825", size = 543227, upload-time = "2026-09-11T09:15:46.304Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1e/e8/35d07ba8a73b5fa17bdf501f9edecc43a1f53749291ed0e5a76f879a857f/posthoganalytics-7.49.0-py3-none-any.whl", hash = "sha256:078f7e5749e230586689c7229f84700e82293661ed9c4f80460acfadf1e35cfa", size = 619363, upload-time = "2026-09-10T08:09:23.835Z" },
+    { url = "https://files.pythonhosted.org/packages/5c/85/3639ce730056e8409541aac2f2fc40f8360214c08226ece28dc72dc2e64b/posthoganalytics-7.51.2-py3-none-any.whl", hash = "sha256:167fdb2778c156cc5475c0a90dc5afa6bc6c5113e7090430cdb7b5fc4511c63b", size = 641523, upload-time = "2026-09-11T09:15:44.362Z" },
 ]
 
 [[package]]
