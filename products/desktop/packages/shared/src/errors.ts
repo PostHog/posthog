@@ -127,6 +127,10 @@ const UPSTREAM_TRANSIENT_ERROR_REGEXES = [
   /socket connection (?:was )?closed/i,
   /API Error:.*\b(?:timed out|timeout)\b/i,
   /API Error:\s*(?:429|5\d\d)\b/i,
+  // A provider capacity refusal arrives as prose with no HTTP status: the
+  // requested service tier's queue is full, and the model is reachable again
+  // once it drains.
+  /\bmodel is (?:currently )?at capacity\b/i,
   // The provider refuses a turn whose transcript content blocks do not line up
   // ("Content block not found", "Content block is not a thinking block"). The
   // wording changes with the provider, so match the family, not each string.
