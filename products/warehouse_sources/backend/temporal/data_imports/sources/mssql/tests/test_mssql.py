@@ -314,6 +314,31 @@ def cursor() -> MagicMock:
     return c
 
 
+class TestBuildPipelineProjection:
+    def test_sync_all_projects_discovered_columns(self, impl, mocker):
+        mocker.patch.object(impl, "connect", return_value=MagicMock())
+        mocker.patch.object(impl, "get_primary_keys_for_table", return_value=["id"])
+        mocker.patch.object(
+            impl,
+            "get_table_metadata",
+            return_value=Table(
+                name="users",
+                parents=("dbo",),
+                columns=[
+                    MSSQLColumn(name="id", data_type="int", nullable=False),
+                    MSSQLColumn(name="email", data_type="varchar", nullable=True),
+                ],
+            ),
+        )
+        rows_to_sync = mocker.patch.object(impl, "get_rows_to_sync", return_value=0)
+        mocker.patch.object(impl, "get_chunk_size", return_value=1000)
+
+        impl.build_pipeline(_make_config(), _make_inputs(schema_name="users"))
+
+        query = rows_to_sync.call_args.args[1]
+        assert query.startswith("SELECT [id], [email] FROM")
+
+
 class TestGetPrimaryKeysForTable:
     def test_returns_none_when_no_rows(self, impl, cursor):
         cursor.fetchall.return_value = []
