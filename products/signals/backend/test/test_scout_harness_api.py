@@ -2236,6 +2236,35 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         # No second row written.
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
 
+    def test_scout_read_reports_its_own_dry_run_block_though_the_team_can_emit(self) -> None:
+        # The relapse this guards: a dry-run scout read `can_emit=true` here, spent the run
+        # researching, and lost the output to `scout_emit_disabled` at write time. The profile row is
+        # per team and says the team can emit, so the endpoint has to answer for the scout reading it.
+        run = _make_run(self.team)
+        assert run.scout_config is not None
+        SignalScoutConfig.objects.filter(pk=run.scout_config.pk).update(emit=False)
+        self._seed_profile()
+        # The sandbox token is bound to the task that dispatched the run, which is how the endpoint
+        # knows which scout is asking — the scout passes nothing.
+        _authenticate_as_scout(self, sandbox_task_id=run.task_run.task_id)
+
+        eligibility = self.client.get(self._list_url()).json()["payload"]["inventory"]["emit_eligibility"]
+
+        assert eligibility["can_emit"] is False
+        assert eligibility["scout_emit_enabled"] is False
+        assert eligibility["blocking_reason"] == "scout_emit_disabled"
+        assert eligibility["remediation"]
+        # The team-wide gates are untouched, so the block really is this scout's own posture.
+        assert eligibility["ai_processing_approved"] is True
+        assert eligibility["source_enabled"] is True
+
+    def test_read_outside_a_run_keeps_the_team_wide_eligibility(self) -> None:
+        # No scout to answer for, so there is no per-scout toggle to report and the stored floor stands.
+        self._seed_profile()
+        eligibility = self.client.get(self._list_url()).json()["payload"]["inventory"]["emit_eligibility"]
+        assert eligibility["scout_emit_enabled"] is None
+        assert eligibility["can_emit"] is True
+
     def test_scout_read_inventory_payload_carries_expected_keys(self) -> None:
         _authenticate_as_scout(self)
         response = self.client.get(self._list_url())

@@ -20,6 +20,7 @@ from posthog.models.organization import OrganizationMembership
 from products.signals.backend.artefact_schemas import Priority, PriorityAssessment, SuggestedReviewers, TaskRunArtefact
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalSourceConfig
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
+from products.signals.backend.scout_harness.tools.emit import remediation_for_skip
 from products.signals.backend.scout_harness.tools.report import (
     MAX_EVIDENCE_DESCRIPTION_LENGTH,
     MAX_REPORT_SIGNALS,
@@ -1612,6 +1613,26 @@ class TestScoutReportAPI(APIBaseTest):
         assert not any(
             c.kwargs.get("event_name") == "$scout_report_emitted" for c in self.capture_internal_mock.call_args_list
         )
+
+    def test_edit_report_gate_refusal_carries_the_emit_remediation(self) -> None:
+        # Both channels hit the same gate, so a scout blocked on an edit needs the same next step an
+        # emit hands back. A bare reason code leaves it unable to tell a fixable block from a
+        # terminal one, and it has already spent the run by the time it reads this.
+        run = _make_run(self.team)
+        config = run.scout_config
+        assert config is not None
+        config.emit = False
+        config.save(update_fields=["emit"])
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": str(uuid4()), "append_note": "fresh evidence"},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        detail = response.json()["detail"]
+        assert "scout_emit_disabled" in detail
+        assert remediation_for_skip("scout_emit_disabled") in detail
 
     @parameterized.expand(
         [

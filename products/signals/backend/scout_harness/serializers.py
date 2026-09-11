@@ -1583,7 +1583,7 @@ class SignalSourceConfigsBucketsSerializer(serializers.Serializer):
 
 
 class EmitEligibilitySerializer(serializers.Serializer):
-    """`inventory.emit_eligibility` — whether scout findings can reach the inbox for this team."""
+    """`inventory.emit_eligibility` — whether the calling scout's findings and reports can reach the inbox."""
 
     ai_processing_approved = serializers.BooleanField(
         help_text="Whether the organization has approved AI data processing (an org-level gate on all scout emits).",
@@ -1591,17 +1591,34 @@ class EmitEligibilitySerializer(serializers.Serializer):
     source_enabled = serializers.BooleanField(
         help_text="Whether the `signals_scout` signal source is enabled for this team.",
     )
+    scout_emit_enabled = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "Whether the calling scout's own config can write, as opposed to running in dry-run "
+            "(`emit=false`), where it investigates but everything it writes is discarded. Null when the "
+            "read is not from a scout run, so no single scout's config applies."
+        ),
+    )
     can_emit = serializers.BooleanField(
         help_text=(
-            "True only when both team/org-level gates pass, so scout findings (signal and report "
-            "channels alike) actually reach the inbox. When False, every emit is silently dropped — "
-            "quick-close instead of doing throwaway investigation. Does not account for a scout's "
-            "own dry-run `emit` toggle, which is per-config, not team-wide."
+            "True only when every gate passes, so this scout's findings and reports (both channels) "
+            "actually reach the inbox. When False, every write is dropped or refused — quick-close "
+            "instead of doing throwaway investigation. Read this one value: it accounts for the "
+            "calling scout's own dry-run posture as well as the team-wide gates, and it is the same "
+            "gate `emit-report` and `edit-report` apply at write time."
+        ),
+    )
+    blocking_reason = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Which gate blocks the write: `scout_emit_disabled`, `scout_config_missing`, "
+            "`ai_processing_not_approved`, or `source_disabled`. Null when `can_emit` is True. Matches "
+            "the `skipped_reason` `emit-report` returns for the same block."
         ),
     )
     remediation = serializers.CharField(
         allow_null=True,
-        help_text="One-line next step to unblock emits when `can_emit` is False; null when emits can flow.",
+        help_text="One-line next step to unblock writes when `can_emit` is False; null when writes can flow.",
     )
 
 
@@ -2212,6 +2229,17 @@ class ProjectProfileQuerySerializer(serializers.Serializer):
             "for the internal scout token — public read callers get the cached profile regardless. "
             "Concurrent forced rebuilds are serialized by the team-keyed advisory lock — at most "
             "one extra `build_inventory` per simultaneous request."
+        ),
+    )
+    run_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The run whose scout's write posture `emit_eligibility` should answer for. A scout "
+            "sandbox never needs this: its token is bound to the task that dispatched the run, and "
+            "that binding is what the endpoint reads, so it wins over any value passed here. Pass it "
+            "to inspect one scout's effective eligibility from outside a run — a run id from another "
+            "project is ignored."
         ),
     )
 
