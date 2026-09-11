@@ -23,6 +23,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from posthog.schema import PropertyGroupFilter
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
 from posthog.models import Team
@@ -281,7 +282,7 @@ class _AlertConcurrencySnapshot:
     snooze_until: datetime | None
     next_check_at: datetime | None
     schedule_restriction: dict[str, Any] | None
-    updated_at: datetime
+    updated_at: datetime | None
 
 
 def _snapshot_alert_for_evaluation(alert: LogsAlertConfiguration) -> _AlertConcurrencySnapshot:
@@ -376,6 +377,13 @@ class _DispatchedAlert:
                 ),
             )
         return self.evaluation.outcome
+
+
+@frozen
+class _SaveOutcomes:
+    saved: list[_DispatchedAlert]
+    failed: list[_DispatchedAlert]
+    stale: list[_DispatchedAlert]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1137,7 +1145,11 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                             delivery_slo.succeed()
 
                 try:
-                    saved, failed, stale = (await save_cohort_async(dispatched, now)) if dispatched else ([], [], [])
+                    save_outcomes = (
+                        await save_cohort_async(dispatched, now)
+                        if dispatched
+                        else _SaveOutcomes(saved=[], failed=[], stale=[])
+                    )
                 except Exception as e:
                     logger.exception("Cohort bulk save failed (non-recoverable)", team_id=cohort.team_id)
                     capture_exception(e, {"team_id": cohort.team_id, "phase": "bulk_save"})
@@ -1148,7 +1160,7 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                     return local_stats, local_notified
 
                 elapsed_by_id = {str(d.evaluation.alert.id): ms for d, ms in zip(dispatched, elapsed_ms_per_alert)}
-                for dispatched_alert in saved:
+                for dispatched_alert in save_outcomes.saved:
                     alert_id = str(dispatched_alert.evaluation.alert.id)
                     _finalize_alert(dispatched_alert, elapsed_by_id[alert_id], local_stats)
                     committed_state = dispatched_alert.committed_outcome.new_state.value
@@ -1164,14 +1176,14 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                             alert_state=committed_state,
                             notification_action=notification_action,
                         )
-                for dispatched_alert in failed:
+                for dispatched_alert in save_outcomes.failed:
                     slo_handles[str(dispatched_alert.evaluation.alert.id)].fail(failure_phase="save")
                     local_stats["checked"] += 1
                     local_stats["errored"] += 1
-                for dispatched_alert in stale:
+                for dispatched_alert in save_outcomes.stale:
                     slo_handles[str(dispatched_alert.evaluation.alert.id)].succeed(discarded_as_stale=True)
 
-                local_notified.extend(_build_notified_from_saved(saved))
+                local_notified.extend(_build_notified_from_saved(save_outcomes.saved))
                 return local_stats, local_notified
 
     cohort_results = await asyncio.gather(
@@ -1590,14 +1602,12 @@ _COHORT_UPDATE_FIELDS: list[str] = [
 ]
 
 
-def _save_cohort_outcomes(
-    dispatched: list[_DispatchedAlert], now: datetime
-) -> tuple[list[_DispatchedAlert], list[_DispatchedAlert], list[_DispatchedAlert]]:
+def _save_cohort_outcomes(dispatched: list[_DispatchedAlert], now: datetime) -> _SaveOutcomes:
     """Phase 3: persist the cohort's outcomes via one bulk_create + one bulk_update.
 
-    Returns `(saved, failed, stale)` — saved alerts advanced to their committed state,
-    failed alerts didn't (caller treats them as errored), and stale alerts were
-    deliberately discarded after a concurrent user or worker update.
+    Returns named saved, failed, and stale outcomes. Saved alerts advanced to
+    their committed state, failed alerts didn't (caller treats them as errored),
+    and stale alerts were deliberately discarded after a concurrent update.
 
     On `IntegrityError` (constraint shaped — a row hit a DB constraint we didn't
     anticipate), fall back to per-alert UPDATEs so the rest still advance.
@@ -1606,7 +1616,7 @@ def _save_cohort_outcomes(
     fallback against the same broken cluster wouldn't help.
     """
     if not dispatched:
-        return [], [], []
+        return _SaveOutcomes(saved=[], failed=[], stale=[])
 
     save_start = time.perf_counter()
 
@@ -1661,8 +1671,10 @@ def _save_cohort_outcomes(
         )
         capture_exception(e, {"cohort_size": len(dispatched), "fallback": "per_alert"})
         increment_cohort_save_fallback("integrity_error")
-        saved, failed, fallback_stale = _save_staged_per_alert(staged)
-        stale.extend(fallback_stale)
+        fallback_outcomes = _save_staged_per_alert(staged)
+        saved = fallback_outcomes.saved
+        failed = fallback_outcomes.failed
+        stale.extend(fallback_outcomes.stale)
 
     save_ms = int((time.perf_counter() - save_start) * 1000)
     with _safe_record_block("cohort save metrics"):
@@ -1672,16 +1684,16 @@ def _save_cohort_outcomes(
         if update_ms is not None:
             record_cohort_update_duration(update_ms)
 
-    return saved, failed, stale
+    return _SaveOutcomes(saved=saved, failed=failed, stale=stale)
 
 
 def _save_staged_per_alert(
     staged: list[tuple[_DispatchedAlert, list[str], LogsAlertEvent | None]],
-) -> tuple[list[_DispatchedAlert], list[_DispatchedAlert], list[_DispatchedAlert]]:
+) -> _SaveOutcomes:
     """Fallback path used when `bulk_update` raises `IntegrityError`.
 
-    Returns `(saved, failed, stale)`. Each alert saves independently so a single
-    bad row doesn't strand the cohort. Takes pre-staged tuples (alert already
+    Returns named saved, failed, and stale outcomes. Each alert saves independently
+    so a single bad row doesn't strand the cohort. Takes pre-staged tuples (alert already
     mutated, event already instantiated) so we don't re-run
     `_stage_alert_for_save` and accidentally advance `next_check_at` twice.
     """
@@ -1709,7 +1721,7 @@ def _save_staged_per_alert(
             )
             capture_exception(e, {"alert_id": str(d.evaluation.alert.id), "phase": "per_alert_fallback"})
             failed.append(d)
-    return saved, failed, stale
+    return _SaveOutcomes(saved=saved, failed=failed, stale=stale)
 
 
 def _finalize_alert(dispatched: _DispatchedAlert, elapsed_ms: int, stats: dict[str, int]) -> None:

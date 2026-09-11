@@ -2238,8 +2238,8 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
                 for a in cohort.alerts:
                     evaluation = _evaluate_single_alert(a, now, prefetched=query_result.for_alert(a))
                     dispatched = _dispatch_for_alert(evaluation, now)
-                    saved, _failed, _stale = _save_cohort_outcomes([dispatched], now)
-                    for d in saved:
+                    save_outcomes = _save_cohort_outcomes([dispatched], now)
+                    for d in save_outcomes.saved:
                         _finalize_alert(d, 0, stats)
 
         nca = start_nca
