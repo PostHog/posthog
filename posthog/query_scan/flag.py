@@ -46,18 +46,20 @@ class QueryScanFlag:
 
 
 def get_query_scan_flag(team: Team) -> QueryScanFlag | None:
-    """The flag for `team`, or None when off. Evaluated locally on the project; a flag outage reads as off."""
+    """The flag for `team`, or None when off. Evaluated locally on the organization and
+    the project; a flag outage reads as off."""
     try:
         result = posthoganalytics.get_feature_flag_result(
             FLAG_KEY,
             str(team.uuid),
-            groups={"project": str(team.id)},
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
             group_properties={
+                "organization": {"id": str(team.organization_id)},
                 "project": {
                     "id": str(team.id),
                     "created_at": team.created_at.isoformat() if team.created_at else None,
                     "uuid": team.uuid,
-                }
+                },
             },
             only_evaluate_locally=True,
             send_feature_flag_events=False,
