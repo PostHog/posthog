@@ -293,13 +293,33 @@ function BackToScouts(): JSX.Element {
  * tab is the cap — nothing sits below it that a long list could push away.
  */
 function ScoutReportsPanel({ skillName }: { skillName: string }): JSX.Element {
-    const { reportRows, scoutReportsLoading, scoutRunsLoadedOnce } = useValues(scoutDetailLogic({ skillName }))
+    const { reportRows, touchedReports, scoutReportsLoading, scoutRunsLoadedOnce } = useValues(
+        scoutDetailLogic({ skillName })
+    )
+    const { loadScoutReports } = useActions(scoutDetailLogic({ skillName }))
 
     if (!scoutRunsLoadedOnce || (scoutReportsLoading && reportRows.length === 0)) {
         return <LemonSkeleton className="h-12 w-full rounded" />
     }
 
     if (reportRows.length === 0) {
+        // The runs name the reports, and a separate fetch resolves each one by id. When the runs
+        // name some and none resolve, the reports were deleted or the fetch failed, so an empty
+        // state would deny the count the tab above it is showing. Nothing refetches on its own
+        // here: the touched set is unchanged, so its subscription doesn't fire again.
+        if (touchedReports.length > 0) {
+            return (
+                <div className="flex items-center gap-3 rounded border border-danger bg-danger-highlight px-4 py-3.5">
+                    <span className="flex-1 text-xs text-danger">
+                        Couldn't load the reports this scout filed or added to. They may have been deleted, or the
+                        request failed.
+                    </span>
+                    <LemonButton type="secondary" size="small" status="danger" onClick={() => loadScoutReports()}>
+                        Retry
+                    </LemonButton>
+                </div>
+            )
+        }
         return (
             <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
                 {`No reports filed or added to in the ${SCOUT_RUNS_PER_SCOUT_LABEL}.`}
