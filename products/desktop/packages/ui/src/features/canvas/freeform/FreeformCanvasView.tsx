@@ -268,15 +268,7 @@ export function FreeformCanvasView({
   });
   // Poll the record while the session is alive so a just-published head version
   // appears (the publish lands while the prompt is still pending).
-  useQuery(
-    trpc.dashboards.get.queryOptions(
-      { id: dashboardId },
-      {
-        enabled: !!dashboardId && isSyncing,
-        refetchInterval: isSyncing ? 4000 : false,
-      },
-    ),
-  );
+  useDashboard(dashboardId, { pollIntervalMs: isSyncing ? 4000 : false });
 
   // When the run stops syncing, sweep the derived caches once: the agent's
   // publish queued a build server-side, so the record, lifecycle, versions,

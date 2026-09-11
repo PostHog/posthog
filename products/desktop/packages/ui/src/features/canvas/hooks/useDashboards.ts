@@ -142,7 +142,10 @@ export function usePrimeCanvasView(): (id: string) => void {
 }
 
 /** A single saved canvas record (metadata + lifecycle pointers). */
-export function useDashboard(id: string | undefined): {
+export function useDashboard(
+  id: string | undefined,
+  options?: { pollIntervalMs?: number | false },
+): {
   /** `undefined` while unresolved, `null` when the signed-in project has no such canvas. */
   dashboard: DashboardRecord | null | undefined;
   isLoading: boolean;
@@ -157,7 +160,14 @@ export function useDashboard(id: string | undefined): {
       { id: id ?? "" },
       // Without the auth-scoped meta a null cached for one project outlives a
       // project switch, and a canvas that now resolves still renders as missing.
-      { enabled: !!id, staleTime: 5_000, meta: AUTH_SCOPED_QUERY_META },
+      // Callers that need to poll go through here for the same reason: React
+      // Query keeps meta per query, so a bare observer clears it for the rest.
+      {
+        enabled: !!id,
+        staleTime: 5_000,
+        meta: AUTH_SCOPED_QUERY_META,
+        refetchInterval: options?.pollIntervalMs ?? false,
+      },
     ),
   );
   return {
