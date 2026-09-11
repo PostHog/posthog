@@ -6,8 +6,9 @@
 # trunk-merge/pr-<n>/<uuid>. The API authenticates both as the Trunk app, which is the same
 # envelope authentication a check run's app.slug gave.
 #
-# The comment body is free text, so it never reaches the agent: this helper classifies it and
-# emits only regex-validated fields. Anything that fails validation is dropped, not printed.
+# The comment body is free text, so its wording never reaches the agent: this helper classifies
+# it and emits only regex-validated fields. Anything that fails validation is dropped, not
+# printed. The one field carrying the wording itself is base64, for the reason fingerprint() gives.
 #
 # A failed GitHub read exits 5 and never comes back as an empty result. An empty result has to
 # mean "GitHub answered, and there is nothing there", or a sweep reports success while blind.
@@ -32,6 +33,9 @@ upper bound on the attempts against the current head. For a per-head count, give
 head OID: it then keeps only the attempts whose shadow head contains that revision. Without a
 head OID it checks against the PR's current head and reports the answer in `covers_head`
 (`yes`, `no`, or `unknown`).
+
+`attempts` also returns the attempts the PR was batched into, whose refs name the batch leader
+instead. `recent` groups by the ref, so it reports those under the leader's number.
 
 Exit codes: 2 usage, 5 a GitHub read failed.
 USAGE
@@ -69,14 +73,6 @@ api_array() {
     printf '%s' "$out" | jq -e 'type == "array"' >/dev/null 2>&1 || return 1
     printf '%s' "$out"
 }
-
-cmd=${1:-}
-repo=${2:-}
-[ -n "$cmd" ] && [ -n "$repo" ] || usage
-case "$repo" in
-    */*) ;;
-    *) usage ;;
-esac
 
 require_pr() {
     case "${1:-}" in
@@ -120,16 +116,25 @@ sticky_body() {
     fi
 }
 
-# What reaches the agent on an unrecognized wording. Links, HTML, numbers and SHAs are dropped
-# and only plain words survive, so the line cannot carry an instruction or a job URL, but it
-# is enough to write the next classify() pattern from. The sticky comment is rewritten in place,
+# What reaches the agent on an unrecognized wording. The sticky comment is rewritten in place,
 # so without this the wording that produced `unknown` is gone by the time anyone looks.
+#
+# The output is base64 because the wording is not trusted prose. Trunk quotes repo-controlled
+# text into its comments, including check names and the titles of the PRs in a batch, and anyone
+# can open a PR on this public repo. A sweep that holds requeue credentials must never read that
+# text as an instruction, so it never sees the characters. Base64 still carries the whole wording
+# to whoever writes the next classify() pattern, who decodes it with `base64 -d`.
+#
+# Links, HTML, numbers and SHAs are dropped before encoding so the diagnostic cannot carry a job
+# URL or a SHA either, and so the same wording fingerprints identically across attempts.
 fingerprint() {
     printf '%s' "$1" |
         sed -E 's#https?://[^ )]+##g; s/<[^>]*>//g; s/\[[^]]*\]\(\)//g; s/[0-9a-f]{40}//g; s/#?[0-9]+//g' |
         tr -c 'A-Za-z .,:;!?()-' ' ' |
         tr -s ' ' |
-        cut -c1-160
+        cut -c1-160 |
+        base64 |
+        tr -d '\n'
 }
 
 # Order matters: every "removed from the merge queue" wording shares a prefix, and the reason
@@ -208,6 +213,23 @@ current_head_of() {
     printf '%s' "$out" | jq -r '.head.sha // empty' 2>/dev/null || fail "unreadable PR $pr"
 }
 
+# Trunk names a shadow ref after the batch leader only, so a PR batched behind another one has
+# no ref of its own while it is being tested. Selecting on the ref alone therefore reports zero
+# attempts for every batch member, and the retry gate reads that as a PR nobody has tried yet.
+# The shadow PR body lists the batch as `[PR <n>](https://app.trunk.io/...)` bullets, one per
+# member, and the pull request list already carries that body, so membership costs no extra
+# request. It is only the candidate filter: covers_head still decides whether the attempt
+# reached the revision asked about.
+select_attempts() {
+    local pr=$1 pulls=$2
+    jq -r --arg pr "$pr" '.[] | select(.user.login == "trunk-io[bot]")
+        | select(.head.ref | test("^trunk-merge/pr-[0-9]+/"))
+        | select((.head.ref | startswith("trunk-merge/pr-" + $pr + "/"))
+                 or ((.body // "") | test("\\[PR " + $pr + "\\]\\(https://app\\.trunk\\.io/")))
+        | "\(.number)\t\(.head.sha)\t\(if (.head.ref | endswith("-bisection")) then "bisection" else "normal" end)\t\(.created_at)"' \
+        "$pulls" || fail "unreadable pull request list"
+}
+
 attempts_for() {
     local pr=$1 head=${2:-} attempt sha kind created covers
     if [ -z "$head" ]; then
@@ -215,10 +237,7 @@ attempts_for() {
         printf '%s' "$head" | grep -qE '^[0-9a-f]{40}$' || fail "PR $pr has no readable head"
     fi
     pulls_pages 3
-    jq -r --arg pr "$pr" '.[] | select(.user.login == "trunk-io[bot]")
-        | select(.head.ref | startswith("trunk-merge/pr-" + $pr + "/"))
-        | "\(.number)\t\(.head.sha)\t\(if (.head.ref | endswith("-bisection")) then "bisection" else "normal" end)\t\(.created_at)"' \
-        "$TMP/pulls" >"$TMP/attempts" || fail "unreadable pull request list"
+    select_attempts "$pr" "$TMP/pulls" >"$TMP/attempts"
     sort -t"$TAB" -k4,4r "$TMP/attempts" |
         grep -E "^[0-9]+${TAB}[0-9a-f]{40}${TAB}(normal|bisection)${TAB}" >"$TMP/valid" || true
     while IFS="$TAB" read -r attempt sha kind created; do
@@ -228,53 +247,71 @@ attempts_for() {
     done <"$TMP/valid"
 }
 
-case "$cmd" in
-    state)
-        pr=${3:-}
-        require_pr "$pr"
-        body=$(sticky_body "$pr") || exit $?
-        if [ -z "$body" ]; then
-            echo "state=none"
-            exit 0
-        fi
-        state=$(classify "$body")
-        echo "state=$state"
-        if [ "$state" = unknown ]; then echo "fingerprint=$(fingerprint "$body")"; fi
-        if printf '%s' "$body" | grep -qiE '\bstack(ed)?\b'; then echo "stacked=yes"; fi
-        # shellcheck disable=SC2016 # the backticks are literal Markdown, not expansion
-        check=$(printf '%s' "$body" | grep -oE '\[`'"$CHECK_RE"'`\]' | head -1 | sed -E 's/^\[`//; s/`\]$//' || true)
-        if [ -n "$check" ]; then echo "check=$check"; fi
-        job_url=$(printf '%s' "$body" | grep -oE "$URL_RE" | head -1 || true)
-        if [ -n "$job_url" ]; then echo "job_url=$job_url"; fi
-        testing_pr=$(printf '%s' "$body" | grep -oE 'PR \[#[0-9]+' | grep -oE '[0-9]+' | head -1 || true)
-        if [ -n "$testing_pr" ]; then echo "testing_pr=$testing_pr"; fi
-        ;;
-    attempts)
-        pr=${3:-}
-        head_oid=${4:-}
-        require_pr "$pr"
-        if [ -n "$head_oid" ]; then
-            printf '%s' "$head_oid" | grep -qE '^[0-9a-f]{40}$' || usage
-        fi
-        attempts_for "$pr" "$head_oid"
-        ;;
-    recent)
-        pages=${3:-2}
-        case "$pages" in
-            '' | *[!0-9]*) pages=2 ;;
-        esac
-        [ "$pages" -ge 1 ] || pages=2
-        pulls_pages "$pages"
-        jq -r '.[] | select(.user.login == "trunk-io[bot]")
-            | select(.head.ref | test("^trunk-merge/pr-[0-9]+/"))
-            | "\(.head.ref | capture("^trunk-merge/pr-(?<n>[0-9]+)/").n)\t\(.number)\t\(if (.head.ref | endswith("-bisection")) then "bisection" else "normal" end)"' \
-            "$TMP/pulls" >"$TMP/recent" || fail "unreadable pull request list"
-        grep -E "^[0-9]+${TAB}[0-9]+${TAB}(normal|bisection)$" "$TMP/recent" |
-            awk -F"$TAB" 'BEGIN{OFS=FS}
-                {n[$1]++; if (!($1 in first)) {first[$1]=$2 OFS $3; order[++k]=$1}}
-                END{for (i = 1; i <= k; i++) print order[i], first[order[i]], n[order[i]]}' || true
-        ;;
-    *)
-        usage
-        ;;
-esac
+# `repo` stays a global because the request helpers read it. Everything else is dispatched from
+# here so that the file can be sourced with no arguments, which is how the tests reach classify(),
+# fingerprint() and the attempt selection without a GitHub read.
+main() {
+    local cmd pr head_oid pages body state check job_url testing_pr
+    cmd=${1:-}
+    repo=${2:-}
+    [ -n "$cmd" ] && [ -n "$repo" ] || usage
+    case "$repo" in
+        */*) ;;
+        *) usage ;;
+    esac
+
+    case "$cmd" in
+        state)
+            pr=${3:-}
+            require_pr "$pr"
+            body=$(sticky_body "$pr") || exit $?
+            if [ -z "$body" ]; then
+                echo "state=none"
+                exit 0
+            fi
+            state=$(classify "$body")
+            echo "state=$state"
+            if [ "$state" = unknown ]; then echo "fingerprint_b64=$(fingerprint "$body")"; fi
+            if printf '%s' "$body" | grep -qiE '\bstack(ed)?\b'; then echo "stacked=yes"; fi
+            # shellcheck disable=SC2016 # the backticks are literal Markdown, not expansion
+            check=$(printf '%s' "$body" | grep -oE '\[`'"$CHECK_RE"'`\]' | head -1 | sed -E 's/^\[`//; s/`\]$//' || true)
+            if [ -n "$check" ]; then echo "check=$check"; fi
+            job_url=$(printf '%s' "$body" | grep -oE "$URL_RE" | head -1 || true)
+            if [ -n "$job_url" ]; then echo "job_url=$job_url"; fi
+            testing_pr=$(printf '%s' "$body" | grep -oE 'PR \[#[0-9]+' | grep -oE '[0-9]+' | head -1 || true)
+            if [ -n "$testing_pr" ]; then echo "testing_pr=$testing_pr"; fi
+            ;;
+        attempts)
+            pr=${3:-}
+            head_oid=${4:-}
+            require_pr "$pr"
+            if [ -n "$head_oid" ]; then
+                printf '%s' "$head_oid" | grep -qE '^[0-9a-f]{40}$' || usage
+            fi
+            attempts_for "$pr" "$head_oid"
+            ;;
+        recent)
+            pages=${3:-2}
+            case "$pages" in
+                '' | *[!0-9]*) pages=2 ;;
+            esac
+            [ "$pages" -ge 1 ] || pages=2
+            pulls_pages "$pages"
+            jq -r '.[] | select(.user.login == "trunk-io[bot]")
+                | select(.head.ref | test("^trunk-merge/pr-[0-9]+/"))
+                | "\(.head.ref | capture("^trunk-merge/pr-(?<n>[0-9]+)/").n)\t\(.number)\t\(if (.head.ref | endswith("-bisection")) then "bisection" else "normal" end)"' \
+                "$TMP/pulls" >"$TMP/recent" || fail "unreadable pull request list"
+            grep -E "^[0-9]+${TAB}[0-9]+${TAB}(normal|bisection)$" "$TMP/recent" |
+                awk -F"$TAB" 'BEGIN{OFS=FS}
+                    {n[$1]++; if (!($1 in first)) {first[$1]=$2 OFS $3; order[++k]=$1}}
+                    END{for (i = 1; i <= k; i++) print order[i], first[order[i]], n[order[i]]}' || true
+            ;;
+        *)
+            usage
+            ;;
+    esac
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+    main "$@"
+fi
