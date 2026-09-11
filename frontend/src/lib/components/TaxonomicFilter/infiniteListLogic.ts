@@ -210,6 +210,7 @@ const createEmptyListStorage = (searchQuery = '', first = false): ListStorage =>
 
 // simple cache with a setTimeout expiry
 const API_CACHE_TIMEOUT = 60000
+const SEARCH_DEBOUNCE_MS = 500
 // Well under the gateway's own ceiling, so a wedged list request surfaces as a retryable error
 // here rather than spinning until the proxy returns a 504.
 const REMOTE_ITEMS_REQUEST_TIMEOUT_MS = 30000
@@ -866,8 +867,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             createEmptyListStorage('', true),
             {
                 loadRemoteItems: async ({ offset, limit }, breakpoint) => {
-                    if (!values.remoteItems.first) {
-                        await breakpoint(500)
+                    const isInitialLoad = !cache.hasStartedRemoteLoad
+                    cache.hasStartedRemoteLoad = true
+                    if (!isInitialLoad || values.searchQuery) {
+                        await breakpoint(SEARCH_DEBOUNCE_MS)
                     } else {
                         // These connected values below might be read before they are available due to circular logic mounting.
                         // Adding a slight delay (breakpoint) fixes this.
@@ -2192,13 +2195,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             const searchQueryChanged = cache.lastSearchQuery !== values.searchQuery
             cache.lastSearchQuery = values.searchQuery
 
-            if (searchQueryChanged) {
+            if (searchQueryChanged && (values.pinnedRowIndex !== null || values.hasAppliedInitialPin)) {
                 actions.resetPinnedRowState()
             }
             if (values.hasRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
             } else {
-                if (props.autoSelectItem) {
+                if (props.autoSelectItem && values.index !== 0) {
                     actions.setIndex(0)
                 }
                 if (props.listGroupType !== TaxonomicFilterGroupType.SuggestedFilters) {
@@ -2296,8 +2299,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 })
             }
         },
-        infiniteListResultsReceived: () => {
-            actions.reconcilePinnedRowState()
+        infiniteListResultsReceived: ({ groupType }) => {
+            if (
+                groupType === props.listGroupType ||
+                props.listGroupType === TaxonomicFilterGroupType.SuggestedFilters
+            ) {
+                actions.reconcilePinnedRowState()
+            }
         },
         applyInitialPinnedRow: ({ rowIndex }) => {
             actions.setIndex(rowIndex)
