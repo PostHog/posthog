@@ -1,3 +1,4 @@
+import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -9,7 +10,7 @@ from unittest.mock import ANY, MagicMock, call, patch
 from django.core.cache import cache
 from django.db import OperationalError
 from django.http import HttpResponse
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -3150,6 +3151,112 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             response.json()["test_account_filters"],
             [{"key": "email", "type": "person", "operator": "is_set"}],
         )
+
+
+class TestChangeOrganizationConcurrency(TransactionTestCase):
+    """Two moves of the same project must serialize on the project row lock.
+
+    Without the lock, both requests read the pre-move organization before either
+    commits, and both record a departure from it.
+    """
+
+    LOCK_WAIT_TIMEOUT = 15
+
+    def setUp(self):
+        self.org_a = Organization.objects.create(name="Org A")
+        self.user = User.objects.create_and_join(
+            organization=self.org_a, email="mover@example.com", password=None, level=OrganizationMembership.Level.ADMIN
+        )
+        self.org_b = Organization.objects.create(name="Org B")
+        self.org_c = Organization.objects.create(name="Org C")
+        for org in (self.org_b, self.org_c):
+            OrganizationMembership.objects.create(
+                user=self.user, organization=org, level=OrganizationMembership.Level.ADMIN
+            )
+        self.project, self.team = Project.objects.create_with_team(
+            name="Concurrent", organization=self.org_a, initiating_user=self.user
+        )
+
+    def _move(self, target_org: Organization, results: dict, errors: list) -> None:
+        try:
+            client = test.APIClient()
+            client.force_authenticate(user=self.user)
+            res = client.post(
+                f"/api/projects/{self.project.pk}/change_organization/",
+                {"organization_id": str(target_org.id)},
+                format="json",
+            )
+            results[str(target_org.id)] = res.status_code
+        except Exception as error:
+            errors.append(error)
+        finally:
+            from django.db import connections
+
+            connections.close_all()
+
+    def test_concurrent_moves_serialize_on_the_project_lock(self):
+        errors: list[Exception] = []
+        results: dict[str, int] = {}
+        counter_lock = threading.Lock()
+        call_count = [0]
+        first_request_locked = threading.Event()
+        second_request_at_lock = threading.Event()
+        release_first_request = threading.Event()
+
+        real_select_for_update = Project.objects.select_for_update
+
+        def traced_select_for_update(*args: Any, **kwargs: Any):
+            with counter_lock:
+                call_count[0] += 1
+                call_number = call_count[0]
+            if call_number > 2:
+                errors.append(AssertionError(f"Unexpected select_for_update call #{call_number}"))
+                return real_select_for_update(*args, **kwargs)
+            queryset = real_select_for_update(*args, **kwargs)
+            if call_number == 1:
+                # The first request signals only once it holds the row lock, and keeps holding
+                # it until the second request has reached the lock, so both reads overlap.
+                real_get = queryset.get
+
+                def get_after_lock(*get_args: Any, **get_kwargs: Any):
+                    project = real_get(*get_args, **get_kwargs)
+                    first_request_locked.set()
+                    if not release_first_request.wait(self.LOCK_WAIT_TIMEOUT):
+                        errors.append(AssertionError("Second request never reached the project lock"))
+                    return project
+
+                queryset.get = get_after_lock
+            else:
+                second_request_at_lock.set()
+            return queryset
+
+        with patch.object(Project.objects, "select_for_update", traced_select_for_update):
+            first = threading.Thread(target=self._move, args=(self.org_b, results, errors))
+            first.start()
+            assert first_request_locked.wait(self.LOCK_WAIT_TIMEOUT), "First request never acquired the project lock"
+
+            second = threading.Thread(target=self._move, args=(self.org_c, results, errors))
+            second.start()
+            assert second_request_at_lock.wait(self.LOCK_WAIT_TIMEOUT), "Second request never reached the project lock"
+
+            release_first_request.set()
+            first.join(self.LOCK_WAIT_TIMEOUT)
+            second.join(self.LOCK_WAIT_TIMEOUT)
+
+        assert errors == []
+        assert results == {str(self.org_b.id): 200, str(self.org_c.id): 200}
+
+        self.project.refresh_from_db()
+        assert self.project.organization_id == self.org_c.id
+
+        # Each losing organization recorded exactly one departure, and the second one read the
+        # organization the first move had committed: before == B, not the stale A.
+        org_a_departure = ActivityLog.objects.get(organization_id=self.org_a.id, scope="Project", team_id=None)
+        assert org_a_departure.detail is not None
+        assert org_a_departure.detail["changes"][0]["before"] == str(self.org_a.id)
+        org_b_departure = ActivityLog.objects.get(organization_id=self.org_b.id, scope="Project", team_id=None)
+        assert org_b_departure.detail is not None
+        assert org_b_departure.detail["changes"][0]["before"] == str(self.org_b.id)
 
 
 class TestTeamSerializerHomeViewWins(APIBaseTest):

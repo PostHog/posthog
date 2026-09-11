@@ -1965,45 +1965,54 @@ class ProjectViewSet(
         user = cast(User, request.user)
 
         target_organization_id = request.data.get("organization_id")
-        current_organization = project.organization
-
-        try:
-            target_organization = Organization.objects.get(pk=target_organization_id)
-            current_organization_membership = OrganizationMembership.objects.get(
-                user=user, organization=current_organization
-            )
-            target_organization_membership = OrganizationMembership.objects.get(
-                user=user, organization=target_organization
-            )
-
-            if (
-                current_organization_membership.level < OrganizationMembership.Level.ADMIN
-                or target_organization_membership.level < OrganizationMembership.Level.ADMIN
-            ):
-                raise exceptions.ValidationError(
-                    "You must be an admin of both the source and target organizations to move a project."
-                )
-
-        except (OrganizationMembership.DoesNotExist, Organization.DoesNotExist):
-            raise exceptions.ValidationError("You must be a member of the target organization to move a project.")
-
-        # Compare resolved UUIDs: target_organization_id comes off the request body as a string, so
-        # comparing it to the UUID organization_id never matches and would let a same-org request through.
-        if project.organization_id == target_organization.id:
-            raise exceptions.ValidationError("Project is already in the target organization.")
-
-        teams = list(project.teams.all())
-        was_impersonated = is_impersonated(request)
-        project_change = Change(
-            type="Project",
-            action="changed",
-            field="organization_id",
-            before=str(current_organization.id),
-            after=str(target_organization.id),
-        )
 
         with transaction.atomic():
-            project.organization_id = target_organization_id
+            # Lock the project row so concurrent moves serialize: each request re-reads the
+            # organization and teams only after the previous move has committed, so snapshots
+            # never go stale and no departure is recorded twice.
+            try:
+                project = Project.objects.select_for_update().get(pk=project.pk)
+            except Project.DoesNotExist:
+                raise exceptions.NotFound("Project not found.")
+
+            current_organization = project.organization
+
+            try:
+                target_organization = Organization.objects.get(pk=target_organization_id)
+                current_organization_membership = OrganizationMembership.objects.get(
+                    user=user, organization=current_organization
+                )
+                target_organization_membership = OrganizationMembership.objects.get(
+                    user=user, organization=target_organization
+                )
+
+                if (
+                    current_organization_membership.level < OrganizationMembership.Level.ADMIN
+                    or target_organization_membership.level < OrganizationMembership.Level.ADMIN
+                ):
+                    raise exceptions.ValidationError(
+                        "You must be an admin of both the source and target organizations to move a project."
+                    )
+
+            except (OrganizationMembership.DoesNotExist, Organization.DoesNotExist):
+                raise exceptions.ValidationError("You must be a member of the target organization to move a project.")
+
+            # Compare resolved UUIDs: target_organization_id comes off the request body as a string, so
+            # comparing it to the UUID organization_id never matches and would let a same-org request through.
+            if project.organization_id == target_organization.id:
+                raise exceptions.ValidationError("Project is already in the target organization.")
+
+            teams = list(project.teams.all())
+            was_impersonated = is_impersonated(request)
+            project_change = Change(
+                type="Project",
+                action="changed",
+                field="organization_id",
+                before=str(current_organization.id),
+                after=str(target_organization.id),
+            )
+
+            project.organization_id = target_organization.id
             project.save()
 
             # Record the arrival for the receiving organization.
@@ -2033,7 +2042,7 @@ class ProjectViewSet(
             )
 
             for team in teams:
-                team.organization_id = target_organization_id
+                team.organization_id = target_organization.id
                 team.save()
 
                 # One departure entry per environment, so the losing org sees which ones left.
