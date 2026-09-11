@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: T201 allow CLI output
 """Resolve and remember local checkouts of the PostHog repos that Surveys spans.
 
 GitHub is the source of truth for where the code lives; this script is a per-maintainer
@@ -26,12 +27,12 @@ posthog.com (keys match GitHub repo names; web + React Native both live in posth
 
 from __future__ import annotations
 
-import argparse
-import json
 import os
 import re
-import subprocess
 import sys
+import json
+import argparse
+import subprocess
 from pathlib import Path
 
 REGISTRY = Path.home() / ".config" / "posthog-surveys" / "repos.json"
@@ -44,6 +45,7 @@ KNOWN_REPOS = {
     "posthog-flutter",
     "posthog.com",
 }
+
 
 # Roots to scan for existing checkouts, in priority order. Kept to conventional code homes
 # rather than all of $HOME so the walk stays fast and avoids Library/Application noise.
@@ -124,7 +126,7 @@ def repo_key_for_origin(url: str) -> str | None:
 def is_repo_checkout(path: Path, repo: str) -> bool:
     """Strict: a directory is the repo only if its git origin proves it. No name-based
     fallback — a folder merely named `posthog-js` is not trusted as the real checkout."""
-    return path.is_dir() and bool((url := origin_url(path))) and repo_key_for_origin(url) == repo
+    return path.is_dir() and bool(url := origin_url(path)) and repo_key_for_origin(url) == repo
 
 
 def discover(wanted: set[str] | None = None) -> dict[str, list[Path]]:
