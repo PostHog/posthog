@@ -10,6 +10,7 @@ from collections import Counter, defaultdict
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from itertools import batched
+from typing import Any
 from uuid import UUID
 
 from django.conf import settings
@@ -262,6 +263,58 @@ class _CohortQueryResult:
 
 
 @dataclasses.dataclass(frozen=True)
+class _AlertConcurrencySnapshot:
+    """Alert fields that must still match before an evaluated result can cause side effects."""
+
+    enabled: bool
+    state: str
+    filters: dict[str, Any]
+    threshold_count: int
+    threshold_operator: str
+    window_minutes: int
+    check_interval_minutes: int
+    evaluation_periods: int
+    datapoints_to_alarm: int
+    cooldown_minutes: int
+    consecutive_failures: int
+    last_notified_at: datetime | None
+    snooze_until: datetime | None
+    next_check_at: datetime | None
+    schedule_restriction: dict[str, Any] | None
+    updated_at: datetime
+
+
+def _snapshot_alert_for_evaluation(alert: LogsAlertConfiguration) -> _AlertConcurrencySnapshot:
+    return _AlertConcurrencySnapshot(
+        enabled=alert.enabled,
+        state=alert.state,
+        filters=alert.filters,
+        threshold_count=alert.threshold_count,
+        threshold_operator=alert.threshold_operator,
+        window_minutes=alert.window_minutes,
+        check_interval_minutes=alert.check_interval_minutes,
+        evaluation_periods=alert.evaluation_periods,
+        datapoints_to_alarm=alert.datapoints_to_alarm,
+        cooldown_minutes=alert.cooldown_minutes,
+        consecutive_failures=alert.consecutive_failures,
+        last_notified_at=alert.last_notified_at,
+        snooze_until=alert.snooze_until,
+        next_check_at=alert.next_check_at,
+        schedule_restriction=alert.schedule_restriction,
+        updated_at=alert.updated_at,
+    )
+
+
+def _alert_evaluation_is_current(
+    current_alert: LogsAlertConfiguration,
+    evaluation: "_AlertEvaluation",
+) -> bool:
+    return evaluation.concurrency_snapshot is None or (
+        current_alert.enabled and _snapshot_alert_for_evaluation(current_alert) == evaluation.concurrency_snapshot
+    )
+
+
+@dataclasses.dataclass(frozen=True)
 class _AlertEvaluation:
     """Phase 1 output: per-alert state-machine result. No Kafka, no PG yet.
 
@@ -275,6 +328,7 @@ class _AlertEvaluation:
     date_from: datetime
     date_to: datetime
     state_before: str
+    concurrency_snapshot: _AlertConcurrencySnapshot | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -298,12 +352,16 @@ class _DispatchedAlert:
     final until `_resolve_notification_deliveries` flushes the producer and
     folds delivery failures in — persisting before that point would record
     "notified" for a message that may never reach the broker.
+
+    `discarded_as_stale` means a concurrent update changed the evaluated
+    snapshot before dispatch or save, so no state from this result may persist.
     """
 
     evaluation: _AlertEvaluation
     notification_failed: bool
     produce_result: ProduceResult | None = None
     suppressed_by_quiet_hours: bool = False
+    discarded_as_stale: bool = False
     persisted_event_id: str | None = None
 
     @property
@@ -1053,6 +1111,11 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                         local_stats["errored"] += 1
                     elif result.suppressed_by_quiet_hours:
                         continue
+                    elif result.discarded_as_stale:
+                        slo_handles[alert_id].succeed(discarded_as_stale=True)
+                        if delivery_slo := delivery_slo_handles.get(alert_id):
+                            delivery_slo.succeed(discarded_as_stale=True)
+                        continue
                     else:
                         dispatched.append(result)
                         elapsed_ms_per_alert.append(int((phase_2_end - eval_start) * 1000))
@@ -1074,7 +1137,7 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                             delivery_slo.succeed()
 
                 try:
-                    saved, failed = (await save_cohort_async(dispatched, now)) if dispatched else ([], [])
+                    saved, failed, stale = (await save_cohort_async(dispatched, now)) if dispatched else ([], [], [])
                 except Exception as e:
                     logger.exception("Cohort bulk save failed (non-recoverable)", team_id=cohort.team_id)
                     capture_exception(e, {"team_id": cohort.team_id, "phase": "bulk_save"})
@@ -1105,6 +1168,8 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                     slo_handles[str(dispatched_alert.evaluation.alert.id)].fail(failure_phase="save")
                     local_stats["checked"] += 1
                     local_stats["errored"] += 1
+                for dispatched_alert in stale:
+                    slo_handles[str(dispatched_alert.evaluation.alert.id)].succeed(discarded_as_stale=True)
 
                 local_notified.extend(_build_notified_from_saved(saved))
                 return local_stats, local_notified
@@ -1359,8 +1424,20 @@ def _dispatch_for_alert(evaluation: _AlertEvaluation, now: datetime) -> _Dispatc
         current_alert = (
             LogsAlertConfiguration.objects.select_for_update(of=("self",))
             .select_related("team")
-            .get(id=evaluation.alert.id)
+            .filter(id=evaluation.alert.id)
+            .first()
         )
+        if current_alert is None or not _alert_evaluation_is_current(current_alert, evaluation):
+            logger.info(
+                "Discarding stale alert evaluation before notification dispatch",
+                alert_id=str(evaluation.alert.id),
+                team_id=evaluation.alert.team_id,
+            )
+            return _DispatchedAlert(
+                evaluation=evaluation,
+                notification_failed=False,
+                discarded_as_stale=True,
+            )
         try:
             next_check_at = next_allowed_check_at(
                 now,
@@ -1515,11 +1592,12 @@ _COHORT_UPDATE_FIELDS: list[str] = [
 
 def _save_cohort_outcomes(
     dispatched: list[_DispatchedAlert], now: datetime
-) -> tuple[list[_DispatchedAlert], list[_DispatchedAlert]]:
+) -> tuple[list[_DispatchedAlert], list[_DispatchedAlert], list[_DispatchedAlert]]:
     """Phase 3: persist the cohort's outcomes via one bulk_create + one bulk_update.
 
-    Returns `(saved, failed)` — saved alerts advanced to their committed state,
-    failed alerts didn't (caller treats them as errored).
+    Returns `(saved, failed, stale)` — saved alerts advanced to their committed state,
+    failed alerts didn't (caller treats them as errored), and stale alerts were
+    deliberately discarded after a concurrent user or worker update.
 
     On `IntegrityError` (constraint shaped — a row hit a DB constraint we didn't
     anticipate), fall back to per-alert UPDATEs so the rest still advance.
@@ -1528,28 +1606,34 @@ def _save_cohort_outcomes(
     fallback against the same broken cluster wouldn't help.
     """
     if not dispatched:
-        return [], []
+        return [], [], []
 
     save_start = time.perf_counter()
 
     event_insert_ms: int | None = None
     update_ms: int | None = None
-    saved: list[_DispatchedAlert] = list(dispatched)
+    saved: list[_DispatchedAlert] = []
     failed: list[_DispatchedAlert] = []
+    stale: list[_DispatchedAlert] = []
+    staged: list[tuple[_DispatchedAlert, list[str], LogsAlertEvent | None]] = []
     try:
         with transaction.atomic():
-            current_restrictions = dict(
-                LogsAlertConfiguration.objects.select_for_update()
-                .filter(id__in=[d.evaluation.alert.id for d in dispatched])
-                .values_list("id", "schedule_restriction")
-            )
+            current_alerts = {
+                alert.id: alert
+                for alert in LogsAlertConfiguration.objects.select_for_update().filter(
+                    id__in=[d.evaluation.alert.id for d in dispatched]
+                )
+            }
 
-            # The worker can evaluate an alert while a user saves quiet hours. Locking
-            # before staging makes either write order safe: this worker uses the saved
-            # restriction, or the API waits and then reschedules after this check.
-            staged: list[tuple[_DispatchedAlert, list[str], LogsAlertEvent | None]] = []
+            # Revalidate after taking the row locks: alert evaluation and notification
+            # delivery happen outside this transaction, so a concurrent snooze/edit can
+            # otherwise be overwritten by the stale in-memory model.
             for d in dispatched:
-                d.evaluation.alert.schedule_restriction = current_restrictions.get(d.evaluation.alert.id)
+                current_alert = current_alerts.get(d.evaluation.alert.id)
+                if current_alert is None or not _alert_evaluation_is_current(current_alert, d.evaluation):
+                    stale.append(dataclasses.replace(d, discarded_as_stale=True))
+                    continue
+                d.evaluation.alert.schedule_restriction = current_alert.schedule_restriction
                 update_fields, event = _stage_alert_for_save(d, now)
                 staged.append((d, update_fields, event))
 
@@ -1577,7 +1661,8 @@ def _save_cohort_outcomes(
         )
         capture_exception(e, {"cohort_size": len(dispatched), "fallback": "per_alert"})
         increment_cohort_save_fallback("integrity_error")
-        saved, failed = _save_staged_per_alert(staged)
+        saved, failed, fallback_stale = _save_staged_per_alert(staged)
+        stale.extend(fallback_stale)
 
     save_ms = int((time.perf_counter() - save_start) * 1000)
     with _safe_record_block("cohort save metrics"):
@@ -1587,24 +1672,31 @@ def _save_cohort_outcomes(
         if update_ms is not None:
             record_cohort_update_duration(update_ms)
 
-    return saved, failed
+    return saved, failed, stale
 
 
 def _save_staged_per_alert(
     staged: list[tuple[_DispatchedAlert, list[str], LogsAlertEvent | None]],
-) -> tuple[list[_DispatchedAlert], list[_DispatchedAlert]]:
+) -> tuple[list[_DispatchedAlert], list[_DispatchedAlert], list[_DispatchedAlert]]:
     """Fallback path used when `bulk_update` raises `IntegrityError`.
 
-    Returns `(saved, failed)`. Each alert saves independently so a single bad
-    row doesn't strand the cohort. Takes pre-staged tuples (alert already
+    Returns `(saved, failed, stale)`. Each alert saves independently so a single
+    bad row doesn't strand the cohort. Takes pre-staged tuples (alert already
     mutated, event already instantiated) so we don't re-run
     `_stage_alert_for_save` and accidentally advance `next_check_at` twice.
     """
     saved: list[_DispatchedAlert] = []
     failed: list[_DispatchedAlert] = []
+    stale: list[_DispatchedAlert] = []
     for d, update_fields, event in staged:
         try:
             with transaction.atomic():
+                current_alert = (
+                    LogsAlertConfiguration.objects.select_for_update().filter(id=d.evaluation.alert.id).first()
+                )
+                if current_alert is None or not _alert_evaluation_is_current(current_alert, d.evaluation):
+                    stale.append(dataclasses.replace(d, discarded_as_stale=True))
+                    continue
                 if event is not None:
                     event.save()
                 d.evaluation.alert.save(update_fields=update_fields)
@@ -1617,7 +1709,7 @@ def _save_staged_per_alert(
             )
             capture_exception(e, {"alert_id": str(d.evaluation.alert.id), "phase": "per_alert_fallback"})
             failed.append(d)
-    return saved, failed
+    return saved, failed, stale
 
 
 def _finalize_alert(dispatched: _DispatchedAlert, elapsed_ms: int, stats: dict[str, int]) -> None:
@@ -1740,6 +1832,7 @@ def _evaluate_single_alert(
     error (re-raised inside the try block to flow through the same
     classification as a per-alert failure).
     """
+    concurrency_snapshot = _snapshot_alert_for_evaluation(alert)
     original_next_check_at = alert.next_check_at
 
     nca = alert.next_check_at if alert.next_check_at is not None else now
@@ -1822,6 +1915,7 @@ def _evaluate_single_alert(
         date_from=date_from,
         date_to=date_to,
         state_before=alert.state,
+        concurrency_snapshot=concurrency_snapshot,
     )
 
 
