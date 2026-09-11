@@ -713,7 +713,7 @@ class TestDashboardRunWidgets(APIBaseTest):
         mock_list_recordings: MagicMock,
         _mock_wait: MagicMock,
         _mock_burst_allow: MagicMock,
-        _mock_sustained_allow: MagicMock,
+        mock_sustained_allow: MagicMock,
     ) -> None:
         mock_list_recordings.return_value = _empty_listing_result()
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
@@ -727,6 +727,41 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(
             body["results"][0]["error"],
             "Rate limit exceeded. Recording list requests are limited to 12 per minute. Expected available in 30 seconds.",
+        )
+        mock_list_recordings.assert_not_called()
+        # The sustained bucket must still record a request the burst throttle rejects.
+        mock_sustained_allow.assert_called_once()
+
+    @patch("posthog.session_recordings.session_recording_api.ListingSustainedRateThrottle.wait", return_value=2400)
+    @patch(
+        "posthog.session_recordings.session_recording_api.ListingSustainedRateThrottle.allow_request",
+        return_value=False,
+    )
+    @patch(
+        "posthog.session_recordings.session_recording_api.ListingBurstRateThrottle.allow_request", return_value=False
+    )
+    @patch("posthog.session_recordings.session_recording_api.ListingBurstRateThrottle.wait", return_value=30)
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_run_widgets_reports_the_longest_replay_listing_wait(
+        self,
+        mock_list_recordings: MagicMock,
+        _mock_burst_wait: MagicMock,
+        _mock_burst_allow: MagicMock,
+        _mock_sustained_allow: MagicMock,
+        _mock_sustained_wait: MagicMock,
+    ) -> None:
+        mock_list_recordings.return_value = _empty_listing_result()
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id, widget_type="session_replay_list", config={"limit": 10}
+        )
+        tile_id = dashboard_json["tiles"][0]["id"]
+
+        body = self._run(dashboard_id, [tile_id])
+
+        self.assertEqual(
+            body["results"][0]["error"],
+            "Rate limit exceeded. Recording list requests are limited to 60 per hour. Expected available in 2400 seconds.",
         )
         mock_list_recordings.assert_not_called()
 

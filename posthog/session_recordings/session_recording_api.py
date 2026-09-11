@@ -6,7 +6,7 @@ import time
 import struct
 import asyncio
 import builtins
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from json import JSONDecodeError
 from typing import Any, Literal, cast
@@ -783,20 +783,32 @@ def replay_throttle_detail(throttle: SimpleRateThrottle) -> str:
     return f"Rate limit exceeded. {subject} are limited to {num_requests} per {window}{plan}."
 
 
+def _select_reported_throttle(throttles: Iterable[SimpleRateThrottle], request, view) -> SimpleRateThrottle | None:
+    """Return the throttle to name back to the caller, or None when none of them block.
+
+    The 429 path and the dashboard widget path must name the same ceiling for the same caller state,
+    so the rule lives here instead of once in each of them.
+    """
+    # Every throttle is consulted, as DRF does, so each bucket still records the request.
+    blocked = [throttle for throttle in throttles if not throttle.allow_request(request, view)]
+    if not blocked:
+        return None
+    # The longest wait among the blocked throttles is the wait DRF already reports, so the message
+    # and Retry-After agree. Naming a shorter one would send the caller back for another 429.
+    # As in DRF, a throttle that allows this request and fills its own bucket is not counted, so a
+    # caller that crosses that boundary gets one more 429 before the reported wait settles.
+    return max(blocked, key=lambda throttle: throttle.wait() or 0)
+
+
 def get_replay_listing_throttle_error(request, view) -> str | None:
     """Return a client-facing error when replay listing throttles would block this request."""
-    auth_type = _request_auth_type(request)
-    for throttle_cls in (ListingBurstRateThrottle, ListingSustainedRateThrottle):
-        throttle = throttle_cls()
-        if throttle.allow_request(request, view):
-            continue
-        wait = throttle.wait()
-        scope = throttle.scope or "listing"
-        _count_session_recording_throttled(location=scope, auth_type=auth_type)
-        # Borrow DRF's wait sentence so the string matches a 429 body from the same throttle.
-        return str(Throttled(wait=wait, detail=replay_throttle_detail(throttle)).detail)
-    # None: both listing burst and sustained throttles allowed the request.
-    return None
+    throttle = _select_reported_throttle([ListingBurstRateThrottle(), ListingSustainedRateThrottle()], request, view)
+    if throttle is None:
+        # Both listing burst and sustained throttles allowed the request.
+        return None
+    _count_session_recording_throttled(location=throttle.scope or "listing", auth_type=_request_auth_type(request))
+    # Borrow DRF's wait sentence so the string matches a 429 body from the same throttle.
+    return str(Throttled(wait=throttle.wait(), detail=replay_throttle_detail(throttle)).detail)
 
 
 class SharingTokenReplayThrottle(SimpleRateThrottle):
@@ -925,15 +937,9 @@ class SessionRecordingViewSet(
         return super().get_throttles()
 
     def check_throttles(self, request: Request) -> None:
-        # Every throttle is consulted, as DRF does, so each bucket still records the request.
-        blocked = [throttle for throttle in self.get_throttles() if not throttle.allow_request(request, self)]
-        if not blocked:
+        throttle = _select_reported_throttle(self.get_throttles(), request, self)
+        if throttle is None:
             return
-        # The longest wait among the blocked throttles is the wait DRF already reports, so the message
-        # and Retry-After agree. Naming a shorter one would send the caller back for another 429.
-        # As in DRF, a throttle that allows this request and fills its own bucket is not counted, so a
-        # caller that crosses that boundary gets one more 429 before the reported wait settles.
-        throttle = max(blocked, key=lambda t: t.wait() or 0)
         raise Throttled(wait=throttle.wait(), detail=replay_throttle_detail(throttle))
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
