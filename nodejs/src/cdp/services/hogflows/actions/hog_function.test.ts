@@ -485,9 +485,9 @@ describe('HogFunctionHandler', () => {
     ] as const)(
         'emits a single billable_invocation with %s kind matching the handler billing type',
         async (billingType, usageKey) => {
-            const usageReporter = {
+            const usageReporter: Pick<CdpUsageReporterService, 'reportBillableInvocation'> = {
                 reportBillableInvocation: jest.fn(),
-            } as unknown as CdpUsageReporterService
+            }
             const handler = new HogFunctionHandler(
                 mockHogFlowFunctionsService,
                 mockRecipientPreferencesService,

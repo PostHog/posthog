@@ -93,7 +93,7 @@ export class HogFunctionHandler implements ActionHandler {
         private recipientPreferencesService: RecipientPreferencesService,
         private emailValidationService: EmailValidationService,
         private hogFlowActionBillingType: HogFlowActionBillingType,
-        private usageReporter?: CdpUsageReporterService,
+        private usageReporter?: Pick<CdpUsageReporterService, 'reportBillableInvocation'>,
         private options: { awaitedStepsEnabled?: boolean } = {}
     ) {}
 
