@@ -8,6 +8,20 @@ import { Node } from '~/queries/schema/schema-general'
 import webVitals from './__mocks__/WebVitals.json'
 import webVitalsTrends from './__mocks__/WebVitalsTrends.json'
 
+const webVitalsDecorator = (webVitalsResponse: [number, unknown]): ReturnType<typeof mswDecorator> =>
+    mswDecorator({
+        post: {
+            '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                const body = (await request.json()) as any
+                if (body.query.kind === 'WebVitalsQuery') {
+                    return webVitalsResponse
+                } else if (body.query.kind === 'TrendsQuery') {
+                    return [200, webVitalsTrends]
+                }
+            },
+        },
+    })
+
 type Story = StoryObj<QueryProps<Node>>
 const meta: Meta<QueryProps<Node>> = {
     title: 'Queries/WebVitals',
@@ -20,20 +34,7 @@ const meta: Meta<QueryProps<Node>> = {
             waitForSelector: '[data-attr=trend-line-graph] > canvas',
         },
     },
-    decorators: [
-        mswDecorator({
-            post: {
-                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = (await request.json()) as any
-                    if (body.query.kind === 'WebVitalsQuery') {
-                        return [200, webVitals]
-                    } else if (body.query.kind === 'TrendsQuery') {
-                        return [200, webVitalsTrends]
-                    }
-                },
-            },
-        }),
-    ],
+    decorators: [webVitalsDecorator([200, webVitals])],
     // NOTE: See InsightCard.scss to see why we need this wrapper
     render: (args) => {
         return (
@@ -49,4 +50,12 @@ export default meta
 
 export const WebVitals: Story = {
     args: { query: examples['WebVitals'] },
+}
+
+export const WebVitalsQueryFailed: Story = {
+    args: { query: examples['WebVitals'] },
+    parameters: {
+        testOptions: { waitForLoadersToDisappear: true, waitForSelector: '[data-attr=insight-empty-state]' },
+    },
+    decorators: [webVitalsDecorator([500, { type: 'server_error', error: 'Query exceeded the memory limit' }])],
 }
