@@ -18,6 +18,7 @@ then delegates to the read layer — source selection and access control live in
 not in the query builders below it.
 """
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from posthog.models.team import Team
@@ -36,6 +37,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     GitHubSource,
     MasterFailureGroup,
     MergedPullRequest,
+    PathOwnership,
     PRCostSummary,
     PRLifecycle,
     PullRequestList,
@@ -624,3 +626,13 @@ def list_job_aggregates(
         branch=branch,
         run_scope=run_scope,
     )
+
+
+def resolve_path_owners(repository: str, paths: Sequence[str]) -> PathOwnership:
+    """Name the team that owns each repository path, from the repository's own ownership files.
+
+    No team parameter: the answer comes from the repository as it stands on its default branch, not
+    from anything this PostHog team stores. Callers outside this product reach it here so the fetch,
+    the cache, and the failure contract stay in one place.
+    """
+    return logic.resolve_path_owners(repository, paths)

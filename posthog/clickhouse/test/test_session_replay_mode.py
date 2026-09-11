@@ -22,7 +22,7 @@ def test_snapshot_mode_v2_reads_old_parts_and_classified_blocks(mv_sql: Callable
     target = f"replay_mode_target_{suffix}"
     view = f"replay_mode_mv_{suffix}"
     database = settings.CLICKHOUSE_DATABASE
-    migration = import_module("posthog.clickhouse.migrations.0319_add_snapshot_mode_v2_to_session_replay_events")
+    migration = import_module("posthog.clickhouse.migrations.0321_add_snapshot_mode_v2_to_session_replay_events")
 
     def create_view(*, legacy: bool) -> None:
         query = mv_sql(on_cluster=False, exclude_columns=["snapshot_mode_v2"] if legacy else [])

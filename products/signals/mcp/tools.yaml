@@ -516,11 +516,6 @@ tools:
             fields. Reusing the name for a different definition returns a conflict.
         exclude_params:
             - suggestion_id
-        confirmed_action:
-            message: >
-                About to create scout '{name}', a persistent automation that can run unattended on its configured
-                schedule and write reports to the inbox when enabled with emit on. Reply 'confirm' to create it.
-            action_label: create scout
     scout-edit-report:
         operation: signals_scout_edit_report
         enabled: true
@@ -748,8 +743,12 @@ tools:
             daily scout-run budget, and 409 if a run for this scout is already in progress. A manual run counts against
             the same daily run budget the scheduled runs draw from, so avoid triggering repeated runs of the same scout
             in a short window — each one consumes the project's scout-run allowance for the day. A manual run does not
-            change the scout's schedule, and a disabled scout can still be run this way (to test before enabling).
-            Returns the workflow id immediately — poll `scout-runs-list` for the resulting run and its findings.
+            change the scout's schedule, and a disabled scout can still be run this way (to test before enabling). Pass
+            an optional `note` to steer this run alone ("focus on the checkout regression"): the agent reads it next to
+            the scout's durable notes and weighs it the same way, and it is never read by another run — use it instead
+            of `scout-notes-create`, which would also steer every later scheduled run. A run carrying a note needs
+            `llm_skill:write` as well, since the agent reads the note verbatim while holding privileged tools. Returns
+            the workflow id immediately — poll `scout-runs-list` for the resulting run and its findings.
     scout-runs-emission-reports:
         operation: signals_scout_runs_emission_reports
         enabled: true
