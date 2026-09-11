@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
 import { AttributionTable } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTable'
 import {
@@ -89,6 +90,7 @@ const QUERY_CONTEXT: QueryContext = {
 // Scaffold for the redesigned marketing analytics dashboard, gated behind the
 // `new-marketing-analytics-dashboard` feature flag.
 export function NewMarketingAnalyticsDashboard(): JSX.Element {
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { revenueGoals, selectedRevenueGoalId, revenueQuery, breakdownBy } = useValues(marketingAttributionLogic)
     const { setRevenueGoalId, setBreakdownBy } = useActions(marketingAttributionLogic)
@@ -138,7 +140,9 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
             {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION] && (
                 <section aria-label="Revenue" className="flex flex-col gap-4">
                     <h2 className="mb-0">Revenue</h2>
-                    {revenueQuery ? (
+                    {currentTeamLoading || !currentTeam ? (
+                        <LemonSkeleton className="h-40" />
+                    ) : revenueQuery ? (
                         <>
                             <div className="flex flex-wrap items-center gap-2">
                                 <DateFilter

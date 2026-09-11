@@ -1,10 +1,12 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ConversionGoalFilter, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { PropertyMathType, TeamType } from '~/types'
+import { PropertyMathType } from '~/types'
 
 import { marketingAttributionLogic } from './marketingAttributionLogic'
 
@@ -26,16 +28,25 @@ it('restricts revenue queries to valid goals and drops a selection from the prev
     const loadGoals = async (id: number, goals: ConversionGoalFilter[]): Promise<void> => {
         await expectLogic(logic, () =>
             teamLogic.actions.loadCurrentTeamSuccess({
-                ...teamLogic.values.currentTeam!,
+                ...MOCK_DEFAULT_TEAM,
                 id,
                 marketing_analytics_config: { conversion_goals: goals },
-            } as TeamType)
+            })
         ).toFinishAllListeners()
     }
     await loadGoals(101, [
         { ...revenue, conversion_goal_id: 'unmarked', counts_as_revenue: false },
         { ...revenue, conversion_goal_id: 'missing-amount', math_property: undefined },
-        { ...revenue, conversion_goal_id: 'warehouse', kind: NodeKind.DataWarehouseNode },
+        {
+            ...revenue,
+            conversion_goal_id: 'warehouse',
+            kind: NodeKind.DataWarehouseNode,
+            id: 'orders',
+            table_name: 'orders',
+            id_field: 'id',
+            timestamp_field: 'timestamp',
+            distinct_id_field: 'distinct_id',
+        },
         revenue,
     ])
     expect(logic.values.revenueGoals).toEqual([revenue])

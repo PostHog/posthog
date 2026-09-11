@@ -64,7 +64,17 @@ export function AttributionChart({
     const { baseCurrency } = useValues(teamLogic)
 
     // Rows arrive server-ordered by influenced conversions, so the slice is the top slice.
-    const chartRows = useMemo(() => rows.slice(0, MAX_CHART_ROWS), [rows])
+    const chartRows = useMemo(() => {
+        const ranked =
+            metric === 'revenue'
+                ? [...rows].sort(
+                      (a, b) =>
+                          Math.max(...b.models.map((m) => m.conversionValue ?? 0)) -
+                          Math.max(...a.models.map((m) => m.conversionValue ?? 0))
+                  )
+                : rows
+        return ranked.slice(0, MAX_CHART_ROWS)
+    }, [rows, metric])
 
     const config: BarChartConfig = useChartConfig(
         () => ({

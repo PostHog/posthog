@@ -261,7 +261,12 @@ export const marketingAttributionLogic = kea<marketingAttributionLogicType>([
                 goalId: string | null
             ): MarketingAnalyticsAttributionQuery | null =>
                 query && goalId
-                    ? { ...query, conversionGoalId: goalId, allowMultipleConversionsPerVisitor: true }
+                    ? {
+                          ...query,
+                          conversionGoalId: goalId,
+                          allowMultipleConversionsPerVisitor: true,
+                          includeRevenue: true,
+                      }
                     : null,
         ],
         attributableGoals: [
