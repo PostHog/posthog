@@ -351,6 +351,38 @@ def filters_expr(filters: Sequence[MetricFilter]) -> ast.Expr:
     return ast.And(exprs=conditions)
 
 
+def time_range_expr(date_from: dt.datetime, date_to: dt.datetime) -> ast.Expr:
+    """Bound a `metrics` read to `[date_from, date_to)`.
+
+    The `timestamp` pair is the exact bound. The `time_bucket` pair is what
+    lets ClickHouse skip granules: `metrics` sorts by `(team_id, metric_name,
+    time_bucket, ...)` and is partitioned by expiry, so a bare `timestamp`
+    predicate prunes nothing inside a metric and the read covers the metric's
+    whole retention. `time_bucket` is `toStartOfHour(timestamp)` in UTC, so
+    the bounds snap to the UTC hour here rather than in HogQL, where
+    `toStartOfHour` follows the project's timezone and lands on :30 for a
+    half-hour offset.
+    """
+    return parse_expr(
+        """
+            timestamp >= {date_from}
+            AND timestamp < {date_to}
+            AND time_bucket >= {bucket_from}
+            AND time_bucket <= {bucket_to}
+        """,
+        placeholders={
+            "date_from": ast.Constant(value=date_from),
+            "date_to": ast.Constant(value=date_to),
+            "bucket_from": ast.Constant(value=_utc_hour(date_from)),
+            "bucket_to": ast.Constant(value=_utc_hour(date_to)),
+        },
+    )
+
+
+def _utc_hour(value: dt.datetime) -> dt.datetime:
+    return value.astimezone(dt.UTC).replace(minute=0, second=0, microsecond=0)
+
+
 def type_filter_expr(metric_type: str | None) -> ast.Expr:
     """Constrains rows to one metric type. A name can exist as several
     types (a counter and a gauge); their series are distinct and must not
@@ -613,8 +645,7 @@ class MetricQueryRunner:
                         argMax(value, timestamp) AS series_value
                     FROM posthog.metrics
                     WHERE metric_name = {metric_name}
-                      AND timestamp >= {date_from}
-                      AND timestamp < {date_to}
+                      AND {time_range}
                       AND {series_scope}
                       AND {type_filter}
                     GROUP BY time, {series_key}
@@ -627,8 +658,7 @@ class MetricQueryRunner:
                 "interval": _interval_expr(self.interval),
                 "aggregation": _aggregation_expr(self.aggregation, ast.Field(chain=["series_value"])),
                 "metric_name": ast.Constant(value=self.metric_name),
-                "date_from": ast.Constant(value=self.date_from),
-                "date_to": ast.Constant(value=self.date_to),
+                "time_range": time_range_expr(self.date_from, self.date_to),
                 "series_scope": self._series_scope_expr(),
                 "series_key": _series_key_expr(),
                 "type_filter": self._type_filter_expr(),
@@ -692,8 +722,7 @@ class MetricQueryRunner:
                             ) AS prev_value
                         FROM posthog.metrics
                         WHERE metric_name = {metric_name}
-                          AND timestamp >= {scan_from}
-                          AND timestamp < {date_to}
+                          AND {scan_range}
                           AND {series_scope}
                           AND {type_filter}
                     )
@@ -709,9 +738,8 @@ class MetricQueryRunner:
                 "divisor": ast.Constant(value=divisor),
                 "series_key": _series_key_expr(),
                 "metric_name": ast.Constant(value=self.metric_name),
-                "scan_from": ast.Constant(value=self.date_from - counter_lookback(self.interval)),
+                "scan_range": time_range_expr(self.date_from - counter_lookback(self.interval), self.date_to),
                 "date_from": ast.Constant(value=self.date_from),
-                "date_to": ast.Constant(value=self.date_to),
                 "series_scope": self._series_scope_expr(),
                 "type_filter": self._type_filter_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
@@ -759,8 +787,7 @@ class MetricQueryRunner:
                             ) AS prev_counts
                         FROM posthog.metrics
                         WHERE metric_name = {metric_name}
-                          AND timestamp >= {scan_from}
-                          AND timestamp < {date_to}
+                          AND {scan_range}
                           AND notEmpty(histogram_counts)
                           AND {series_scope}
                           AND {type_filter}
@@ -775,9 +802,8 @@ class MetricQueryRunner:
                 "interval": _interval_expr(self.interval),
                 "series_key": _series_key_expr(),
                 "metric_name": ast.Constant(value=self.metric_name),
-                "scan_from": ast.Constant(value=self.date_from - counter_lookback(self.interval)),
+                "scan_range": time_range_expr(self.date_from - counter_lookback(self.interval), self.date_to),
                 "date_from": ast.Constant(value=self.date_from),
-                "date_to": ast.Constant(value=self.date_to),
                 "series_scope": self._series_scope_expr(),
                 "type_filter": self._type_filter_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
