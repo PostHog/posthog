@@ -1,14 +1,19 @@
+from posthog.hogql.database.lazy_join_tags import PERSON_DISTINCT_ID_OVERRIDES
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
+    ExpressionField,
     FieldOrTable,
     FieldTraverser,
     IntegerDatabaseField,
+    LazyJoin,
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
     UUIDDatabaseField,
     VirtualTable,
 )
+from posthog.hogql.database.schema.person_distinct_id_overrides import PersonDistinctIdOverridesTable
+from posthog.hogql.parser import parse_expr
 
 # The physical read table is the Distributed `flag_evaluations` on the DATA nodes, defined in
 # posthog/models/flag_evaluations/sql.py. That module imports django.conf, and
@@ -17,8 +22,26 @@ from posthog.hogql.database.models import (
 FLAG_EVALUATIONS_CLICKHOUSE_TABLE = "flag_evaluations"
 
 
+def _person_id_corrected_by_overrides() -> ExpressionField:
+    # The same correction the events table applies, so both tables resolve a distinct_id to the same person.
+    # A fresh field per call: the table and its `poe` subtable each hold one, and the resolver rewrites the
+    # expression it expands.
+    return ExpressionField(
+        name="person_id",
+        expr=parse_expr(
+            # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
+            "if(not(empty(override.distinct_id)), override.person_id, flag_evaluation_person_id)",
+            start=None,
+        ),
+        isolate_scope=True,
+        description="The person the evaluation is attributed to, corrected for any later identify or merge. The "
+        "row keeps the person it was attributed to when it happened; that stored id is remapped at read time via "
+        "`person_distinct_id_overrides`, so `uniq(person_id)` counts a merged human once.",
+    )
+
+
 class FlagEvaluationsPersonSubTable(VirtualTable):
-    """The person column carried on the flag-evaluation row itself.
+    """The person the flag-evaluation row resolves to, corrected by `person_distinct_id_overrides`.
 
     Narrower than EventsPersonSubTable, which also declares `person_created_at` and `properties` --
     columns this table does not store, so reusing it would let `person.created_at`,
@@ -26,7 +49,8 @@ class FlagEvaluationsPersonSubTable(VirtualTable):
     """
 
     fields: dict[str, FieldOrTable] = {
-        "id": UUIDDatabaseField(name="person_id", nullable=False),
+        # The same expression as the table's `person_id`, so `person.id` and `person_id` never disagree.
+        "id": _person_id_corrected_by_overrides(),
     }
 
     def to_printed_clickhouse(self, context):
@@ -74,12 +98,16 @@ class FlagEvaluationsTable(Table):
             nullable=False,
             description="When the row was written to ClickHouse; later than `created_at` by the ingestion lag.",
         ),
-        "person_id": UUIDDatabaseField(
-            name="person_id",
-            nullable=False,
-            description="The person the evaluation was attributed to when it happened. A later identify or merge "
-            "does not rewrite it, so it can differ from the person `events` resolves for the same `distinct_id`.",
+        # The person written onto the row at ingestion time. Nothing rewrites it when a later identify or
+        # merge joins that person to another, so it is hidden behind `person_id`, which corrects it.
+        "flag_evaluation_person_id": UUIDDatabaseField(name="person_id", nullable=False, hidden=True),
+        # Lazy, so a query that never names `person_id` does not pay for the join.
+        "override": LazyJoin(
+            from_field=["distinct_id"],
+            join_table=PersonDistinctIdOverridesTable(),
+            resolver=PERSON_DISTINCT_ID_OVERRIDES,
         ),
+        "person_id": _person_id_corrected_by_overrides(),
         "flag_key": StringDatabaseField(
             name="flag_key",
             nullable=False,
@@ -103,8 +131,8 @@ class FlagEvaluationsTable(Table):
         "poe": FlagEvaluationsPersonSubTable(),
         "person": FieldTraverser(
             chain=["poe"],
-            description="The person the evaluation was attributed to when it happened. Carries the id alone: the "
-            "row stores no person properties, so join to `persons` to read them.",
+            description="The person the evaluation is attributed to, corrected for any later identify or merge. "
+            "Carries the id alone: the row stores no person properties, so join to `persons` to read them.",
         ),
         # Group keys only. The row carries no group properties, so there is nothing to traverse to:
         # join to `groups` on one of these keys to read a group's current properties.

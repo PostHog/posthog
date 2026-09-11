@@ -62,7 +62,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-    def _select(self, columns: str, where: str = ""):
+    def _query(self, columns: str, where: str = ""):
         # settings.DEBUG is False under the test runner, so the org gate fail-closes and prunes the
         # table. test_database.py covers the gate itself; here it only has to be out of the way.
         context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
@@ -75,7 +75,10 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 context=context,
                 pretty=False,
-            ).results
+            )
+
+    def _select(self, columns: str, where: str = ""):
+        return self._query(columns, where).results
 
     def _restrict(self, name: str, property_type, group_type_index: int | None = None) -> None:
         self.organization.available_product_features = [
@@ -112,6 +115,25 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 EVENT_PROBE,
             )
         ]
+
+    def test_person_id_follows_a_later_merge(self):
+        # Ingestion never rewrites the person on the row, so only the read can correct it. Drop the
+        # override join and `uniq(person_id)` counts the pre-merge and the post-merge person as two
+        # humans. The no-override half -- the stored person survives -- is the test above, which runs
+        # with no rows in the overrides table.
+        merged_person_id = uuid.uuid4()
+        sync_execute(
+            "INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, version) VALUES",
+            [(self.team.pk, "probe-distinct-id", str(merged_person_id), 1)],
+        )
+
+        assert self._select("person_id, person.id") == [(merged_person_id, merged_person_id)]
+
+    def test_overrides_are_joined_only_when_person_id_is_read(self):
+        # The join is the expensive half of the correction; a query that never names the person must
+        # not pay for it.
+        assert "person_distinct_id_overrides" not in self._query("flag_key").clickhouse
+        assert "person_distinct_id_overrides" in self._query("person_id").clickhouse
 
     def test_numeric_property_compares_as_a_number(self):
         # Drop this table from any of the property-type dispatches and the read stays a String, so
