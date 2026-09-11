@@ -86,7 +86,7 @@ Before loosening anything:
 
 Reports reach people via `suggested_reviewers` — the inbox floats a report to the top of the suggested reviewer's own view.
 
-1. A reviewer is a PostHog user, identified by `user_uuid` (any org member) or by `github_login` (matched against the member's linked GitHub identity). A `user_uuid` reviewer needs no GitHub link; a login-only reviewer matches nobody until that member links the account, so a scout that only knows a name or a login should resolve it to a `user_uuid` with `posthog:scout-members-list` before routing on it.
+1. A reviewer is a PostHog user, identified by `user_uuid` (any org member) or by `github_login` (matched against the member's linked GitHub identity). A `user_uuid` reviewer needs no GitHub link; a login-only reviewer matches nobody until that member links the account, so resolve a name or a login to a `user_uuid` before routing on it: inside a run a scout uses `scout-members-list`, which is a sandbox-only tool; from your own agent use `posthog:org-members-list` (and `posthog:org-member-get-github-login` for the linked login).
 2. If a surface's reports keep landing unrouted, teach the fleet the owner: a note ("checkout belongs to Dana; route checkout findings to her"), or for permanence, the owner map in the scout's body.
    For a rule that spans scouts, address the research stage instead: `posthog:scout-notes-create` with `skill_name: "pipeline:report-research"` reaches the stage that judges and routes every report and no scout.
    Scouts cache confirmed owners as `reviewer:` scratchpad entries, so one good steer compounds.
