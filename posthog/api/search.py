@@ -246,8 +246,14 @@ def search_entities(
         # each entity's rows arrive contiguous, so a stable sort keeps the order the page was cut in.
         rows.sort(key=lambda row: row["type"])
 
-    # The entities partition the rows, so their counts sum to the total without another scan.
-    total_count = sum(count for count in counts.values() if count is not None) if include_counts else None
+    # The entities partition the rows, so their counts sum to the total without another scan. An
+    # entity that dropped out reports no count, and the rest of them then sum to less than the total.
+    searched_counts = [counts[entity] for entity in entities] if include_counts else []
+    total_count = (
+        sum(count for count in searched_counts if count is not None)
+        if include_counts and None not in searched_counts
+        else None
+    )
 
     results = cast(list[dict[str, Any]], rows[offset : offset + limit])
     if annotate_access_levels is not None:

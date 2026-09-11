@@ -75,8 +75,9 @@ class ListDataTool(MaxTool):
 
         formatted_entities = entities_context.format_entities(all_entities)
 
-        # Build pagination metadata
-        has_more = total_count > offset + limit
+        # Build pagination metadata. An unknown total means the search dropped the entity, and a
+        # full page can still have more behind it, so keep paging rather than report the end.
+        has_more = len(all_entities) >= limit if total_count is None else total_count > offset + limit
         next_offset = offset + limit if has_more else None
 
         return format_prompt_string(

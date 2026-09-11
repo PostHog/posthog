@@ -314,7 +314,7 @@ class TestSearch(APIBaseTest):
             patch.object(search_module, "class_queryset", slow_insights),
             patch.object(search_module, "ENTITY_STATEMENT_TIMEOUT_MS", 100),
         ):
-            results, counts, _ = search_entities(
+            results, counts, total_count = search_entities(
                 entities={"insight", "dashboard"},
                 query="sec",
                 project_id=self.team.project_id,
@@ -326,6 +326,7 @@ class TestSearch(APIBaseTest):
         assert counts is not None
         assert counts["insight"] is None
         assert counts["dashboard"] == 1
+        assert total_count is None  # the dropped entity's rows are missing from the total too
 
     def test_the_callers_statement_timeout_survives_the_search(self):
         # `SET LOCAL` lasts until the caller's transaction ends, not until the search returns.
