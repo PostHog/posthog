@@ -2733,10 +2733,10 @@ class TestCohortFromManifest(unittest.TestCase):
             ("check_interval_minutes", {"check_interval_minutes": 15}),
         ]
     )
-    def test_drops_an_alert_whose_grid_changed_after_discovery(self, _name: str, edit: dict[str, int]):
-        # An alert edited between discovery and the evaluate reload no longer belongs
-        # to this cohort. Left in, it would hand its grid to the batched query for
-        # every other alert in the cohort.
+    def test_skips_a_legacy_cohort_whose_grid_changed_after_discovery(self, _name: str, edit: dict[str, int]):
+        # Legacy histories do not carry row versions, so after a split there is
+        # no safe way to know which grid discovery observed. Leave every alert
+        # due for the next tick, when fresh discovery will regroup them.
         from products.logs.backend.temporal.activities import _cohort_from_manifest
 
         edited = self._alert("alert-edited", **edit)
@@ -2747,10 +2747,9 @@ class TestCohortFromManifest(unittest.TestCase):
 
         cohort = _cohort_from_manifest(self._manifest("alert-edited", "alert-b", "alert-c"), alerts_by_id)
 
-        assert [str(alert.id) for alert in cohort.alerts] == ["alert-b", "alert-c"]
-        assert (cohort.window_minutes, cohort.evaluation_periods, cohort.check_interval_minutes) == (5, 1, 5)
+        assert cohort.alerts == ()
 
-    def test_keeps_one_grid_when_a_two_alert_cohort_splits(self):
+    def test_skips_a_two_alert_legacy_cohort_when_its_grid_splits(self):
         from products.logs.backend.temporal.activities import _cohort_from_manifest
 
         alerts_by_id = cast(
@@ -2760,7 +2759,7 @@ class TestCohortFromManifest(unittest.TestCase):
 
         cohort = _cohort_from_manifest(self._manifest("alert-a", "alert-b"), alerts_by_id)
 
-        assert len(cohort.alerts) == 1
+        assert cohort.alerts == ()
 
     def test_raises_if_manifest_alert_id_not_loaded(self):
         # Defensive: if the evaluate activity's bulk-load missed an alert
