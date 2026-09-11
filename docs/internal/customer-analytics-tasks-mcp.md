@@ -20,4 +20,10 @@ Omitted update fields remain unchanged. Restore an archived task before editing 
 Completed and canceled tasks must return to `open` before moving to another status.
 
 For SQL reads, query `system.customer_tasks`. It includes archived tasks; add `archived_at IS NULL` for active tasks.
+Direct SQL reads enforce task permissions and linked-account visibility, but do not require the task feature flag.
+Users with task-only grants can query granted tasks without account links.
+Tasks linked to accounts remain hidden until the caller can read those accounts.
+Data Modeling can materialize this table through its system-table allowlist.
+Refreshes include the project's tasks without per-user task or account restrictions. Warehouse-view permissions protect the materialized result.
+The task API and MCP tools still require the feature flag.
 Task activity history remains available through the API so historical account details can be redacted.

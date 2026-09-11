@@ -57,7 +57,7 @@ The MCP `execute-sql` tool goes through the same path (`posthog/api/query.py` ru
 **Fail closed:** if you forget to pass the user, all access-controlled system tables are removed (`_compute_system_table_access_decision` in `posthog/hogql/database/database.py` returns every scoped table as denied for `user=None`), and all warehouse tables/views are denied (`_is_warehouse_table_denied` / `_is_warehouse_view_denied` fail closed when `user_access_control is None`).
 This is deliberate: if someone forgets to pass the user, the query fails outright and makes the mistake obvious, instead of silently falling back to a permissive "default access" that would leak data.
 In practice the user is available anywhere system tables are queried; for user-initiated background work, see [contexts without a request user](#contexts-without-a-request-user).
-`Database.create_for_posthog_tables`, the cheaper build for Python-built queries over built-in tables, has no user at all and removes every scoped, entitlement-gated, and feature-flag-gated system table up front without the access-control lookups, so it fails closed the same way.
+`Database.create_for_posthog_tables`, the cheaper build for Python-built queries over built-in tables, has no user at all and removes every scoped and entitlement-gated system table up front without the access-control lookups, so it fails closed the same way.
 
 ## 1. System tables
 
@@ -69,8 +69,6 @@ They're primarily used by the MCP `execute-sql` tool for retrieval.
 Each access-controlled system table declares an `access_scope` (e.g. `system.dashboards` → `"dashboard"`, `system.error_tracking_issues` → `"error_tracking"`).
 
 At schema build time, `_compute_system_table_access_decision()` checks `UserAccessControl.access_level_for_resource(access_scope)` for each scoped table and removes denied ones from the schema (`Database._apply_system_table_access()`).
-
-Some system tables also require a PostHog feature flag. `Database.create_for()` evaluates the flag for the requesting user and removes the table when it is off. This applies to administrators too. Non-person principals cannot query these tables because flag evaluation needs a person's distinct ID.
 
 Removed tables are tracked in `Database._denied_tables`, so referencing one raises a clear error instead of pretending the table doesn't exist — that way the user knows the table is there and can request access from an admin if they need it:
 
@@ -229,7 +227,6 @@ The cache key is derived from `get_cache_payload()`:
 
 - `QueryRunner.get_cache_payload()` adds named property restriction records, including the group type index, when the user has property restrictions.
 - `AnalyticsQueryRunner.get_cache_payload()` adds `restricted_resources` (denied scopes) and `restricted_objects` (denied object IDs per scope) for levels 1 and 2.
-- `HogQLQueryRunner.get_cache_payload()` adds the state of feature flags required by all registered system tables.
 
 Two things keep cache hit rates high:
 

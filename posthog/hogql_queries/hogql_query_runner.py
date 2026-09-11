@@ -17,7 +17,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.database.database import get_system_table_feature_flag_states
 from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
@@ -33,7 +32,6 @@ from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.event_usage import AnalyticsProps
-from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.models import User
@@ -101,20 +99,10 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             # Keep their cached results apart during a rolling deploy.
             payload["hogql_modifier_precedence"] = "runner"
 
-        table_names = self._queried_table_names
-        feature_flag_table_names: set[str] | None = {
-            name.removeprefix("system.") for name in table_names if name.startswith("system.")
-        }
-        if any(not name.startswith("system.") for name in table_names):
-            queried_resources = queried_access_controlled_resources(self.query, self.team)
-            if queried_resources is None or "warehouse_view" in queried_resources:
-                feature_flag_table_names = None
-        system_table_feature_flags = get_system_table_feature_flag_states(
-            self.team, self.user, feature_flag_table_names
-        )
-        if system_table_feature_flags:
-            payload["system_table_feature_flags"] = system_table_feature_flags
-
+        # Both activity-log guards print into the query, so a cache lookup returns before either runs.
+        # `requires_fresh_calculation` below keeps a stored result from being served in every mode that may
+        # calculate. CACHE_ONLY_NEVER_CALCULATE is the mode it cannot reach: that one returns a stored
+        # result however stale it is, so the key carries what the guards depend on.
         if _ACTIVITY_LOGS_TABLE in self._queried_table_names:
             # Nothing else in the key tracks the visibility rules. Varying on their fingerprint means a
             # result stored under the previous rules stops being served once they change.

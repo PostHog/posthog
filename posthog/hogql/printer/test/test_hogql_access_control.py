@@ -25,8 +25,7 @@ from posthog.synthetic_user import SyntheticUser
 class TestAccessControlSystemTables(BaseTest):
     """Test resource-level access control for system tables."""
 
-    @patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
-    def test_org_admin_gets_all_system_tables(self, _feature_flag_enabled: Mock):
+    def test_org_admin_gets_all_system_tables(self):
         """Org admins should have access to all system tables."""
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
         membership.level = OrganizationMembership.Level.ADMIN

@@ -1,3 +1,5 @@
+from posthog.hogql.base import Expr
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     IntegerDatabaseField,
@@ -7,13 +9,18 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.parser import parse_expr
 
-from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG
 
-customer_tasks = PostgresTable(
+class _CustomerTasksTable(PostgresTable):
+    def get_predicates(self, context: HogQLContext | None = None) -> list[Expr]:
+        if context is None or context.database is None or not context.database.has_table("system.accounts"):
+            return [parse_expr("account_id IS NULL")]
+        return super().get_predicates(context)
+
+
+customer_tasks = _CustomerTasksTable(
     name="customer_tasks",
     postgres_table_name="customer_analytics_customertask",
     access_scope="customer_task",
-    required_feature_flag=CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG,
     access_control_creator_id_field="created_by_id",
     predicates=[parse_expr("account_id IS NULL OR account_id IN (SELECT id FROM system.accounts)")],
     description="Customer analytics tasks visible to the caller. Includes archived tasks; filter archived_at IS NULL for active tasks.",

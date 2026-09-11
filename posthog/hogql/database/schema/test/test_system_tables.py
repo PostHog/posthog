@@ -3,7 +3,6 @@ import uuid
 from types import SimpleNamespace
 
 from posthog.test.base import BaseTest, NonAtomicBaseTest
-from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -121,15 +120,14 @@ class TestSystemTablesTeamScoping(BaseTest):
 
     @parameterized.expand(ALL_SYSTEM_TABLE_NAMES)
     def test_system_table_has_team_id_filter(self, table_name):
-        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
-            db = Database.create_for(team=self.team, user=self.user)
-            context = HogQLContext(
-                team_id=self.team.pk,
-                enable_select_queries=True,
-                database=db,
-            )
-            sql = f"SELECT * FROM system.{table_name}"
-            query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
+        db = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+        )
+        sql = f"SELECT * FROM system.{table_name}"
+        query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
 
         pattern = TEAM_ID_FILTER_PATTERNS.get(table_name, f"system__{table_name}.team_id")
         assert f"equals({pattern}, {self.team.pk})" in query
@@ -995,8 +993,7 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
         obj_team1 = factory(self.team, "team1")
         obj_team2 = factory(self.other_team, "team2")
 
-        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
-            response = execute_hogql_query(f"SELECT id FROM system.{table_name}", team=self.team, user=self.user)
+        response = execute_hogql_query(f"SELECT id FROM system.{table_name}", team=self.team, user=self.user)
         ids = {str(row[0]) for row in response.results}
 
         # A factory returns either a model instance or a bare id (error_tracking's testing door returns ids).
