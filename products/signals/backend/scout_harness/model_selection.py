@@ -43,6 +43,9 @@ distinct_id) is the single source of truth; a team with no entry runs entirely o
   the same model on the standard queue.
 - The reserved `"default"` key inside a scout's map names the model the *remaining* (unallocated)
   runs use instead of the agent-server default — its value is a model-id string, not a fraction.
+- The reserved `"fallback"` key names the model a run retries on when the agent reports an upstream
+  failure (`resolve_scout_fallback_model`), also a model-id string. Absent = the retry stays on the
+  model the failed attempt ran. Put it under the `"*"` scout wildcard for a fleet-wide fallback.
 
 Each run is bucketed deterministically on `run_id`, so a scout A/Bs against itself across runs and
 the per-run decision is reproducible. An absent payload / no matching team or scout / read failure
@@ -103,6 +106,14 @@ WILDCARD = "*"
 # of the agent-server default). Its value is a model-id string, not a fraction — a model id of
 # literally "default" is not addressable, which is fine (real ids look like `@cf/...`, `gpt-5.5`).
 DEFAULT_MODEL_KEY = "default"
+
+# Reserved key naming the model a run retries on after the agent reported an upstream failure
+# (see `resolve_scout_fallback_model`). Its value is a model-id string, like `default`, not a
+# fraction. Absent = the retry stays on whatever model the first attempt ran.
+FALLBACK_MODEL_KEY = "fallback"
+
+# The reserved keys inside a scout's map, so neither is read as a model weight.
+_RESERVED_MODEL_KEYS = frozenset({DEFAULT_MODEL_KEY, FALLBACK_MODEL_KEY})
 
 # Keys recognized in the object form of a model entry (the alternative to a bare fraction):
 # `{"fraction": <0..1>, "runtime_adapter": "claude"|"codex", "reasoning_effort": "high",
@@ -318,29 +329,41 @@ def _parse_fraction(weight: object) -> float | None:
     return min(1.0, float(weight))
 
 
-def _scout_config(scouts: dict, skill_name: str) -> tuple[dict[str, _ModelSpec], str | None]:
-    """The `(specs, default_model)` for one scout from a team's scout map.
+def _scout_entry(scouts: dict, skill_name: str) -> dict:
+    """The distribution object configured for one scout, or `{}` when none applies.
 
-    Looks up `scouts[skill_name]`, falling back to the `"*"` scout wildcard. The reserved `"default"`
-    string key is pulled out as `default_model` (the model for the unallocated remainder; `None` =
-    agent-server default); every other entry is a `model_id -> fraction | {fraction, runtime_adapter,
-    reasoning_effort, service_tier}` weight, parsed into a `_ModelSpec`. Unpinned runtimes are
-    inferred from the id at resolve time; unpinned efforts and tiers stay unset. Defensive — a
-    missing/non-object scout entry, or a malformed weight (not a positive number, or a bool) is
-    dropped rather than failing the run, so a typo can't crash a scout or route it unintended.
+    Looks up `scouts[skill_name]`, falling back to the `"*"` scout wildcard. Defensive — a
+    missing or non-object entry yields `{}` (the scout runs on the default model).
     """
     raw = scouts.get(skill_name)
     if not isinstance(raw, dict):
         raw = scouts.get(WILDCARD)
-    if not isinstance(raw, dict):
-        return {}, None
+    return raw if isinstance(raw, dict) else {}
 
-    default_value = raw.get(DEFAULT_MODEL_KEY)
-    default_model = default_value if isinstance(default_value, str) and default_value else None
+
+def _reserved_model_id(entry: dict, key: str) -> str | None:
+    """The model id a reserved key names (`default`, `fallback`), or `None` when absent/malformed."""
+    value = entry.get(key)
+    return value if isinstance(value, str) and value else None
+
+
+def _scout_config(scouts: dict, skill_name: str) -> tuple[dict[str, _ModelSpec], str | None]:
+    """The `(specs, default_model)` for one scout from a team's scout map.
+
+    The reserved `"default"` string key is pulled out as `default_model` (the model for the
+    unallocated remainder; `None` = agent-server default); every other entry is a
+    `model_id -> fraction | {fraction, runtime_adapter, reasoning_effort, service_tier}` weight,
+    parsed into a `_ModelSpec`. Unpinned runtimes are inferred from the id at resolve time;
+    unpinned efforts and tiers stay unset. Defensive — a missing/non-object scout entry, or a
+    malformed weight (not a positive number, or a bool) is dropped rather than failing the run, so
+    a typo can't crash a scout or route it unintended.
+    """
+    raw = _scout_entry(scouts, skill_name)
+    default_model = _reserved_model_id(raw, DEFAULT_MODEL_KEY)
 
     specs: dict[str, _ModelSpec] = {}
     for model_id, spec in raw.items():
-        if model_id == DEFAULT_MODEL_KEY:
+        if model_id in _RESERVED_MODEL_KEYS:
             continue
         if not isinstance(model_id, str) or not model_id:
             continue
@@ -415,3 +438,27 @@ def resolve_scout_model(team: Team, skill_name: str, run_id: str, configured_mod
         reasoning_effort=spec.reasoning_effort,
         service_tier=spec.service_tier,
     )
+
+
+def resolve_scout_fallback_model(team: Team, skill_name: str, configured_model: str | None = None) -> ScoutModel | None:
+    """The model a run retries on after the agent reported an upstream failure, or `None` to stay
+    put.
+
+    `None` means "retry the routing the first attempt had" — there is nowhere better to send it.
+    That covers two cases. A scout with its own honored `SignalScoutConfig.model` pin is never
+    rerouted: a user chose that model deliberately, and a fleet fallback must not overrule it
+    silently. Otherwise the `scouts-model-selection` payload decides, through this scout's
+    `fallback` key or the `"*"` wildcard's; with no key configured the retry stays on the same
+    model.
+
+    The fallback carries no reasoning effort or service tier — the key is a bare model id, so a
+    pin configured next to another model never crosses onto it. Like every other layer here, a read
+    failure resolves to `None`: gating the retry must not be able to fail the run it is rescuing.
+    """
+    if configured_model and scout_model_config_enabled(team):
+        return None
+    scouts = _team_scouts(_read_payload(), team.id, team.parent_team_id or team.id)
+    fallback = _reserved_model_id(_scout_entry(scouts, skill_name), FALLBACK_MODEL_KEY)
+    if fallback is None:
+        return None
+    return ScoutModel(model=fallback, runtime_adapter=_infer_runtime_adapter(fallback))

@@ -9,7 +9,12 @@ from parameterized import parameterized
 
 from posthog.models.team.team import Team
 
-from products.signals.backend.scout_harness.model_selection import GLM_MODEL, ScoutModel, resolve_scout_model
+from products.signals.backend.scout_harness.model_selection import (
+    GLM_MODEL,
+    ScoutModel,
+    resolve_scout_fallback_model,
+    resolve_scout_model,
+)
 
 _PAYLOAD_PATH = "products.signals.backend.scout_harness.model_selection.posthoganalytics.get_feature_flag_payload"
 
@@ -270,3 +275,48 @@ class TestConfigModelPin:
         ):
             resolved = resolve_scout_model(_fake_team(), _SKILL, _RUN_ID, configured_model="claude-opus-4-5")
         assert resolved.model == _GPT
+
+
+class TestResolveScoutFallbackModel:
+    _FLAG_PATH = "products.signals.backend.scout_harness.model_selection.scout_model_config_enabled"
+    _FALLBACK = "claude-sonnet-4-6"
+
+    def _resolve(self, *, payload: object, skill: str = _SKILL, pin: str | None = None, flag_on: bool = True):
+        with patch(self._FLAG_PATH, return_value=flag_on), patch(_PAYLOAD_PATH, return_value=payload):
+            return resolve_scout_fallback_model(_fake_team(), skill, pin)
+
+    @parameterized.expand(
+        [
+            ("no_payload", None),
+            ("scout_not_listed", _scouts({_OTHER_SKILL: {"fallback": "claude-sonnet-4-6"}})),
+            ("no_fallback_key", _scouts({_SKILL: {_GPT: 1}})),
+            ("malformed_fallback", _scouts({_SKILL: {"fallback": {"model": "claude-sonnet-4-6"}}})),
+        ]
+    )
+    def test_stays_put_when_no_fallback_resolves(self, _name: str, payload: object) -> None:
+        # None means "retry on the routing the failed attempt had" — never a broken run.
+        assert self._resolve(payload=payload) is None
+
+    def test_fallback_key_names_the_retry_model_and_its_runtime(self) -> None:
+        payload = _scouts({_SKILL: {_GPT: 1, "fallback": self._FALLBACK}})
+        assert self._resolve(payload=payload) == ScoutModel(model=self._FALLBACK, runtime_adapter="claude")
+
+    def test_scout_wildcard_carries_the_fleet_fallback(self) -> None:
+        payload = _scouts({"*": {"fallback": self._FALLBACK}})
+        assert self._resolve(payload=payload, skill=_OTHER_SKILL) == ScoutModel(
+            model=self._FALLBACK, runtime_adapter="claude"
+        )
+
+    def test_honored_config_pin_is_never_rerouted(self) -> None:
+        # A user chose that model deliberately; a fleet fallback must not overrule it silently.
+        payload = _scouts({"*": {"fallback": self._FALLBACK}})
+        assert self._resolve(payload=payload, pin="gpt-5") is None
+        # With the dogfood flag off the pin is inert, so the fleet fallback applies again.
+        assert self._resolve(payload=payload, pin="gpt-5", flag_on=False) == ScoutModel(
+            model=self._FALLBACK, runtime_adapter="claude"
+        )
+
+    def test_fallback_key_is_not_read_as_a_model_weight(self) -> None:
+        # The reserved key sits in the same map as the weights, so selection must skip it.
+        payload = _scouts({_SKILL: {"fallback": self._FALLBACK}})
+        assert _resolve(payload=payload) is None

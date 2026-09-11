@@ -17,6 +17,7 @@ from posthog.storage.object_storage import ObjectStorageError
 
 from products.tasks.backend.logic.services.custom_prompt_internals import (
     AgentError,
+    AgentTurnFailed,
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
     TurnPollResult,
@@ -971,19 +972,19 @@ class TestExtractAgentError:
 
 class TestPollForTurnSurfacesAgentError:
     """On a FAILED terminal status, the drain must surface the agent's classified error
-    (category + raw message) on both TaskRun.error_message and the raised RuntimeError
+    (category + raw message) on both TaskRun.error_message and the raised AgentTurnFailed
     that Temporal records — never the opaque 'Activity task failed' wrapper."""
 
     @parameterized.expand(
         [
-            ("upstream_provider_failure", "API Error: 429 rate_limit_error"),
-            ("upstream_connection_error", "API Error: Connection error"),
-            ("upstream_stream_terminated", "API Error: terminated"),
-            ("agent_error", "Unhandled exception in agent loop"),
+            ("upstream_provider_failure", "API Error: 429 rate_limit_error", True),
+            ("upstream_connection_error", "API Error: Connection error", True),
+            ("upstream_stream_terminated", "API Error: terminated", True),
+            ("agent_error", "Unhandled exception in agent loop", False),
         ]
     )
     @pytest.mark.asyncio
-    async def test_surfaces_classified_error(self, category, message):
+    async def test_surfaces_classified_error(self, category, message, retryable_upstream):
         turn_1 = [_agent_message_line("turn-1-response"), _end_turn_line()]
         # Turn 2 died with a classified error and no agent_message / end_turn.
         turn_2 = [_user_message_line("followup"), _usage_update_line(0), _agent_error_line(message, category=category)]
@@ -1003,13 +1004,17 @@ class TestPollForTurnSurfacesAgentError:
                 new=persist,
             ),
         ):
-            with pytest.raises(RuntimeError) as exc_info:
+            with pytest.raises(AgentTurnFailed) as exc_info:
                 await poll_for_turn(fake_task_run, skip_lines=skip)
 
         expected = f"{category}: {message}"
         # Temporal activity failure carries the classified error, not "Activity task failed".
         assert expected in str(exc_info.value)
         assert "Activity task failed" not in str(exc_info.value)
+        # A caller decides what to do about the failure off the category, not off the message:
+        # only an upstream one is worth another attempt.
+        assert exc_info.value.category == category
+        assert exc_info.value.retryable_upstream is retryable_upstream
         # The same classified error is persisted onto TaskRun.error_message.
         persist.assert_awaited_once_with(str(fake_task_run.id), expected)
 
@@ -1064,6 +1069,11 @@ class TestPollForTurnSurfacesAgentError:
         # No category prefix — the raw message is persisted and surfaced.
         persist.assert_awaited_once_with(str(fake_task_run.id), "API Error: 429 rate_limit_error")
         assert "API Error: 429 rate_limit_error" in str(exc_info.value)
+        # An uncategorized failure is never retried: the build that reported it said nothing
+        # about whether a second attempt could get past it.
+        assert isinstance(exc_info.value, AgentTurnFailed)
+        assert exc_info.value.category is None
+        assert exc_info.value.retryable_upstream is False
 
     @pytest.mark.asyncio
     async def test_missing_structured_error_keeps_generic_behavior(self):

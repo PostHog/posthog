@@ -35,11 +35,18 @@ from products.signals.backend.scout_harness.limits import (
     FAILURE_STREAK_MAX_RUNS,
     FAILURE_STREAK_MIN_SPAN_MINUTES,
     STALE_RUN_CUTOFF_S,
+    TRIGGERED_BY_MANUAL,
     TRIGGERED_BY_SCHEDULE,
+    UPSTREAM_RETRY_BACKOFF_S,
+    UPSTREAM_RETRY_MAX_FIRST_ATTEMPT_S,
     failure_streak_pause_threshold,
     interval_runs_in_tolerance_window,
 )
-from products.signals.backend.scout_harness.model_selection import RUNTIME_ADAPTER_CODEX, resolve_scout_model
+from products.signals.backend.scout_harness.model_selection import (
+    RUNTIME_ADAPTER_CODEX,
+    resolve_scout_fallback_model,
+    resolve_scout_model,
+)
 from products.signals.backend.scout_harness.prompt import (
     HARNESS_PROMPT_VERSION,
     SignalScoutRunSummary,
@@ -60,7 +67,12 @@ from products.signals.backend.temporal.agentic import (
     resolve_acting_user_id_for_team,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession, TurnPollTimeout
+from products.tasks.backend.facade.agents import (
+    AgentTurnFailed,
+    CustomPromptSandboxContext,
+    MultiTurnSession,
+    TurnPollTimeout,
+)
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -80,6 +92,10 @@ SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME = "SIGNALS_SCOUT_FULL_NETWORK"
 # Every scout `ai_stage` starts with this, so `ai_stage LIKE 'scout:%'` rolls the whole fleet
 # up as one stage even though the tag names the individual scout.
 SCOUT_AI_STAGE_PREFIX = "scout:"
+
+# The run-row `metadata` keys describing what the run was routed to. Stamped per attempt, so a
+# retry on another model restamps them as a set rather than leaving a mix of both attempts.
+_ROUTING_METADATA_KEYS = frozenset({"model", "runtime_adapter", "reasoning_effort", "service_tier"})
 
 # `_cron_runs_in_window` samples a cron schedule from a fixed reference (not `now`) so a lane's
 # breaker threshold is a property of its schedule rather than of when it happened to fail. The
@@ -371,177 +387,243 @@ async def arun_signals_scout(
     business_knowledge_maintained = await database_sync_to_async(
         _business_knowledge_maintained_for_team, thread_sensitive=False
     )(team)
-    try:
-        last_message, task_run_id = await _spawn_and_run(
-            team=team,
-            config=config,
-            run_id=run_id,
-            started_at=started_at,
-            skill=skill,
-            repository=repository,
-            verbose=verbose,
-            user_id=user_id,
-            github_guidance=github_guidance,
-            business_knowledge_maintained=business_knowledge_maintained,
-            model=model,
-            runtime_adapter=runtime_adapter,
-            reasoning_effort=reasoning_effort,
-            service_tier=service_tier,
-            triggered_by=triggered_by,
-        )
-        runtime_s = time.monotonic() - started
-        emitted_count, _ = await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
-            run_id, team.parent_team_id or team.id
-        )
-        # A run that got all the way through closes the breaker: the lane works, so any streak
-        # it had accumulated is stale and a standing auto-pause is lifted (this is also how the
-        # half-open probe recovers a paused lane once its underlying cause is fixed). Any
-        # trigger counts, since a manual success is the natural way to revive a lane right
-        # after fixing its skill.
-        await database_sync_to_async(_clear_failure_streak, thread_sensitive=False)(config.pk)
-        _capture_run_finished(
-            team=team,
-            config=config,
-            skill=skill,
-            github_guidance=github_guidance,
-            business_knowledge_maintained=business_knowledge_maintained,
-            run_id=run_id,
-            task_run_id=task_run_id,
-            status=tasks_facade.TaskRunStatus.COMPLETED.value,
-            runtime_s=runtime_s,
-            emitted_count=emitted_count,
-            triggered_by=triggered_by,
-            model=model,
-            runtime_adapter=runtime_adapter,
-            service_tier=service_tier,
-        )
-        return RunResult(
-            run_id=str(run_id),
-            task_run_id=task_run_id,
-            status=tasks_facade.TaskRunStatus.COMPLETED.value,
-            last_message=last_message,
-            runtime_s=runtime_s,
-            skill_name=skill.name,
-            skill_version=skill.version,
-        )
-    except Exception as exc:
-        runtime_s = time.monotonic() - started
-        # A failure before the on_task_run_created hook fires means no row was persisted —
-        # don't hand callers a run_id that resolves to nothing.
-        row_persisted = await database_sync_to_async(_run_row_exists, thread_sensitive=False)(
-            run_id, team.parent_team_id or team.id
-        )
-        # Fail safe and silent: the TaskRun MultiTurnSession spans carries the error
-        # context (status=FAILED, error_message, full chat log via LLMA). Nothing
-        # additional to persist on the bridge row.
-        logger.exception(
-            "signals_scout: run failed",
-            extra={
-                "team_id": team_id,
-                "run_id": str(run_id),
-                "skill_name": skill.name,
-                "row_persisted": row_persisted,
-            },
-        )
-        # A partial run can still have emitted (and have a linked TaskRun) before failing,
-        # so read both from the bridge row when it exists; otherwise it never ran far
-        # enough to persist either.
-        emitted_count, failed_task_run_id = (
-            await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
-                run_id, team.parent_team_id or team.id
-            )
-            if row_persisted
-            else (0, None)
-        )
-        # Advance the breaker before the event so the failure that trips it is the one whose
-        # `error_message` explains the pause. Scheduled failures only: the threshold is sized
-        # on the schedule's cadence, so counting off-schedule "run now" retries would let a
-        # burst of them reach a slow lane's threshold in minutes and impose the probe cooldown
-        # on a lane whose schedule never failed.
-        streak = (
-            await database_sync_to_async(_record_failure_streak, thread_sensitive=False)(config.pk)
-            if triggered_by == TRIGGERED_BY_SCHEDULE
-            else None
-        )
-        _capture_run_finished(
-            team=team,
-            config=config,
-            skill=skill,
-            github_guidance=github_guidance,
-            business_knowledge_maintained=business_knowledge_maintained,
-            run_id=run_id,
-            task_run_id=failed_task_run_id,
-            status=tasks_facade.TaskRunStatus.FAILED.value,
-            runtime_s=runtime_s,
-            emitted_count=emitted_count,
-            triggered_by=triggered_by,
-            model=model,
-            runtime_adapter=runtime_adapter,
-            service_tier=service_tier,
-            error_type=type(exc).__name__,
-            error_message=str(exc)[:300],
-            extra_properties=_poll_timeout_properties(exc),
-        )
-        if streak is not None and streak.tripped:
-            _capture_config_auto_paused(
+    # One run, up to two attempts. The second exists only for an upstream failure the agent
+    # classified itself (a provider refusal, timeout, or dropped stream) that produced nothing:
+    # such a run is usually dead inside a minute, and without a retry a provider incident costs a
+    # daily lane its whole day. Everything else — a broken skill, a spend limit, a poll timeout —
+    # fails on the first attempt exactly as before, and keeps feeding the breaker. Both attempts
+    # share one `DEFAULT_MAX_RUNTIME_S` budget and one run row, so a retry costs no extra slot
+    # against the team's daily cap and cannot outlive the activity's ceiling.
+    attempt = 1
+    retry_backoff_s = 0
+    retried_from_category: str | None = None
+    model_fallback_from: str | None = None
+    while True:
+        try:
+            # Inside the try so a cancellation during the wait takes the same path as one during
+            # the attempt itself.
+            if retry_backoff_s:
+                await asyncio.sleep(retry_backoff_s)
+            last_message, task_run_id = await _spawn_and_run(
                 team=team,
                 config=config,
-                skill_name=skill.name,
                 run_id=run_id,
-                failure_count=streak.count,
-                failure_streak_threshold=streak.threshold,
-                reason=str(exc)[:300],
+                started_at=started_at,
+                skill=skill,
+                repository=repository,
+                verbose=verbose,
+                user_id=user_id,
+                github_guidance=github_guidance,
+                business_knowledge_maintained=business_knowledge_maintained,
+                model=model,
+                runtime_adapter=runtime_adapter,
+                reasoning_effort=reasoning_effort,
+                service_tier=service_tier,
+                triggered_by=triggered_by,
+                attempt=attempt,
+                max_poll_seconds=_remaining_poll_budget_s(started),
             )
-        return RunResult(
-            run_id=str(run_id) if row_persisted else None,
-            task_run_id=None,
-            status=tasks_facade.TaskRunStatus.FAILED.value,
-            last_message=None,
-            runtime_s=runtime_s,
-            skill_name=skill.name,
-            skill_version=skill.version,
-        )
-    except BaseException as exc:
-        # Cancellation / worker-shutdown / system-exit: re-raise so Temporal sees the
-        # activity as failed. Post-collapse the bridge row's status flows from its
-        # linked TaskRun (managed by MultiTurnSession), so we don't update anything
-        # here directly. A TaskRun stranded in IN_PROGRESS (e.g. SIGKILL before
-        # MultiTurnSession finalizes) blocks new runs for this (team, skill) via
-        # `_has_running_run` until it transitions out — active recovery is a deferred
-        # follow-up (see `_self_heal_stale_runs`).
-        runtime_s = time.monotonic() - started
-        logger.warning(
-            "signals_scout: run cancelled mid-flight",
-            extra={
-                "team_id": team_id,
-                "run_id": str(run_id),
-                "skill_name": skill.name,
-                "exception_type": type(exc).__name__,
-                "runtime_s": runtime_s,
-            },
-        )
-        # Synchronous, no DB read — the loop is collapsing, so don't await anything here;
-        # `emitted_count` is left unknown rather than risk a query during cancellation. The
-        # failure-streak breaker is deliberately untouched too: a cancelled run says nothing
-        # about whether this lane can succeed, and counting worker shutdowns toward the streak
-        # would pause healthy scouts after a few deploys.
-        _capture_run_finished(
-            team=team,
-            config=config,
-            skill=skill,
-            github_guidance=github_guidance,
-            business_knowledge_maintained=business_knowledge_maintained,
-            run_id=run_id,
-            task_run_id=None,
-            status=tasks_facade.TaskRunStatus.CANCELLED.value,
-            runtime_s=runtime_s,
-            emitted_count=None,
-            triggered_by=triggered_by,
-            model=model,
-            runtime_adapter=runtime_adapter,
-            service_tier=service_tier,
-        )
-        raise
+            runtime_s = time.monotonic() - started
+            emitted_count, _ = await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
+                run_id, team.parent_team_id or team.id
+            )
+            # A run that got all the way through closes the breaker: the lane works, so any streak
+            # it had accumulated is stale and a standing auto-pause is lifted (this is also how the
+            # half-open probe recovers a paused lane once its underlying cause is fixed). Any
+            # trigger counts, since a manual success is the natural way to revive a lane right
+            # after fixing its skill. A rescued run counts like any other success.
+            await database_sync_to_async(_clear_failure_streak, thread_sensitive=False)(config.pk)
+            _capture_run_finished(
+                team=team,
+                config=config,
+                skill=skill,
+                github_guidance=github_guidance,
+                business_knowledge_maintained=business_knowledge_maintained,
+                run_id=run_id,
+                task_run_id=task_run_id,
+                status=tasks_facade.TaskRunStatus.COMPLETED.value,
+                runtime_s=runtime_s,
+                emitted_count=emitted_count,
+                triggered_by=triggered_by,
+                model=model,
+                runtime_adapter=runtime_adapter,
+                service_tier=service_tier,
+                attempt=attempt,
+                retried_from_category=retried_from_category,
+                model_fallback_from=model_fallback_from,
+            )
+            return RunResult(
+                run_id=str(run_id),
+                task_run_id=task_run_id,
+                status=tasks_facade.TaskRunStatus.COMPLETED.value,
+                last_message=last_message,
+                runtime_s=runtime_s,
+                skill_name=skill.name,
+                skill_version=skill.version,
+            )
+        except Exception as exc:
+            runtime_s = time.monotonic() - started
+            # A failure before the on_task_run_created hook fires means no row was persisted —
+            # don't hand callers a run_id that resolves to nothing.
+            row_persisted = await database_sync_to_async(_run_row_exists, thread_sensitive=False)(
+                run_id, team.parent_team_id or team.id
+            )
+            # A partial run can still have emitted (and have a linked TaskRun) before failing,
+            # so read both from the bridge row when it exists; otherwise it never ran far
+            # enough to persist either.
+            emitted_count, failed_task_run_id = (
+                await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
+                    run_id, team.parent_team_id or team.id
+                )
+                if row_persisted
+                else (0, None)
+            )
+            retryable_category = (
+                _retryable_upstream_category(
+                    exc, emitted_count=emitted_count, elapsed_s=runtime_s, triggered_by=triggered_by
+                )
+                if attempt == 1
+                else None
+            )
+            if retryable_category is not None:
+                retried_from_category = retryable_category
+                fallback = await database_sync_to_async(resolve_scout_fallback_model, thread_sensitive=False)(
+                    team, skill.name, config.model
+                )
+                if fallback is not None and fallback.model != model:
+                    # A different provider is worth asking immediately; the effort and queue pins
+                    # stay behind with the model they were configured beside.
+                    model_fallback_from = model
+                    model = fallback.model
+                    runtime_adapter = fallback.runtime_adapter
+                    reasoning_effort = None
+                    service_tier = None
+                    retry_backoff_s = 0
+                else:
+                    retry_backoff_s = UPSTREAM_RETRY_BACKOFF_S
+                logger.warning(
+                    "signals_scout: retrying run after an upstream failure",
+                    extra={
+                        "team_id": team_id,
+                        "run_id": str(run_id),
+                        "skill_name": skill.name,
+                        "error_category": retryable_category,
+                        "model_fallback_from": model_fallback_from,
+                        "model": model,
+                        "backoff_s": retry_backoff_s,
+                    },
+                )
+                attempt += 1
+                continue
+            # Fail safe and silent: the TaskRun MultiTurnSession spans carries the error
+            # context (status=FAILED, error_message, full chat log via LLMA). Nothing
+            # additional to persist on the bridge row.
+            logger.exception(
+                "signals_scout: run failed",
+                extra={
+                    "team_id": team_id,
+                    "run_id": str(run_id),
+                    "skill_name": skill.name,
+                    "row_persisted": row_persisted,
+                    "attempt": attempt,
+                },
+            )
+            # Advance the breaker before the event so the failure that trips it is the one whose
+            # `error_message` explains the pause. Scheduled failures only: the threshold is sized
+            # on the schedule's cadence, so counting off-schedule "run now" retries would let a
+            # burst of them reach a slow lane's threshold in minutes and impose the probe cooldown
+            # on a lane whose schedule never failed.
+            streak = (
+                await database_sync_to_async(_record_failure_streak, thread_sensitive=False)(config.pk)
+                if triggered_by == TRIGGERED_BY_SCHEDULE
+                else None
+            )
+            _capture_run_finished(
+                team=team,
+                config=config,
+                skill=skill,
+                github_guidance=github_guidance,
+                business_knowledge_maintained=business_knowledge_maintained,
+                run_id=run_id,
+                task_run_id=failed_task_run_id,
+                status=tasks_facade.TaskRunStatus.FAILED.value,
+                runtime_s=runtime_s,
+                emitted_count=emitted_count,
+                triggered_by=triggered_by,
+                model=model,
+                runtime_adapter=runtime_adapter,
+                service_tier=service_tier,
+                error_type=type(exc).__name__,
+                error_message=str(exc)[:300],
+                extra_properties=_failure_context_properties(exc),
+                attempt=attempt,
+                retried_from_category=retried_from_category,
+                model_fallback_from=model_fallback_from,
+            )
+            if streak is not None and streak.tripped:
+                _capture_config_auto_paused(
+                    team=team,
+                    config=config,
+                    skill_name=skill.name,
+                    run_id=run_id,
+                    failure_count=streak.count,
+                    failure_streak_threshold=streak.threshold,
+                    reason=str(exc)[:300],
+                )
+            return RunResult(
+                run_id=str(run_id) if row_persisted else None,
+                task_run_id=None,
+                status=tasks_facade.TaskRunStatus.FAILED.value,
+                last_message=None,
+                runtime_s=runtime_s,
+                skill_name=skill.name,
+                skill_version=skill.version,
+            )
+        except BaseException as exc:
+            # Cancellation / worker-shutdown / system-exit: re-raise so Temporal sees the
+            # activity as failed. Post-collapse the bridge row's status flows from its
+            # linked TaskRun (managed by MultiTurnSession), so we don't update anything
+            # here directly. A TaskRun stranded in IN_PROGRESS (e.g. SIGKILL before
+            # MultiTurnSession finalizes) blocks new runs for this (team, skill) via
+            # `_has_running_run` until it transitions out — active recovery is a deferred
+            # follow-up (see `_self_heal_stale_runs`).
+            runtime_s = time.monotonic() - started
+            logger.warning(
+                "signals_scout: run cancelled mid-flight",
+                extra={
+                    "team_id": team_id,
+                    "run_id": str(run_id),
+                    "skill_name": skill.name,
+                    "exception_type": type(exc).__name__,
+                    "runtime_s": runtime_s,
+                    "attempt": attempt,
+                },
+            )
+            # Synchronous, no DB read — the loop is collapsing, so don't await anything here;
+            # `emitted_count` is left unknown rather than risk a query during cancellation. The
+            # failure-streak breaker is deliberately untouched too: a cancelled run says nothing
+            # about whether this lane can succeed, and counting worker shutdowns toward the streak
+            # would pause healthy scouts after a few deploys.
+            _capture_run_finished(
+                team=team,
+                config=config,
+                skill=skill,
+                github_guidance=github_guidance,
+                business_knowledge_maintained=business_knowledge_maintained,
+                run_id=run_id,
+                task_run_id=None,
+                status=tasks_facade.TaskRunStatus.CANCELLED.value,
+                runtime_s=runtime_s,
+                emitted_count=None,
+                triggered_by=triggered_by,
+                model=model,
+                runtime_adapter=runtime_adapter,
+                service_tier=service_tier,
+                attempt=attempt,
+                retried_from_category=retried_from_category,
+                model_fallback_from=model_fallback_from,
+            )
+            raise
 
 
 def _business_knowledge_maintained_for_team(team: Team) -> bool:
@@ -640,13 +722,17 @@ async def _spawn_and_run(
     reasoning_effort: str | None = None,
     service_tier: str | None = None,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
+    attempt: int = 1,
+    max_poll_seconds: int = DEFAULT_MAX_RUNTIME_S,
 ) -> tuple[str, str]:
     """Spawn the sandbox, create the bridge row before the first turn, run the agent.
 
     `user_id` is the acting user resolved (and validated non-None) by the caller. `model`,
     `runtime_adapter`, and `reasoning_effort` are the agent runtime overrides (`model` paired with the
     `runtime_adapter` that serves it — the agent server derives the provider from it; all `None` keeps
-    the agent-server default Claude runtime). Returns `(last_message, task_run_id)`.
+    the agent-server default Claude runtime). `attempt` is which attempt of the run this is, and
+    `max_poll_seconds` what is left of the run's shared runtime budget for it. Returns
+    `(last_message, task_run_id)`.
     """
     # The config's `network_access` picks the sandbox env — and with it the egress policy the
     # provisioning layer enforces. Trusted (default) shares the research env; full gets its own
@@ -797,6 +883,7 @@ async def _spawn_and_run(
             model=model,
             runtime_adapter=runtime_adapter,
             service_tier=service_tier,
+            attempt=attempt,
         )
 
     session, result = await MultiTurnSession.start(
@@ -822,11 +909,12 @@ async def _spawn_and_run(
         # full skill name for canonical and custom scouts alike.
         ai_agent_name=skill.name,
         on_task_run_created=_create_bridge_row,
-        # Keep the per-turn poll budget at the run's runtime cap so the dropped-finalization
+        # Keep the per-turn poll budget inside the run's runtime cap so the dropped-finalization
         # salvage fires before the activity's `start_to_close_timeout` (DEFAULT_MAX_RUNTIME_S +
         # ACTIVITY_SLACK_S) cancels the activity. Default budget (MAX_POLL_SECONDS) exceeds the
         # ceiling and would let the activity die before salvage could return the written summary.
-        max_poll_seconds=DEFAULT_MAX_RUNTIME_S,
+        # A retry gets what the failed attempt left of that cap, not a fresh one.
+        max_poll_seconds=max_poll_seconds,
         # The close-out is free-text markdown — if the agent ends with prose or malformed JSON
         # instead of a SignalScoutRunSummary object, keep the raw text as the summary rather than
         # failing the whole run. A failed run never finalizes, so its scan-position close-out is
@@ -1043,6 +1131,20 @@ def _create_run_row(
     # were — a scheduled patrol or a human's "Run now" must not extend it.
     if triggered_by != TRIGGERED_BY_SCHEDULE:
         metadata["triggered_by"] = triggered_by
+    existing = SignalScoutRun.objects.unscoped().filter(team_id=team.parent_team_id or team.id, id=run_id).first()
+    if existing is not None:
+        # A retry re-enters this hook with a second TaskRun for the same run, so relink the row
+        # and restamp its routing keys rather than inserting a duplicate. Merged, not replaced:
+        # the in-run writers (emit tallies, structured-output counters, the followup queue) own
+        # their own keys in this column. A routing key the retry does not carry is dropped, so an
+        # effort or queue pin left behind by the first attempt never describes the second.
+        merged = {**(existing.metadata or {}), **metadata}
+        for key in _ROUTING_METADATA_KEYS - metadata.keys():
+            merged.pop(key, None)
+        existing.task_run = task_run
+        existing.metadata = merged
+        existing.save(update_fields=["task_run", "metadata"])
+        return existing
     return SignalScoutRun.objects.unscoped().create(
         id=run_id,
         task_run=task_run,
@@ -1194,16 +1296,62 @@ def _record_failure_streak(config_id: Any) -> _FailureStreak | None:
         return None
 
 
-def _poll_timeout_properties(exc: BaseException) -> dict[str, Any] | None:
-    """Turn-log diagnostics for a run that died at the per-turn poll wall, or None for any other
-    failure. Every wall failure raises the same error string, which is why the fleet's timeout
-    rate reads as one cause; these properties split it into the populations that need different
-    fixes — an agent that never emitted a single turn-relevant line (never started), one that
-    worked and then went silent, and one still streaming when the budget ran out (the budget,
-    not the agent, is the constraint)."""
-    if not isinstance(exc, TurnPollTimeout):
+def _failure_context_properties(exc: BaseException) -> dict[str, Any] | None:
+    """Cause-specific detail for a failed run that the error string can't carry, or None.
+
+    A run that died at the per-turn poll wall gets the turn-log diagnostics. Every wall failure
+    raises the same error string, which is why the fleet's timeout rate reads as one cause; these
+    properties split it into the populations that need different fixes — an agent that never
+    emitted a single turn-relevant line (never started), one that worked and then went silent, and
+    one still streaming when the budget ran out (the budget, not the agent, is the constraint).
+
+    A run the agent itself failed gets `error_category`, its own classification. Without it every
+    agent failure books `error_type=RuntimeError`, so a provider outage, a spend-limit stop, and a
+    broken scout body are one undifferentiated bucket.
+    """
+    if isinstance(exc, TurnPollTimeout):
+        return exc.diagnostics()
+    if isinstance(exc, AgentTurnFailed) and exc.category:
+        return {"error_category": exc.category}
+    return None
+
+
+def _retryable_upstream_category(
+    exc: BaseException, *, emitted_count: int, elapsed_s: float, triggered_by: str
+) -> str | None:
+    """The agent error category that earns this run one more attempt, or None to fail as today.
+
+    Four conditions, each one a way the retry could do harm rather than good:
+
+    - the agent classified the failure as an upstream one (a provider refusal, timeout, or dropped
+      stream). A broken skill, a spend limit, or a poll timeout is the scout's or the budget's
+      problem, and must keep failing so the breaker sees it.
+    - the attempt emitted nothing, so a second pass cannot file the same finding twice.
+    - it failed early enough that the retry fits in what is left of the run's budget. A run that
+      died near the wall would take a second full-length sandbox lease to do it again.
+    - it was not a manual "run now". A human is watching that one and can press the button again;
+      a scheduled or workflow-triggered run has nobody to notice.
+    """
+    if not isinstance(exc, AgentTurnFailed) or not exc.retryable_upstream:
         return None
-    return exc.diagnostics()
+    if emitted_count:
+        return None
+    if elapsed_s > UPSTREAM_RETRY_MAX_FIRST_ATTEMPT_S:
+        return None
+    if triggered_by == TRIGGERED_BY_MANUAL:
+        return None
+    return exc.category
+
+
+def _remaining_poll_budget_s(started: float) -> int:
+    """The per-turn poll budget this attempt may still spend of the run's own runtime cap.
+
+    Both attempts of a run share `DEFAULT_MAX_RUNTIME_S`, so the retry gets what the failed
+    attempt and the backoff left. That is what keeps a retried run inside the activity's
+    `WORKFLOW_HARD_CEILING_S`, where a second full-length budget would let Temporal cancel the
+    activity mid-retry and lose the run the retry exists to save.
+    """
+    return max(1, int(DEFAULT_MAX_RUNTIME_S - (time.monotonic() - started)))
 
 
 def _run_row_exists(run_id: Any, team_id: int) -> bool:
@@ -1241,6 +1389,7 @@ def _capture_run_started(
     model: str | None = None,
     runtime_adapter: str | None = None,
     service_tier: str | None = None,
+    attempt: int = 1,
 ) -> None:
     """Emit the scout-owned run-started analytics event.
 
@@ -1257,6 +1406,8 @@ def _capture_run_started(
         "scout_config_id": str(config.id),
         "run_id": str(run_id),
         "task_run_id": task_run_id,
+        # One marker per attempt, so a retried run shows two `started` against one `finished`.
+        "attempt": attempt,
     }
     _attach_run_shape_props(
         properties,
@@ -1435,6 +1586,9 @@ def _capture_run_finished(
     error_type: str | None = None,
     error_message: str | None = None,
     extra_properties: dict[str, Any] | None = None,
+    attempt: int = 1,
+    retried_from_category: str | None = None,
+    model_fallback_from: str | None = None,
 ) -> None:
     """Emit the scout-owned per-run analytics event.
 
@@ -1449,9 +1603,15 @@ def _capture_run_finished(
     are attached so the failure rate is breakable down by cause without digging into worker
     logs — the bulk of scout failures fail in this layer before the `process-task` workflow's
     own `task_run_failed` event ever fires, so this is the only event that carries their reason.
-    `extra_properties` carries cause-specific detail the error string can't (today: the turn-log
+    `extra_properties` carries cause-specific detail the error string can't (the turn-log
     diagnostics behind a per-turn poll timeout, which is a single string covering several
-    distinct failures).
+    distinct failures, and the agent's own error category when it failed the turn).
+
+    Fires once per run, not once per attempt, for the outcome the run settled on. `attempt` says
+    which attempt produced it, `retried_from_category` what the first attempt failed with, and
+    `model_fallback_from` the model it had been routed to when the retry moved it — so a rescued
+    run stays visible as a rescue, and a model trial can filter out the runs that fell back
+    instead of crediting the fallback's model with them.
     """
     properties: dict[str, Any] = {
         "skill_name": skill.name,
@@ -1462,6 +1622,7 @@ def _capture_run_finished(
         "status": status,
         "runtime_seconds": round(runtime_s, 1),
         "emitted_count": emitted_count,
+        "attempt": attempt,
     }
     _attach_run_shape_props(
         properties,
@@ -1479,6 +1640,11 @@ def _capture_run_finished(
     if error_type is not None:
         properties["error_type"] = error_type
         properties["error_message"] = error_message
+    # Absent on a first-attempt run, like every other absent-means-default property here.
+    if retried_from_category is not None:
+        properties["retried_from_category"] = retried_from_category
+    if model_fallback_from is not None:
+        properties["model_fallback_from"] = model_fallback_from
     if extra_properties:
         properties.update(extra_properties)
     try:

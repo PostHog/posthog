@@ -39,7 +39,11 @@ from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.scout_harness import run_costs, scout_costs
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
-from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, failure_streak_pause_threshold
+from products.signals.backend.scout_harness.limits import (
+    STALE_RUN_CUTOFF_S,
+    UPSTREAM_RETRY_MAX_FIRST_ATTEMPT_S,
+    failure_streak_pause_threshold,
+)
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import (
     _EXTERNAL_MCP_LISTING_CAP,
@@ -74,6 +78,7 @@ from products.signals.backend.temporal.agentic.scout_scheduler import (
 )
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.agents import AgentTurnFailed
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable
 
 if TYPE_CHECKING:
@@ -2061,6 +2066,248 @@ async def test_failure_streak_pauses_scout_once_and_a_success_resumes_it(ateam, 
     assert config.status == SignalScoutConfig.Status.ACTIVE
     assert config.pause_reason is None
     assert config.enabled is True
+
+
+def _fake_start_failing_then_succeeding(session: MagicMock, result: object, error: BaseException):
+    """Stand-in for `MultiTurnSession.start` whose first call fails and second succeeds.
+
+    Both calls fire the `on_task_run_created` hook with their own TaskRun, like the real thing:
+    the first attempt's hook creates the bridge row, the retry's hook has to find it. `calls`
+    records the model each attempt was routed to.
+    """
+    calls: list[dict] = []
+    task_runs = [session.task_run, _make_task_run(session.task_run.team)]
+
+    async def _start(*args, on_task_run_created=None, context=None, **kwargs):
+        attempt = len(calls)
+        calls.append({"model": context.model if context else None})
+        if on_task_run_created is not None:
+            await on_task_run_created(task_runs[attempt])
+        if attempt == 0:
+            raise error
+        session.task_run = task_runs[attempt]
+        return session, result
+
+    _start.calls = calls  # type: ignore[attr-defined]
+    _start.task_runs = task_runs  # type: ignore[attr-defined]
+    return _start
+
+
+@contextmanager
+def _instant_retry_backoff():
+    # The retry waits `UPSTREAM_RETRY_BACKOFF_S` before a same-model attempt; no test should.
+    with patch("products.signals.backend.scout_harness.runner.asyncio.sleep", new=AsyncMock()) as sleep:
+        yield sleep
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_upstream_failure_is_retried_once_and_rescues_the_run(ateam, aerrors_skill):
+    # The lost-run case: a provider refuses the first turn, the attempt dies in seconds having
+    # emitted nothing, and without a retry a daily lane loses its whole day. One more attempt on
+    # the same run rescues it.
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam, "close-out")
+    start = await database_sync_to_async(_fake_start_failing_then_succeeding, thread_sensitive=False)(
+        session,
+        result,
+        AgentTurnFailed("API Error: 429 rate_limit_error", category="upstream_provider_failure"),
+    )
+
+    capture = MagicMock()
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=start),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture", new=capture),
+        _instant_retry_backoff() as sleep,
+        _stubbed_spawn_dependencies(),
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert run_result.status == TaskRun.Status.COMPLETED.value
+    assert len(start.calls) == 2
+    # No fallback model configured, so the retry asks the same model again after a short wait.
+    sleep.assert_awaited_once()
+
+    # One run, two attempts: the retry relinks the same bridge row rather than booking a second
+    # run, so it consumes no extra slot against the team's daily report cap.
+    runs = await database_sync_to_async(list)(SignalScoutRun.objects.filter(team=ateam))
+    assert len(runs) == 1
+    assert str(runs[0].task_run_id) == str(start.task_runs[1].id)
+    assert run_result.run_id == str(runs[0].id)
+
+    # A marker per attempt, one finished event for the outcome the run settled on.
+    started = [c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_run_started"]
+    finished = [c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_run_finished"]
+    assert [c.kwargs["properties"]["attempt"] for c in started] == [1, 2]
+    assert len(finished) == 1
+    props = finished[0].kwargs["properties"]
+    assert props["status"] == TaskRun.Status.COMPLETED.value
+    assert props["attempt"] == 2
+    assert props["retried_from_category"] == "upstream_provider_failure"
+    assert "model_fallback_from" not in props
+
+    # A rescued run is a success, so the lane's failure streak stays clear.
+    config = await database_sync_to_async(SignalScoutConfig.objects.get)(team=ateam, skill_name="signals-scout-errors")
+    assert config.consecutive_failure_count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_retry_uses_the_configured_fallback_model(ateam, aerrors_skill):
+    # A fallback in the `scouts-model-selection` payload is the point of provider independence:
+    # asking the same refusing provider again is what the backoff is for, not the fallback.
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam, "close-out")
+    start = await database_sync_to_async(_fake_start_failing_then_succeeding, thread_sensitive=False)(
+        session,
+        result,
+        AgentTurnFailed("API Error: 503 internal_error", category="upstream_provider_failure"),
+    )
+
+    capture = MagicMock()
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=start),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture", new=capture),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_scout_model",
+            return_value=ScoutModel(model="gpt-5.5", runtime_adapter="codex", service_tier="flex"),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_scout_fallback_model",
+            return_value=ScoutModel(model="claude-sonnet-4-6", runtime_adapter="claude"),
+        ),
+        _instant_retry_backoff() as sleep,
+        _stubbed_spawn_dependencies(),
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert [call["model"] for call in start.calls] == ["gpt-5.5", "claude-sonnet-4-6"]
+    # Another provider is worth asking immediately.
+    sleep.assert_not_awaited()
+
+    props = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_run_finished").kwargs[
+        "properties"
+    ]
+    # The outcome is credited to the model that produced it, and the trial read can exclude the
+    # run from the slice it was drawn into.
+    assert props["model"] == "claude-sonnet-4-6"
+    assert props["runtime_adapter"] == "claude"
+    assert props["model_fallback_from"] == "gpt-5.5"
+    # The queue pin stayed with the model it was configured beside.
+    assert "service_tier" not in props
+
+    # The run row describes the attempt that ran, not a mix of both.
+    run = await database_sync_to_async(SignalScoutRun.objects.get)(team=ateam)
+    assert run.metadata["model"] == "claude-sonnet-4-6"
+    assert "service_tier" not in run.metadata
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("error", "case"),
+    [
+        # Not the agent's own upstream classification: the scout body or the budget is the
+        # problem, and a second attempt would spend another lease reaching the same wall.
+        pytest.param(AgentTurnFailed("crashed", category="agent_error"), {}, id="agent_error_category"),
+        pytest.param(RuntimeError("sandbox refused to start"), {}, id="uncategorized_failure"),
+        # The attempt already filed a finding, so a retry could file it twice.
+        pytest.param(
+            AgentTurnFailed("API Error: 429", category="upstream_provider_failure"),
+            {"emitted": 1},
+            id="already_emitted",
+        ),
+        # A human is watching a "run now" and can press the button again.
+        pytest.param(
+            AgentTurnFailed("API Error: 429", category="upstream_provider_failure"),
+            {"manual": True},
+            id="manual_trigger",
+        ),
+        # Failed near the wall: the retry would not fit in the run's remaining budget.
+        pytest.param(
+            AgentTurnFailed("API Error: 429", category="upstream_provider_failure"),
+            {"too_slow": True},
+            id="died_late",
+        ),
+    ],
+)
+async def test_failure_is_not_retried_unless_every_condition_holds(ateam, aerrors_skill, error, case):
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam, "close-out")
+    start = await database_sync_to_async(_fake_start_failing_then_succeeding, thread_sensitive=False)(
+        session, result, error
+    )
+    emitted = case.get("emitted", 0)
+
+    async def _start_recording_emits(*args, **kwargs):
+        # The emit tool bumps the tally on the bridge row mid-run, so the failing attempt has to
+        # do it after the hook created the row.
+        try:
+            return await start(*args, **kwargs)
+        finally:
+            if emitted:
+                await database_sync_to_async(SignalScoutRun.objects.filter(team=ateam).update, thread_sensitive=False)(
+                    emitted_count=emitted
+                )
+
+    capture = MagicMock()
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_start_recording_emits),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture", new=capture),
+        patch(
+            "products.signals.backend.scout_harness.runner.UPSTREAM_RETRY_MAX_FIRST_ATTEMPT_S",
+            -1 if case.get("too_slow") else UPSTREAM_RETRY_MAX_FIRST_ATTEMPT_S,
+        ),
+        _instant_retry_backoff(),
+        _stubbed_spawn_dependencies(),
+    ):
+        run_result = await arun_signals_scout(
+            team_id=ateam.id,
+            skill_name="signals-scout-errors",
+            triggered_by="manual" if case.get("manual") else "schedule",
+        )
+
+    assert run_result.status == TaskRun.Status.FAILED.value
+    assert len(start.calls) == 1
+    props = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_run_finished").kwargs[
+        "properties"
+    ]
+    assert props["attempt"] == 1
+    assert "retried_from_category" not in props
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_exhausted_retry_fails_the_run_and_feeds_the_breaker(ateam, aerrors_skill):
+    # A provider down for the whole run is still a failed run: the retry buys one more chance,
+    # never an exemption from the breaker.
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    error = AgentTurnFailed("API Error: 429 rate_limit_error", category="upstream_provider_failure")
+
+    capture = MagicMock()
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new_callable=AsyncMock,
+            side_effect=error,
+        ) as start,
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture", new=capture),
+        _instant_retry_backoff(),
+        _stubbed_spawn_dependencies(),
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert run_result.status == TaskRun.Status.FAILED.value
+    assert start.await_count == 2
+    props = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_run_finished").kwargs[
+        "properties"
+    ]
+    assert props["attempt"] == 2
+    assert props["retried_from_category"] == "upstream_provider_failure"
+    # The agent's own classification rides on the failed event, so a provider outage is
+    # separable from a broken scout instead of pooling under `error_type=RuntimeError`.
+    assert props["error_category"] == "upstream_provider_failure"
+    config = await database_sync_to_async(SignalScoutConfig.objects.get)(team=ateam, skill_name="signals-scout-errors")
+    assert config.consecutive_failure_count == 1
 
 
 @pytest.mark.asyncio

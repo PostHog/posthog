@@ -30,6 +30,23 @@ WORKFLOW_HARD_CEILING_S = DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S
 # ticks.
 STALE_RUN_CUTOFF_S = 2 * WORKFLOW_HARD_CEILING_S
 
+# The one bounded retry a run gets when the agent reports an upstream failure (a provider
+# refusal, timeout, or dropped stream — `UPSTREAM_RETRYABLE_CATEGORIES`). A provider that
+# refuses for an hour costs a daily lane its whole day and a weekly lane its whole week, even
+# though the failed attempt usually dies in well under a minute and produced nothing. The
+# breaker already tolerates that outage; what is lost is the run, not the lane.
+#
+# Only a first attempt that failed this early earns the retry: both attempts share one
+# `DEFAULT_MAX_RUNTIME_S` budget, so a run that died near the wall must not take a second
+# full-length lease, and the second attempt's poll budget is whatever the first left.
+UPSTREAM_RETRY_MAX_FIRST_ATTEMPT_S = 3 * 60
+
+# Wait before a retry that runs on the same model — long enough for a brief refusal window to
+# clear, short enough that the run does not eat its own runtime budget. A provider still
+# refusing after this needs the fallback model, not more patience. A retry that does fall back
+# starts immediately, since it is asking a different provider.
+UPSTREAM_RETRY_BACKOFF_S = 45
+
 # Consecutive failed runs after which a scout config trips its circuit breaker and is
 # auto-paused (`SignalScoutConfig.auto_paused_at`). Nothing else in the harness notices a
 # scout that has never once succeeded: every dispatch takes a fresh sandbox lease for the
