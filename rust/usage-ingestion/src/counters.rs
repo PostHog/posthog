@@ -7,6 +7,7 @@ use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use futures::{stream, StreamExt};
 use redis::cluster::ClusterClientBuilder;
 use redis::cluster_async::ClusterConnection;
+use tokio::sync::Mutex as AsyncMutex;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -20,6 +21,28 @@ const REDIS_CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
 const REDIS_RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_PAST_TIMESTAMP: ChronoDuration = ChronoDuration::days(7);
 const MAX_FUTURE_TIMESTAMP: ChronoDuration = ChronoDuration::hours(24);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CounterGranularity {
+    Hour,
+    Day,
+}
+
+impl CounterGranularity {
+    fn duration_ms(self) -> i64 {
+        match self {
+            Self::Hour => 60 * 60 * 1_000,
+            Self::Day => 24 * 60 * 60 * 1_000,
+        }
+    }
+
+    fn max_buckets(self) -> usize {
+        match self {
+            Self::Hour => 25,
+            Self::Day => 31,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct CounterConfig {
@@ -74,6 +97,40 @@ impl Bucket {
             Self::Day(_) => DAILY_TTL_SECONDS,
         }
     }
+
+    pub fn start_timestamp_ms(self) -> i64 {
+        self.index()
+            * match self {
+                Self::Hour(_) => 60 * 60 * 1_000,
+                Self::Day(_) => 24 * 60 * 60 * 1_000,
+            }
+    }
+}
+
+pub fn buckets_for_range(
+    granularity: CounterGranularity,
+    start_timestamp_ms: i64,
+    end_timestamp_ms: i64,
+) -> Result<Vec<Bucket>, &'static str> {
+    let duration_ms = granularity.duration_ms();
+    if start_timestamp_ms < 0
+        || end_timestamp_ms <= start_timestamp_ms
+        || start_timestamp_ms % duration_ms != 0
+        || end_timestamp_ms % duration_ms != 0
+    {
+        return Err("range must be non-empty and aligned to the selected bucket size");
+    }
+    let count = ((end_timestamp_ms - start_timestamp_ms) / duration_ms) as usize;
+    if count > granularity.max_buckets() {
+        return Err("range exceeds the retained counter buckets");
+    }
+    let start = start_timestamp_ms / duration_ms;
+    Ok((0..count)
+        .map(|offset| match granularity {
+            CounterGranularity::Hour => Bucket::Hour(start + offset as i64),
+            CounterGranularity::Day => Bucket::Day(start + offset as i64),
+        })
+        .collect())
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -245,6 +302,52 @@ impl RedisCounterStore {
         Ok(Self {
             connection: client.get_async_connection().await?,
         })
+    }
+
+    pub async fn read_scope(
+        &self,
+        scope: &CounterScope,
+        buckets: &[Bucket],
+    ) -> Result<Vec<HashMap<String, i64>>, redis::RedisError> {
+        let mut pipeline = redis::pipe();
+        for bucket in buckets {
+            pipeline.cmd("HGETALL").arg(counter_key(scope, *bucket));
+        }
+        let mut connection = self.connection.clone();
+        pipeline.query_async(&mut connection).await
+    }
+}
+
+/// Reuses a cluster connection while allowing the read endpoints to start before Valkey does.
+pub struct RedisCounterReader {
+    redis_url: String,
+    store: AsyncMutex<Option<Arc<RedisCounterStore>>>,
+}
+
+impl RedisCounterReader {
+    pub fn new(redis_url: String) -> Self {
+        Self {
+            redis_url,
+            store: AsyncMutex::new(None),
+        }
+    }
+
+    pub async fn read_scope(
+        &self,
+        scope: &CounterScope,
+        buckets: &[Bucket],
+    ) -> Result<Vec<HashMap<String, i64>>, redis::RedisError> {
+        let store = match self.store.lock().await.clone() {
+            Some(store) => store,
+            None => {
+                let connected = Arc::new(
+                    RedisCounterStore::connect(&self.redis_url, CounterConfig::default()).await?,
+                );
+                let mut store = self.store.lock().await;
+                Arc::clone(store.get_or_insert(connected))
+            }
+        };
+        store.read_scope(scope, buckets).await
     }
 }
 
@@ -507,6 +610,24 @@ mod tests {
                 Bucket::Day(19_889)
             ),
             "usage:v1:{org=00000000-0000-0000-0000-000000000000}:d:19889"
+        );
+    }
+
+    #[test]
+    fn reads_only_retained_aligned_buckets() {
+        assert_eq!(
+            buckets_for_range(CounterGranularity::Hour, 0, 2 * 60 * 60 * 1_000)
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            buckets_for_range(CounterGranularity::Day, 1, 24 * 60 * 60 * 1_000),
+            Err("range must be non-empty and aligned to the selected bucket size")
+        );
+        assert_eq!(
+            buckets_for_range(CounterGranularity::Day, 0, 32 * 24 * 60 * 60 * 1_000),
+            Err("range exceeds the retained counter buckets")
         );
     }
 

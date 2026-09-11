@@ -48,6 +48,14 @@ after an accepted response or correcting a durable record can therefore
 increment its Valkey total again. ClickHouse remains the authoritative billing
 source, so do not use this projection for exact billing decisions.
 
+Both transports expose `GetUsageCounters`: gRPC for internal callers and
+`GET /v1/usage-counters` on the existing internal management listener for
+Grafana. The request selects exactly one team or organization and a fully
+aligned `[start_timestamp_ms, end_timestamp_ms)` range. Hourly reads allow up
+to 25 buckets and daily reads allow up to 31. The response contains the stored
+meter values per bucket. These are projection snapshots, not exact billable
+totals; do not use them for billing decisions.
+
 The dev stack runs the cluster on 6390 from both sides, so a host client uses
 `redis://127.0.0.1:6390` and the service container uses
 `redis://valkey-cluster:6390`. Start it and run its integration test with:

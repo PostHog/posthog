@@ -10,6 +10,7 @@ package usage_ingestion.v1;
 // indefinitely. Cost and resource metering is a separate RPC and table.
 service UsageIngestion {
   rpc IngestBillingUsage(IngestBillingUsageRequest) returns (IngestBillingUsageResponse);
+  rpc GetUsageCounters(GetUsageCountersRequest) returns (GetUsageCountersResponse);
 }
 
 // Fields 1-5 are the record's identity, in the order the storage sorting key uses them:
@@ -48,4 +49,38 @@ message IngestBillingUsageResponse {
   // because record_id is the deduplication identity, including when Kafka delivered only part
   // of the batch.
   repeated string accepted_record_ids = 1;
+}
+
+// Redis only holds complete hourly and daily buckets. `end_timestamp_ms` is exclusive and both
+// timestamps must align to the selected bucket size.
+message GetUsageCountersRequest {
+  oneof scope {
+    int64 team_id = 1;
+    string organization_id = 2;
+  }
+
+  int64 start_timestamp_ms = 3;
+  int64 end_timestamp_ms = 4;
+  CounterGranularity granularity = 5;
+}
+
+enum CounterGranularity {
+  COUNTER_GRANULARITY_UNSPECIFIED = 0;
+  COUNTER_GRANULARITY_HOUR = 1;
+  COUNTER_GRANULARITY_DAY = 2;
+}
+
+message UsageCounterValue {
+  string usage_key = 1;
+  string unit = 2;
+  int64 quantity = 3;
+}
+
+message UsageCounterBucket {
+  int64 start_timestamp_ms = 1;
+  repeated UsageCounterValue values = 2;
+}
+
+message GetUsageCountersResponse {
+  repeated UsageCounterBucket buckets = 1;
 }

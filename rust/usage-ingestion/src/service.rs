@@ -9,21 +9,27 @@ use common_kafka::kafka_producer::{
 use rdkafka::producer::FutureProducer;
 use tonic::{Request, Response, Status};
 use usage_ingestion_proto::usage_ingestion::v1::{
-    usage_ingestion_server::UsageIngestion, BillingUsageRecord, IngestBillingUsageRequest,
-    IngestBillingUsageResponse,
+    usage_ingestion_server::UsageIngestion, BillingUsageRecord, CounterGranularity,
+    GetUsageCountersRequest, GetUsageCountersResponse, IngestBillingUsageRequest,
+    IngestBillingUsageResponse, UsageCounterBucket, UsageCounterValue,
 };
 use uuid::Uuid;
 
-use crate::counters::CounterAccumulator;
+use crate::counters::{
+    buckets_for_range, CounterAccumulator, CounterGranularity as RedisCounterGranularity,
+    CounterScope, RedisCounterReader,
+};
 use crate::record::KafkaBillingUsageRecord;
 use crate::resolver::{OrganizationResolver, ResolveError};
 
+#[derive(Clone)]
 pub struct UsageIngestionService {
     producer: FutureProducer<KafkaContext>,
     resolver: Arc<dyn OrganizationResolver>,
     max_batch_size: usize,
     topic: String,
     counters: Option<Arc<CounterAccumulator>>,
+    counter_reader: Option<Arc<RedisCounterReader>>,
 }
 
 impl UsageIngestionService {
@@ -33,6 +39,7 @@ impl UsageIngestionService {
         max_batch_size: usize,
         topic: String,
         counters: Option<Arc<CounterAccumulator>>,
+        counter_reader: Option<Arc<RedisCounterReader>>,
     ) -> Self {
         Self {
             producer,
@@ -40,6 +47,7 @@ impl UsageIngestionService {
             max_batch_size,
             topic,
             counters,
+            counter_reader,
         }
     }
 
@@ -104,6 +112,78 @@ impl UsageIngestionService {
         rejected.dedup();
         Ok((prepared, rejected))
     }
+
+    pub async fn get_usage_counters(
+        &self,
+        request: GetUsageCountersRequest,
+    ) -> Result<GetUsageCountersResponse, Status> {
+        let scope = match request.scope {
+            Some(usage_ingestion_proto::usage_ingestion::v1::get_usage_counters_request::Scope::TeamId(team_id))
+                if (1..=i64::from(i32::MAX)).contains(&team_id) =>
+            {
+                CounterScope::Team(team_id)
+            }
+            Some(usage_ingestion_proto::usage_ingestion::v1::get_usage_counters_request::Scope::OrganizationId(organization_id)) => {
+                CounterScope::Organization(
+                    Uuid::parse_str(&organization_id)
+                        .map_err(|_| Status::invalid_argument("organization_id must be a UUID"))?,
+                )
+            }
+            _ => return Err(Status::invalid_argument("exactly one valid scope is required")),
+        };
+        let granularity = match CounterGranularity::try_from(request.granularity).ok() {
+            Some(CounterGranularity::Hour) => RedisCounterGranularity::Hour,
+            Some(CounterGranularity::Day) => RedisCounterGranularity::Day,
+            _ => return Err(Status::invalid_argument("granularity must be hour or day")),
+        };
+        let buckets = buckets_for_range(
+            granularity,
+            request.start_timestamp_ms,
+            request.end_timestamp_ms,
+        )
+        .map_err(Status::invalid_argument)?;
+        let reader = self
+            .counter_reader
+            .as_ref()
+            .ok_or_else(|| Status::failed_precondition("Redis usage counters are disabled"))?;
+        let values = reader
+            .read_scope(&scope, &buckets)
+            .await
+            .map_err(|_| Status::unavailable("Redis usage counters unavailable"))?;
+
+        Ok(GetUsageCountersResponse {
+            buckets: buckets
+                .into_iter()
+                .zip(values)
+                .map(|(bucket, values)| {
+                    let mut values = values
+                        .into_iter()
+                        .filter_map(|(field, quantity)| {
+                            decode_usage_field(&field).map(|(usage_key, unit)| UsageCounterValue {
+                                usage_key,
+                                unit,
+                                quantity,
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    values.sort_unstable_by(|left, right| {
+                        (&left.usage_key, &left.unit).cmp(&(&right.usage_key, &right.unit))
+                    });
+                    UsageCounterBucket {
+                        start_timestamp_ms: bucket.start_timestamp_ms(),
+                        values,
+                    }
+                })
+                .collect(),
+        })
+    }
+}
+
+fn decode_usage_field(field: &str) -> Option<(String, String)> {
+    let (length, value) = field.split_once(':')?;
+    let length = length.parse::<usize>().ok()?;
+    let usage_key = value.get(..length)?;
+    Some((usage_key.to_string(), value.get(length..)?.to_string()))
 }
 
 /// Splits a failed record by what the producer should do about it. Anything a retry cannot
@@ -125,6 +205,15 @@ struct Rejection {
 
 #[tonic::async_trait]
 impl UsageIngestion for UsageIngestionService {
+    async fn get_usage_counters(
+        &self,
+        request: Request<GetUsageCountersRequest>,
+    ) -> Result<Response<GetUsageCountersResponse>, Status> {
+        Ok(Response::new(
+            self.get_usage_counters(request.into_inner()).await?,
+        ))
+    }
+
     async fn ingest_billing_usage(
         &self,
         request: Request<IngestBillingUsageRequest>,
@@ -273,7 +362,14 @@ mod tests {
             .set("bootstrap.servers", "localhost:9092")
             .create_with_context(KafkaContext::new(AlwaysHealthy))
             .expect("failed to build the test producer");
-        UsageIngestionService::new(producer, resolver, 500, "test-topic".to_string(), None)
+        UsageIngestionService::new(
+            producer,
+            resolver,
+            500,
+            "test-topic".to_string(),
+            None,
+            None,
+        )
     }
 
     fn service() -> UsageIngestionService {
@@ -298,6 +394,15 @@ mod tests {
             team_id,
             ..record()
         }
+    }
+
+    #[test]
+    fn decodes_usage_counter_fields() {
+        assert_eq!(
+            decode_usage_field("6:eventsbytes"),
+            Some(("events".to_string(), "bytes".to_string()))
+        );
+        assert_eq!(decode_usage_field("not-a-field"), None);
     }
 
     #[tokio::test]
