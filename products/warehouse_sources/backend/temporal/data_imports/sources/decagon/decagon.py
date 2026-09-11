@@ -48,6 +48,10 @@ class DecagonRetryableError(Exception):
     pass
 
 
+class DecagonContractError(Exception):
+    """The response does not match the contract the endpoint is configured against."""
+
+
 @dataclasses.dataclass
 class DecagonResumeConfig:
     # Position of the next unfetched page, one field per pagination mode: the next-page
@@ -111,6 +115,34 @@ def _incremental_window_value(config: DecagonEndpointConfig, value: Any) -> int 
     if config.incremental_param_format == "iso8601":
         return datetime.fromtimestamp(_to_epoch_seconds(value), UTC).isoformat()
     return _to_epoch_seconds(value)
+
+
+def _resolve_items(
+    data: dict[str, Any], config: DecagonEndpointConfig, endpoint: str, logger: FilteringBoundLogger
+) -> list[Any]:
+    """Read the row list out of a response envelope.
+
+    Decagon renames envelope fields between doc revisions (the conversations export alone
+    documents three names for one cursor field), and a lookup that misses reads as an
+    empty page, which ends the walk and reports success. So fall back to the response's
+    only list when the configured key is absent.
+    """
+    items = data.get(config.data_key)
+    if isinstance(items, list):
+        return items
+
+    list_keys = [key for key, value in data.items() if isinstance(value, list)]
+    if len(list_keys) == 1:
+        logger.warning(
+            f"Decagon: {endpoint} response carries no '{config.data_key}' list; reading rows from "
+            f"'{list_keys[0]}' instead (response keys: {sorted(data.keys())})"
+        )
+        return data[list_keys[0]]
+
+    logger.warning(
+        f"Decagon: {endpoint} response carries no '{config.data_key}' list (response keys: {sorted(data.keys())})"
+    )
+    return []
 
 
 def _next_cursor(data: dict[str, Any], cursor_keys: tuple[str, ...]) -> Optional[str]:
@@ -266,6 +298,9 @@ def get_rows(
         set() if config.primary_keys is not None and not should_use_incremental_field else None
     )
 
+    saw_rows = False
+    reported_total: Any = None
+
     while True:
         params: dict[str, str] = dict(config.extra_params)
         if config.pagination == "cursor":
@@ -286,7 +321,7 @@ def get_rows(
                 params[config.timestamp_filter_param] = timestamp_filter
 
         data = fetch_page_with_optional(params)
-        items = data.get(config.data_key) or []
+        items = _resolve_items(data, config, endpoint, logger)
 
         fresh: list[dict[str, Any]] = []
         for item in items:
@@ -300,6 +335,8 @@ def get_rows(
                         continue
                     seen_keys.add(key)
             fresh.append(item)
+
+        saw_rows = saw_rows or bool(fresh)
 
         if config.pagination == "single":
             if fresh:
@@ -336,6 +373,7 @@ def get_rows(
             continue
 
         total = data.get(config.total_key) if config.total_key else None
+        reported_total = total
 
         if config.pagination == "page":
             # Terminate against the reported total using rows actually kept: a row that
@@ -375,6 +413,21 @@ def get_rows(
         if exhausted:
             break
         offset = next_offset
+
+    # A walk that read every row of the endpoint and kept none, while the endpoint itself
+    # reports rows, means the response no longer matches this config. Fail the sync: the
+    # alternative is the table reporting success forever and never holding a row.
+    if (
+        not saw_rows
+        and resume_config is None
+        and window_value is None
+        and isinstance(reported_total, int | float)
+        and reported_total > 0
+    ):
+        raise DecagonContractError(
+            f"Decagon: {endpoint} imported no rows although the endpoint reports {reported_total}. "
+            f"Check the response envelope against the endpoint config."
+        )
 
     # Walked to completion, so drop any checkpoint: a retried attempt of this job would
     # otherwise resume at the final page and append its rows again.
