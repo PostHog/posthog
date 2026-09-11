@@ -1248,8 +1248,6 @@ export const WebGoalsTile = ({
     if (!actions.length) {
         return (
             <ProductIntroduction
-                productName="Actions"
-                productKey={ProductKey.ACTIONS}
                 thingName="action"
                 isEmpty={true}
                 titleOverride="Track your conversions"

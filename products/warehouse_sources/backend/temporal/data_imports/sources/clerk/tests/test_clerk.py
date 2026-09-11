@@ -574,13 +574,15 @@ class TestClerkRetiredEndpoints:
             )
 
 
-_VALIDATE_SESSION = "products.warehouse_sources.backend.temporal.data_imports.sources.clerk.clerk.make_tracked_session"
+_CLERK_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.clerk.clerk"
+_VALIDATE_SESSION = f"{_CLERK_MODULE}.make_tracked_session"
 
 
 class TestClerkValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_substring"),
         [
+            (400, "invalid or has been revoked"),
             (401, "invalid or has been revoked"),
             (403, "does not have permission"),
             (500, "Couldn't validate your Clerk secret key"),
@@ -599,6 +601,34 @@ class TestClerkValidateCredentials:
         assert is_valid is False
         assert expected_substring in (message or "")
         assert sentinel not in (message or "")
+
+    @pytest.mark.parametrize(
+        ("status_code", "should_capture"),
+        [
+            (400, False),  # malformed key is user input, not an error to file
+            (500, True),  # a genuine server fault still files an issue
+        ],
+    )
+    def test_only_server_faults_file_an_error(self, status_code: int, should_capture: bool) -> None:
+        response = _make_http_response({"errors": [{"code": "bad"}]}, status_code=status_code)
+        with (
+            patch(_VALIDATE_SESSION) as mock_session,
+            patch(f"{_CLERK_MODULE}.capture_exception") as mock_capture,
+        ):
+            mock_session.return_value.get.return_value = response
+            validate_credentials("sk_test_key")
+        assert mock_capture.called is should_capture
+
+    @pytest.mark.parametrize("secret_key", ["sk_live_\u200bkey", "sk_live_\u3042key"])
+    def test_non_ascii_key_is_rejected_before_any_request(self, secret_key: str) -> None:
+        # Such a key can't be encoded into the Authorization header, so dispatching the request
+        # raises UnicodeEncodeError; the guard must catch it first and explain what to do.
+        with patch(_VALIDATE_SESSION) as mock_session:
+            is_valid, message = validate_credentials(secret_key)
+        assert is_valid is False
+        assert "Copy the key again" in (message or "")
+        assert "latin-1" not in (message or "")
+        mock_session.assert_not_called()
 
     def test_network_error_returns_actionable_message_without_leaking_exception(self) -> None:
         with patch(_VALIDATE_SESSION) as mock_session:

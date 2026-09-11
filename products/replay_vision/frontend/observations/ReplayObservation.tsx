@@ -40,9 +40,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { BooleanTag } from '../components/BooleanTag'
 import { CardHeader } from '../components/CardHeader'
+import { CitedMarkdown } from '../components/CitedMarkdown'
 import { LabeledRow } from '../components/LabeledRow'
 import {
-    CitedText,
     ObservationConfidence,
     ObservationPrimaryOutput,
     ObservationStatusTag,
@@ -52,6 +52,7 @@ import { ObservationProgressBar } from '../components/ObservationProgressBar'
 import { ObservationRetryButton } from '../components/ObservationRetryButton'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
+import type { ReplayObservationApi } from '../generated/api.schemas'
 import {
     type ClassifierScannerConfig,
     type MonitorScannerConfig,
@@ -67,9 +68,10 @@ import {
     OBSERVATION_TRIGGER_TAG,
     SUCCEEDED_OUTPUT_LABEL,
 } from '../replay_scanners/types'
-import { scannerLabel } from '../utils/observation'
+import { hasScannerPage, scannerLabel } from '../utils/observation'
 import { parseNumericParam } from '../utils/urlParams'
 import { ObservationLabelControl } from './ObservationLabelControl'
+import { observationLabelLogic } from './observationLabelLogic'
 import { ObservationPinnedProperties } from './ObservationPinnedProperties'
 import { ObservationShareButton } from './ObservationShareButton'
 import {
@@ -138,6 +140,35 @@ function PromptRow({ prompt }: { prompt: string }): JSX.Element {
                 {prompt}
             </p>
         </div>
+    )
+}
+
+/** Rating happens here, not in the Calibration tab, so a rater never sees the recommendation it feeds. */
+function CalibrationEntryPoint({ observation }: { observation: ReplayObservationApi }): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+    // Read the rating from the control's logic rather than the loaded observation, which keeps the
+    // label it was fetched with. The control alongside builds this same keyed logic.
+    const { label } = useValues(
+        observationLabelLogic({ observationId: observation.id, initialLabel: observation.label })
+    )
+    // Multivariate flags resolve to the variant key, and "control" is truthy, so compare rather than coerce.
+    if (
+        !label ||
+        !hasScannerPage(observation) ||
+        featureFlags[FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ENTRY_POINT] !== 'test'
+    ) {
+        return null
+    }
+    return (
+        <p className="text-sm text-muted m-0">
+            <Link
+                to={`${urls.replayVision(observation.scanner_id)}?tab=calibration`}
+                data-attr="vision-observation-calibration-entry-point"
+            >
+                Rate more results for this scanner
+            </Link>{' '}
+            to get a config recommendation from your ratings.
+        </p>
     )
 }
 
@@ -477,6 +508,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                 </LabeledRow>
                             )}
                             <ObservationLabelControl observationId={observation.id} initialLabel={observation.label} />
+                            <CalibrationEntryPoint observation={observation} />
                         </div>
                     )}
 
@@ -493,9 +525,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                     >
                         <CardHeader icon={<IconThoughtBubble />} title="Model reasoning" />
                         {reasoning ? (
-                            <p className="text-sm whitespace-pre-wrap m-0">
-                                <CitedText text={reasoning} segments={reasoningSegments} onSeek={seekEmbeddedPlayer} />
-                            </p>
+                            <CitedMarkdown text={reasoning} segments={reasoningSegments} onSeek={seekEmbeddedPlayer} />
                         ) : (
                             <p className="text-muted text-sm m-0 italic">
                                 {observation.status === 'ineligible'

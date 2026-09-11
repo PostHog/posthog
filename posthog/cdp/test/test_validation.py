@@ -768,15 +768,20 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         inputs_schema = [
             {"key": "ts", "type": "string", "required": True},
             {"key": "geo", "type": "string", "required": True},
+            {"key": "ua", "type": "string", "required": True},
         ]
         inputs = {
             "ts": {"value": "{now()}"},
             "geo": {"value": "{geoipLookup(event.properties.$ip)}"},
+            # A bare reference is the only form that reaches the runtime-helper list; an
+            # inline call resolves as a function and never hits the global check.
+            "ua": {"value": "{parseUserAgent}"},
         }
 
         validated = validate_inputs(inputs_schema, inputs, function_type="transformation")
         assert validated["ts"]["bytecode"] is not None
         assert validated["geo"]["bytecode"] is not None
+        assert validated["ua"]["bytecode"] is not None
 
     def test_validate_inputs_with_secret_values(self):
         inputs_schema = [

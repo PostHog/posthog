@@ -135,9 +135,11 @@ depends_on = [
     "products.tasks",
     "products.tracing",
     "products.user_interviews",
+    "products.visual_review",
     "products.mcp_analytics",
     "products.mcp_registry",
     "products.web_analytics",
+    "products.wizard",
     "products.workflows",
     "products.actions",
     "products.alerts", "products.warehouse_sources", "products.data_tools", "products.exports", "products.annotations",
@@ -192,7 +194,9 @@ layer = "modules"
 path = "products.autoresearch"
 depends_on = [
     "posthog",
+    "products.actions",
     "products.feature_flags",
+    "products.tasks",
 ]
 layer = "modules"
 
@@ -221,6 +225,8 @@ path = "products.cohorts"
 depends_on = [
     "products.actions",
     "posthog",
+    # A behavioural cohort filter reads a trends insight's display type.
+    "products.product_analytics",
 ]
 layer = "modules"
 
@@ -672,6 +678,9 @@ depends_on = [
     "products.event_definitions",
     "products.annotations",
     "products.warehouse_sources", "products.access_control",
+    # A trends query filtering on a first-pageview-aware property builds it through
+    # web analytics' attribution helper. Core held this import before trends moved.
+    "products.web_analytics",
 ]
 layer = "modules"
 
@@ -911,6 +920,8 @@ depends_on = [
     "products.tasks",
     # The annotations.create action verb (via the annotations facade).
     "products.annotations",
+    # MCP connector calls made with the viewer's own installation (via the mcp_store facade).
+    "products.mcp_store",
 ]
 layer = "modules"
 
@@ -990,6 +1001,7 @@ layer = "modules"
 path = "products.visual_review"
 depends_on = [
     "posthog",
+    "products.engineering_analytics",
 ]
 layer = "modules"
 
@@ -1010,6 +1022,8 @@ depends_on = [
     "products.actions",
     "products.analytics_platform",
     "products.notifications",
+    # The web trends, web vitals and calendar heatmap runners subclass product analytics' trends runners.
+    "products.product_analytics",
     "products.replay_vision",
 ]
 layer = "modules"
@@ -1290,7 +1304,7 @@ from = [
 
 [[modules]]
 path = "products.business_knowledge"
-depends_on = ["posthog", "ee"]
+depends_on = ["posthog", "ee", "products.access_control"]
 layer = "modules"
 
 [[interfaces]]
@@ -1398,6 +1412,7 @@ from = [
 path = "products.data_catalog"
 depends_on = [
     "posthog",
+    "products.data_quality",
     "products.data_tools",
     "products.product_analytics",
     "products.warehouse_sources",
@@ -1423,6 +1438,7 @@ layer = "modules"
 path = "products.data_quality"
 depends_on = [
     "posthog",
+    "products.data_catalog",
     "products.data_modeling",
     "products.notifications",
     "products.warehouse_sources", "products.access_control",

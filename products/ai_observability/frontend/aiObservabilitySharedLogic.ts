@@ -79,6 +79,8 @@ export interface SortState {
 
 // Cadence of the setup-detection re-check while the team has no AI events yet.
 const SETUP_POLL_INTERVAL_MS = 20000
+// Ceiling for that cadence, because whatever stops the check answering does not clear in one tick.
+const SETUP_POLL_MAX_INTERVAL_MS = 5 * 60 * 1000
 
 const INITIAL_DASHBOARD_DATE_FROM = '-7d' as string | null
 const INITIAL_EVENTS_DATE_FROM = '-1h' as string | null
@@ -162,7 +164,7 @@ export interface aiObservabilitySharedLogicValues {
         dateFrom: string | null
         dateTo: string | null
     }
-    hasSentAiEvent: boolean | undefined
+    hasSentAiEvent: boolean | null | undefined
     hasSentAiEventLoading: boolean
     instrumentationVerdictApplies: (windowDays: number | null) => boolean
     propertyFilters: AnyPropertyFilter[]
@@ -201,10 +203,10 @@ export interface aiObservabilitySharedLogicActions {
         errorObject?: any
     }
     loadAIEventDefinitionSuccess: (
-        hasSentAiEvent: boolean,
+        hasSentAiEvent: boolean | null,
         payload?: any
     ) => {
-        hasSentAiEvent: boolean
+        hasSentAiEvent: boolean | null
         payload?: any
     }
     restoreSavedDashboardDates: (
@@ -414,8 +416,8 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
 
     loaders(() => ({
         hasSentAiEvent: {
-            __default: undefined as boolean | undefined,
-            loadAIEventDefinition: async (): Promise<boolean> => {
+            __default: undefined as boolean | null | undefined,
+            loadAIEventDefinition: async (): Promise<boolean | null> => {
                 return hasRecentAIEvents()
             },
         },
@@ -428,12 +430,24 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             }
         },
         loadAIEventDefinitionSuccess: ({ hasSentAiEvent }) => {
+            if (hasSentAiEvent === null) {
+                // The check says nothing about this team, so publish `unknown` only where nothing
+                // has answered yet. That fails the gate open without downgrading a real answer.
+                if (values.setupStatus === 'loading') {
+                    actions.setDetectedStatus('unknown')
+                }
+                cache.setSetupPollInterval(Math.min(cache.setupPollIntervalMs * 2, SETUP_POLL_MAX_INTERVAL_MS))
+                return
+            }
             // Feed the app-wide setup-status layer (drives the scene empty-state gate).
             actions.setDetectedStatus(hasSentAiEvent ? 'has-data' : 'needs-setup')
             if (hasSentAiEvent) {
                 cache.disposables.dispose('setupPoll')
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.IngestFirstLlmEvent)
+                return
             }
+            // The check works again, so a user waiting on their first event gets the fast flip back.
+            cache.setSetupPollInterval(SETUP_POLL_INTERVAL_MS)
         },
         loadAIEventDefinitionFailure: () => {
             // A failing detection query must not strand the empty-state gate on its
@@ -583,9 +597,14 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                     ? date_to
                     : INITIAL_DATE_TO
                 : values.dateFilter.dateTo
-            const filterTestAccountsValue = [true, 'true', 1, '1'].includes(
-                filter_test_accounts as string | number | boolean
-            )
+            // A DataTable `person` cell mounts this logic on whatever scene renders it, so the team
+            // default is applied only once a route of this product matches. Applying it on mount would
+            // write this product's params over that scene's URL and drop its `#q=` state.
+            const filterTestAccountsValue =
+                filter_test_accounts === undefined && !cache.enteredAIObservabilityRoute
+                    ? values.filterTestAccountsDefault
+                    : [true, 'true', 1, '1'].includes(filter_test_accounts as string | number | boolean)
+            markAIObservabilityRouteEntered()
             const newSearchQuery = typeof trace_search === 'string' ? trace_search : ''
 
             const filtersChanged = !objectsEqual(parsedFilters, values.propertyFilters)
@@ -617,9 +636,17 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                             cleanParams[key] = value
                         }
                     }
-                    router.actions.replace(router.values.location.pathname, cleanParams)
+                    router.actions.replace(router.values.location.pathname, cleanParams, router.values.hashParams)
                 }
             }
+        }
+
+        function markAIObservabilityRouteEntered(): void {
+            if (cache.enteredAIObservabilityRoute) {
+                return
+            }
+            cache.enteredAIObservabilityRoute = true
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.TrackCosts)
         }
 
         function clearDashboardTimer(): void {
@@ -736,6 +763,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                     trace_search:
                         (searchQuery ?? (router.values.searchParams.trace_search as string | undefined)) || undefined,
                 },
+                router.values.hashParams,
             ],
             setPropertyFilters: ({ propertyFilters }) => [
                 router.values.location.pathname,
@@ -743,6 +771,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                     ...sharedSearchParams(),
                     filters: propertyFilters.length > 0 ? propertyFilters : undefined,
                 },
+                router.values.hashParams,
             ],
             setDates: ({ dateFrom, dateTo }) => [
                 router.values.location.pathname,
@@ -751,6 +780,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                     date_from: dateFrom === INITIAL_EVENTS_DATE_FROM ? undefined : dateFrom || undefined,
                     date_to: dateTo || undefined,
                 },
+                router.values.hashParams,
             ],
             setDashboardDates: ({ dateFrom, dateTo }) => [
                 router.values.location.pathname,
@@ -759,6 +789,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                     date_from: dateFrom ?? 'all',
                     date_to: dateTo || undefined,
                 },
+                router.values.hashParams,
             ],
             setShouldFilterTestAccounts: ({ shouldFilterTestAccounts }) => [
                 router.values.location.pathname,
@@ -766,6 +797,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                     ...sharedSearchParams(),
                     filter_test_accounts: shouldFilterTestAccounts ? 'true' : undefined,
                 },
+                router.values.hashParams,
             ],
             setSearchQuery: ({ searchQuery }) => [
                 router.values.location.pathname,
@@ -773,6 +805,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                     ...sharedSearchParams(),
                     trace_search: searchQuery || undefined,
                 },
+                router.values.hashParams,
             ],
         }
     }),
@@ -787,20 +820,27 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             }
         }
 
-        detectAIEventsIfProjectKnown()
         // While the empty state (or its post-skip reminder banner) is up, re-check on a
         // timer so the page flips to the real product on its own once events land.
         // Disposed as soon as data is detected; paused automatically on hidden tabs.
-        cache.disposables.add(() => {
-            const id = window.setInterval(detectAIEventsIfProjectKnown, SETUP_POLL_INTERVAL_MS)
-            return () => clearInterval(id)
-        }, 'setupPoll')
-        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.TrackCosts)
-
-        const urlHasTestAccountsParam = 'filter_test_accounts' in router.values.searchParams
-        if (!urlHasTestAccountsParam && values.filterTestAccountsDefault !== values.shouldFilterTestAccounts) {
-            actions.setShouldFilterTestAccounts(values.filterTestAccountsDefault)
+        const registerSetupPoll = (): void => {
+            cache.disposables.add(() => {
+                const id = window.setInterval(detectAIEventsIfProjectKnown, cache.setupPollIntervalMs)
+                return () => clearInterval(id)
+            }, 'setupPoll')
         }
+        // A call at the interval already in force leaves the running timer alone.
+        cache.setupPollIntervalMs = SETUP_POLL_INTERVAL_MS
+        cache.setSetupPollInterval = (intervalMs: number): void => {
+            if (cache.setupPollIntervalMs === intervalMs) {
+                return
+            }
+            cache.setupPollIntervalMs = intervalMs
+            registerSetupPoll()
+        }
+
+        detectAIEventsIfProjectKnown()
+        registerSetupPoll()
     }),
 
     beforeUnmount(({ cache }) => {
