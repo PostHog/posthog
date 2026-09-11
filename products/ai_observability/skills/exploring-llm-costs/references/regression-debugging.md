@@ -29,10 +29,13 @@ Step 1 pointed at:
 
 ```sql
 posthog:execute-sql
+WITH
+    toDateTime('<jump_day>') AS jump,
+    least(7, dateDiff('day', jump, now())) AS span
 SELECT
     properties.$ai_model AS model,
     properties.$ai_provider AS provider,
-    if(timestamp >= toDateTime('<jump_day>'), 'after', 'before') AS window,
+    if(timestamp >= jump, 'after', 'before') AS window,
     count() AS calls,
     round(count() / sum(count()) OVER (PARTITION BY window), 4) AS call_share,
     round(sum(toFloat(properties.$ai_total_cost_usd)), 4) AS cost_usd,
@@ -44,11 +47,15 @@ SELECT
     round(avg(toFloat(properties.$ai_total_cost_usd)), 6) AS avg_cost_per_call
 FROM events
 WHERE event IN ('$ai_generation', '$ai_embedding')
-    AND timestamp >= toDateTime('<jump_day>') - INTERVAL 7 DAY
-    AND timestamp < toDateTime('<jump_day>') + INTERVAL 7 DAY
+    AND timestamp >= jump - toIntervalDay(span)
+    AND timestamp < jump + toIntervalDay(span)
 GROUP BY model, provider, window
 ORDER BY model, provider, window
 ```
+
+`span` gives both sides the same number of complete days, so a jump found two days ago compares two days against two days and not two against seven.
+Equal sides are what make `calls` and `cost_usd` comparable, and an absent model a real signal.
+The result is empty until one complete day has passed after the jump.
 
 Read the two rows per model together.
 A model that appears only in `after`, or one that disappears, is a strong signal.
