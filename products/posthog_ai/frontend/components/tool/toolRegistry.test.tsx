@@ -151,7 +151,9 @@ describe('toolRegistry', () => {
                 />
             )
             expect(screen.getByText('Notebook')).toBeInTheDocument()
-            expect(await screen.findByText('Synthetic notebook')).toBeInTheDocument()
+            // Whichever lazy-dispatch test runs first pays the chunk-compilation cost, so this needs
+            // the same explicit budget as its siblings rather than the 1s findBy default.
+            expect(await screen.findByText('Synthetic notebook', {}, { timeout: 10000 })).toBeInTheDocument()
             expect(screen.queryByText('Notebook')).not.toBeInTheDocument()
             expect(require.cache[require.resolve('./widgets/CreateNotebookWidget')]).not.toBeUndefined()
         })
