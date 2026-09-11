@@ -65,8 +65,11 @@ The result tells you what happened: `report_id` (always set when a report was pe
 ### Measuring impact
 
 `metrics` carries the typed measurements that tell a reader what the observation changes, and how many people it reaches.
-The inbox shows each one as a tile: the figure with its unit, the title, the window the query covers, and a small trend strip.
+A consumer draws each one as a tile: the figure with its unit, the title, the window the query covers, and a small trend strip.
 Use one `primary` metric for the key observation, and `supporting` metrics for the facts around it.
+
+**No client renders a metric yet.** The server stores and serves them, and the API redacts and refreshes them, but no inbox or desktop surface in this repository draws the tile.
+A metric you author today is a correct, queryable record that a reader cannot see until a client lands, so spend your run's query budget on the report prose first.
 
 **Omit a metric you cannot measure honestly.**
 A weak number is worse than none.
@@ -75,7 +78,7 @@ Nor does a rate over a handful of attempts, or a count with no person context.
 
 | Field          | Type                | Notes                                                                                                                                                                           |
 | -------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `metric_id`    | string, required    | Your own slug (lowercase letters, numbers, `_`, `-`, starting with a letter or number), ≤100 characters. Unique within the report, and the key a later edit refreshes it under. |
+| `metric_id`    | string, required    | Your own slug (lowercase letters, numbers, `_`, `-`, starting with a letter or number), ≤100 characters. Unique within the report, and the key a later edit updates it under. |
 | `title`        | string, required    | What was observed, and for whom, in one line: `Users who hit "Not found" opening a shared chat link`, not a label such as `Users affected`. ≤200 characters.                    |
 | `kind`         | enum, required      | What the value measures. See _Choosing the kind_ below.                                                                                                                         |
 | `query`        | object, required    | The bounded live query behind the figure. See _Keeping the query live and bounded_ below.                                                                                       |
@@ -157,21 +160,24 @@ A primary affected-users metric and a supporting rate, as they arrive in `metric
 
 Choose by what the reader will ask, not by what the source makes easy.
 
-| Kind                | Use it for                                                                                                                                                                                                        | Query shape                                                                             |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `affected_users`    | Anything a person experiences: a captured exception with person context, a dead click, a rage click, a failed request on a surface, a broken URL.                                                                 | Exactly one series, `math: "dau"`. `value_format: "count"`.                             |
-| `affected_sessions` | A source that establishes sessions but not people.                                                                                                                                                                | Exactly one series, `math: "unique_session"`. `value_format: "count"`.                  |
-| `occurrences`       | Noise, and backend failures: a report asking the team to stop reporting something as an error, a Temporal, Celery, or job exception with no person on the event, or a volume counter such as tool calls per week. | Total count. `value_format: "count"`.                                                   |
-| `error_rate`        | A flow that fails.                                                                                                                                                                                                | Two series plus one formula such as `B / A`, with percentage formatting.                |
-| `conversion_rate`   | A flow that stalls.                                                                                                                                                                                               | Same shape as `error_rate`.                                                             |
-| `duration`          | A source that measures time.                                                                                                                                                                                      | `value_format: "duration"`, `unit` of `ms` or `s`, and a non-negative snapshot.         |
-| `revenue`           | A source that measures money.                                                                                                                                                                                     | `value_format: "currency"`, `unit` of an uppercase three-letter ISO code such as `USD`. |
-| `custom`            | A measurement that no kind above covers.                                                                                                                                                                          | Still needs a live event or action query.                                               |
+| Kind                | Use it for                                                                                                                                                                                                        | Query shape                                                                                                                                                 |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `affected_users`    | Anything a person experiences: a captured exception with person context, a dead click, a rage click, a failed request on a surface, a broken URL.                                                                 | Exactly one series, `math: "dau"`. `value_format: "count"`.                                                                                                 |
+| `affected_sessions` | A source that establishes sessions but not people.                                                                                                                                                                | Exactly one series, `math: "unique_session"`. `value_format: "count"`.                                                                                      |
+| `occurrences`       | Noise, and backend failures: a report asking the team to stop reporting something as an error, a Temporal, Celery, or job exception with no person on the event, or a volume counter such as tool calls per week. | Total count. `value_format: "count"`.                                                                                                                       |
+| `error_rate`        | A flow that fails.                                                                                                                                                                                                | Two series plus one formula such as `B / A`, with percentage formatting.                                                                                    |
+| `conversion_rate`   | A flow that stalls.                                                                                                                                                                                               | Same shape as `error_rate`.                                                                                                                                 |
+| `duration`          | A source that measures time.                                                                                                                                                                                      | A numeric property aggregation such as `avg` or `p95` with `math_property`. `value_format: "duration"`, `unit` of `ms` or `s`, and a non-negative snapshot. |
+| `revenue`           | A source that measures money.                                                                                                                                                                                     | A `sum` over the amount property with `math_property`. `value_format: "currency"`, `unit` of an uppercase three-letter ISO code such as `USD`.              |
+| `custom`            | A measurement that no kind above covers.                                                                                                                                                                          | Still needs a live event or action query.                                                                                                                   |
 
 **A figure with no event or action query behind it stays in the prose.**
 A database statistic, a build time read from another tool, or a number quoted from an external source has no query, so it cannot be a metric.
 
 **A noise report where nobody was hurt takes `occurrences`, never `affected_users`.**
+
+**The server checks the aggregation for `affected_users` and `affected_sessions` only.**
+A plain event count formatted as `duration` or `revenue` passes validation and then prints a count beside a time or currency unit, so pick the aggregation from the row above rather than relying on the refusal.
 
 **An `affected_users` metric means distinct PostHog people**, not sessions, events, requests, traces, groups, or the report's signal count.
 `affected_sessions` means distinct sessions.
@@ -226,7 +232,8 @@ It never replaces the required live query.
 - **Never author a snapshot-only or queryless row.** Those shapes are legacy or malformed, and the server always redacts them.
 - **Leave `comparison` unset.** The server does not yet keep an adjacent comparison window live, so an authored comparison is stored and never shown.
 
-A reader opening the report refreshes the metric, which replaces `value`, `value_at`, and `series`, and clears `comparison`.
+A refresh replaces `value`, `value_at`, and `series`, and clears `comparison`.
+It runs only when a client posts to the report's `refresh_metrics` endpoint; reading a report does not refresh anything on its own.
 Listing reports never executes a metric query: a row carries the metric metadata and any readable cached snapshot, but no query definition.
 
 #### A reader may see the tile without its data
@@ -247,8 +254,9 @@ Prefer the few measurements that change the decision.
 
 **`metrics` on an edit is the report's whole set, not an addition**, exactly like `charts`.
 Omit the field to keep the metrics the report has, send the complete replacement list to change them, or send `metrics: []` to clear them.
-Re-send a `metric_id` with a newer query or snapshot to refresh that metric.
+Re-send a `metric_id` with a newer query or snapshot to replace that metric.
 Read the report first (`inbox-reports-retrieve` returns its metrics) when you mean to add one.
+**A metric that comes back with a null `query` is redacted, not empty.** You cannot re-send it, because the write shape requires a query, and leaving it out deletes that tile. Omit `metrics` altogether on such a report, and leave the change to a reader who can see every row.
 
 Every metric title, caption, snapshot, and query goes before the safety judge, the same as the report prose.
 
