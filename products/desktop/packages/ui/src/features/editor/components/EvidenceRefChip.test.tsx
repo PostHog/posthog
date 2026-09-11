@@ -122,7 +122,7 @@ describe("EvidenceRefChip", () => {
     expect(screen.queryByRole("link")).toBeNull();
   });
 
-  it("opens the card from keyboard focus on a linked reference", () => {
+  it("opens the card from keyboard focus and closes it after navigation", () => {
     signIn();
     renderInTheme(
       <EvidenceRefChip target={{ kind: "insight", id: "9pQx3" }}>
@@ -135,9 +135,13 @@ describe("EvidenceRefChip", () => {
     // real elements a keyboard user can Tab to.
     const dialog = screen.getByRole("dialog");
     expect(dialog).toBeDefined();
-    expect(
-      screen.getByRole("button", { name: /Open in PostHog/ }),
-    ).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: /Open in PostHog/ }));
+
+    expect(openExternalUrl).toHaveBeenCalledWith(
+      "https://us.posthog.com/project/2/insights/9pQx3",
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("lets the card follow the active theme instead of forcing dark", () => {
