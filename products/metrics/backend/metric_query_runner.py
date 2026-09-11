@@ -42,34 +42,24 @@ AttributeScope = Literal["resource", "attribute", "auto"]
 
 _ALLOWED_ATTRIBUTE_SCOPES: frozenset[str] = frozenset({"resource", "attribute", "auto"})
 
-# Hard bound on bucketed rows per query; hitting it raises instead of
-# silently truncating the tail of the time range (ORDER BY time ASC means
-# the most recent buckets would be the ones dropped).
+# Limit bucket rows. Raise an error instead of hiding recent buckets.
 _ROW_LIMIT = 10000
 
 # A series record updates every 30 minutes. The one-hour buffer allows late updates.
 _SERIES_LAST_SEEN_BUFFER = dt.timedelta(hours=1)
 
-# Widest queryable range. Counter/histogram queries scan raw samples within
-# the range on the ClickHouse cluster shared with the live logs/traces
-# products, so the span has to be bounded. The bound stays on the requested
-# range: `date_from` snaps back to its bucket boundary and the counter and
-# histogram scans reach a further `counter_lookback(interval)` for a
-# predecessor sample, so the scan exceeds the request by under one interval
-# step plus the lookback (up to two weeks of extra daily partitions at the
-# `week` interval, a single one on the common sub-day charts).
+# Limit the query range on the shared ClickHouse cluster.
+# Counter and histogram queries read one bucket plus the predecessor lookback.
 MAX_QUERY_SPAN = dt.timedelta(days=31)
 
-# These run on the shared logs cluster; cap how much one query may read.
+# These queries use the shared logs cluster. Limit reads.
 _QUERY_SETTINGS = HogQLGlobalSettings(
     max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,
     read_overflow_mode="throw",
 )
 
-# The OTel service name is a first-class column on both `metrics` and
-# `metric_series` (extracted at ingest from the `service.name` resource
-# attribute); both spellings resolve to it so filters/group-bys match real
-# ingested rows.
+# Ingestion extracts `service.name` to a column on both metrics tables.
+# Map both spellings to that column for filters and group-bys.
 _SERVICE_NAME_KEYS: frozenset[str] = frozenset({"service_name", "service.name"})
 
 
@@ -107,10 +97,8 @@ def attribute_field(name: str, *, scope: AttributeScope = "auto") -> ast.Expr:
 
     name_constant = ast.Constant(value=name)
 
-    # arrayElement, not subscript: HogQL prints `field[...]` on a
-    # StringJSONDatabaseField as JSONExtractRaw, which is illegal on the
-    # physical Map columns. arrayElement passes through and is ClickHouse's
-    # native Map accessor ('' for missing keys).
+    # Use `arrayElement`. Subscript syntax is invalid on physical Map columns.
+    # It is ClickHouse's Map accessor and returns an empty string for missing keys.
     if scope == "resource":
         return parse_expr("arrayElement(resource_attributes, {name})", placeholders={"name": name_constant})
     if scope == "attribute":
@@ -180,8 +168,7 @@ _ALLOWED_AGGREGATIONS: frozenset[str] = frozenset(
     {"sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"}
 )
 
-# Derived from the contract enum (whose values match what the ingest writes,
-# rust/capture-logs `flatten_metric`) so the two can't silently diverge.
+# Derive this from the contract enum to match ingestion values.
 _ALLOWED_METRIC_TYPES: frozenset[str] = frozenset(t.value for t in MetricType)
 
 
@@ -211,11 +198,10 @@ def _histogram_quantile(quantile: float, bounds: list[float], counts: list[float
     return bounds[-1]
 
 
-# Target ~60 buckets across the requested range — feels right for a chart.
+# Target about 60 chart buckets.
 _TARGET_BUCKET_COUNT = 60
 
-# Order from finest to coarsest. The first interval that yields
-# <= _TARGET_BUCKET_COUNT buckets wins.
+# List intervals from finest to coarsest.
 _INTERVAL_LADDER: list[tuple[str, dt.timedelta, ast.Call]] = [
     ("second", dt.timedelta(seconds=1), ast.Call(name="toIntervalSecond", args=[ast.Constant(value=1)])),
     ("minute", dt.timedelta(minutes=1), ast.Call(name="toIntervalMinute", args=[ast.Constant(value=1)])),
@@ -280,24 +266,17 @@ def _align_to_interval(timestamp: dt.datetime, interval: str, *, tzinfo: ZoneInf
     local = timestamp.astimezone(tzinfo)
     midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
     if interval == "week":
-        # ClickHouse's week interval starts on Monday, unlike its own
-        # `toStartOfWeek`, which defaults to Sunday.
+        # ClickHouse week intervals start on Monday. `toStartOfWeek` defaults to Sunday.
         return (midnight - dt.timedelta(days=midnight.weekday())).astimezone(dt.UTC)
     if interval == "day":
         return midnight.astimezone(dt.UTC)
-    # ClickHouse counts elapsed seconds from the midnight instant, so this adds
-    # a real duration rather than doing wall-clock arithmetic. A day shortened
-    # or lengthened by a DST transition then keeps both grids on the same
-    # boundaries.
+    # Use elapsed time from local midnight. This keeps DST boundaries aligned.
     step = _interval_step(interval)
     return midnight.astimezone(dt.UTC) + (local.astimezone(dt.UTC) - midnight.astimezone(dt.UTC)) // step * step
 
 
-# Prometheus's default lookback delta. One interval step on its own is not
-# enough when the scrape interval is coarser than the bucket — a 60s scrape on
-# a `second` or `minute` chart — and `metrics` sorts by an hourly `time_bucket`
-# with `timestamp` last in the key, so reaching back five minutes inside an hour
-# reads the same granules as reaching back one.
+# Use Prometheus's default lookback. It supports scrapes slower than a bucket.
+# A five-minute lookback reads the same hourly granules as a shorter one.
 _MIN_COUNTER_LOOKBACK = dt.timedelta(minutes=5)
 
 
@@ -325,9 +304,7 @@ def _filter_condition(filter: MetricFilter) -> ast.Expr:
     """
     field = attribute_field(filter.key, scope=filter.scope.value)
     if filter.op in (FilterOp.REGEX, FilterOp.NOT_REGEX):
-        # Pre-validate so a bad pattern is a 400, not a ClickHouse
-        # CANNOT_COMPILE_REGEXP 500. Python `re` accepts a superset of RE2,
-        # so this catches syntax errors without rejecting valid patterns.
+        # Return 400 for invalid patterns. Python accepts all valid RE2 syntax.
         try:
             re.compile(filter.value)
         except re.error as exc:
@@ -552,8 +529,7 @@ class MetricQueryRunner:
         self.metric_name = metric_name
         self.aggregation = aggregation
         self.interval = interval or _pick_interval(date_from, date_to)
-        # Validation above bounds the requested range; the scan then starts at
-        # the bucket boundary so the first bucket covers its whole interval.
+        # Start at the bucket boundary so the first bucket is complete.
         self.date_from = _align_to_interval(date_from, self.interval, tzinfo=team.timezone_info)
         self.date_to = date_to
         self.filters = tuple(filters)
@@ -620,9 +596,7 @@ class MetricQueryRunner:
             bounds = list(row[1 + group_count])
             counts = list(row[3 + group_count])
             if sum(counts) <= 0:
-                # No computable increase in this bucket (e.g. a cumulative
-                # series' first sample has nothing to diff against). A gap is
-                # honest; a fabricated quantile of 0 reads as "p95 is 0s".
+                # The bucket has no computable increase. Return a gap, not zero.
                 continue
             rows.append(
                 {
@@ -668,7 +642,7 @@ class MetricQueryRunner:
             ),
         )
         # The joined query resolves labels as `group_i`.
-        # The outer query reads `ser.group_i`, not the label maps.
+        # The outer query reads `ser.group_i`, not label maps.
         for index in range(len(self.group_by)):
             alias = f"group_{index}"
             query.select.insert(1 + index, ast.Alias(alias=alias, expr=ast.Field(chain=["ser", alias])))
@@ -697,8 +671,7 @@ class MetricQueryRunner:
         Group-by labels join onto the reduced series by fingerprint. A label is
         constant within a series, so the outer query groups on it directly.
         """
-        # `metrics` is only registered under the `posthog.` HogQL namespace
-        # (see posthog/hogql/database/database.py).
+        # `metrics` is registered only in the `posthog.` HogQL namespace.
         query = parse_select(
             """
                 SELECT

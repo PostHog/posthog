@@ -43,14 +43,13 @@ from products.metrics.backend.facade.contracts import MetricsOverview, MetricsSe
 
 tracer = trace.get_tracer(__name__)
 
-# The overview tolerates partial results, so reads break at the budget instead
-# of erroring the way the chart queries do. Mirrors MetricNamesQueryRunner.
+# The overview accepts partial results. Stop at the read limit.
 _QUERY_SETTINGS = HogQLGlobalSettings(
     max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,
     read_overflow_mode="break",
 )
 
-# More services than this stops being an overview; the largest win.
+# Show only the largest services.
 MAX_SERVICES = 500
 
 DEFAULT_LOOKBACK = dt.timedelta(days=1)
@@ -83,8 +82,7 @@ class MetricsOverviewQueryRunner:
     def _run_freshness(self) -> str | None:
         with tracer.start_as_current_span("metrics.overview.freshness") as span:
             span.set_attribute("team_id", self.team.pk)
-            # This query reports the last data point, even after ingestion stops.
-            # It reads only `last_seen`.
+            # Report the last data point, even after ingestion stops.
             query = parse_select("SELECT max(toNullable(last_seen)) AS last_seen_at FROM posthog.metric_series")
             assert isinstance(query, ast.SelectQuery)
 
@@ -103,7 +101,7 @@ class MetricsOverviewQueryRunner:
     def _run_counts(self) -> tuple[int, int]:
         with tracer.start_as_current_span("metrics.overview.counts") as span:
             span.set_attribute("team_id", self.team.pk)
-            # Put the time window in WHERE so `idx_last_seen_minmax` skips old parts.
+            # Put the time window in WHERE so the index skips old parts.
             query = parse_select(
                 """
                     SELECT
