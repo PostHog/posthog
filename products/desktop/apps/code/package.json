@@ -83,6 +83,7 @@
     "yaml": "^2.9.0"
   },
   "dependencies": {
+    "@earendil-works/pi-coding-agent": "catalog:",
     "@inversifyjs/strongly-typed": "2.2.0",
     "@opentelemetry/exporter-logs-otlp-http": "^0.208.0",
     "@opentelemetry/resources": "^2.5.0",

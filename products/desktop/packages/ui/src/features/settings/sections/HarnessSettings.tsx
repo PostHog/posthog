@@ -5,9 +5,11 @@ import {
   SettingsCardRow,
   SettingsSection,
 } from "@posthog/ui/features/settings/components/SettingsCard";
+import { usePiSubscription } from "@posthog/ui/features/settings/piSubscription";
 import { ClaudeSubscriptionSettings } from "@posthog/ui/features/settings/sections/ClaudeSubscriptionSettings";
 import { CodexSubscriptionSettings } from "@posthog/ui/features/settings/sections/CodexSubscriptionSettings";
 import { PermissionsSettings } from "@posthog/ui/features/settings/sections/PermissionsSettings";
+import { PiSubscriptionSettings } from "@posthog/ui/features/settings/sections/PiSubscriptionSettings";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { track } from "@posthog/ui/shell/analytics";
@@ -78,6 +80,10 @@ function SettingDescription({
 export function HarnessSettings() {
   const { allowBypassPermissions, setAllowBypassPermissions } =
     useSettingsStore();
+  const piAnthropicSubscription = usePiSubscription("anthropic");
+  const piCodexSubscription = usePiSubscription("openai-codex");
+  const piSectionEnabled =
+    piAnthropicSubscription.flagEnabled || piCodexSubscription.flagEnabled;
 
   const [showBypassWarning, setShowBypassWarning] = useState(false);
 
@@ -221,6 +227,28 @@ export function HarnessSettings() {
           </SettingsCardRow>
         </SettingsCard>
       </SettingsSection>
+
+      {piSectionEnabled && (
+        <SettingsSection
+          label="Pi"
+          description="Run Pi sessions on your own Claude or ChatGPT subscription instead of PostHog credits"
+        >
+          <SettingsCard>
+            <PiSubscriptionSettings
+              provider="anthropic"
+              accountLabel="Claude"
+              connectLabel="Connect Claude account"
+              summary="Local and worktree Pi sessions run on your Claude plan instead of PostHog credits. Cloud tasks always use PostHog credits"
+            />
+            <PiSubscriptionSettings
+              provider="openai-codex"
+              accountLabel="ChatGPT"
+              connectLabel="Connect ChatGPT account"
+              summary="Local and worktree Pi sessions run on your ChatGPT plan instead of PostHog credits. Cloud tasks always use PostHog credits"
+            />
+          </SettingsCard>
+        </SettingsSection>
+      )}
 
       <SettingsSection
         label="Permissions"
