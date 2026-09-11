@@ -471,6 +471,9 @@ jobs:
         if: needs.check-changesets.outputs.has-changesets == 'false'
         runs-on: ubuntu-latest
         timeout-minutes: 5
+        permissions:
+            contents: read
+            pull-requests: read
         outputs:
             new-version: ${{ steps.release-metadata.outputs.new-version }}
             release-tag: ${{ steps.release-metadata.outputs.release-tag }}
@@ -484,12 +487,51 @@ jobs:
 
             - name: Identify release commit
               id: release-metadata
+              env:
+                  GH_TOKEN: \${{ github.token }}
+                  RELEASE_APP: releaser-posthog-cli[bot]
+                  RELEASE_BRANCH: chore/release-posthog-cli
+                  RELEASE_COMMIT: \${{ github.sha }}
+                  REPOSITORY: \${{ github.repository }}
               run: |
-                  subject=$(git log -1 --format=%s)
-                  changed_changesets=$(git diff --name-only HEAD^ HEAD -- cli/.sampo/changesets)
-                  if ! [[ "$subject" =~ ^chore\(cli\):\ release\ v ]] || [ -z "$changed_changesets" ]; then
-                      echo "This is not a merged CLI release pull request"
-                      exit 0
+                  release_prs=$(gh api --paginate "repos/$REPOSITORY/commits/$RELEASE_COMMIT/pulls" \
+                      --jq '.[] | select(.merged_at != null and .base.ref == "master" and .head.ref == "chore/release-posthog-cli") | .number')
+                  if [ "$(printf '%s\n' "$release_prs" | sed '/^$/d' | wc -l)" -ne 1 ]; then
+                      echo "::error::Expected one merged CLI release pull request for $RELEASE_COMMIT"
+                      exit 1
+                  fi
+                  release_pr=$(printf '%s\n' "$release_prs" | sed -n '1p')
+
+                  pr_data=$(gh api "repos/$REPOSITORY/pulls/$release_pr")
+                  if [ "$(printf '%s' "$pr_data" | jq -r '.user.login')" != "$RELEASE_APP" ]; then
+                      echo "::error::The release pull request was not created by $RELEASE_APP"
+                      exit 1
+                  fi
+
+                  release_head=$(printf '%s' "$pr_data" | jq -r '.head.sha')
+                  if [ "$(gh api "repos/$REPOSITORY/commits/$release_head" --jq '.author.login // empty')" != "$RELEASE_APP" ]; then
+                      echo "::error::The release pull request head was not created by $RELEASE_APP"
+                      exit 1
+                  fi
+
+                  release_files=$(gh api --paginate "repos/$REPOSITORY/pulls/$release_pr/files" --jq '.[].filename')
+                  unexpected=$(printf '%s\n' "$release_files" | grep -Ev '^(cli/Cargo\.toml|cli/Cargo\.lock|cli/CHANGELOG\.md|cli/\.sampo/changesets/[^/]+\.md)$' || true)
+                  if [ -n "$unexpected" ]; then
+                      echo "::error::Unexpected files in the CLI release pull request:"
+                      echo "$unexpected"
+                      exit 1
+                  fi
+
+                  removed_changesets=$(gh api --paginate "repos/$REPOSITORY/pulls/$release_pr/files" \
+                      --jq '.[] | select(.status == "removed" and (.filename | test("^cli/\\.sampo/changesets/[^/]+\\.md$"))) | .filename')
+                  if [ -z "$removed_changesets" ]; then
+                      echo "::error::The CLI release pull request did not remove a changeset"
+                      exit 1
+                  fi
+
+                  if ! printf '%s\n' "$release_files" | grep -qx 'cli/Cargo.lock'; then
+                      echo "::error::The CLI release pull request did not update cli/Cargo.lock"
+                      exit 1
                   fi
 
                   new_version=$(grep '^version = ' cli/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
