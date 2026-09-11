@@ -2667,7 +2667,7 @@ SELECT
   max(ai_highlighted) AS ai_highlighted,
   max(surfacing_score) AS surfacing_score,
   argMinState(snapshot_mode, first_timestamp) AS snapshot_mode,
-  argMinState(CAST(replay.snapshot_mode AS Nullable(String)), first_timestamp) AS snapshot_mode_v2
+  argMinState(CAST(replay.snapshot_mode, 'Nullable(String)'), first_timestamp) AS snapshot_mode_v2
 FROM posthog.kafka_session_replay_events AS replay
 GROUP BY
   session_id, team_id
