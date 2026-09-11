@@ -103,9 +103,17 @@ def _workflow_not_found() -> RPCError:
     return RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")
 
 
+def _enable_backfills_flag(test: APIBaseTest) -> None:
+    """Turn the rollout flag on for one test, the way a project that opted in sees the API."""
+    flag = patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
+    flag.start()
+    test.addCleanup(flag.stop)
+
+
 class TestEvaluationBackfillsApi(APIBaseTest):
     def setUp(self):
         super().setUp()
+        _enable_backfills_flag(self)
         self.evaluation = _evaluation(self.team, [{"id": "c1", "properties": [], "rollout_percentage": 50}])
         self.url = f"/api/projects/{self.team.id}/evaluations/{self.evaluation.id}/backfills"
 
@@ -562,6 +570,25 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert second.json()["status"] == EvaluationBackfillStatus.CANCELLED
         assert second.json()["finished_at"] == first.json()["finished_at"]
 
+    @parameterized.expand(
+        [
+            ("list", "get", "/", None),
+            (
+                "estimate",
+                "post",
+                "/estimate/",
+                {"window_start": "2024-01-01T00:00:00Z", "window_end": "2024-01-02T00:00:00Z"},
+            ),
+            ("create", "post", "/", {"window_start": "2024-01-01T00:00:00Z", "window_end": "2024-01-02T00:00:00Z"}),
+        ]
+    )
+    def test_every_action_is_off_while_the_flag_is_off(self, _case, method, path, payload):
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=False):
+            response = getattr(self.client, method)(f"{self.url}{path}", payload, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert EvaluationBackfill.objects.unscoped().count() == 0
+
     def test_list_is_scoped_to_evaluation_and_team(self):
         mine = self._running_backfill()
         self._running_backfill(_evaluation(_other_team()))
@@ -575,6 +602,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
 class TestEvaluationBackfillsAccessControl(APIBaseTest):
     def setUp(self):
         super().setUp()
+        _enable_backfills_flag(self)
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},

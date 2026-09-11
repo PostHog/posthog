@@ -109,7 +109,8 @@ def _found(candidates: list[CandidatePayload], *, exhausted: bool = False) -> Fi
 
 async def _run(mocks: _BackfillMocks, inputs: EvaluationBackfillInputs | None = None):
     # `workflow.logger` reaches into the workflow runtime, which isn't set up here.
-    fake_logger = type("Logger", (), {"exception": staticmethod(lambda *_a, **_kw: None)})()
+    noop = staticmethod(lambda *_a, **_kw: None)
+    fake_logger = type("Logger", (), {"exception": noop, "warning": noop})()
     with (
         patch("temporalio.workflow.logger", fake_logger),
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
@@ -189,6 +190,23 @@ class TestEvaluationBackfillWorkflow:
 
         advance = _advance_input(mocks)
         assert (advance.dispatched_delta, advance.skipped_delta) == (2, 1)
+
+    @pytest.mark.asyncio
+    async def test_a_start_failure_counts_as_neither_dispatched_nor_skipped(self) -> None:
+        mocks = _BackfillMocks(
+            activity_results={
+                prepare_evaluation_backfill_tick_activity: _tick(),
+                find_evaluation_backfill_candidates_activity: _found(
+                    [_candidate("u1"), _candidate("u2"), _candidate("u3")]
+                ),
+            },
+            child_errors_for_ids={"llma-hog-eval-E-u2-ingestion": RuntimeError("temporal refused the start")},
+        )
+
+        await _run(mocks)
+
+        advance = _advance_input(mocks)
+        assert (advance.dispatched_delta, advance.skipped_delta) == (2, 0)
 
     @pytest.mark.asyncio
     async def test_exhausted_page_finishes_without_continue_as_new(self) -> None:

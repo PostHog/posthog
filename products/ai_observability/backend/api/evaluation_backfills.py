@@ -30,7 +30,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.dataclasses import frozen
 from posthog.models.user import User
-from posthog.permissions import AccessControlPermission, APIScopePermission, TeamMemberAccessPermission
+from posthog.permissions import (
+    AccessControlPermission,
+    APIScopePermission,
+    PostHogFeatureFlagPermission,
+    TeamMemberAccessPermission,
+)
 from posthog.rate_limit import (
     AIObservabilityBackfillCreateSustainedThrottle,
     AIObservabilityBackfillCreateThrottle,
@@ -48,6 +53,7 @@ from posthog.temporal.ai_observability.run_aggregate_evaluation import INGESTION
 from posthog.temporal.ai_observability.run_session_evaluation import AI_EVENTS_RETENTION_DAYS
 from posthog.temporal.common.client import sync_connect
 
+from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 from products.ai_observability.backend.api.evaluations import EvaluationConditionSerializer
 from products.ai_observability.backend.backfill_candidates import count_backfill_candidates
 from products.ai_observability.backend.models.evaluation_backfill import ACTIVE_BACKFILL_STATUSES, EvaluationBackfill
@@ -240,6 +246,8 @@ class EvaluationBackfillViewSet(
 ):
     """Historical runs of one evaluation over a closed time window (nested under an evaluation)."""
 
+    # The same flag as the tab, so the API and the surface reach a project together.
+    posthog_feature_flag = "llm-analytics-eval-backfills"
     scope_object = "evaluation"
     scope_object_read_actions = ["list", "retrieve", "estimate"]
     scope_object_write_actions = WRITE_ACTIONS
@@ -254,6 +262,7 @@ class EvaluationBackfillViewSet(
             APIScopePermission(),
             EvaluationBackfillAccessControlPermission(),
             TeamMemberAccessPermission(),
+            PostHogFeatureFlagPermission(),
         ]
 
     def get_throttles(self) -> list[BaseThrottle]:
@@ -366,6 +375,7 @@ class EvaluationBackfillViewSet(
             for condition in source
         ]
         self._require_applicable_filters(evaluation, conditions)
+        self._reject_restricted_properties(conditions)
         return conditions
 
     def _require_applicable_filters(self, evaluation: Evaluation, conditions: list[dict[str, Any]]) -> None:
@@ -392,6 +402,24 @@ class EvaluationBackfillViewSet(
             error=str(error),
         )
         return ValidationError("A condition could not be applied. Check the filters and try again.")
+
+    def _reject_restricted_properties(self, conditions: list[dict[str, Any]]) -> None:
+        """Refuse a filter on a property this user cannot read.
+
+        The count runs as the team, not as the caller, so a filter on a hidden property would
+        answer how many units carry a given value. Names match across property classes, because
+        a filter type that resolves to no class must not become a way past the check.
+        """
+        user = self.request.user if self.request.user.is_authenticated else None
+        restricted = {
+            name for name, _ in get_restricted_properties_for_team(user=cast(User | None, user), team=self.team)
+        }
+        if not restricted:
+            return
+        for condition in conditions:
+            for property_filter in condition["properties"]:
+                if property_filter.get("key") in restricted:
+                    raise ValidationError("A condition filters on a property you cannot access.")
 
     def _count(
         self,
