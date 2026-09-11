@@ -13,7 +13,6 @@ import { normalizeMessages } from '../messageNormalization'
 import { extractContentText, formatScore } from '../sentimentUtils'
 import type { SentimentLabel } from '../sentimentUtils'
 import type { CompatMessage } from '../types'
-import { getTraceTimestamp } from '../utils'
 import type { GroupedSentimentCard, SentimentCard, SentimentCategory } from './aiObservabilitySentimentLogic'
 import { CLASSIFIER_WINDOW, aiObservabilitySentimentLogic } from './aiObservabilitySentimentLogic'
 
@@ -95,7 +94,7 @@ function SentimentCardRow({
     traceCount: number
 }): JSX.Element {
     const { generation, messageIndex, sentiment } = card
-    const { uuid, traceId, aiInput, timestamp, createdAt } = generation
+    const { uuid, traceId, aiInput, timestamp } = generation
     const { toggleCardExpanded, trackTraceClicked } = useActions(aiObservabilitySentimentLogic)
 
     const targetMessage = getMessageAtIndex(aiInput, messageIndex)
@@ -141,9 +140,12 @@ function SentimentCardRow({
                         </span>
                         <Tooltip title="View the trace with this user message expanded">
                             <Link
+                                // No timestamp param on purpose: a card knows its own
+                                // generation's time, and the trace can have started long before
+                                // it. Anchoring the trace lookup there cuts off everything
+                                // earlier, so the trace opens without its root.
                                 to={urls.aiObservabilityTrace(traceId, {
                                     event: uuid,
-                                    timestamp: getTraceTimestamp(createdAt),
                                     msg: String(messageIndex),
                                 })}
                                 className="text-xs ml-1"

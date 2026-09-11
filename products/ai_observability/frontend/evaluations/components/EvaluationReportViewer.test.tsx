@@ -194,6 +194,21 @@ describe('EvaluationReportViewer', () => {
         }
     )
 
+    // Regression: a generation-target citation with no trace ID linked its generation ID into the
+    // trace route, where it can never resolve, so the reader landed on "Trace not found".
+    it('leaves a generation citation with no trace ID unlinked', () => {
+        const generationId = 'generation-1'
+        const reportRun = buildReportRun(buildMetrics({ pass_rate: 80 }))
+        reportRun.content.sections = [{ title: 'Finding', content: `See \`${generationId}\`.` }]
+        reportRun.content.citations = [{ generation_id: generationId, reason: 'example' }]
+
+        render(<EvaluationReportViewer reportRun={reportRun} compact />)
+
+        const rendered = document.querySelector('[data-testid="react-markdown"]')?.textContent ?? ''
+        expect(rendered).not.toContain('/ai-observability/traces/')
+        expect(rendered).toBe(`See \`${generationId}\`.`)
+    })
+
     // $ai_session_id comes from ingestion, so it is attacker-controllable with the public project
     // token. Escaping the link destination turns the rest of the ID into live Markdown in a report
     // the team trusts — verified in a browser to render an external link and an image beacon.
