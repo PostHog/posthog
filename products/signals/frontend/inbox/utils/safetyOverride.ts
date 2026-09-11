@@ -1,16 +1,14 @@
 // Why PostHog declined to implement a report on its own, in words the confirmation can show.
-// Pure so the detail pane and the list row show the same sentence, and so the wording is testable
-// without a render.
+// Pure so the detail pane and the list row show the same sentence.
 
 import { SignalReport, SignalReportArtefact, SignalReportStatus } from '../types'
 
 /**
  * The safety judge's reason for rejecting this report, from its newest `safety_judgment` artefact.
+ * Null when the newest verdict approves the report, because an earlier override is itself a safe
+ * verdict and must not read back as a fresh rejection.
  *
- * Null when the report carries no verdict, when the newest verdict approves it (an earlier override
- * is itself a safe verdict, so it must not read as a fresh rejection), or when the verdict left no
- * explanation. The newest row of a status type is the canonical one, and ISO-8601 `created_at`
- * strings compare chronologically, so this does not depend on the API's response ordering.
+ * Selection compares ISO-8601 `created_at`, so it does not rely on the API's response ordering.
  */
 export function latestUnsafeSafetyExplanation(artefacts: SignalReportArtefact[] | null): string | null {
     let latest: SignalReportArtefact | null = null
@@ -27,9 +25,8 @@ export function latestUnsafeSafetyExplanation(artefacts: SignalReportArtefact[] 
 }
 
 /**
- * What the confirmation leads with: what PostHog decided about this report, and why.
- * `judgeExplanation` comes from {@link latestUnsafeSafetyExplanation}. Without one, the report's
- * status is the most specific thing we can say, so the copy says only that.
+ * What the confirmation leads with. Without a `judgeExplanation`, the report's status is the most
+ * specific thing we can say, so the copy says only that rather than claiming a verdict.
  */
 export function safetyOverrideReason(report: SignalReport, judgeExplanation: string | null): string {
     if (judgeExplanation) {

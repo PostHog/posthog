@@ -3,7 +3,6 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
 interface OpenSafetyOverrideDialogParams {
-    /** Report title, so the dialog names what is about to be implemented. */
     reportTitle?: string | null
     /** Why PostHog didn't implement the report on its own (see `safetyOverrideReason`). */
     reason: string
@@ -15,9 +14,8 @@ interface OpenSafetyOverrideDialogParams {
  * Confirm implementing a report PostHog declined to implement on its own, and collect the steer the
  * run should carry. Resolves the note on confirm, or null if the person backed out.
  *
- * The reason is stated before the person can act, because that verdict is the only thing they have
- * to disagree with. Confirming is one button rather than a typed phrase: this is the escape hatch
- * for a judge that was wrong, and a gate that is tedious to pass is one people route around.
+ * Confirming is one button rather than a typed phrase, because a gate that is tedious to pass is
+ * one people route around, and this is the escape hatch for a judge that was wrong.
  */
 export function openSafetyOverrideDialog({
     reportTitle,
@@ -25,8 +23,8 @@ export function openSafetyOverrideDialog({
     initialNote = '',
 }: OpenSafetyOverrideDialogParams): Promise<string | null> {
     return new Promise((resolve) => {
-        // Written by onSubmit, read by onAfterClose, which runs for a confirm and a dismissal alike
-        // — so a closed dialog always settles the promise exactly once.
+        // `onAfterClose` runs for a confirm and a dismissal alike, so a closed dialog settles the
+        // promise exactly once.
         let confirmedNote: string | null = null
         LemonDialog.openForm({
             title: `Implement "${reportTitle?.trim() ? reportTitle : 'Untitled report'}" anyway?`,
@@ -41,8 +39,8 @@ export function openSafetyOverrideDialog({
                     info="Optional. Saying what you want changed, or why the safety check was wrong, gives the run a better shot."
                 >
                     <LemonTextArea
-                        // stopPropagation keeps Enter in this multi-line note from reaching the
-                        // dialog form and starting the run mid-sentence.
+                        // Keeps Enter in this multi-line note from reaching the dialog form and
+                        // starting the run mid-sentence.
                         stopPropagation
                         autoFocus
                         placeholder="What should the agent do, or why was the report safe to act on?"

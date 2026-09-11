@@ -696,8 +696,7 @@ class SignalReportBulkStateResponseSerializer(serializers.Serializer):
     not_found_count = serializers.IntegerField(help_text="Number of requested ids not visible to the caller.")
 
 
-# The steer a person types when they overrule the safety judge is the same textarea the Create PR
-# popover already offers, so it is capped the same way as the other report notes.
+# Same textarea the Create PR popover already offers, so it is capped like the other report notes.
 SIGNAL_REPORT_SAFETY_OVERRIDE_NOTE_MAX_LENGTH = SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH
 
 
@@ -1023,12 +1022,11 @@ class SignalReportViewSet(
     # can reach suppressed reports too. `refund` is included so an already-archived but
     # billed report can still be refunded, and `feedback` because the detail view the
     # Dismissed tab renders ends in the thumbs rating, which must be able to forward its
-    # note for the report it is displayed on. `safety_override` is the second mutating entry, for
-    # the same reason as `state`: a report the safety judge suppressed at birth is exactly the one a
-    # person needs to be able to overrule, so it has to be reachable by id. Mutating-by-ID actions
-    # that are not a reader's decision about a report in front of them (delete, reingest) are
-    # deliberately NOT here, so a suppressed report stays unreachable for those and keeps
-    # returning 404 — matching the existing contract.
+    # note for the report it is displayed on. `safety_override` is here for the same reason as
+    # `state`: a report the safety judge suppressed at birth is the one a person most needs to
+    # reach by id. Mutating-by-ID actions that are not a reader's decision about the report in
+    # front of them (delete, reingest) are deliberately NOT here, so a suppressed report stays
+    # unreachable for those and keeps returning 404 — matching the existing contract.
     # `viewed` follows `retrieve` for the same reason: the Dismissed tab's detail view records its
     # open like any other. `pr_checks` and `pr_comments` are there because that same view renders the
     # read-only PR panel whatever the report's status is.
@@ -2368,10 +2366,9 @@ class SignalReportViewSet(
         except SafetyOverrideNotAllowed as e:
             return Response({"error": str(e)}, status=status.HTTP_409_CONFLICT)
 
-        # `previous_status` and `judge_verdict` are what make overrides measurable: which blocked
-        # status people rescue reports from, and whether they were overruling a rejection the judge
-        # explained or a report nothing had looked at. `scout_name` splits that per scout, so a
-        # scout whose reports are routinely overridden becomes visible as one.
+        # `previous_status` and `judge_verdict` record which blocked status people rescue reports
+        # from, and whether they overruled an explained rejection or a report nothing had looked
+        # at. `scout_name` splits that per scout, so a routinely-overridden scout becomes visible.
         report_user_action(
             user,
             "signals_report_safety_overridden",

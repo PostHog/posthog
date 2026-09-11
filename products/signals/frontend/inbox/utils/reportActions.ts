@@ -1,15 +1,12 @@
 // Pure eligibility predicates for report actions, shared by the detail pane, the triage flow, and
-// the list row context menu, so the surfaces cannot drift apart. The desktop app has its own
-// `reportActions.ts`; it still offers Create PR only on a report the pipeline approved, because the
-// override below needs a confirmation surface the desktop does not have yet.
+// the list row context menu, so the surfaces cannot drift apart. The desktop app's own
+// `reportActions.ts` deliberately stays narrower: it has no confirmation surface for the override.
 
 import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../types'
 
 /**
  * Statuses a report sits in when PostHog declined to implement it on its own: the safety judge
- * rejected it (born suppressed, or failed carrying the judge's error), or the pipeline has not
- * researched it yet. Create PR is offered on these, behind a confirmation that states the reason —
- * a person who has read the verdict and disagrees with it is the one the escape hatch is for.
+ * rejected it (born suppressed, or failed), or the pipeline has not researched it yet.
  */
 export const SAFETY_OVERRIDE_STATUSES: readonly SignalReportStatus[] = [
     SignalReportStatus.POTENTIAL,
@@ -20,8 +17,7 @@ export const SAFETY_OVERRIDE_STATUSES: readonly SignalReportStatus[] = [
 
 /**
  * Should the Create PR action be offered? A report the pipeline approved (ready & actionable, or
- * blocked on user input the person can supply) offers it directly; a report PostHog declined to
- * implement offers it behind {@link requiresSafetyOverride}'s confirmation.
+ * blocked on user input) offers it directly; a blocked one offers it behind a confirmation.
  */
 export function canCreateImplementationPr(report: SignalReport): boolean {
     if (report.implementation_pr_url) {
@@ -41,12 +37,10 @@ export function canCreateImplementationPr(report: SignalReport): boolean {
 
 /**
  * Does pressing Create PR on this report overrule a decision PostHog already made? Such a report
- * needs the confirmation and the recorded override before the run starts (see
- * `openSafetyOverrideDialog` and the `safety_override` endpoint).
+ * needs the confirmation and the recorded override before the run starts.
  *
- * A report the actionability judge called `not_actionable` is excluded even here: the product's own
- * reading is that it holds no work to do, which is a different claim from "we would not risk it",
- * and resolving it has its own button.
+ * `not_actionable` is excluded even here, because that judgment says the report holds no work to
+ * do, which is a different claim from "we would not risk it".
  */
 export function requiresSafetyOverride(report: SignalReport): boolean {
     return SAFETY_OVERRIDE_STATUSES.includes(report.status) && report.actionability !== 'not_actionable'

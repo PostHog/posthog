@@ -188,17 +188,15 @@ function handleKickoffError(
  * Show the override confirmation for a blocked report and return the steer the person confirmed
  * with, or null if they backed out.
  *
- * The judge's reason lives in the report's newest `safety_judgment` artefact, which the list row
- * has not loaded, so it is fetched here rather than threaded through every surface. A failed fetch
- * still confirms: the person loses the quoted verdict, not the choice, and `safetyOverrideReason`
- * falls back to what the report's status says.
+ * The judge's reason is fetched here rather than threaded through every surface, because the list
+ * row has not loaded the report's artefacts. A failed fetch still confirms: the person loses the
+ * quoted verdict, not the choice.
  */
 async function confirmSafetyOverride(report: SignalReport, feedback?: string): Promise<string | null> {
     let judgeExplanation: string | null = null
     try {
-        // The log is served newest-first and the safety verdict is written when the report is
-        // authored, so it sits at the far end of a report with any history. Matches the limit the
-        // detail pane's own artefact load uses.
+        // The log is served newest-first and the verdict is written when the report is authored, so
+        // it sits at the far end of any report with history. Same limit as the detail pane's load.
         const artefacts = await api.signalReports.artefacts(report.id, { limit: 1000 })
         judgeExplanation = latestUnsafeSafetyExplanation(artefacts.results)
     } catch {
@@ -439,10 +437,8 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 actions.createPrFailure()
                 return
             }
-            // A report PostHog declined to implement takes the override path: state the reason,
-            // collect the steer, and record the person's verdict server-side before the run exists.
-            // Every Create PR surface routes through this action, so the confirmation and the audit
-            // row cannot be skipped by whichever button was pressed.
+            // The override lives here rather than in each button because every Create PR surface
+            // dispatches this action, so no surface can skip the confirmation or the audit row.
             let note = feedback
             if (requiresSafetyOverride(report)) {
                 const confirmedNote = await confirmSafetyOverride(report, feedback)
@@ -455,8 +451,8 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 try {
                     await api.signalReports.overrideSafetyJudgment(report.id, note)
                 } catch (error: any) {
-                    // The 409 this can return (the report moved on since the row was rendered)
-                    // carries its reason under `error`, which is the only part worth reading back.
+                    // The 409 (the report moved on since the row was rendered) carries its reason
+                    // under `error`.
                     lemonToast.error(
                         error?.data?.error ||
                             error?.detail ||
