@@ -1195,7 +1195,8 @@ def test_register_worker_memory_stays_above_the_oom_floor() -> None:
     )
 
 
-def test_landing_copy_denial_stops_the_run_and_names_the_landing_prefix(monkeypatch):
+def test_landing_copy_denial_stops_the_run_and_names_both_copy_prefixes(monkeypatch):
+    source_uri = "s3://source/team/customers__query_1234567890_abcdef12"
     landing_uri = "s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/1234567890_abcdef12"
 
     class DeniedS3:
@@ -1212,12 +1213,10 @@ def test_landing_copy_denial_stops_the_run_and_names_the_landing_prefix(monkeypa
     monkeypatch.setattr(registration_module, "get_s3_client", lambda: DeniedS3())
 
     with pytest.raises(ApplicationError) as failure:
-        registration_module._copy_prepared_parquet_files(
-            "s3://source/team/customers__query_1234567890_abcdef12",
-            landing_uri,
-        )
+        registration_module._copy_prepared_parquet_files(source_uri, landing_uri)
 
     assert failure.value.non_retryable is True
+    assert source_uri in failure.value.message
     assert landing_uri in failure.value.message
     assert "arn:aws" not in failure.value.message
     assert isinstance(failure.value.__cause__, PermissionError)

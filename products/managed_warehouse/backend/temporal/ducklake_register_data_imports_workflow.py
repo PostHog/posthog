@@ -519,14 +519,21 @@ def _copy_prepared_parquet_files(source_uri: str, landing_uri: str) -> tuple[lis
     except PermissionError as error:
         # s3fs collapses every S3 auth-failure response code (AccessDenied, ExpiredToken,
         # InvalidAccessKeyId) into a bare PermissionError whose message carries the worker's
-        # account id and role ARN. The copy writes to the organization's DuckLake bucket with
-        # the worker's own credentials, so a denial here means that bucket policy is missing the
-        # worker role's write grant (see the required permissions in the product README). A retry
-        # cannot recover a missing grant, so name the target prefix and stop. The raw message
-        # stays in the chained cause for the worker logs instead of in the recorded job error.
+        # account id and role ARN, and a 403 body carries no code to tell them apart. CopyObject
+        # runs with the worker's own credentials, and needs read on our prepared-files bucket and
+        # write on the organization's DuckLake bucket, so the denial can come from either side. On
+        # our own bucket it can also be the transient IMDS/STS credential-resolution race that
+        # repartition_table._is_transient_infra_error documents. So the message names both prefixes
+        # and both grants instead of asserting one cause, and the product README lists the DuckLake
+        # bucket permissions the worker role needs. non_retryable removes no attempt, because the
+        # workflow already schedules this activity with maximum_attempts=1. It selects the written
+        # message for the recorded job error (see _recorded_failure_message), and the raw provider
+        # message stays in the chained cause for the worker logs.
         raise ApplicationError(
-            f"Access denied writing prepared Parquet files to s3://{landing_prefix}. "
-            "Grant the managed warehouse worker role write access to this bucket prefix.",
+            f"Denied copying prepared Parquet files from s3://{source_prefix} to s3://{landing_prefix}. "
+            "Check that the managed warehouse worker role can write to the landing prefix and read "
+            "the source prefix. If both grants are in place, this was a temporary credential "
+            "failure, so re-run the import.",
             non_retryable=True,
         ) from error
 
