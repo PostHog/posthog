@@ -122,10 +122,38 @@ function isResumeContextTurn(turn: ConversationTurn): boolean {
   return RESUME_CONTEXT_MARKERS.some((marker) => text.includes(marker));
 }
 
+/** The result text the summary shows for one tool call, cut to the render cap. */
+function renderToolResult(result: unknown): string {
+  const raw = typeof result === "string" ? result : JSON.stringify(result);
+  return raw.length > TOOL_RESULT_MAX_CHARS
+    ? `${raw.substring(0, TOOL_RESULT_MAX_CHARS)}...(truncated)`
+    : raw;
+}
+
+/**
+ * Charge the history budget for what the summary renders. The summary shows a
+ * call's name and a capped result and never its input, so estimating the stored
+ * payloads instead sheds whole calls — and the turns around them — that would
+ * have rendered in a few hundred characters.
+ */
+function withRenderedToolPayloads(turn: ConversationTurn): ConversationTurn {
+  if (!turn.toolCalls?.length) return turn;
+  return {
+    ...turn,
+    toolCalls: turn.toolCalls.map((tc) => ({
+      ...tc,
+      input: undefined,
+      result: tc.result === undefined ? undefined : renderToolResult(tc.result),
+    })),
+  };
+}
+
 export function formatConversationForResume(
   conversation: ConversationTurn[],
 ): string {
-  const filtered = conversation.filter((turn) => !isResumeContextTurn(turn));
+  const filtered = conversation
+    .filter((turn) => !isResumeContextTurn(turn))
+    .map(withRenderedToolPayloads);
   const selected = selectRecentTurns(filtered, RESUME_HISTORY_TOKEN_BUDGET);
   const parts: string[] = [];
 
@@ -149,17 +177,8 @@ export function formatConversationForResume(
     if (turn.toolCalls?.length) {
       const toolSummary = turn.toolCalls
         .map((tc) => {
-          let resultStr = "";
-          if (tc.result !== undefined) {
-            const raw =
-              typeof tc.result === "string"
-                ? tc.result
-                : JSON.stringify(tc.result);
-            resultStr =
-              raw.length > TOOL_RESULT_MAX_CHARS
-                ? ` → ${raw.substring(0, TOOL_RESULT_MAX_CHARS)}...(truncated)`
-                : ` → ${raw}`;
-          }
+          const resultStr =
+            tc.result === undefined ? "" : ` → ${renderToolResult(tc.result)}`;
           return `  - ${tc.toolName}${resultStr}`;
         })
         .join("\n");
