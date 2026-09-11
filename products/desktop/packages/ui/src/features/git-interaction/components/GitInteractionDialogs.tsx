@@ -1,4 +1,5 @@
 import {
+  Check,
   CheckCircle,
   CloudArrowUp,
   Copy,
@@ -11,19 +12,21 @@ import {
   type DiffStats,
   formatFileCountLabel,
 } from "@posthog/core/git-interaction/diffStats";
-import { Spinner } from "@posthog/ui/primitives/Spinner";
-import { CheckIcon } from "@radix-ui/react-icons";
 import {
-  Box,
   Button,
   Checkbox,
   Dialog,
-  Flex,
-  IconButton,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Input,
+  Label,
   Text,
-  TextArea,
-  TextField,
-} from "@radix-ui/themes";
+  Textarea,
+} from "@posthog/quill";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { Tooltip } from "../../../primitives/Tooltip";
@@ -46,42 +49,41 @@ export function ErrorContainer({
   };
 
   return (
-    <Box className="max-h-[200px] overflow-auto rounded-(--radius-2) border border-(--red-6) bg-(--red-2)">
-      <Flex direction="column" gap="2" p="2">
-        <Flex justify="between" align="start" gap="2">
-          <Text
-            color="red"
-            className="flex-1 whitespace-pre-wrap break-words font-[var(--code-font-family)] text-[13px]"
-          >
-            {error}
-          </Text>
-          <Flex gap="1" className="shrink-0">
-            {onFixWithAgent && (
-              <Tooltip content="Fix with Agent">
-                <IconButton
-                  size="1"
-                  variant="ghost"
-                  color="gray"
-                  onClick={onFixWithAgent}
-                >
-                  <Sparkle size={12} />
-                </IconButton>
-              </Tooltip>
-            )}
-            <Tooltip content={copied ? "Copied!" : "Copy error"}>
-              <IconButton
-                size="1"
-                variant="ghost"
-                color="gray"
-                onClick={handleCopy}
+    <div className="max-h-[200px] overflow-auto rounded-(--radius-2) border border-(--red-6) bg-(--red-2) p-2">
+      <div className="flex items-start justify-between gap-2">
+        <Text
+          variant="destructive"
+          size="xs"
+          className="flex-1 whitespace-pre-wrap break-words font-[var(--code-font-family)]"
+        >
+          {error}
+        </Text>
+        <div className="flex shrink-0 gap-1">
+          {onFixWithAgent && (
+            <Tooltip content="Fix with Agent">
+              <Button
+                size="icon-xs"
+                variant="default"
+                aria-label="Fix with Agent"
+                onClick={onFixWithAgent}
               >
-                <Copy size={12} weight={copied ? "fill" : "regular"} />
-              </IconButton>
+                <Sparkle />
+              </Button>
             </Tooltip>
-          </Flex>
-        </Flex>
-      </Flex>
-    </Box>
+          )}
+          <Tooltip content={copied ? "Copied!" : "Copy error"}>
+            <Button
+              size="icon-xs"
+              variant="default"
+              aria-label={copied ? "Copied!" : "Copy error"}
+              onClick={handleCopy}
+            >
+              <Copy weight={copied ? "fill" : "regular"} />
+            </Button>
+          </Tooltip>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -98,15 +100,16 @@ export function GenerateButton({
 }) {
   return (
     <Tooltip content={tooltip}>
-      <IconButton
-        size="1"
-        variant="ghost"
-        color="gray"
+      <Button
+        size="icon-xs"
+        variant="default"
+        aria-label={tooltip}
         onClick={onClick}
         disabled={isGenerating || disabled}
+        loading={isGenerating}
       >
-        {isGenerating ? <Spinner size="sm" /> : <Sparkle size={14} />}
-      </IconButton>
+        <Sparkle />
+      </Button>
     </Tooltip>
   );
 }
@@ -119,23 +122,20 @@ export function CommitAllToggle({
   onChange: (value: boolean) => void;
 }) {
   return (
-    <Flex
-      align="center"
-      gap="2"
-      py="1"
-      onClick={() => onChange(!checked)}
-      className="cursor-pointer"
-    >
+    <div className="flex items-center gap-2 py-1">
       <Checkbox
-        size="1"
+        id="commit-all-changes"
+        size="sm"
         checked={checked}
-        onCheckedChange={(c) => onChange(c === true)}
-        onClick={(e) => e.stopPropagation()}
+        onCheckedChange={(value) => onChange(value === true)}
       />
-      <Text color="gray" className="text-[13px]">
+      <Label
+        htmlFor="commit-all-changes"
+        className="text-muted-foreground text-xs"
+      >
         Commit all changes
-      </Text>
-    </Flex>
+      </Label>
+    </div>
   );
 }
 
@@ -150,7 +150,6 @@ interface GitDialogProps {
   buttonDisabled?: boolean;
   isSubmitting: boolean;
   onSubmit: () => void;
-  maxWidth?: string;
   hideCancel?: boolean;
 }
 
@@ -165,65 +164,64 @@ export function GitDialog({
   buttonDisabled,
   isSubmitting,
   onSubmit,
-  maxWidth = "400px",
   hideCancel,
 }: GitDialogProps) {
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content maxWidth={maxWidth} size="1">
-        <Flex direction="column" gap="3">
-          <Flex align="center" gap="2">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent showCloseButton={false} className="sm:max-w-[400px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
             {icon}
-            <Text className="font-medium text-sm">{title}</Text>
-          </Flex>
+            {title}
+          </DialogTitle>
+        </DialogHeader>
 
+        <DialogBody viewportClassName="flex flex-col gap-3">
           {children}
-
           {error && <ErrorContainer error={error} />}
+        </DialogBody>
 
-          <Flex gap="2" justify="end">
-            {!hideCancel && (
-              <Dialog.Close>
-                <Button size="1" variant="soft" color="gray">
-                  Cancel
-                </Button>
-              </Dialog.Close>
-            )}
-            <Button
-              size="1"
-              disabled={buttonDisabled || isSubmitting}
-              onClick={onSubmit}
-            >
-              {isSubmitting && <Spinner size="sm" />}
-              {buttonLabel}
-            </Button>
-          </Flex>
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+        <DialogFooter>
+          {!hideCancel && (
+            <DialogClose render={<Button size="sm" variant="outline" />}>
+              Cancel
+            </DialogClose>
+          )}
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={buttonDisabled || isSubmitting}
+            loading={isSubmitting}
+            onClick={onSubmit}
+          >
+            {buttonLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 function InfoRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <Flex align="center" justify="between">
-      <Text color="gray" className="text-[13px]">
+    <div className="flex items-center justify-between">
+      <Text size="xs" variant="muted">
         {label}
       </Text>
       {children}
-    </Flex>
+    </div>
   );
 }
 
 function BranchBadge({ branch }: { branch: string | null }) {
   return (
     <Tooltip content={branch ?? "Unknown"}>
-      <Flex align="center" gap="1" className="min-w-0 max-w-[240px]">
-        <GitBranch size={12} className="shrink-0" />
-        <Text truncate className="text-[13px]">
+      <div className="flex min-w-0 max-w-[240px] items-center gap-1">
+        <GitBranch className="shrink-0" />
+        <Text size="xs" className="truncate" render={<span />}>
           {branch ?? "Unknown"}
         </Text>
-      </Flex>
+      </div>
     </Tooltip>
   );
 }
@@ -246,22 +244,26 @@ function SelectableOption({
   onSelect,
 }: SelectableOptionProps) {
   const content = (
-    <Box
-      role="button"
-      onClick={() => !disabled && onSelect()}
-      style={{
-        background: selected ? "var(--accent-4)" : "var(--gray-2)",
-        cursor: disabled ? "not-allowed" : "pointer",
-        opacity: disabled ? 0.5 : 1,
-      }}
-      className="flex items-center justify-between border border-(--gray-6) px-[8px] py-[6px]"
+    <Button
+      variant="outline"
+      size="sm"
+      left
+      disabled={disabled}
+      onClick={onSelect}
+      className={
+        selected
+          ? "w-full justify-between rounded-none bg-(--accent-4)"
+          : "w-full justify-between rounded-none bg-(--gray-2)"
+      }
     >
-      <Flex align="center" gap="2">
+      <span className="flex items-center gap-2">
         {icon}
-        <Text className="font-medium text-[13px]">{label}</Text>
-      </Flex>
-      {selected && <CheckIcon />}
-    </Box>
+        <Text size="xs" weight="medium" render={<span />}>
+          {label}
+        </Text>
+      </span>
+      {selected && <Check />}
+    </Button>
   );
 
   if (disabled && disabledReason) {
@@ -337,35 +339,35 @@ export function GitCommitDialog({
       isSubmitting={isSubmitting}
       onSubmit={onContinue}
     >
-      <Flex direction="column" gap="1">
+      <div className="flex flex-col gap-1">
         <InfoRow label="Branch">
           <BranchBadge branch={branchName} />
         </InfoRow>
         <InfoRow label="Changes">
-          <Flex align="center" gap="2">
-            <Text color="gray" className="text-[13px]">
+          <div className="flex items-center gap-2">
+            <Text size="xs" variant="muted">
               {formatFileCountLabel(
                 !!(showCommitAllToggle && !commitAll),
                 stagedFileCount ?? 0,
                 diffStats.filesChanged,
               )}
             </Text>
-            <Text color="green" className="text-[13px]">
+            <Text size="xs" className="text-(--green-11)">
               +{diffStats.linesAdded}
             </Text>
-            <Text color="red" className="text-[13px]">
+            <Text size="xs" variant="destructive">
               -{diffStats.linesRemoved}
             </Text>
-          </Flex>
+          </div>
         </InfoRow>
         {showCommitAllToggle && onCommitAllChange && (
           <CommitAllToggle checked={commitAll} onChange={onCommitAllChange} />
         )}
-      </Flex>
+      </div>
 
-      <Flex direction="column" gap="1">
-        <Flex align="center" justify="between">
-          <Text color="gray" className="text-[13px]">
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-between">
+          <Text size="xs" variant="muted">
             Message
           </Text>
           <GenerateButton
@@ -374,39 +376,38 @@ export function GitCommitDialog({
             disabled={isSubmitting}
             tooltip="Generate commit message with AI"
           />
-        </Flex>
-        <TextArea
+        </div>
+        <Textarea
           value={commitMessage}
-          onChange={(e) => onCommitMessageChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
+          onChange={(event) => onCommitMessageChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
               if (!isSubmitting && !isGeneratingMessage) onContinue();
             }
           }}
           placeholder="Leave empty to generate with AI"
-          size="1"
           rows={1}
           autoFocus
         />
-      </Flex>
+      </div>
 
-      <Flex direction="column" gap="1">
-        <Text color="gray" className="text-[13px]">
+      <div className="flex flex-col gap-1">
+        <Text size="xs" variant="muted">
           Then
         </Text>
-        {options.map((opt) => (
+        {options.map((option) => (
           <SelectableOption
-            key={opt.id}
-            icon={opt.icon}
-            label={opt.label}
-            selected={nextStep === opt.id}
-            disabled={!!opt.disabledReason}
-            disabledReason={opt.disabledReason ?? null}
-            onSelect={() => onNextStepChange(opt.id)}
+            key={option.id}
+            icon={option.icon}
+            label={option.label}
+            selected={nextStep === option.id}
+            disabled={!!option.disabledReason}
+            disabledReason={option.disabledReason ?? null}
+            onSelect={() => onNextStepChange(option.id)}
           />
         ))}
-      </Flex>
+      </div>
     </GitDialog>
   );
 }
@@ -478,7 +479,7 @@ export function GitPushDialog({
         <BranchBadge branch={branchName} />
       </InfoRow>
       {!isSuccess && (
-        <Text color="gray" className="text-[13px]">
+        <Text size="xs" variant="muted">
           {config.desc}
         </Text>
       )}
@@ -517,38 +518,37 @@ export function GitBranchDialog({
       isSubmitting={isSubmitting}
       onSubmit={onConfirm}
     >
-      <Text color="gray" className="text-[13px]">
+      <Text size="xs" variant="muted">
         Create a feature branch to commit changes, push, and create a PR.
       </Text>
 
-      <Flex direction="column" gap="1">
-        <Text color="gray" className="text-[13px]">
+      <div className="flex flex-col gap-1">
+        <Text size="xs" variant="muted">
           Branch name
         </Text>
-        <TextField.Root
+        <Input
           value={branchName}
-          onChange={(e) => onBranchNameChange(e.target.value)}
-          onKeyDown={(e) => {
+          onChange={(event) => onBranchNameChange(event.target.value)}
+          onKeyDown={(event) => {
             if (
-              e.key === "Enter" &&
+              event.key === "Enter" &&
               branchName.trim() &&
               !error &&
               !isSubmitting
             ) {
-              e.preventDefault();
+              event.preventDefault();
               onConfirm();
             }
           }}
           placeholder="feature-name"
-          size="1"
           autoFocus
         />
         {error && (
-          <Text color="red" className="text-[13px]">
+          <Text size="xs" variant="destructive">
             {error}
           </Text>
         )}
-      </Flex>
+      </div>
     </GitDialog>
   );
 }

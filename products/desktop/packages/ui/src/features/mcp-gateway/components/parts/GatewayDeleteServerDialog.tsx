@@ -1,5 +1,13 @@
-import { Spinner } from "@posthog/ui/primitives/Spinner";
-import { AlertDialog, Button, Flex, Text } from "@radix-ui/themes";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+} from "@posthog/quill";
 
 interface GatewayDeleteServerDialogProps {
   open: boolean;
@@ -19,43 +27,42 @@ export function GatewayDeleteServerDialog({
   onConfirm,
 }: GatewayDeleteServerDialogProps) {
   return (
-    <AlertDialog.Root open={open} onOpenChange={onOpenChange}>
-      <AlertDialog.Content maxWidth="450px">
-        <AlertDialog.Title>Delete MCP server</AlertDialog.Title>
-        <AlertDialog.Description className="text-sm">
-          {deletesForEveryone ? (
-            <>
-              Delete <Text className="font-bold">{serverName}</Text> for
-              everyone? This disconnects every teammate and removes the custom
-              server from the team gateway.
-            </>
-          ) : (
-            <>
-              Delete <Text className="font-bold">{serverName}</Text> for you?
-              This removes its tools from your agent without removing a team
-              server for anyone else.
-            </>
-          )}
-        </AlertDialog.Description>
-        <Flex gap="3" mt="4" justify="end">
-          <AlertDialog.Cancel>
-            <Button variant="soft" color="gray" disabled={pending}>
-              Cancel
-            </Button>
-          </AlertDialog.Cancel>
-          <AlertDialog.Action>
-            <Button
-              variant="solid"
-              color="red"
-              disabled={pending}
-              onClick={onConfirm}
-            >
-              {pending ? <Spinner size="sm" /> : null}
-              Delete
-            </Button>
-          </AlertDialog.Action>
-        </Flex>
-      </AlertDialog.Content>
-    </AlertDialog.Root>
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent className="sm:max-w-[450px]">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete MCP server</AlertDialogTitle>
+          <AlertDialogDescription>
+            {deletesForEveryone ? (
+              <>
+                Delete <span className="font-bold">{serverName}</span> for
+                everyone? This disconnects every teammate and removes the custom
+                server from the team gateway.
+              </>
+            ) : (
+              <>
+                Delete <span className="font-bold">{serverName}</span> for you?
+                This removes its tools from your agent without removing a team
+                server for anyone else.
+              </>
+            )}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogClose
+            render={<Button variant="outline" disabled={pending} />}
+          >
+            Cancel
+          </AlertDialogClose>
+          <Button
+            variant="destructive-outline"
+            disabled={pending}
+            loading={pending}
+            onClick={onConfirm}
+          >
+            Delete
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

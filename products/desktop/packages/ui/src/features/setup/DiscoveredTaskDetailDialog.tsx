@@ -1,18 +1,19 @@
 import { PlusIcon, SparkleIcon } from "@phosphor-icons/react";
 import { buildDiscoveredTaskPrompt } from "@posthog/core/setup/buildDiscoveredTaskPrompt";
 import type { DiscoveredTask } from "@posthog/core/setup/types";
+import {
+  Badge,
+  Button,
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Text,
+} from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
-import {
-  Box,
-  Dialog,
-  Flex,
-  ScrollArea,
-  Text,
-  VisuallyHidden,
-} from "@radix-ui/themes";
-import { Badge } from "../../primitives/Badge";
-import { Button } from "../../primitives/Button";
 import { useActiveRepoStore } from "../../shell/activeRepoStore";
 import { track } from "../../shell/analytics";
 import { MarkdownRenderer } from "../editor/components/MarkdownRenderer";
@@ -31,23 +32,20 @@ export function DiscoveredTaskDetailDialog({
   onClose,
 }: DiscoveredTaskDetailDialogProps) {
   return (
-    <Dialog.Root
+    <Dialog
       open={task !== null}
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
     >
-      <Dialog.Content maxWidth="640px">
-        <VisuallyHidden>
-          <Dialog.Title>{task?.title ?? "Suggestion"}</Dialog.Title>
-        </VisuallyHidden>
-        {task && <DialogBody task={task} onClose={onClose} />}
-      </Dialog.Content>
-    </Dialog.Root>
+      <DialogContent className="max-w-[640px]" showCloseButton={false}>
+        {task && <DiscoveredTaskDialogContent task={task} onClose={onClose} />}
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function DialogBody({
+function DiscoveredTaskDialogContent({
   task,
   onClose,
 }: {
@@ -101,98 +99,86 @@ function DialogBody({
   };
 
   return (
-    <Flex direction="column" gap="4">
-      <Flex align="center" gap="2" wrap="wrap">
-        <Badge
-          color="violet"
-          className="!leading-none inline-flex shrink-0 items-center gap-1"
-        >
-          <SparkleIcon size={10} weight="fill" />
-          Suggested
-        </Badge>
-        <Text className="block min-w-0 text-balance break-words font-bold text-base">
-          {task.title}
-        </Text>
-      </Flex>
+    <>
+      <DialogHeader>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge
+            variant="completed"
+            className="inline-flex shrink-0 items-center gap-1"
+          >
+            <SparkleIcon weight="fill" />
+            Suggested
+          </Badge>
+          <DialogTitle className="min-w-0 text-balance break-words">
+            {task.title}
+          </DialogTitle>
+        </div>
+      </DialogHeader>
 
-      <ScrollArea
-        type="auto"
-        scrollbars="vertical"
-        className="max-h-[60vh] min-h-0"
-      >
-        <Flex direction="column" gap="4" pr="3">
-          <Flex align="center" gap="2" className="text-(--gray-11)">
-            <span style={{ color: `var(--${config.color}-9)` }}>
-              <CategoryIcon size={14} weight="duotone" />
-            </span>
-            <Text size="1" className="uppercase tracking-wide">
-              {config.label}
-            </Text>
-            {task.file && (
-              <>
-                <Text size="1" className="text-(--gray-8)">
-                  ·
-                </Text>
-                <Text size="1" className="break-all font-mono">
-                  {task.file}
-                  {task.lineHint ? `:${task.lineHint}` : ""}
-                </Text>
-              </>
-            )}
-          </Flex>
-
-          <ProseSection content={task.description} />
-
-          {task.impact && (
-            <Box>
-              <Text
-                size="1"
-                weight="medium"
-                className="mb-1 block text-(--gray-11) uppercase tracking-wide"
-              >
-                Why it matters
-              </Text>
-              <ProseSection content={task.impact} />
-            </Box>
-          )}
-
-          {task.recommendation && (
-            <Box>
-              <Text
-                size="1"
-                weight="medium"
-                className="mb-1 block text-(--gray-11) uppercase tracking-wide"
-              >
-                Suggested approach
-              </Text>
-              <ProseSection content={task.recommendation} />
-            </Box>
-          )}
-
-          <Text size="1" className="text-(--gray-10) italic">
-            Suggested locally from a quick scan of your codebase. Open it as a
-            task to investigate and fix.
+      <DialogBody viewportClassName="flex max-h-[60vh] flex-col gap-4">
+        <div className="flex items-center gap-2 text-(--gray-11)">
+          <span style={{ color: `var(--${config.color}-9)` }}>
+            <CategoryIcon size={14} weight="duotone" />
+          </span>
+          <Text size="xs" className="uppercase tracking-wide">
+            {config.label}
           </Text>
-        </Flex>
-      </ScrollArea>
+          {task.file && (
+            <>
+              <Text size="xs" className="text-(--gray-8)">
+                ·
+              </Text>
+              <Text size="xs" className="break-all font-mono">
+                {task.file}
+                {task.lineHint ? `:${task.lineHint}` : ""}
+              </Text>
+            </>
+          )}
+        </div>
 
-      <Flex gap="3" justify="end">
-        <Button variant="soft" color="gray" onClick={handleDismiss}>
+        <ProseSection content={task.description} />
+
+        {task.impact && (
+          <div className="flex flex-col gap-1">
+            <Text size="xs" weight="medium" className="uppercase tracking-wide">
+              Why it matters
+            </Text>
+            <ProseSection content={task.impact} />
+          </div>
+        )}
+
+        {task.recommendation && (
+          <div className="flex flex-col gap-1">
+            <Text size="xs" weight="medium" className="uppercase tracking-wide">
+              Suggested approach
+            </Text>
+            <ProseSection content={task.recommendation} />
+          </div>
+        )}
+
+        <Text size="xs" variant="muted" className="italic">
+          Suggested locally from a quick scan of your codebase. Open it as a
+          task to investigate and fix.
+        </Text>
+      </DialogBody>
+
+      <DialogFooter>
+        <Button variant="outline" onClick={handleDismiss}>
           Dismiss
         </Button>
-        <Button variant="solid" onClick={handleCreateTask}>
-          <PlusIcon size={14} weight="bold" />
+        <Button variant="primary" onClick={handleCreateTask}>
+          <PlusIcon weight="bold" />
           Implement as new task
         </Button>
-      </Flex>
-    </Flex>
+      </DialogFooter>
+    </>
   );
 }
 
 function ProseSection({ content }: { content: string }) {
   return (
-    <Box className="min-w-0 text-pretty break-words text-(--gray-12) text-[13px] [&_*]:leading-relaxed [&_a]:pointer-events-auto [&_code]:font-mono [&_li]:mb-1 [&_p:last-child]:mb-0 [&_p]:mb-2">
+    <div className="min-w-0 text-pretty break-words text-(--gray-12) text-[13px] [&_*]:leading-relaxed [&_a]:pointer-events-auto [&_code]:font-mono [&_li]:mb-1 [&_p:last-child]:mb-0 [&_p]:mb-2">
       <MarkdownRenderer content={content} />
-    </Box>
+    </div>
   );
 }

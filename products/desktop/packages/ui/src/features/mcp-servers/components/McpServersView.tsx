@@ -2,6 +2,16 @@ import type {
   McpRecommendedServer,
   McpServerInstallation,
 } from "@posthog/api-client/posthog-client";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+} from "@posthog/quill";
 import { MCP_GATEWAY_FLAG } from "@posthog/shared";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useLocalMcpCloudServers } from "@posthog/ui/features/local-mcp/useLocalMcpCloudServers";
@@ -11,15 +21,7 @@ import { MarketplaceView } from "@posthog/ui/features/mcp-servers/components/par
 import { McpInstalledRail } from "@posthog/ui/features/mcp-servers/components/parts/McpInstalledRail";
 import { useMcpServers } from "@posthog/ui/features/mcp-servers/hooks/useMcpServers";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
-import { Spinner } from "@posthog/ui/primitives/Spinner";
-import {
-  AlertDialog,
-  Box,
-  Button,
-  Flex,
-  ScrollArea,
-  Text,
-} from "@radix-ui/themes";
+import { Box, Flex, ScrollArea, Text } from "@radix-ui/themes";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ServerDetailView } from "./parts/ServerDetailView";
@@ -310,38 +312,37 @@ function UninstallConfirmDialog({
   const name =
     target?.display_name || target?.name || target?.url || "this server";
   return (
-    <AlertDialog.Root
+    <AlertDialog
       open={open}
       onOpenChange={(next) => {
         if (!next) onCancel();
       }}
     >
-      <AlertDialog.Content maxWidth="450px">
-        <AlertDialog.Title>Remove MCP server</AlertDialog.Title>
-        <AlertDialog.Description className="text-sm">
-          Are you sure you want to remove{" "}
-          <Text className="font-bold">{name}</Text>? This will revoke its tools
-          from your agent.
-        </AlertDialog.Description>
-        <Flex gap="3" mt="4" justify="end">
-          <AlertDialog.Cancel>
-            <Button variant="soft" color="gray">
-              Cancel
-            </Button>
-          </AlertDialog.Cancel>
-          <AlertDialog.Action>
-            <Button
-              variant="solid"
-              color="red"
-              onClick={onConfirm}
-              disabled={isPending}
-            >
-              {isPending ? <Spinner size="sm" /> : null}
-              Remove
-            </Button>
-          </AlertDialog.Action>
-        </Flex>
-      </AlertDialog.Content>
-    </AlertDialog.Root>
+      <AlertDialogContent className="max-w-[450px]">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove MCP server</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to remove{" "}
+            <span className="font-bold">{name}</span>? This will revoke its
+            tools from your agent.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogClose
+            render={<Button variant="outline" disabled={isPending} />}
+          >
+            Cancel
+          </AlertDialogClose>
+          <Button
+            variant="destructive-outline"
+            onClick={onConfirm}
+            disabled={isPending}
+            loading={isPending}
+          >
+            Remove
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

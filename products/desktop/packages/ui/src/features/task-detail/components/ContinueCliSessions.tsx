@@ -5,6 +5,17 @@ import {
 } from "@posthog/core/task-detail/taskService";
 import { useService } from "@posthog/di/react";
 import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@posthog/quill";
+import {
   ANALYTICS_EVENTS,
   type ClaudeSessionImportSource,
   formatRelativeTimeShort,
@@ -13,7 +24,7 @@ import {
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
-import { Dialog, Flex, ScrollArea, Text, TextField } from "@radix-ui/themes";
+import { Flex, Text } from "@radix-ui/themes";
 import { useEffect, useState } from "react";
 import claudeMark from "../../../assets/services/claude.svg";
 import { toastError } from "../../notifications/errorDetails";
@@ -148,47 +159,47 @@ export function SessionPickerDialog({
     : sessions;
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content size="2" maxWidth="520px">
-        <Dialog.Title size="3">Continue a Claude Code session</Dialog.Title>
-        <Dialog.Description size="1" color="gray" mb="3">
-          Pick up a recent terminal session in this repo.
-        </Dialog.Description>
-        <TextField.Root
-          placeholder="Search sessions…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          mb="3"
-        >
-          <TextField.Slot>
-            <MagnifyingGlassIcon size={14} />
-          </TextField.Slot>
-        </TextField.Root>
-        <ScrollArea
-          type="auto"
-          scrollbars="vertical"
-          style={{ maxHeight: 360 }}
-        >
-          <Flex direction="column" gap="2" pr="3">
-            {filtered.map((session) => (
-              <SessionCard
-                key={session.sourceSessionId}
-                session={session}
-                meta={sessionMeta(session)}
-                running={runningId === session.sourceSessionId}
-                disabled={disabled || !!runningId}
-                onClick={() => onContinue(session)}
-              />
-            ))}
-            {filtered.length === 0 && (
-              <Text size="1" color="gray" className="px-1 py-6 text-center">
-                No matching sessions.
-              </Text>
-            )}
-          </Flex>
-        </ScrollArea>
-      </Dialog.Content>
-    </Dialog.Root>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg" showCloseButton={false}>
+        <DialogHeader>
+          <DialogTitle>Continue a Claude Code session</DialogTitle>
+          <DialogDescription>
+            Pick up a recent terminal session in this repo.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody viewportClassName="flex flex-col gap-3">
+          <InputGroup>
+            <InputGroupAddon align="inline-start">
+              <MagnifyingGlassIcon />
+            </InputGroupAddon>
+            <InputGroupInput
+              placeholder="Search sessions…"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </InputGroup>
+          <div className="max-h-[360px] overflow-y-auto pr-3">
+            <div className="flex flex-col gap-2">
+              {filtered.map((session) => (
+                <SessionCard
+                  key={session.sourceSessionId}
+                  session={session}
+                  meta={sessionMeta(session)}
+                  running={runningId === session.sourceSessionId}
+                  disabled={disabled || !!runningId}
+                  onClick={() => onContinue(session)}
+                />
+              ))}
+              {filtered.length === 0 && (
+                <p className="px-1 py-6 text-center text-muted-foreground text-xs">
+                  No matching sessions.
+                </p>
+              )}
+            </div>
+          </div>
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -1,4 +1,12 @@
 import { PencilSimple } from "@phosphor-icons/react";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@posthog/quill";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import {
   CATEGORY_LABELS,
@@ -8,9 +16,8 @@ import {
 } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useQuickAskShortcut } from "@posthog/ui/features/quick-ask/useQuickAskShortcut";
-import { Box, Dialog, Flex, Text } from "@radix-ui/themes";
+import { Box, Flex, Text } from "@radix-ui/themes";
 import { useMemo, useState } from "react";
-import { useHotkeys } from "react-hotkeys-hook";
 
 function Keycap({ label, size = "md" }: { label: string; size?: "sm" | "md" }) {
   const [pressed, setPressed] = useState(false);
@@ -58,21 +65,14 @@ export function KeyboardShortcutsSheet({
   onOpenChange,
 }: KeyboardShortcutsSheetProps) {
   const quickAsk = useQuickAskShortcut();
-  useHotkeys("escape", () => onOpenChange(false), {
-    enabled: open,
-    enableOnContentEditable: true,
-    enableOnFormTags: true,
-    preventDefault: true,
-  });
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content
-        maxWidth="600px"
-        onEscapeKeyDown={(e) => e.preventDefault()}
-        className="max-h-[80vh] overflow-hidden"
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        showCloseButton={false}
+        className="max-h-[80vh] overflow-hidden sm:max-w-[600px]"
       >
-        <Flex align="start" justify="between" className="relative">
+        <DialogHeader className="relative flex-row items-start justify-between">
           <ShortcutsHeader />
           <button
             type="button"
@@ -81,15 +81,15 @@ export function KeyboardShortcutsSheet({
           >
             <Keycap label="Esc" size="sm" />
           </button>
-        </Flex>
+        </DialogHeader>
 
-        <Box className="max-h-[calc(80vh-120px)] overflow-y-auto pr-[8px]">
+        <DialogBody className="max-h-[calc(80vh-120px)]">
           <KeyboardShortcutsList
             leadingGeneralShortcuts={quickAsk ? [quickAsk] : []}
           />
-        </Box>
-      </Dialog.Content>
-    </Dialog.Root>
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -97,21 +97,21 @@ function ShortcutsHeader() {
   const triggerParts = formatHotkeyParts("mod+/");
 
   return (
-    <Box mb="4">
-      <Flex align="center" gap="3" mb="1">
-        <Dialog.Title mb="0" className="text-2xl leading-[1.2]">
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-3">
+        <DialogTitle className="text-2xl leading-[1.2]">
           Keyboard Combos
-        </Dialog.Title>
-        <Flex gap="1" align="center">
+        </DialogTitle>
+        <div className="flex items-center gap-1">
           {triggerParts.map((part) => (
             <Keycap key={part} label={part} />
           ))}
-        </Flex>
-      </Flex>
-      <Text color="gray" className="text-sm">
+        </div>
+      </div>
+      <DialogDescription>
         Your cheat codes for shipping faster
-      </Text>
-    </Box>
+      </DialogDescription>
+    </div>
   );
 }
 

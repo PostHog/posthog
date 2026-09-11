@@ -1,5 +1,16 @@
-import { X } from "@phosphor-icons/react";
 import { useHostTRPC } from "@posthog/host-router/react";
+import {
+  Badge,
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  ScrollArea,
+  Skeleton,
+  Text,
+} from "@posthog/quill";
 import { ReleaseNotesSections } from "@posthog/ui/features/updates/ReleaseNotesSections";
 import {
   groupReleases,
@@ -7,35 +18,26 @@ import {
 } from "@posthog/ui/features/updates/releaseNotes";
 import { useHasActiveUpdate } from "@posthog/ui/features/updates/updateStore";
 import { useWhatsNewStore } from "@posthog/ui/features/updates/whatsNewStore";
-import {
-  Badge,
-  Dialog,
-  Flex,
-  IconButton,
-  ScrollArea,
-  Skeleton,
-  Text,
-} from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
 
 function ChangelogSkeleton() {
   return (
-    <Flex direction="column" gap="5">
+    <div className="flex flex-col gap-5">
       {["a", "b", "c"].map((key) => (
-        <Flex key={key} direction="column" gap="3">
-          <Flex align="center" justify="between" gap="2">
-            <Skeleton width="150px" height="22px" />
-            <Skeleton width="72px" height="22px" />
-          </Flex>
-          <Flex direction="column" gap="2">
-            <Skeleton width="64px" height="12px" />
-            <Skeleton width="82%" height="14px" />
-            <Skeleton width="68%" height="14px" />
-            <Skeleton width="74%" height="14px" />
-          </Flex>
-        </Flex>
+        <div key={key} className="flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-2">
+            <Skeleton className="h-[22px] w-[150px]" />
+            <Skeleton className="h-[22px] w-[72px]" />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-3 w-16" />
+            <Skeleton className="h-3.5 w-[82%]" />
+            <Skeleton className="h-3.5 w-[68%]" />
+            <Skeleton className="h-3.5 w-[74%]" />
+          </div>
+        </div>
       ))}
-    </Flex>
+    </div>
   );
 }
 
@@ -62,96 +64,79 @@ export function WhatsNewModal() {
   const groups = groupReleases(data?.releases ?? []);
 
   return (
-    <Dialog.Root
+    <Dialog
       open={isOpen}
       onOpenChange={(open) => {
         if (!open) close();
       }}
     >
-      <Dialog.Content maxWidth="640px">
-        <Flex justify="between" align="start" gap="3" mb="3">
-          <Flex direction="column" gap="1">
-            <Dialog.Title className="mb-0">What's New</Dialog.Title>
-            <Dialog.Description>
-              <Text color="gray" size="2">
-                Release history and recent improvements
-              </Text>
-            </Dialog.Description>
-          </Flex>
-          <Dialog.Close>
-            <IconButton variant="ghost" color="gray" aria-label="Close">
-              <X size={16} />
-            </IconButton>
-          </Dialog.Close>
-        </Flex>
+      <DialogContent className="max-w-[640px]">
+        <DialogHeader>
+          <DialogTitle>What's New</DialogTitle>
+          <DialogDescription>
+            Release history and recent improvements
+          </DialogDescription>
+        </DialogHeader>
 
-        {isError ? (
-          <Text color="gray" size="2">
-            Could not load releases. Please try again later.
-          </Text>
-        ) : isPending ? (
-          <ChangelogSkeleton />
-        ) : groups.length === 0 ? (
-          <Text color="gray" size="2">
-            No releases found.
-          </Text>
-        ) : (
-          <ScrollArea
-            type="scroll"
-            scrollbars="vertical"
-            style={{ maxHeight: "60vh" }}
-          >
-            <Flex direction="column" gap="5" className="pr-3">
-              {groups.map((group, index) => {
-                const { improved, fixed } = mergeReleaseNotes(group.releases);
-                const containsCurrent = currentVersion
-                  ? group.releases.some(
-                      (release) => release.version === currentVersion,
-                    )
-                  : false;
-                return (
-                  <Flex
-                    key={group.key}
-                    direction="column"
-                    gap="3"
-                    className={
-                      index > 0 ? "border-gray-6 border-t pt-5" : undefined
-                    }
-                  >
-                    <Flex align="center" justify="between" gap="2">
-                      <Text weight="bold" size="3">
-                        {group.label}
-                      </Text>
-                      <Flex align="center" gap="2">
-                        {group.isLatest ? (
-                          <Badge color="green">Latest</Badge>
-                        ) : null}
-                        {containsCurrent ? (
-                          <Badge color="gray" variant="outline">
-                            Current
-                          </Badge>
-                        ) : null}
-                        <Badge color="gray" variant="soft">
-                          {group.releases.length === 1
-                            ? group.releases[0].name
-                            : `${group.releases.length} releases`}
-                        </Badge>
-                      </Flex>
-                    </Flex>
-                    {improved.length === 0 && fixed.length === 0 ? (
-                      <Text size="2" color="gray">
-                        No notable changes.
-                      </Text>
-                    ) : (
-                      <ReleaseNotesSections notes={{ improved, fixed }} />
-                    )}
-                  </Flex>
-                );
-              })}
-            </Flex>
-          </ScrollArea>
-        )}
-      </Dialog.Content>
-    </Dialog.Root>
+        <DialogBody>
+          {isError ? (
+            <Text size="sm" variant="muted">
+              Could not load releases. Please try again later.
+            </Text>
+          ) : isPending ? (
+            <ChangelogSkeleton />
+          ) : groups.length === 0 ? (
+            <Text size="sm" variant="muted">
+              No releases found.
+            </Text>
+          ) : (
+            <ScrollArea className="max-h-[60vh]">
+              <div className="flex flex-col gap-5 pr-3">
+                {groups.map((group, index) => {
+                  const { improved, fixed } = mergeReleaseNotes(group.releases);
+                  const containsCurrent = currentVersion
+                    ? group.releases.some(
+                        (release) => release.version === currentVersion,
+                      )
+                    : false;
+                  return (
+                    <div
+                      key={group.key}
+                      className={
+                        index > 0 ? "border-gray-6 border-t pt-5" : undefined
+                      }
+                    >
+                      <div className="flex flex-col gap-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <Text weight="semibold">{group.label}</Text>
+                          <div className="flex items-center gap-2">
+                            {group.isLatest ? (
+                              <Badge variant="success">Latest</Badge>
+                            ) : null}
+                            {containsCurrent ? <Badge>Current</Badge> : null}
+                            <Badge>
+                              {group.releases.length === 1
+                                ? group.releases[0].name
+                                : `${group.releases.length} releases`}
+                            </Badge>
+                          </div>
+                        </div>
+                        {improved.length === 0 && fixed.length === 0 ? (
+                          <Text size="sm" variant="muted">
+                            No notable changes.
+                          </Text>
+                        ) : (
+                          <ReleaseNotesSections notes={{ improved, fixed }} />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </ScrollArea>
+          )}
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   );
 }

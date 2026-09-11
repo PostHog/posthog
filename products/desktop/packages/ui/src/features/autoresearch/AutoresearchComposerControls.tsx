@@ -20,7 +20,18 @@ import type {
 import {
   Button,
   Dialog,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@posthog/quill";
+import {
   Popover,
+  Button as RadixButton,
   SegmentedControl,
   Text,
   TextField,
@@ -237,84 +248,85 @@ function DirectionOption({
 
 function AutoresearchInfoDialog() {
   return (
-    <Dialog.Root>
-      <Dialog.Trigger>
-        <Button
-          size="1"
-          variant="ghost"
-          color="gray"
-          aria-label="What is autoresearch?"
-          className="text-gray-10"
-        >
-          <Question size={13} />
-          See how it works
-        </Button>
-      </Dialog.Trigger>
-      <Dialog.Content maxWidth="720px" size="2">
-        <Dialog.Title className="text-base">What is autoresearch?</Dialog.Title>
-        <Dialog.Description className="text-sm" color="gray">
-          Autoresearch runs a bounded experiment loop inside this task.
-        </Dialog.Description>
+    <Dialog>
+      <DialogTrigger
+        render={
+          <Button
+            variant="default"
+            aria-label="What is autoresearch?"
+            className="text-gray-10"
+          />
+        }
+      >
+        <Question />
+        See how it works
+      </DialogTrigger>
+      <DialogContent showCloseButton={false} className="sm:max-w-[720px]">
+        <DialogHeader>
+          <DialogTitle>What is autoresearch?</DialogTitle>
+          <DialogDescription>
+            Autoresearch runs a bounded experiment loop inside this task.
+          </DialogDescription>
+        </DialogHeader>
 
-        <div className="mt-4 grid gap-4 sm:grid-cols-[minmax(0,1.35fr)_minmax(220px,1fr)]">
-          <ExperimentLoopVisual />
-          <div className="flex flex-col justify-center gap-3 text-sm">
-            <InfoRow
-              number="1"
-              title="Measure a baseline"
-              description="Run the measurement from your prompt."
-            />
-            <InfoRow
-              number="2"
-              title="Try an improvement"
-              description="Change the code and measure again."
-            />
-            <InfoRow
-              number="3"
-              title="Repeat until it stops"
-              description="Stop at the attempt limit or target value."
-            />
+        <DialogBody>
+          <div className="grid gap-4 sm:grid-cols-[minmax(0,1.35fr)_minmax(220px,1fr)]">
+            <ExperimentLoopVisual />
+            <div className="flex flex-col justify-center gap-3 text-sm">
+              <InfoRow
+                number="1"
+                title="Measure a baseline"
+                description="Run the measurement from your prompt."
+              />
+              <InfoRow
+                number="2"
+                title="Try an improvement"
+                description="Change the code and measure again."
+              />
+              <InfoRow
+                number="3"
+                title="Repeat until it stops"
+                description="Stop at the attempt limit or target value."
+              />
+            </div>
           </div>
-        </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-md border border-gray-5 bg-gray-2 px-3 py-2">
-          <Text size="1" weight="medium">
-            Prompt requirements
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-md border border-gray-5 bg-gray-2 px-3 py-2">
+            <Text size="1" weight="medium">
+              Prompt requirements
+            </Text>
+            <PromptRequirement icon={Gauge} label="Metric" />
+            <PromptRequirement icon={Command} label="Measurement" />
+            <PromptRequirement icon={LockKey} label="Constraints" />
+          </div>
+
+          <PromptExamples />
+
+          <Text as="p" size="1" color="gray" className="mt-2 leading-4">
+            Autoresearch does not invent or independently verify the metric. It
+            follows the measurement instructions in your prompt.
           </Text>
-          <PromptRequirement icon={Gauge} label="Metric" />
-          <PromptRequirement icon={Command} label="Measurement" />
-          <PromptRequirement icon={LockKey} label="Constraints" />
-        </div>
+        </DialogBody>
 
-        <PromptExamples />
-
-        <Text as="p" size="1" color="gray" className="mt-2 leading-4">
-          Autoresearch does not invent or independently verify the metric. It
-          follows the measurement instructions in your prompt.
-        </Text>
-
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-gray-5 border-t pt-3">
+        <DialogFooter className="flex-row flex-wrap items-center justify-between">
           <div className="flex items-center gap-2">
             <Button
-              variant="ghost"
-              color="gray"
+              variant="default"
               onClick={() => openExternalUrl(AUTORESEARCH_FEEDBACK_MAILTO)}
             >
-              <EnvelopeSimple size={14} />
+              <EnvelopeSimple />
               Send feedback or report a bug
             </Button>
             <Text size="1" color="gray" className="hidden sm:inline">
               autoresearch@posthog.com
             </Text>
           </div>
-          <Dialog.Close>
-            <Button variant="soft" color="gray">
-              Got it
-            </Button>
-          </Dialog.Close>
-        </div>
-      </Dialog.Content>
-    </Dialog.Root>
+          <DialogClose render={<Button variant="outline" />}>
+            Got it
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -569,7 +581,7 @@ function AdvancedSettings({
   return (
     <Popover.Root>
       <Popover.Trigger>
-        <Button
+        <RadixButton
           size="1"
           variant="ghost"
           color="gray"
@@ -579,7 +591,7 @@ function AdvancedSettings({
           <SlidersHorizontal size={14} />
           Advanced
           {(split || hasTarget) && <span aria-hidden>•</span>}
-        </Button>
+        </RadixButton>
       </Popover.Trigger>
       <Popover.Content size="2" width="360px">
         <div className="flex flex-col gap-4">

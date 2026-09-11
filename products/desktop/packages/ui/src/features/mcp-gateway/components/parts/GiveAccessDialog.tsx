@@ -12,20 +12,30 @@ import {
   defaultAgentGrantPolicy,
   isAgentPolicyState,
 } from "@posthog/core/mcp-gateway/gatewayServers";
-import { AgentScopeToggle } from "@posthog/ui/features/mcp-gateway/components/parts/AgentScopeToggle";
-import { RobotAvatar } from "@posthog/ui/features/mcp-gateway/components/parts/avatars";
-import { ToolPolicyToggle } from "@posthog/ui/features/mcp-servers/components/parts/ToolPolicyToggle";
-import { Spinner } from "@posthog/ui/primitives/Spinner";
 import {
   Badge,
   Button,
   Dialog,
-  Flex,
-  IconButton,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Text,
   Tooltip,
-} from "@radix-ui/themes";
+  TooltipContent,
+  TooltipTrigger,
+} from "@posthog/quill";
+import { AgentScopeToggle } from "@posthog/ui/features/mcp-gateway/components/parts/AgentScopeToggle";
+import { RobotAvatar } from "@posthog/ui/features/mcp-gateway/components/parts/avatars";
+import { ToolPolicyToggle } from "@posthog/ui/features/mcp-servers/components/parts/ToolPolicyToggle";
 import { useMemo, useState } from "react";
 
 interface GiveAccessDialogProps {
@@ -68,7 +78,7 @@ function GiveAccessDialogDraft({
     {},
   );
 
-  const selectAgent = (accountId: string) => {
+  const selectAgent = (accountId: string | null) => {
     setSelectedId(accountId);
     setPolicyMap({});
   };
@@ -114,45 +124,54 @@ function GiveAccessDialogDraft({
   };
 
   return (
-    <Dialog.Root
+    <Dialog
       open={open}
       onOpenChange={(next) => {
         if (!next && !pending) onClose();
       }}
     >
-      <Dialog.Content maxWidth="440px">
-        <Dialog.Title>Share {server.name} with an agent</Dialog.Title>
-        <Dialog.Description color="gray" className="text-sm">
-          The agent uses a connection available to you and calls {server.name}{" "}
-          under the tool policies you set below.
-        </Dialog.Description>
+      <DialogContent className="sm:max-w-[440px]">
+        <DialogHeader>
+          <DialogTitle>Share {server.name} with an agent</DialogTitle>
+          <DialogDescription>
+            The agent uses a connection available to you and calls {server.name}{" "}
+            under the tool policies you set below.
+          </DialogDescription>
+        </DialogHeader>
 
-        <Flex direction="column" gap="3" mt="4">
-          <Select.Root
-            value={selectedId ?? undefined}
+        <DialogBody viewportClassName="flex flex-col gap-3">
+          <Select
+            value={selectedId}
             onValueChange={selectAgent}
             disabled={pending}
           >
-            <Select.Trigger placeholder="Choose an agent…" />
-            <Select.Content>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Choose an agent…" />
+            </SelectTrigger>
+            <SelectContent>
               {available.map((account) => (
-                <Select.Item key={account.id} value={account.id}>
+                <SelectItem key={account.id} value={account.id}>
                   {account.name}{" "}
                   <span className="font-mono text-xs">{account.handle}</span>
                   {account.status === "paused" ? " (paused)" : ""}
-                </Select.Item>
+                </SelectItem>
               ))}
               {available.length === 0 && (
-                <Text color="gray" className="block px-3 py-2 text-sm italic">
+                <Text
+                  render={<span />}
+                  size="sm"
+                  variant="muted"
+                  className="block px-3 py-2 italic"
+                >
                   You've already shared {server.name} with every agent.
                 </Text>
               )}
-            </Select.Content>
-          </Select.Root>
+            </SelectContent>
+          </Select>
 
           {selected && (
-            <Flex align="center" justify="between" gap="3">
-              <Text color="gray" className="text-[13px]">
+            <div className="flex items-center justify-between gap-3">
+              <Text size="xs" variant="muted">
                 Applies to
               </Text>
               <AgentScopeToggle
@@ -160,65 +179,71 @@ function GiveAccessDialogDraft({
                 disabled={pending}
                 onChange={setScope}
               />
-            </Flex>
+            </div>
           )}
 
           {selected && (
-            <Flex direction="column" gap="2">
-              <Flex align="center" justify="between">
-                <Flex align="center" gap="2">
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
                   <RobotAvatar size="sm" />
                   <Text
-                    color="gray"
+                    render={<span />}
+                    variant="muted"
                     className="font-medium text-[10px] uppercase tracking-[0.06em]"
                   >
                     Tool policy for {selected.name}
                   </Text>
-                </Flex>
-                <Flex align="center" gap="1">
-                  <Text color="gray" className="text-xs">
+                </div>
+                <div className="flex items-center gap-1">
+                  <Text size="xs" variant="muted">
                     Set all
                   </Text>
-                  <Tooltip content="Always Allow all">
-                    <IconButton
-                      variant="soft"
-                      color="green"
-                      size="1"
-                      disabled={pending}
-                      onClick={() => bulkSet("approved")}
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          type="button"
+                          variant="default"
+                          size="icon-xs"
+                          disabled={pending}
+                          onClick={() => bulkSet("approved")}
+                        />
+                      }
                     >
-                      <Check size={11} weight="bold" />
-                    </IconButton>
+                      <Check weight="bold" />
+                    </TooltipTrigger>
+                    <TooltipContent>Always Allow all</TooltipContent>
                   </Tooltip>
-                  <Tooltip content="Block all">
-                    <IconButton
-                      variant="soft"
-                      color="red"
-                      size="1"
-                      disabled={pending}
-                      onClick={() => bulkSet("do_not_use")}
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="icon-xs"
+                          disabled={pending}
+                          onClick={() => bulkSet("do_not_use")}
+                        />
+                      }
                     >
-                      <Prohibit size={11} weight="bold" />
-                    </IconButton>
+                      <Prohibit weight="bold" />
+                    </TooltipTrigger>
+                    <TooltipContent>Block all</TooltipContent>
                   </Tooltip>
-                </Flex>
-              </Flex>
+                </div>
+              </div>
               <div className="max-h-[280px] overflow-y-auto rounded border border-gray-5">
                 {toolPolicies.map((policy) => (
-                  <Flex
+                  <div
                     key={policy.tool_name}
-                    align="center"
-                    justify="between"
-                    gap="3"
-                    className="border-gray-5 border-b px-3 py-1.5 last:border-b-0"
+                    className="flex items-center justify-between gap-3 border-gray-5 border-b px-3 py-1.5 last:border-b-0"
                   >
-                    <Text truncate className="text-[12.5px]">
+                    <Text render={<span />} className="truncate text-[12.5px]">
                       {policy.tool_name}
                     </Text>
                     {policy.decided_by === "rule" ? (
-                      <Badge color="gray" variant="soft" size="1">
-                        Blocked by team policy
-                      </Badge>
+                      <Badge>Blocked by team policy</Badge>
                     ) : (
                       <ToolPolicyToggle
                         value={policyFor(policy.tool_name)}
@@ -231,42 +256,44 @@ function GiveAccessDialogDraft({
                         }}
                       />
                     )}
-                  </Flex>
+                  </div>
                 ))}
                 {toolPolicies.length === 0 && (
-                  <Text color="gray" className="block px-3 py-2 text-sm italic">
+                  <Text
+                    render={<span />}
+                    size="sm"
+                    variant="muted"
+                    className="block px-3 py-2 italic"
+                  >
                     No tools discovered yet — the agent gets access as soon as
                     tools appear.
                   </Text>
                 )}
               </div>
-            </Flex>
+            </div>
           )}
-        </Flex>
+        </DialogBody>
 
-        <Flex gap="3" mt="4" justify="end">
-          <Button
-            variant="soft"
-            color="gray"
-            disabled={pending}
-            onClick={onClose}
+        <DialogFooter>
+          <DialogClose
+            render={
+              <Button type="button" variant="outline" disabled={pending} />
+            }
           >
             Cancel
-          </Button>
+          </DialogClose>
           <Button
-            variant="solid"
+            type="button"
+            variant="primary"
             disabled={!selected || pending}
+            loading={pending}
             onClick={grant}
           >
-            {pending ? (
-              <Spinner size="sm" />
-            ) : (
-              <Check size={12} weight="bold" />
-            )}{" "}
+            {!pending && <Check weight="bold" />}
             Share access
           </Button>
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

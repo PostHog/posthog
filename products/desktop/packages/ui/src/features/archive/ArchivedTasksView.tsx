@@ -18,17 +18,32 @@ import {
   withRepoNames,
 } from "@posthog/core/archive/archiveListView";
 import { useHostTRPC } from "@posthog/host-router/react";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@posthog/quill";
 import type { WorkspaceMode } from "@posthog/shared";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import {
-  AlertDialog,
   Box,
-  Button,
-  Dialog,
   Flex,
   Popover,
+  Button as RadixButton,
   Table,
   Text,
   TextField,
@@ -399,15 +414,15 @@ export function ArchivedTasksViewPresentation({
                     </Table.Cell>
                     <Table.Cell className="overflow-visible">
                       <Flex gap="2" className="invisible group-hover:visible">
-                        <Button
+                        <RadixButton
                           variant="outline"
                           color="gray"
                           size="1"
                           onClick={() => onUnarchive(item.archived.taskId)}
                         >
                           Unarchive
-                        </Button>
-                        <Button
+                        </RadixButton>
+                        <RadixButton
                           variant="outline"
                           color="red"
                           size="1"
@@ -416,7 +431,7 @@ export function ArchivedTasksViewPresentation({
                           }
                         >
                           Delete
-                        </Button>
+                        </RadixButton>
                       </Flex>
                     </Table.Cell>
                   </Table.Row>
@@ -435,80 +450,73 @@ export function ArchivedTasksViewPresentation({
         )}
       </Box>
 
-      <Dialog.Root
+      <Dialog
         open={branchNotFound !== null}
         onOpenChange={(open) => {
           if (!open) onBranchNotFoundClose();
         }}
       >
-        <Dialog.Content maxWidth="420px" size="1">
-          <Dialog.Title className="text-sm">
-            Unarchive to new branch?
-          </Dialog.Title>
-          <Dialog.Description className="text-[13px]">
-            <Text color="gray" className="text-[13px]">
+        <DialogContent showCloseButton={false} className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Unarchive to new branch?</DialogTitle>
+            <DialogDescription>
               This workspace was last on{" "}
-              <Text className="font-medium text-[13px]">
+              <span className="font-medium text-foreground">
                 {branchNotFound?.branchName}
-              </Text>
+              </span>
               , but that branch has been deleted or renamed.
-            </Text>
-          </Dialog.Description>
-          <Flex justify="end" gap="3" mt="3">
-            <Dialog.Close>
-              <Button variant="soft" color="gray" size="1">
-                Cancel
-              </Button>
-            </Dialog.Close>
-            <Button size="1" onClick={onRecreateBranch}>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" size="sm" />}>
+              Cancel
+            </DialogClose>
+            <Button variant="primary" size="sm" onClick={onRecreateBranch}>
               Unarchive to new branch
             </Button>
-          </Flex>
-        </Dialog.Content>
-      </Dialog.Root>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      <AlertDialog.Root
+      <AlertDialog
         open={deleteTargetId !== null}
         onOpenChange={(open) => {
           if (!open) setDeleteTargetId(null);
         }}
       >
-        <AlertDialog.Content maxWidth="420px" size="1">
-          <AlertDialog.Title className="text-sm">
-            Delete archived task
-          </AlertDialog.Title>
-          <AlertDialog.Description className="text-[13px]">
-            <Text color="gray" className="text-[13px]">
+        <AlertDialogContent className="max-w-[420px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete archived task</AlertDialogTitle>
+            <AlertDialogDescription render={<div />}>
               Permanently delete{" "}
-              <Text className="font-medium text-[13px]">
+              <span className="font-medium text-foreground">
                 {items.find((i) => i.archived.taskId === deleteTargetId)?.task
                   ?.title ?? "Unknown task"}
-              </Text>
+              </span>
               ? This cannot be undone.
-            </Text>
-          </AlertDialog.Description>
-          <Flex justify="end" gap="3" mt="3">
-            <AlertDialog.Cancel>
-              <Button variant="soft" color="gray" size="1">
-                Cancel
-              </Button>
-            </AlertDialog.Cancel>
-            <AlertDialog.Action>
-              <Button
-                variant="solid"
-                color="red"
-                size="1"
-                onClick={() => {
-                  if (deleteTargetId) onDelete(deleteTargetId);
-                  setDeleteTargetId(null);
-                }}
-              >
-                Delete
-              </Button>
-            </AlertDialog.Action>
-          </Flex>
-        </AlertDialog.Content>
-      </AlertDialog.Root>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="outline" size="sm" />}>
+              Cancel
+            </AlertDialogClose>
+            <AlertDialogClose
+              render={
+                <Button
+                  variant="destructive-outline"
+                  size="sm"
+                  onClick={() => {
+                    if (deleteTargetId) onDelete(deleteTargetId);
+                    setDeleteTargetId(null);
+                  }}
+                />
+              }
+            >
+              Delete
+            </AlertDialogClose>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Flex>
   );
 }
