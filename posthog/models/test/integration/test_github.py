@@ -2439,6 +2439,68 @@ class TestGitHubIntegrationPullRequestBabysitSnapshot(BaseTest):
         assert result["success"] is False
 
 
+class TestGitHubIntegrationMarkPullRequestReadyForReview(BaseTest):
+    def _github(self) -> GitHubIntegration:
+        return GitHubIntegration(_create_github_integration(self.team))
+
+    @staticmethod
+    def _state(
+        *,
+        is_draft: bool = True,
+        state: str = "OPEN",
+        labels: list[str] | None = None,
+        draft_transitions: int = 0,
+    ) -> dict:
+        return {
+            "repository": {
+                "pullRequest": {
+                    "id": "PR_node1",
+                    "isDraft": is_draft,
+                    "state": state,
+                    "labels": {"nodes": [{"name": name} for name in labels or []]},
+                    "timelineItems": {"nodes": [{"__typename": "ReadyForReviewEvent"}] * draft_transitions},
+                }
+            }
+        }
+
+    def test_a_draft_is_undrafted_by_node_id(self):
+        # REST cannot undraft a pull request, so the mutation and the node id it needs are the whole
+        # feature: read the state, then mark ready with the id that read returned.
+        responses = [self._state(), {"markPullRequestReadyForReview": {"pullRequest": {"isDraft": False}}}]
+
+        with patch.object(GitHubIntegration, "_gh_graphql", side_effect=responses) as mock_graphql:
+            result = self._github().mark_pull_request_ready_for_review("acme/widgets", 7)
+
+        assert result == {"success": True, "changed": True}
+        mutation_call = mock_graphql.call_args_list[1]
+        assert mutation_call.args[1] == {"pullRequestId": "PR_node1"}
+        assert mutation_call.kwargs["retry_transient"] is False
+
+    @parameterized.expand(
+        [
+            ("already_ready", {"is_draft": False}, (), "not_draft"),
+            ("closed", {"state": "CLOSED"}, (), "closed"),
+            ("merged", {"state": "MERGED"}, (), "closed"),
+            ("skip_label", {"labels": ["No-CI"]}, ("no-ci",), "label"),
+            # A pull request somebody already moved between draft and ready keeps what they chose,
+            # however long a queued caller took to arrive.
+            ("draft_state_decided", {"draft_transitions": 1}, (), "draft_state_decided"),
+        ]
+    )
+    def test_nothing_is_mutated_when_a_guard_stops_it(self, _name, overrides, skip_labels, reason):
+        with patch.object(GitHubIntegration, "_gh_graphql", return_value=self._state(**overrides)) as mock_graphql:
+            result = self._github().mark_pull_request_ready_for_review("acme/widgets", 7, skip_labels=skip_labels)
+
+        assert result == {"success": True, "changed": False, "reason": reason}
+        mock_graphql.assert_called_once()
+
+    def test_an_unreadable_pull_request_reports_failure(self):
+        with patch.object(GitHubIntegration, "_gh_graphql", return_value={"repository": {"pullRequest": None}}):
+            result = self._github().mark_pull_request_ready_for_review("acme/widgets", 7)
+
+        assert result["success"] is False
+
+
 class TestGitHubIntegrationPullRequestCiStatuses(BaseTest):
     def _github(self) -> GitHubIntegration:
         return GitHubIntegration(_create_github_integration(self.team))

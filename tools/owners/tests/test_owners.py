@@ -287,6 +287,7 @@ def test_teams_registry_is_root_only(tmp_path: Path) -> None:
         ("teams:\n  team-a:\n    slack:\n      stamphog: false\n", "takes a single channel"),
         ("teams:\n  team-a:\n    notifications:\n      nosuchbot: false\n", "unknown producer 'nosuchbot'"),
         ("teams:\n  team-a:\n    notifications:\n      stamphog: 'no-hash'\n", "'stamphog' must be a string"),
+        ("teams:\n  team-a:\n    notifications:\n      visual_review: 'no-hash'\n", "'visual_review' must be a string"),
         ("teams:\n  team-a:\n    notifications: {}\n", "mapping names no producer"),
     ],
 )
