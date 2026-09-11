@@ -12,6 +12,7 @@ import { BehindScheduleModel, modelsBehindSchedule } from 'products/data_modelin
 import { NodeSuspensionApi } from 'products/data_modeling/frontend/generated/api.schemas'
 import { lineageDataLogic } from 'products/data_modeling/frontend/lineage/lineageDataLogic'
 import { buildAdjacencyMaps, traverseLineage } from 'products/data_modeling/frontend/lineage/lineageSearch'
+import { servingSuspension } from 'products/data_modeling/frontend/suspension'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { DataWarehouseSavedQuery } from '../../types'
@@ -123,10 +124,19 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
                 nodes.filter((node) => node.last_run_status === 'Failed'),
         ],
         // The saved-query list response omits `suspended`, so read it off the nodes.
+        /**
+         * A marker only means scheduled runs stopped when it is on the serving engine and the team
+         * enforces suspension. Detection runs for every team, so an unenforced marker is a record
+         * of repeated failures while the schedule keeps firing.
+         */
         suspendedNodes: [
-            (s) => [s.nodes],
-            (nodes: DataModelingNode[]): DataModelingNode[] =>
-                nodes.filter((node) => Object.keys(node.suspended ?? {}).length > 0),
+            (s) => [s.nodes, s.featureFlags],
+            (nodes: DataModelingNode[], featureFlags: FeatureFlagsSet): DataModelingNode[] => {
+                if (!featureFlags[FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES]) {
+                    return []
+                }
+                return nodes.filter((node) => servingSuspension(node.suspended))
+            },
         ],
         suspensionBySavedQueryId: [
             (s) => [s.suspendedNodes],
@@ -134,7 +144,7 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
                 const map: Record<string, NodeSuspensionApi | undefined> = {}
                 for (const node of suspendedNodes) {
                     if (node.saved_query_id) {
-                        map[node.saved_query_id] = Object.values(node.suspended ?? {})[0]
+                        map[node.saved_query_id] = servingSuspension(node.suspended)
                     }
                 }
                 return map
@@ -145,13 +155,12 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
          * stopped entirely, and within each the widest blast radius comes first.
          */
         attentionModels: [
-            (s) => [s.failingNodes, s.suspendedNodes, s.edges, s.nodes, s.dataWarehouseSavedQueries],
+            (s) => [s.failingNodes, s.suspendedNodes, s.edges, s.nodes],
             (
                 failingNodes: DataModelingNode[],
                 suspendedNodes: DataModelingNode[],
                 edges: DataModelingEdge[],
-                nodes: DataModelingNode[],
-                savedQueries: DataWarehouseSavedQuery[]
+                nodes: DataModelingNode[]
             ): AttentionModel[] => {
                 const suspendedIds = new Set(suspendedNodes.map((node) => node.id))
                 const affected = [...suspendedNodes, ...failingNodes.filter((node) => !suspendedIds.has(node.id))]
@@ -159,10 +168,6 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
                     return []
                 }
 
-                const errorBySavedQueryId: Record<string, string | null> = {}
-                for (const query of savedQueries) {
-                    errorBySavedQueryId[query.id] = query.latest_error ?? null
-                }
                 const nodeById: Record<string, DataModelingNode> = {}
                 for (const node of nodes) {
                     nodeById[node.id] = node
@@ -170,16 +175,13 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
                 const maps = buildAdjacencyMaps(edges)
 
                 const rows = affected.map((node): AttentionModel => {
-                    const suspension = Object.values(node.suspended ?? {})[0]
+                    const suspension = servingSuspension(node.suspended)
                     // The cone includes the node itself, which is not something it blocks.
                     const downstream = [...traverseLineage(node.id, maps, 'downstream')].filter((id) => id !== node.id)
                     return {
                         node,
                         problem: suspension ? 'Suspended' : 'Failed',
-                        reason:
-                            suspension?.reason ??
-                            (node.saved_query_id ? errorBySavedQueryId[node.saved_query_id] : null) ??
-                            null,
+                        reason: suspension?.reason ?? node.last_run_error ?? null,
                         downstreamCount: downstream.length,
                         skippedCount: downstream.filter((id) => nodeById[id]?.last_run_status === 'Skipped').length,
                     }

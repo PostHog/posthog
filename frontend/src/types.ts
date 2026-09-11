@@ -6282,6 +6282,7 @@ export interface DataModelingNode {
     user_tag?: string
     last_run_at?: string | null
     last_run_status?: DataModelingJobStatus
+    last_run_error?: string | null
     sync_interval?: DataModelingSyncInterval
     suspended?: NodeApiSuspended
 }

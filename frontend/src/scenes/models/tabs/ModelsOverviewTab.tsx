@@ -1,7 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -168,13 +168,28 @@ const CHECK_COLUMNS: LemonTableColumns<DataQualityOverviewCheckApi> = [
 function OverviewBody({
     failingChecks,
     checksLoading,
+    checksLoaded,
+    checksError,
+    onRetryChecks,
 }: {
     failingChecks: DataQualityOverviewCheckApi[]
     checksLoading: boolean
+    /** False while the checks request is in flight, so an empty list is not yet an answer. */
+    checksLoaded: boolean
+    checksError: string | null
+    onRetryChecks?: () => void
 }): JSX.Element {
     const { attentionModels, behindSchedule, nodesLoading, dataQualityTabEnabled } = useValues(modelsSceneLogic)
 
-    if (!nodesLoading && attentionModels.length === 0 && behindSchedule.length === 0 && failingChecks.length === 0) {
+    const nothingWrong =
+        !nodesLoading &&
+        checksLoaded &&
+        !checksError &&
+        attentionModels.length === 0 &&
+        behindSchedule.length === 0 &&
+        failingChecks.length === 0
+
+    if (nothingWrong) {
         return (
             <div className="flex items-center gap-2" data-attr="models-overview-healthy">
                 <IconCheckCircle className="text-success text-xl" />
@@ -223,6 +238,15 @@ function OverviewBody({
                     />
                 </Section>
             )}
+            {checksError && (
+                <LemonBanner
+                    type="error"
+                    action={onRetryChecks ? { children: 'Try again', onClick: onRetryChecks } : undefined}
+                    data-attr="models-overview-checks-error"
+                >
+                    Data quality checks could not be loaded, so this page cannot say whether any are failing.
+                </LemonBanner>
+            )}
             {failingChecks.length > 0 && (
                 <Section
                     title="Failing data quality checks"
@@ -249,12 +273,16 @@ function OverviewBody({
 
 /** Split out so the checks request is only made where the tab exists. */
 function OverviewWithChecks(): JSX.Element {
-    const { checks, overviewLoading } = useValues(dataQualityOverviewLogic)
+    const { checks, overviewLoading, snapshotLoaded, overviewError } = useValues(dataQualityOverviewLogic)
+    const { loadOverview } = useActions(dataQualityOverviewLogic)
 
     return (
         <OverviewBody
             failingChecks={checks.filter((check) => check.last_status === 'failed' || check.last_status === 'errored')}
             checksLoading={overviewLoading}
+            checksLoaded={snapshotLoaded}
+            checksError={overviewError}
+            onRetryChecks={loadOverview}
         />
     )
 }
@@ -262,5 +290,9 @@ function OverviewWithChecks(): JSX.Element {
 export function ModelsOverviewTab(): JSX.Element {
     const { dataQualityTabEnabled } = useValues(modelsSceneLogic)
 
-    return dataQualityTabEnabled ? <OverviewWithChecks /> : <OverviewBody failingChecks={[]} checksLoading={false} />
+    return dataQualityTabEnabled ? (
+        <OverviewWithChecks />
+    ) : (
+        <OverviewBody failingChecks={[]} checksLoading={false} checksLoaded checksError={null} />
+    )
 }

@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { DataModelingEdge, DataModelingNode, DataModelingNodeType } from '~/types'
 
@@ -19,6 +19,7 @@ export interface modelsLineageLogicValues {
     edges: DataModelingEdge[] // lineageDataLogic
     edgesLoading: boolean // lineageDataLogic
     searchTerm: string
+    debouncedSearchTerm: string
     typeFilter: DataModelingNodeType[]
     legendCollapsed: boolean
     parsedSearch: ParsedLineageSearch
@@ -30,6 +31,7 @@ export interface modelsLineageLogicValues {
 
 export interface modelsLineageLogicActions {
     setSearchTerm: (searchTerm: string) => { searchTerm: string }
+    setDebouncedSearchTerm: (searchTerm: string) => { searchTerm: string }
     setTypeFilter: (typeFilter: DataModelingNodeType[]) => { typeFilter: DataModelingNodeType[] }
     toggleLegendCollapsed: () => Record<string, never>
     resetFilters: () => Record<string, never>
@@ -44,6 +46,7 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
     })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setDebouncedSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setTypeFilter: (typeFilter: DataModelingNodeType[]) => ({ typeFilter }),
         toggleLegendCollapsed: true,
         resetFilters: true,
@@ -53,6 +56,13 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
             '',
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
+                resetFilters: () => '',
+            },
+        ],
+        debouncedSearchTerm: [
+            '',
+            {
+                setDebouncedSearchTerm: (_, { searchTerm }) => searchTerm,
                 resetFilters: () => '',
             },
         ],
@@ -70,8 +80,15 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
             },
         ],
     }),
+    listeners(({ actions }) => ({
+        // Every keystroke would otherwise prune the graph and start a fresh ELK layout.
+        setSearchTerm: async ({ searchTerm }, breakpoint) => {
+            await breakpoint(250)
+            actions.setDebouncedSearchTerm(searchTerm)
+        },
+    })),
     selectors({
-        parsedSearch: [(s) => [s.searchTerm], (searchTerm: string) => parseLineageSearch(searchTerm)],
+        parsedSearch: [(s) => [s.debouncedSearchTerm], (searchTerm: string) => parseLineageSearch(searchTerm)],
 
         // A plain term highlights matches in place. Only the `+` lineage selectors prune the canvas,
         // so typing a single letter never empties the graph.

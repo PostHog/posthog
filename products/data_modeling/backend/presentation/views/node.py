@@ -27,7 +27,15 @@ from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInput
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.data_modeling.backend.facade.api import get_declared_target, resume_nodes, suspension_state
-from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
+from products.data_modeling.backend.facade.models import (
+    DAG,
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataWarehouseSavedQuery,
+    Edge,
+    Node,
+    NodeType,
+)
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
 
@@ -47,6 +55,7 @@ class NodeSerializer(serializers.ModelSerializer):
     downstream_count = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
     last_run_status = serializers.SerializerMethodField(read_only=True)
+    last_run_error = serializers.SerializerMethodField(read_only=True)
     user_tag = serializers.SerializerMethodField(read_only=True)
     sync_interval = serializers.SerializerMethodField(read_only=True)
     dag_name = serializers.SerializerMethodField(read_only=True)
@@ -68,6 +77,7 @@ class NodeSerializer(serializers.ModelSerializer):
             "downstream_count",
             "last_run_at",
             "last_run_status",
+            "last_run_error",
             "user_tag",
             "sync_interval",
             "suspended",
@@ -107,10 +117,24 @@ class NodeSerializer(serializers.ModelSerializer):
         return len(_get_downstream_nodes(node))
 
     def get_last_run_at(self, node: Node) -> str | None:
-        return node.properties.get("system", {}).get("last_run_at") or getattr(node, "_latest_job_run_at", None)
+        """When this model last succeeded.
+
+        The stored stamp is written on every outcome, failures included, so it would report a
+        failed run as fresh. It stands in only for nodes with no job rows to read.
+        """
+        run_at = getattr(node, "_latest_job_run_at", None)
+        if run_at is not None:
+            return run_at.isoformat()
+        return node.properties.get("system", {}).get("last_run_at")
 
     def get_last_run_status(self, node: Node) -> str | None:
-        return node.properties.get("system", {}).get("last_run_status") or getattr(node, "_latest_job_status", None)
+        """Skipped runs are written straight to the job table and never reach the stored status,
+        so a blocked model would keep reporting the success before it."""
+        return getattr(node, "_latest_job_status", None) or node.properties.get("system", {}).get("last_run_status")
+
+    def get_last_run_error(self, node: Node) -> str | None:
+        """Error of the run that last_run_status describes, so the two never disagree."""
+        return getattr(node, "_latest_job_error", None) or None
 
     def get_user_tag(self, node: Node) -> str | None:
         return node.properties.get("user", {}).get("tag")
@@ -191,14 +215,22 @@ def _get_downstream_nodes(node: Node) -> set[str]:
 
 
 def _annotate_latest_job(queryset: models.QuerySet) -> models.QuerySet:
-    """Status comes from the newest job of any status, but run_at only from the newest successful one."""
-    from products.data_modeling.backend.facade.models import DataModelingJob
+    """Annotate the run state a reader is asking about: the serving engine's newest job.
 
-    latest_job = DataModelingJob.objects.filter(saved_query_id=OuterRef("saved_query_id")).order_by("-last_run_at")
-    latest_completed_job = latest_job.filter(status=DataModelingJob.Status.COMPLETED)
+    Duckgres jobs shadow a serving run and often finish after it, so a shadow failure would
+    otherwise label a model that served fine as failed.
+    """
+    serving_jobs = (
+        DataModelingJob.objects.filter(saved_query_id=OuterRef("saved_query_id"))
+        .exclude(engine=DataModelingJobEngine.DUCKGRES)
+        .order_by("-last_run_at")
+    )
     return queryset.annotate(
-        _latest_job_status=Subquery(latest_job.values("status")[:1]),
-        _latest_job_run_at=Subquery(latest_completed_job.values("last_run_at")[:1]),
+        _latest_job_status=Subquery(serving_jobs.values("status")[:1]),
+        _latest_job_error=Subquery(serving_jobs.values("error")[:1]),
+        _latest_job_run_at=Subquery(
+            serving_jobs.filter(status=DataModelingJob.Status.COMPLETED).values("last_run_at")[:1]
+        ),
     )
 
 

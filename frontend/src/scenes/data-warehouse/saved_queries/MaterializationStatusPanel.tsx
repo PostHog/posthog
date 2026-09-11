@@ -18,6 +18,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AccessControlResourceType, DataModelingJob, LogEntryLevel } from '~/types'
 
+import { SERVING_ENGINE } from 'products/data_modeling/frontend/suspension'
 import { MaterializationRunErrorCell } from 'products/data_warehouse/frontend/shared/components/MaterializationRunErrorCell'
 
 import { IncrementalConfigOptions } from '../editor/IncrementalConfigFields'
@@ -35,7 +36,6 @@ import {
 const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
 
 // Matches DataModelingJobEngine.CLICKHOUSE, the engine materialized queries are served from.
-const SERVING_ENGINE = 'clickhouse'
 
 interface MaterializationStatusPanelProps {
     viewId: string
