@@ -14,6 +14,7 @@ export interface DetachedElementTrackingState {
     currentPath: string | null
     previousDetachedCount: number | null
     routeBaselineDetachedCount: number | null
+    routeBaselinePersistedCount: number | null
 }
 
 interface DetachedElementTrackingContext {
@@ -22,6 +23,8 @@ interface DetachedElementTrackingContext {
     pathChanged: boolean
     routeBaselineDetachedElements: number
     routeDetachedElementsDelta: number
+    routeBaselinePersistedElements: number
+    routePersistedElementsDelta: number
 }
 
 export function createDetachedElementTrackingState(): DetachedElementTrackingState {
@@ -29,30 +32,87 @@ export function createDetachedElementTrackingState(): DetachedElementTrackingSta
         currentPath: null,
         previousDetachedCount: null,
         routeBaselineDetachedCount: null,
+        routeBaselinePersistedCount: null,
     }
 }
 
 export function getDetachedElementTrackingContext(
     state: DetachedElementTrackingState,
     currentCount: number,
-    currentPath: string
+    currentPath: string,
+    persistedCount: number
 ): DetachedElementTrackingContext {
     const pathChanged = state.currentPath !== null && state.currentPath !== currentPath
     const routeBaselineDetachedElements = pathChanged
         ? currentCount
         : (state.routeBaselineDetachedCount ?? currentCount)
+    const routeBaselinePersistedElements = pathChanged
+        ? persistedCount
+        : (state.routeBaselinePersistedCount ?? persistedCount)
 
     return {
         detachedElementsDelta: state.previousDetachedCount === null ? null : currentCount - state.previousDetachedCount,
         pathChanged,
         routeBaselineDetachedElements,
         routeDetachedElementsDelta: currentCount - routeBaselineDetachedElements,
+        routeBaselinePersistedElements,
+        routePersistedElementsDelta: persistedCount - routeBaselinePersistedElements,
         nextState: {
             currentPath,
             previousDetachedCount: currentCount,
             routeBaselineDetachedCount: routeBaselineDetachedElements,
+            routeBaselinePersistedCount: routeBaselinePersistedElements,
         },
     }
+}
+
+/** One entry of MemLens's detached-DOM report, narrowed to what persistence measurement reads. */
+export interface DetachedElementRef {
+    element: { deref: () => Element | undefined }
+    componentStack?: readonly string[] | null
+}
+
+export interface DetachedPersistence {
+    persistedCount: number
+    persistedComponents: Map<string, number>
+    /** Feed back in as `seenPreviously` on the next scan. A WeakSet, so measuring retention cannot cause it. */
+    seenNow: WeakSet<Element>
+}
+
+/** Split the detached elements that outlived a scan interval from the ones that are only pending collection.
+ *
+ *  A scan counts every element detached from the document. Most of those are ordinary garbage the collector
+ *  has not reached yet, and a page cannot force a collection. So a single count cannot tell a route that
+ *  retains DOM apart from a route that merely happened to be open while another route's garbage was pending.
+ *  That is why a route's total tracks how much the session navigated rather than what the route holds onto.
+ *  An element still detached at the next scan has survived at least one collection opportunity, which makes
+ *  it far more likely to be genuinely retained. */
+export function measureDetachedPersistence(
+    detached: readonly DetachedElementRef[],
+    seenPreviously: WeakSet<Element>
+): DetachedPersistence {
+    const seenNow = new WeakSet<Element>()
+    const persistedComponents = new Map<string, number>()
+    let persistedCount = 0
+
+    for (const info of detached) {
+        const element = info.element.deref()
+        if (!element) {
+            continue
+        }
+        seenNow.add(element)
+        if (!seenPreviously.has(element)) {
+            continue
+        }
+        persistedCount++
+        // The head of the stack, which is what MemLens itself reports as an element's component name.
+        const component = info.componentStack?.[0]
+        if (component) {
+            persistedComponents.set(component, (persistedComponents.get(component) ?? 0) + 1)
+        }
+    }
+
+    return { persistedCount, persistedComponents, seenNow }
 }
 
 export function shouldCaptureDetachedElements(currentCount: number, previousCount: number | null): boolean {
@@ -109,13 +169,18 @@ export function startDetachedElementTracking(posthog: Capturable): void {
             })
 
             let trackingState = createDetachedElementTrackingState()
+            let elementsDetachedAtLastScan = new WeakSet<Element>()
 
             scan.subscribe((result) => {
                 const currentPath = window.location.pathname
+                const persistence = measureDetachedPersistence(scan.getDetachedDOMInfo(), elementsDetachedAtLastScan)
+                elementsDetachedAtLastScan = persistence.seenNow
+
                 const trackingContext = getDetachedElementTrackingContext(
                     trackingState,
                     result.totalDetachedElements,
-                    currentPath
+                    currentPath,
+                    persistence.persistedCount
                 )
 
                 if (!shouldCaptureDetachedElements(result.totalDetachedElements, trackingState.previousDetachedCount)) {
@@ -135,6 +200,10 @@ export function startDetachedElementTracking(posthog: Capturable): void {
                     path_changed_at_scan: trackingContext.pathChanged,
                     path_change_baseline_detached_elements: trackingContext.routeBaselineDetachedElements,
                     detached_elements_delta_since_path_change: trackingContext.routeDetachedElementsDelta,
+                    detached_elements_persisted: persistence.persistedCount,
+                    detached_components_persisted: mapToTopN(persistence.persistedComponents, TOP_N),
+                    path_change_baseline_persisted_elements: trackingContext.routeBaselinePersistedElements,
+                    detached_elements_persisted_delta_since_path_change: trackingContext.routePersistedElementsDelta,
                 })
             })
 
