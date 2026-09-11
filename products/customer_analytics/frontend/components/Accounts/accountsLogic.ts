@@ -1488,10 +1488,32 @@ export const accountsLogic = kea<accountsLogicType>([
                 actions.setAccountFilters(customProperties)
             }
 
-            // Resolve the canonical status: an explicit field wins; a legacy hash with any
-            // key but no field is assigned-only (never broadens); an empty hash is the pure
-            // default and shows all.
             const explicitStatus = isAssignmentStatus(view.assignmentStatus) ? view.assignmentStatus : undefined
+            const assignedTo = normalizeRoleFilter(view.assignedTo)
+            // Back-compat: legacy links encoded the viewer-relative `mine: true`;
+            // resolve it to the opener's own id so old shared links still work.
+            const legacyMine =
+                !assignedTo.length && view.mine && values.currentUserId !== null ? [values.currentUserId] : []
+            // With no assignment intent in the hash at all (no status, no assignedTo, no
+            // mine, e.g. arriving via the tab link or a history entry written before the
+            // filter was picked), fall back to the shared "mine only" toggle so the choice
+            // made on the Notes tab carries over. An explicit status always wins over that
+            // toggle. Read `mineOnly` before any setter runs: `setAssignmentStatus` clears
+            // the assigned-to filter, which cascades into `setMineOnly(false)` and would
+            // otherwise erase the preference this fallback depends on.
+            const mineFallbackApplies =
+                explicitStatus === undefined && !assignedTo.length && !view.mine && values.mineOnly
+            const sharedMine = mineFallbackApplies && values.currentUserId !== null ? [values.currentUserId] : []
+            // The persisted "my accounts" intent can't be resolved until the user id is
+            // known. If the user hasn't loaded yet, leave the filter untouched (rather than
+            // writing an empty one, which would cascade to setMineOnly(false) and clobber the
+            // preference) and let the loadUserSuccess listener apply it once the user resolves.
+            const mineRestorePending = mineFallbackApplies && values.currentUserId === null
+            const nextAssignedTo = assignedTo.length ? assignedTo : legacyMine.length ? legacyMine : sharedMine
+
+            // Resolve the canonical status: an explicit field wins; a legacy hash with any
+            // key but no field is assigned-only (never broadens); an empty hash falls back to
+            // the shared "mine only" toggle, and is otherwise the pure default and shows all.
             const hasViewKeys = Object.keys(view).length > 0
             const nextStatus: AssignmentStatus = explicitStatus
                 ? explicitStatus
@@ -1499,39 +1521,12 @@ export const accountsLogic = kea<accountsLogicType>([
                   ? view.unassigned
                       ? 'unassigned'
                       : 'assigned'
-                  : 'all'
+                  : mineFallbackApplies
+                    ? 'assigned'
+                    : 'all'
             if (nextStatus !== values.assignmentStatus) {
                 actions.setAssignmentStatus(nextStatus)
             }
-
-            const assignedTo = normalizeRoleFilter(view.assignedTo)
-            // Back-compat: legacy links encoded the viewer-relative `mine: true`;
-            // resolve it to the opener's own id so old shared links still work.
-            const legacyMine =
-                !assignedTo.length && view.mine && values.currentUserId !== null ? [values.currentUserId] : []
-            // With no assignment intent in the hash at all (no status, no assignedTo, no
-            // mine — e.g. arriving via the tab link), fall back to the shared "mine only"
-            // toggle so the choice made on the Notes tab carries over. An explicit status
-            // always wins over that toggle.
-            const sharedMine =
-                explicitStatus === undefined &&
-                !assignedTo.length &&
-                !view.mine &&
-                values.mineOnly &&
-                values.currentUserId !== null
-                    ? [values.currentUserId]
-                    : []
-            // The persisted "my accounts" intent can't be resolved until the user id is
-            // known. If the user hasn't loaded yet, leave the filter untouched (rather than
-            // writing an empty one, which would cascade to setMineOnly(false) and clobber the
-            // preference) and let the loadUserSuccess listener apply it once the user resolves.
-            const mineRestorePending =
-                explicitStatus === undefined &&
-                !assignedTo.length &&
-                !view.mine &&
-                values.mineOnly &&
-                values.currentUserId === null
-            const nextAssignedTo = assignedTo.length ? assignedTo : legacyMine.length ? legacyMine : sharedMine
             if (!mineRestorePending && !objectsEqual(nextAssignedTo, values.assignedToFilter)) {
                 actions.setAssignedToFilter(nextAssignedTo)
             }

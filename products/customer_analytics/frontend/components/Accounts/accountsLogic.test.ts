@@ -507,6 +507,22 @@ describe('accountsLogic', () => {
                 expect(logic.values.assignedToCurrentUser).toBe(true)
             })
 
+            // Regression: returning to the list on a URL with no view hash (the browser back
+            // button onto an entry written before the filter was picked, the tab link, or the
+            // breadcrumb) reset the status to "all", which cross-cleared the assigned-to filter
+            // and cascaded into setMineOnly(false), so the choice was gone for good.
+            it('keeps "my accounts" when the list URL loses the view hash', async () => {
+                logic.actions.setAssignedToCurrentUser(true)
+                await expectLogic(logic).toFinishAllListeners()
+
+                router.actions.push(urls.customerAnalyticsAccounts())
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.assignedToFilter).toEqual([CURRENT_USER_ID])
+                expect(logic.values.assignmentStatus).toBe('assigned')
+                expect(customerAnalyticsSceneLogic.values.mineOnly).toBe(true)
+            })
+
             it('an explicit shared link still wins over the shared toggle', async () => {
                 customerAnalyticsSceneLogic.actions.setMineOnly(true)
                 router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: { assignedTo: [7] } })
