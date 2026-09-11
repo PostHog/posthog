@@ -10,8 +10,9 @@ The throttle classes all extend `PersonalApiKeyRateThrottle`, which lets an auth
 App traffic is session-authenticated, so it meets none of these limits.
 That is the usual reason a script with a personal API key gets a 429 while the same account's browser traffic does not.
 
-A personal API key request to `/api/environments/:id/session_recordings` or its `snapshots` action passes through the general ClickHouse throttles.
+A personal API key request to `/api/projects/:team_id/session_recordings` or its `snapshots` action passes through the general ClickHouse throttles.
 On the list and `snapshots` actions a tier-aware replay throttle applies on top, and that is almost always the ceiling that blocks the caller.
+The `/api/environments/:id/session_recordings` form meets the same limits, because `EnvironmentsRewriteMiddleware` rewrites it to the projects route, but that prefix is deprecated and its responses carry `Deprecation` and `Sunset` headers.
 
 Sharing-token requests are the exception.
 They get one per-token cap that replaces the general ClickHouse throttles instead of stacking on top of them.
