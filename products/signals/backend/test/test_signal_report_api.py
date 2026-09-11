@@ -675,6 +675,47 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["is_suggested_reviewer"] is False
 
+    def test_list_surfaces_suggested_reviewers_with_resolved_user(self):
+        UserSocialAuth.objects.create(
+            user=self.user,
+            provider="github",
+            uid="github-test-list-reviewers",
+            extra_data={"login": "suggestedgh"},
+        )
+        report = self._create_report()
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps(
+                [
+                    {
+                        "github_login": "suggestedgh",
+                        "relevant_commits": [
+                            {"sha": "abc123", "url": "https://gh/c/abc123", "reason": "owns the area"}
+                        ],
+                    }
+                ]
+            ),
+        )
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        reviewers = row["suggested_reviewers"]
+        assert len(reviewers) == 1
+        assert reviewers[0]["github_login"] == "suggestedgh"
+        assert reviewers[0]["relevant_commits"][0]["sha"] == "abc123"
+        assert reviewers[0]["user"]["id"] == self.user.id
+
+    def test_list_suggested_reviewers_empty_without_artefact(self):
+        report = self._create_report()
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["suggested_reviewers"] == []
+
     # --- implementation_pr_url ---
 
     def _create_implementation_task_with_run(

@@ -58857,6 +58857,45 @@ export namespace Schemas {
       Suppressed: 'suppressed',
     } as const;
 
+    /**
+     * One commit cited as evidence for why a reviewer is relevant.
+     */
+    export interface SignalSuggestedReviewerCommit {
+      /** Commit SHA. */
+      sha: string;
+      /** Link to the commit. */
+      url: string;
+      /** Why this commit makes the reviewer relevant. */
+      reason: string;
+    }
+
+    /**
+     * Read side of a `suggested_reviewers` artefact entry. The stored identity resolves to a
+     * current org member at read time, so `user` stays right even when the reviewer linked their
+     * GitHub account after the report was generated.
+     */
+    export interface SignalSuggestedReviewer {
+      /**
+         * GitHub login the reviewer was stored under, or null.
+         * @nullable
+         */
+      github_login?: string | null;
+      /**
+         * PostHog user UUID the reviewer was stored under, when present.
+         * @nullable
+         */
+      user_uuid?: string | null;
+      /**
+         * Human-readable display name captured with the entry, or null.
+         * @nullable
+         */
+      github_name?: string | null;
+      /** Commits cited as evidence for the reviewer. */
+      relevant_commits?: SignalSuggestedReviewerCommit[];
+      /** Resolved current org member, or null when no member matches the stored identity. */
+      user: _User | null;
+    }
+
     export type SignalReportAssignmentPrStateEnum = typeof SignalReportAssignmentPrStateEnum[keyof typeof SignalReportAssignmentPrStateEnum];
 
 
@@ -59023,6 +59062,8 @@ export namespace Schemas {
          */
       readonly repo_slug: string | null;
       readonly is_suggested_reviewer: boolean;
+      /** Reviewers suggested for this report, from the latest suggested-reviewers artefact (empty when none). Each carries the resolved current org member. Lets list cards show reviewer avatars without a per-card artefact fetch. */
+      readonly suggested_reviewers: readonly SignalSuggestedReviewer[];
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
       /**

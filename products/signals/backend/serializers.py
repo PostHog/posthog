@@ -678,6 +678,37 @@ class ReportChartSerializer(serializers.Serializer):
     )
 
 
+class SignalSuggestedReviewerCommitSerializer(serializers.Serializer):
+    """One commit cited as evidence for why a reviewer is relevant."""
+
+    sha = serializers.CharField(help_text="Commit SHA.")
+    url = serializers.CharField(help_text="Link to the commit.")
+    reason = serializers.CharField(help_text="Why this commit makes the reviewer relevant.")
+
+
+class SignalSuggestedReviewerSerializer(serializers.Serializer):
+    """Read side of a `suggested_reviewers` artefact entry. The stored identity resolves to a
+    current org member at read time, so `user` stays right even when the reviewer linked their
+    GitHub account after the report was generated."""
+
+    github_login = serializers.CharField(
+        required=False, allow_null=True, help_text="GitHub login the reviewer was stored under, or null."
+    )
+    user_uuid = serializers.UUIDField(
+        required=False, allow_null=True, help_text="PostHog user UUID the reviewer was stored under, when present."
+    )
+    github_name = serializers.CharField(
+        required=False, allow_null=True, help_text="Human-readable display name captured with the entry, or null."
+    )
+    relevant_commits = SignalSuggestedReviewerCommitSerializer(
+        many=True, required=False, help_text="Commits cited as evidence for the reviewer."
+    )
+    user = _UserSerializer(
+        allow_null=True,
+        help_text="Resolved current org member, or null when no member matches the stored identity.",
+    )
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     charts = ReportChartSerializer(
@@ -729,6 +760,13 @@ class SignalReportSerializer(serializers.ModelSerializer):
         ),
     )
     is_suggested_reviewer = serializers.BooleanField(read_only=True, default=False)
+    suggested_reviewers = serializers.SerializerMethodField(
+        help_text=(
+            "Reviewers suggested for this report, from the latest suggested-reviewers artefact (empty "
+            "when none). Each carries the resolved current org member. Lets list cards show reviewer "
+            "avatars without a per-card artefact fetch."
+        ),
+    )
     source_products = serializers.SerializerMethodField(
         help_text="Distinct source products contributing signals to this report (from ClickHouse).",
     )
@@ -806,6 +844,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "dismissal_note",
             "repo_slug",
             "is_suggested_reviewer",
+            "suggested_reviewers",
             "source_products",
             "scout_name",
             "implementation_pr_url",
@@ -938,6 +977,35 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
         value = data.get("repository")
         return value if isinstance(value, str) and value else None
+
+    @extend_schema_field(SignalSuggestedReviewerSerializer(many=True))
+    def get_suggested_reviewers(self, obj: SignalReport) -> list[dict]:
+        prefetched = getattr(obj, "prefetched_suggested_reviewers_artefacts", None)
+        if prefetched is not None:
+            art = prefetched[0] if prefetched else None
+        else:
+            art = (
+                obj.artefacts.filter(type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS)
+                .order_by("-created_at")
+                .first()
+            )
+        if art is None:
+            return []
+        try:
+            parsed = json.loads(art.content)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return []
+        if not isinstance(parsed, list):
+            return []
+        # None outside the reports list (e.g. detail), where the helper resolves per report instead.
+        login_map = cast(Mapping[str, User] | None, self.context.get("signals_github_login_to_user_map"))
+        uuid_map = cast(Mapping[str, User] | None, self.context.get("signals_reviewer_user_uuid_map"))
+        return enrich_reviewer_dicts_with_org_members(
+            obj.team_id,
+            parsed,
+            login_to_user=login_map,
+            uuid_to_user=uuid_map,
+        )
 
     def get_source_products(self, obj: SignalReport) -> list[str]:
         source_products_map: dict[str, list[str]] | None = self.context.get("source_products_map")
