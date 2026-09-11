@@ -102,7 +102,9 @@ class TestFingerprintWidth(SimpleTestCase):
             first_ticket_at=timezone.now(),
         )
 
-        assert len(widest.fingerprint) <= TicketPattern._meta.get_field("fingerprint").max_length
+        max_length = TicketPattern._meta.get_field("fingerprint").max_length
+        assert max_length is not None
+        assert len(widest.fingerprint) <= max_length
 
 
 class TestTopicExtraction(SimpleTestCase):
