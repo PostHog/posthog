@@ -4,7 +4,10 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
+import { RetentionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/RetentionTab/RetentionTab'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { MarketingAnalyticsCell } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/shared'
 import { webAnalyticsDataTableQueryContext } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
@@ -79,6 +82,7 @@ const QUERY_CONTEXT: QueryContext = {
 // Scaffold for the redesigned marketing analytics dashboard, gated behind the
 // `new-marketing-analytics-dashboard` feature flag.
 export function NewMarketingAnalyticsDashboard(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { dateFilter, compareFilter, shouldFilterTestAccounts } = useValues(marketingAnalyticsLogic)
     const { setDates, setCompareFilter } = useActions(marketingAnalyticsLogic)
     const dateRange = { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo }
@@ -130,6 +134,15 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                         />
                     </section>
                 ))
+            )}
+            {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RETENTION] && (
+                <section aria-label="Retention" className="flex flex-col gap-2">
+                    <h2 className="mb-0">Retention</h2>
+                    <p className="text-secondary mb-0">
+                        Follow visitors acquired in the selected date range across subsequent periods.
+                    </p>
+                    <RetentionTab />
+                </section>
             )}
             <Query
                 query={{
