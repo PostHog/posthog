@@ -1982,6 +1982,22 @@ class TestMySQLSourceNonRetryableErrors:
         assert friendly is not None, f"Connect failure should surface a friendly message: {error_msg}"
         assert "SSH tunnel" in friendly
 
+    def test_tidb_cloud_access_denied_surfaces_actionable_message(self, source):
+        # TiDB Cloud's ER_ACCESS_DENIED_ERROR wording doesn't contain the standard MySQL
+        # "Access denied for user" phrase, so without its own entry this credentials failure
+        # would retry forever instead of surfacing the cluster-tier username prefix guidance.
+        error_msg = (
+            "(1105, 'Access denied. Please check your user name and password. See "
+            "https://docs.pingcap.com/tidbcloud/select-cluster-tier#user-name-prefix')"
+        )
+        non_retryable = source.get_non_retryable_errors()
+        friendly = next(
+            (message for pattern, message in non_retryable.items() if pattern in error_msg),
+            None,
+        )
+        assert friendly is not None, f"TiDB Cloud access-denied error should be non-retryable: {error_msg}"
+        assert "TiDB Cloud" in friendly
+
     @pytest.mark.parametrize(
         "error_msg",
         [

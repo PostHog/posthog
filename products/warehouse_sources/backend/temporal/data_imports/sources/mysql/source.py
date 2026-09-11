@@ -209,6 +209,19 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # source — so the user fixes credentials instead of the generic "check connection
             # details" message sending them to check the host/port.
             "Access denied for user": _INVALID_CREDENTIALS_ERROR,
+            # TiDB Cloud's own ER_ACCESS_DENIED_ERROR (also 1105) wording, distinct from the
+            # standard MySQL "Access denied for user" text above: it points the user at TiDB
+            # Cloud's docs on the cluster-tier username prefix a Serverless cluster requires
+            # (e.g. `<prefix>.root`). Same root cause — wrong credentials, or a username missing
+            # that prefix — so it's non-retryable for the same reason, but needs its own key since
+            # neither existing "Access denied" phrase appears in it. Match the stable sentence,
+            # excluding TiDB's own docs URL that follows it.
+            "Access denied. Please check your user name and password": (
+                "TiDB Cloud rejected the username or password. If you're connecting to a TiDB "
+                "Cloud Serverless cluster, make sure your username includes the required cluster "
+                "prefix (see TiDB Cloud's connection docs). Otherwise check the user and password "
+                "for this source and try again."
+            ),
             # MySQL/MariaDB error 1049 (ER_BAD_DB_ERROR): the configured database doesn't exist on
             # the server — it was renamed or dropped after the source was set up, or the connection
             # was reconfigured to point at a different server. `validate_credentials` already
