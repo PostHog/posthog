@@ -6,6 +6,7 @@ import { loaders } from 'kea-loaders'
 import { ApiError } from 'lib/api'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { objectsEqual } from 'lib/utils/objects'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { performQuery } from '~/queries/query'
@@ -140,9 +141,26 @@ export function checkCreatePayload(form: CheckFormValues, requiresColumn: boolea
     }
 }
 
-export function checkEditPayload(form: CheckFormValues, requiresColumn: boolean): CheckEditPayload {
+/** Whether the form asserts something other than what the stored check already asserts. */
+function assertionChanged(definition: CheckDefinitionPayload, check: DataQualityCheckApi): boolean {
+    return (
+        definition.check_type !== check.check_type ||
+        definition.column_name !== (check.column_name ?? '') ||
+        !objectsEqual(definition.config, check.config ?? {})
+    )
+}
+
+export function checkEditPayload(
+    form: CheckFormValues,
+    requiresColumn: boolean,
+    editingCheck: DataQualityCheckApi
+): CheckEditPayload {
+    const definition = definitionPayload(form, requiresColumn)
     return {
-        ...definitionPayload(form, requiresColumn),
+        // The backend revalidates the definition whenever the request carries one, and a subject that
+        // stopped supporting its check fails that. Send it only when the assertion actually changed,
+        // so renaming a check or lowering its severity stays possible.
+        ...(assertionChanged(definition, editingCheck) ? definition : {}),
         severity: form.severity,
         // Sent even when blank, unlike create: an edit is how metadata gets cleared.
         name: form.name,
@@ -759,7 +777,7 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                         ? await checksApi.partialUpdate(
                               values.subject,
                               editing.id,
-                              checkEditPayload(form, values.requiresColumn)
+                              checkEditPayload(form, values.requiresColumn, editing)
                           )
                         : await checksApi.create(values.subject, checkCreatePayload(form, values.requiresColumn))
                     // Defaults come from the saved row before closing, so a clean form never trips

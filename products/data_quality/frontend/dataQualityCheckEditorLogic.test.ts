@@ -12,6 +12,7 @@ import { DataQualityCheckEditorLogicProps, dataQualityCheckEditorLogic } from '.
 import {
     dataCatalogMetricsChecksCheckTypesList,
     dataCatalogMetricsChecksCreate,
+    dataCatalogMetricsChecksPartialUpdate,
     warehouseSavedQueriesChecksCheckTypesList,
     warehouseSavedQueriesChecksCreate,
     warehouseSavedQueriesChecksPartialUpdate,
@@ -84,6 +85,7 @@ jest.mock('scenes/data-management/database/databaseTableListLogic', () => {
 jest.mock('./generated/api', () => ({
     dataCatalogMetricsChecksCheckTypesList: jest.fn(),
     dataCatalogMetricsChecksCreate: jest.fn(),
+    dataCatalogMetricsChecksPartialUpdate: jest.fn(),
     warehouseSavedQueriesChecksCreate: jest.fn(),
     warehouseSavedQueriesChecksPartialUpdate: jest.fn(),
     warehouseSavedQueriesChecksCheckTypesList: jest.fn(),
@@ -307,6 +309,38 @@ describe('dataQualityCheckEditorLogic', () => {
             severity: 'error',
             name: 'orders_not_null',
             description: 'why',
+            tags: [],
+        })
+    })
+
+    it('leaves an unchanged assertion out of a metadata-only edit', async () => {
+        // The backend revalidates the definition whenever a request carries one, which a metric that
+        // moved off its HogQL definition fails. Renaming its check must not go down that path.
+        ;(dataCatalogMetricsChecksCheckTypesList as jest.Mock).mockResolvedValue(
+            CHECK_TYPE_CATALOG.filter((type) => type.check_type === 'custom_sql')
+        )
+        ;(dataCatalogMetricsChecksPartialUpdate as jest.Mock).mockResolvedValue(buildCheck())
+        await mountLogic()
+        logic.actions.openEditor(
+            buildCheck({
+                check_type: CheckTypeEnumApi.CustomSql,
+                column_name: '',
+                config: { query: 'SELECT 1 FROM {metric}' },
+                name: 'signup_floor',
+            }),
+            { subjectType: 'metric', subjectId: 'metric-1' }
+        )
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setCheckFormValues({ name: 'signups_floor', description: 'renamed' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.submitCheckForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataCatalogMetricsChecksPartialUpdate).toHaveBeenCalledWith('1', 'metric-1', 'check-1', {
+            severity: 'error',
+            name: 'signups_floor',
+            description: 'renamed',
             tags: [],
         })
     })
