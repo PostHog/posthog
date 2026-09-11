@@ -90,7 +90,9 @@ An update can also send immediately after these changes:
 - The prompt report display options change.
 - The subscription resumes.
 
-Set `send_test_now: false` to suppress this immediate update delivery.
+The MCP update tool cannot set `send_test_now`.
+Ask for approval before these changes.
+If the user does not approve delivery, do not make the update.
 A schedule-only or title-only update does not send by default.
 
 - The request returns `202` when PostHog queues the test.
@@ -100,6 +102,9 @@ A schedule-only or title-only update does not send by default.
 
 Manual tests do not change the recurring schedule.
 For `since_last_sent` AI windows, manual tests do not move the analysis anchor.
+
+Wait between delivery checks and stop after two minutes.
+If delivery does not reach a final state, report the last state and suggest another check later.
 
 ## Delivery history
 

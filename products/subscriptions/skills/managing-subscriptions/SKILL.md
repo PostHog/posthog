@@ -60,6 +60,10 @@ Snapshot subscriptions attempt each scheduled occurrence even when the saved res
 8. Read the saved subscription and check each requested field.
 9. If the user approved an immediate delivery, check its delivery record.
 
+If creation times out or returns an uncertain result, list matching subscriptions before you retry.
+Creation is not idempotent.
+A blind retry can create a duplicate subscription and send a duplicate immediate delivery.
+
 Do not infer missing recipients, channels, times, or time zones.
 Ask for these values before creation.
 
@@ -73,7 +77,6 @@ Use these list filters when they reduce ambiguity:
 - `dashboard`: One dashboard ID.
 - `dashboard_tiles`: Insight subscriptions for live tiles on one dashboard.
 - `created_by`: One creator UUID.
-- `deleted`: Include or select soft-deleted subscriptions.
 
 ### Check for duplicates
 
@@ -105,7 +108,8 @@ Call `posthog:subscriptions-retrieve` before each update.
 Then call `posthog:subscriptions-partial-update` with the changed fields.
 
 Ask before an update that can send an immediate delivery.
-Set `send_test_now: false` when the user does not approve that delivery.
+The MCP update tool cannot suppress an immediate delivery for these changes.
+If the user does not approve delivery, do not make the update.
 
 - Set `enabled: false` to pause delivery.
 - Set `enabled: true` to resume delivery.
@@ -126,6 +130,9 @@ An exhausted schedule cannot resume until the user extends or removes its end co
 2. Call `posthog:subscriptions-test-delivery-create`.
 3. Poll `posthog:subscriptions-deliveries-list` for the new manual delivery.
 4. Read the delivery when the list result needs more detail.
+
+Wait between polls and stop after two minutes.
+If delivery does not reach a final state, report the last state and suggest another check later.
 
 A test sends a real message.
 The tool returns `202` after it queues the delivery.
