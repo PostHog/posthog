@@ -2,6 +2,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.cost.accuracy import cost_estimate_accuracy_hogql
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
@@ -49,3 +50,16 @@ LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_t
             external_tables=None,
         )
         assert response.results is not None
+
+    def test_cost_estimate_accuracy_query_runs_against_the_archive(self):
+        response = execute_hogql_query(cost_estimate_accuracy_hogql(days=7), self.team)
+
+        assert response.results is not None
+        assert response.columns == [
+            "plan_fingerprint",
+            "queries",
+            "median_rows_q_error",
+            "p90_rows_q_error",
+            "median_bytes_q_error",
+            "p90_bytes_q_error",
+        ]

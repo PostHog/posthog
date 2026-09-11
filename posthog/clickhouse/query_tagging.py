@@ -528,6 +528,14 @@ class QueryTags(BaseModel):
 
     hogql_features: Optional[HogQLFeatures] = None
 
+    # Structural hash of the HogQL AST with literals stripped (posthog/hogql/cost/fingerprint.py), so
+    # query_log can group actual cost by plan shape and join it to the estimate recorded below.
+    plan_fingerprint: Optional[str] = None
+    # Set by the HogQL cost planner before execution and compared against read_rows / read_bytes in
+    # query_log to calibrate it. None until the estimator runs.
+    estimated_rows: Optional[int] = None
+    estimated_bytes: Optional[int] = None
+
     modifiers: Optional[object] = None
     number_of_entities: Optional[int] = None
     person_on_events_mode: Optional[str] = None  # PersonsOnEventsMode

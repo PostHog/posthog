@@ -63,6 +63,11 @@ QUERY_LOG_ARCHIVE_FIELDS: dict[str, FieldOrTable] = {
         nullable=False,
         description="Query outcome type, e.g. 'QueryFinish' or 'ExceptionWhileProcessing'.",
     ),
+    "is_initial_query": BooleanDatabaseField(
+        name="is_initial_query",
+        nullable=False,
+        description="True for the query a client sent. False for the per-shard subqueries ClickHouse ran on its behalf, which repeat the parent's tags.",
+    ),
     "exception_code": IntegerDatabaseField(
         name="exception_code", nullable=False, description="ClickHouse exception code if the query failed, else 0."
     ),
@@ -106,6 +111,21 @@ QUERY_LOG_ARCHIVE_FIELDS: dict[str, FieldOrTable] = {
     ),
     "ReadBufferFromS3Bytes": IntegerDatabaseField(
         name="ProfileEvents_ReadBufferFromS3Bytes", nullable=False, description="Bytes read from S3 by the query."
+    ),
+    "plan_fingerprint": StringDatabaseField(
+        name="lc_plan_fingerprint",
+        nullable=False,
+        description="Hash of the query's structure with literal values removed. Queries that differ only in literals share it.",
+    ),
+    "estimated_rows": IntegerDatabaseField(
+        name="lc_estimated_rows",
+        nullable=False,
+        description="Rows the cost planner estimated the query would read before it ran. 0 when no estimate was recorded.",
+    ),
+    "estimated_bytes": IntegerDatabaseField(
+        name="lc_estimated_bytes",
+        nullable=False,
+        description="Bytes the cost planner estimated the query would read before it ran. 0 when no estimate was recorded.",
     ),
     # "cost_usd": FloatDatabaseField(name="cost_usd", nullable=False),
 }
@@ -191,6 +211,11 @@ class RawQueryLogArchiveTable(Table):
         "query_id": StringDatabaseField(
             name="query_id", nullable=False, description="ClickHouse-assigned query identifier."
         ),
+        "is_initial_query": BooleanDatabaseField(
+            name="is_initial_query",
+            nullable=False,
+            description="True for the query a client sent, false for its per-shard subqueries.",
+        ),
         "lc_client_query_id": StringDatabaseField(
             name="lc_client_query_id", nullable=False, description="Client-supplied query identifier."
         ),
@@ -249,6 +274,21 @@ class RawQueryLogArchiveTable(Table):
         "ProfileEvents_S3GetObject": IntegerDatabaseField(name="ProfileEvents_S3GetObject", nullable=False),
         "ProfileEvents_ReadBufferFromS3Bytes": IntegerDatabaseField(
             name="ProfileEvents_ReadBufferFromS3Bytes", nullable=False
+        ),
+        "lc_plan_fingerprint": StringDatabaseField(
+            name="lc_plan_fingerprint",
+            nullable=False,
+            description="Hash of the query's structure with literal values removed.",
+        ),
+        "lc_estimated_rows": IntegerDatabaseField(
+            name="lc_estimated_rows",
+            nullable=False,
+            description="Rows the cost planner estimated the query would read. 0 when no estimate was recorded.",
+        ),
+        "lc_estimated_bytes": IntegerDatabaseField(
+            name="lc_estimated_bytes",
+            nullable=False,
+            description="Bytes the cost planner estimated the query would read. 0 when no estimate was recorded.",
         ),
     }
 
