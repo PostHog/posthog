@@ -83,7 +83,7 @@ Generate a key with:
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -outform PEM -out oidc-signing-key.pem
 ```
 
-Paste the file's contents into the Cloudflare dashboard as a secret on the `auth-proxy` worker, or run `wrangler secret put OIDC_SIGNING_KEY`.
+Pipe it into `wrangler secret put OIDC_SIGNING_KEY`, or paste the file's contents into the Cloudflare dashboard as a secret on the `oauth-proxy` worker.
 The worker also accepts a PEM whose newlines are written as `\n`, matching how the Django `OIDC_RSA_PRIVATE_KEY` setting is stored.
 Delete the local file once the secret is set.
 
@@ -128,4 +128,4 @@ pnpm --filter @posthog/auth-proxy deploy
 
 This needs Cloudflare credentials for the PostHog account.
 The worker name, KV binding, and observability settings live in `wrangler.jsonc`.
-Secrets are not in that file: set them in the Cloudflare dashboard or with `wrangler secret put`.
+Secrets are not in that file. wrangler has no declaration for a `secret put` secret, so `wrangler.jsonc` only names them in a comment and the typed contract lives on `Env` in `src/index.ts`.
