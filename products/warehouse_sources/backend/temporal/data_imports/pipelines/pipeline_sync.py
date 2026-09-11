@@ -30,7 +30,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     mark_initial_sync_complete,
     update_sync_type_config_keys,
 )
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.table import DataWarehouseTable, DataWarehouseTableIntrospectedColumns
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
@@ -49,6 +49,19 @@ from products.warehouse_sources.backend.types import (
 )
 
 LOGGER = get_logger(__name__)
+
+
+def hogql_types_with_introspection_floor(
+    raw_db_columns: DataWarehouseTableIntrospectedColumns, table_schema_dict: dict[str, str] | None
+) -> dict[str, str]:
+    """HogQL type per column, falling back to the one ClickHouse introspection derived.
+
+    table_schema_dict is built from the arrow batches a run wrote, so a run that wrote none carries
+    no types at all and merge_columns drops every column it cannot type. The source-derived type
+    still wins where it exists, because only it can tell a JSON string from a plain one.
+    """
+    introspected = {name: column["hogql"] for name, column in raw_db_columns.items() if column.get("hogql")}
+    return {**introspected, **(table_schema_dict or {})}
 
 
 def merge_columns(
@@ -310,6 +323,7 @@ async def validate_schema_and_update_table(
             # instead of the generic, user-facing Exception get_columns() raises by default.
             raw_db_columns = table_created.get_columns(safe_expose_ch_error=False)
             db_columns = {key: str(column.get("clickhouse", "")) for key, column in raw_db_columns.items()}
+            column_types = hogql_types_with_introspection_floor(raw_db_columns, table_schema_dict)
 
             def _persist_columns() -> None:
                 with transaction.atomic():
@@ -320,7 +334,7 @@ async def validate_schema_and_update_table(
                     # its nullable LEFT JOINs are rejected by Postgres under FOR UPDATE.
                     table_for_update = DataWarehouseTable.raw_objects.select_for_update().get(id=table_created.id)
                     existing_columns = table_for_update.columns or {}
-                    columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
+                    columns = merge_columns(db_columns, column_types, existing_columns)
                     # Project to enabled_columns so disabled columns the user already deselected don't
                     # creep back into HogQL via the Delta schema (which still contains them historically).
                     # Prefer source-detected PKs (always present) over the schema model's PKs (only set
@@ -463,7 +477,9 @@ async def register_cdc_companion_table(
             raw_db_columns = companion_table.get_columns()
             db_columns = {key: str(column.get("clickhouse", "")) for key, column in raw_db_columns.items()}
             existing_columns = companion_table.columns or {}
-            columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
+            columns = merge_columns(
+                db_columns, hogql_types_with_introspection_floor(raw_db_columns, table_schema_dict), existing_columns
+            )
 
             def _persist_columns() -> None:
                 with transaction.atomic():

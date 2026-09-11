@@ -405,16 +405,22 @@ class TestValidateSchemaAndUpdateTable:
         assert table.row_count == 150
 
     # Published files at zero rows mean a resumed or redelivered run counted only its own attempt.
-    # Trusting row_count there left the data in S3 with no table to query it through.
+    # Trusting row_count there left the data in S3 with no table to query it through. The run wrote
+    # no arrow batches, so it carries no table_schema_dict and the columns can only come from
+    # introspection - without them the table registers empty and still queries as nothing.
     @pytest.mark.parametrize("published_file_count,expect_table", [(0, False), (18, True)])
     def test_zero_row_sync_creates_a_table_only_when_files_were_published(
         self, team, published_file_count: int, expect_table: bool
     ):
         schema, job = self._schema_and_job(team)
         assert schema.table is None
+        introspected = {
+            "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+            "created": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(3)", "valid": True},
+        }
 
         with (
-            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_columns", return_value=introspected),
             patch.object(DataWarehouseTable, "get_count", return_value=150),
         ):
             async_to_sync(validate_schema_and_update_table)(
@@ -436,6 +442,7 @@ class TestValidateSchemaAndUpdateTable:
             assert schema.table_id == tables.get().id
             # A reported 0 must not register a table full of published files as empty.
             assert tables.get().row_count == 150
+            assert set(tables.get().columns or {}) == {"id", "created"}
 
     def test_relinks_a_table_an_earlier_run_left_unlinked(self, team):
         # An orphan must be adopted and repointed, not left unlinked and not duplicated.
