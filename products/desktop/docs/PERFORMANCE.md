@@ -16,3 +16,18 @@ This keeps the worker budget independent of which view opens first.
 To check the lifecycle in the development app, open a plain conversation, open a diff, and then leave the diff.
 Inspect worker targets in Chromium DevTools: the plain conversation should have no diff workers, the diff should have two, and leaving all diffs should release them.
 Check syntax highlighting and large file scrolling in both conversation previews and code review.
+
+## Pi transcript residency
+
+Pi releases transcript events and model catalogs when a view leaves an idle session.
+The next visit reloads history through the session provider, as it does for an initial visit.
+Session status, usage, and recovery errors remain available without retaining the transcript.
+
+Background sessions stay subscribed while a turn, compaction, shell command, authentication restoration, queue, or permission request needs them.
+A cloud run stays subscribed until its status is terminal.
+Once the remaining work finishes, the controller releases the inactive transcript.
+Disconnecting all sessions also releases all stored transcripts.
+
+The controller lifecycle tests cover reopening evicted history and keeping unfinished background work alive.
+For a memory check, repeatedly open and leave completed Pi tasks and collect renderer garbage after the run.
+Idle transcript retention should stay flat as the number of visited tasks grows.

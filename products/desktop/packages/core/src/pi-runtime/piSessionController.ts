@@ -284,6 +284,7 @@ export class PiSessionController {
 
   disconnectAll(): void {
     const taskIds = new Set([
+      ...Object.keys(this.store.getState().sessions),
       ...this.activeTaskIds,
       ...this.sessions.keys(),
       ...this.subscriptions.keys(),
@@ -327,6 +328,7 @@ export class PiSessionController {
     const requests = new Map(this.getSession(taskId).mcpToolPermissionRequests);
     requests.delete(request.requestId);
     this.updateSession(taskId, { mcpToolPermissionRequests: requests });
+    this.disposeInactiveSessionIfIdle(taskId);
   }
 
   async clearQueue(taskId: string): Promise<PiQueueSnapshot> {
@@ -580,6 +582,7 @@ export class PiSessionController {
       throw this.recordOperationFailure(taskId, "bash", error);
     } finally {
       this.updateSession(taskId, { isBashRunning: false });
+      this.disposeInactiveSessionIfIdle(taskId);
     }
   }
 
@@ -602,6 +605,7 @@ export class PiSessionController {
       const session = await this.getPiSession(taskId);
       await session.client.abortBash();
       this.updateSession(taskId, { isBashRunning: false });
+      this.disposeInactiveSessionIfIdle(taskId);
     } catch (error) {
       throw this.recordOperationFailure(taskId, "cancel", error);
     }
@@ -780,6 +784,7 @@ export class PiSessionController {
       this.setSession(taskId, {
         connectionState: "connected",
         events: reconciledEvents,
+        cloudStatus: currentSession.cloudStatus ?? session.cloudStatus,
         status: resolvedStatus,
         stats,
         models: currentSession.models,
@@ -945,8 +950,8 @@ export class PiSessionController {
 
     if (event.type === "turn_completed") {
       void this.refreshStats(taskId);
-      this.disposeInactiveSessionIfIdle(taskId);
     }
+    this.disposeInactiveSessionIfIdle(taskId);
   }
 
   private reconcileTurnState(
@@ -1047,6 +1052,7 @@ export class PiSessionController {
 
   private handleCloudStatus(taskId: string, cloudStatus: TaskRunStatus): void {
     this.updateSession(taskId, { cloudStatus });
+    this.disposeInactiveSessionIfIdle(taskId);
   }
 
   private async loadStats(
@@ -1286,6 +1292,7 @@ export class PiSessionController {
       queue,
       status: this.withPendingMessageCount(taskId, queue),
     });
+    this.disposeInactiveSessionIfIdle(taskId);
   }
 
   private withPendingMessageCount(
@@ -1384,6 +1391,7 @@ export class PiSessionController {
     const session = await this.getPiSession(taskId);
     const status = await session.client.getState();
     this.updateSession(taskId, { status });
+    this.disposeInactiveSessionIfIdle(taskId);
   }
 
   private async sendCloudUserMessage(
@@ -1475,6 +1483,12 @@ export class PiSessionController {
     if (
       session.connectionState === "connecting" ||
       session.status?.isStreaming ||
+      session.status?.isCompacting ||
+      session.isBashRunning ||
+      session.authRestoring ||
+      session.mcpToolPermissionRequests.size > 0 ||
+      session.queue.steering.length > 0 ||
+      session.queue.followUp.length > 0 ||
       this.turnStates.get(taskId)?.phase === "active"
     ) {
       return true;
@@ -1496,7 +1510,17 @@ export class PiSessionController {
     this.queuesToRestore.delete(taskId);
     this.turnStates.delete(taskId);
     this.notificationContexts.delete(taskId);
-    this.updateSession(taskId, { mcpToolPermissionRequests: new Map() });
+    // Reopening already reloads history; keeping it after transport disposal only retains memory.
+    this.updateSession(taskId, {
+      connectionState: "disconnected",
+      events: [],
+      models: [],
+      modelsLoaded: false,
+      thinkingLevels: [],
+      thinkingLevelsLoaded: false,
+      commands: [],
+      mcpToolPermissionRequests: new Map(),
+    });
   }
 
   private resetTransport(taskId: string): void {
