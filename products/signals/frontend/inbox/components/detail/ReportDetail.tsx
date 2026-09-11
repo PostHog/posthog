@@ -84,7 +84,7 @@ export function ReportDetailBadges({
 
 /** Placeholder finding rows shown while the signals query is in flight, sized to the known count. */
 function EvidenceSkeleton({ count }: { count: number }): JSX.Element {
-    const rows = Math.max(1, Math.min(count, 4))
+    const rows = Math.max(1, Math.min(count, 2))
     return (
         <div className="flex flex-col gap-3" aria-hidden>
             {Array.from({ length: rows }).map((_, i) => (
@@ -215,9 +215,16 @@ export function InboxDetailFrame({
             : 'Back'
         : 'Self-driving inbox'
     const logicProps = { reportId: report.id, report }
-    const { reportSignals, reportSignalsLoading, priorityExplanation, chartPlacements, trailingCharts, detailTab } =
-        useValues(inboxReportDetailLogic(logicProps))
-    const { setDetailTab } = useActions(inboxReportDetailLogic(logicProps))
+    const {
+        reportSignals,
+        reportSignalsLoading,
+        evidenceExpanded,
+        priorityExplanation,
+        chartPlacements,
+        trailingCharts,
+        detailTab,
+    } = useValues(inboxReportDetailLogic(logicProps))
+    const { setDetailTab, expandEvidence, collapseEvidence } = useActions(inboxReportDetailLogic(logicProps))
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
     const { toggleEvidenceRail } = useActions(inboxDetailLayoutLogic)
     // The API returns evidence oldest-first, but a reader wants the most recent signal at the top of
@@ -396,9 +403,20 @@ export function InboxDetailFrame({
                                     <EvidenceSkeleton count={evidenceCount} />
                                 ) : (
                                     <div className="flex flex-col gap-3">
-                                        {signals.map((signal: SignalNode) => (
-                                            <SignalCard key={signal.signal_id} signal={signal} />
-                                        ))}
+                                        {(evidenceExpanded ? signals : signals.slice(0, 2)).map(
+                                            (signal: SignalNode) => (
+                                                <SignalCard key={signal.signal_id} signal={signal} />
+                                            )
+                                        )}
+                                        {signals.length > 2 && (
+                                            <LemonButton
+                                                type="tertiary"
+                                                size="small"
+                                                onClick={evidenceExpanded ? collapseEvidence : expandEvidence}
+                                            >
+                                                {evidenceExpanded ? 'Show less' : 'Show more'}
+                                            </LemonButton>
+                                        )}
                                     </div>
                                 )}
                             </DetailSection>

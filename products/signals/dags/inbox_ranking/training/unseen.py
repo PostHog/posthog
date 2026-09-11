@@ -23,9 +23,9 @@ from sklearn.metrics import roc_auc_score
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.ranking.features import FEATURE_NAMES, FEATURE_SCHEMA_VERSION, feature_frame
+from products.signals.backend.ranking.features import NO_EXTRAS, Extras, FeatureSet, feature_set_by_name
 from products.signals.dags.inbox_ranking.common import snapshot_bounds
-from products.signals.dags.inbox_ranking.training.examples import STATE_COLUMNS, point_in_time_mask
+from products.signals.dags.inbox_ranking.training.examples import point_in_time_mask, state_rows
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head
 
 # Stamped on every scored event, so a chart can tell this pool definition from a later one.
@@ -86,12 +86,13 @@ FEATURE_INPUT_COLUMNS = (
 
 @frozen
 class UnseenModel:
-    """One model to score the pool with, and the readable heads it can score."""
+    """One model to score the pool with, the feature set it was fit on, and the readable heads it
+    can score. Models that share a feature set share one matrix."""
 
     model_name: str
     model_version: str
     model_role: str
-    feature_schema_version: int
+    feature_set: FeatureSet
     boosters: Mapping[str, bytes]
 
 
@@ -188,13 +189,26 @@ def chance_band(outcomes: np.ndarray, scores: np.ndarray) -> ChanceBand:
     return ChanceBand(auc=float(np.mean(aucs)), auc_std=float(np.std(aucs)))
 
 
+def model_feature_set(metadata: Mapping[str, Any]) -> FeatureSet | None:
+    """The feature set the model declares, or None when this build cannot produce it. Metadata
+    written before the field existed declares nothing and reads as the tabular set."""
+    return feature_set_by_name(metadata.get("feature_set"))
+
+
 def model_mismatch(metadata: Mapping[str, Any]) -> str | None:
-    """Why the model cannot be scored against the current feature contract, or None when it can."""
+    """Why the model cannot be scored, or None when it can.
+
+    A model is checked against its own declared set rather than one global contract, so a family
+    on a richer set is not rejected for disagreeing with the tabular one.
+    """
+    feature_set = model_feature_set(metadata)
+    if feature_set is None:
+        return f"feature set {metadata.get('feature_set')} is not one this build can produce"
     version = metadata.get("feature_schema_version")
-    if version != FEATURE_SCHEMA_VERSION:
-        return f"feature_schema_version {version} is not the serving contract's {FEATURE_SCHEMA_VERSION}"
-    if tuple(metadata.get("feature_names") or ()) != FEATURE_NAMES:
-        return "feature_names differ from the serving contract"
+    if version != feature_set.schema_version:
+        return f"feature_schema_version {version} is not {feature_set.name}'s {feature_set.schema_version}"
+    if tuple(metadata.get("feature_names") or ()) != feature_set.feature_names:
+        return f"feature_names differ from the {feature_set.name} feature set"
     return None
 
 
@@ -276,46 +290,58 @@ def with_model_names(scores: pd.DataFrame) -> pd.DataFrame:
 
 
 def score_pool(
-    pool: pd.DataFrame, labels: pd.DataFrame, models: Sequence[UnseenModel], *, snapshot_date: datetime.date
+    pool: pd.DataFrame,
+    labels: pd.DataFrame,
+    models: Sequence[UnseenModel],
+    *,
+    snapshot_date: datetime.date,
+    extras: Extras = NO_EXTRAS,
 ) -> pd.DataFrame:
     """One row per (report, model, head) in SCORE_COLUMNS order, where a model is a
     (model_name, model_version, model_role).
 
     Features are built exactly as `build_examples` builds them, so a report scored here sees the
-    same vector it would have seen as a training example. `label_at_scoring` records whether the
-    head's outcome had already happened on the scoring day; the grader drops those rows, the same
-    way the example builder drops a scoring moment whose label is already 1.
+    same vector it would have seen as a training example. One matrix is built per feature set the
+    models declare, and every model on that set scores against it. `label_at_scoring` records
+    whether the head's outcome had already happened on the scoring day; the grader drops those
+    rows, the same way the example builder drops a scoring moment whose label is already 1.
     """
-    rows = pool[list(STATE_COLUMNS)].copy()
-    rows["age_hours"] = rows.pop("report_age_hours").astype(float)
-    matrix = xgb.DMatrix(feature_frame(rows), feature_names=list(FEATURE_NAMES))
     aligned_labels = labels.reindex(pool.index)
     team_id = pool["report_team_id"] if "report_team_id" in pool else pd.Series(None, index=pool.index, dtype=object)
     report_ids = pool.index.to_numpy()
     team_ids = pd.to_numeric(team_id, errors="coerce").astype("Int64").to_numpy()
-    created_at = pd.to_datetime(rows["report_created_at"], utc=True).to_numpy()
-    age_hours = rows["age_hours"].to_numpy()
-    frames = [
-        pd.DataFrame(
-            {
-                "report_id": report_ids,
-                "team_id": team_ids,
-                "report_created_at": created_at,
-                "snapshot_date": snapshot_date,
-                "pool": POOL_NAME,
-                "model_name": model.model_name,
-                "model_version": model.model_version,
-                "model_role": model.model_role,
-                "feature_schema_version": model.feature_schema_version,
-                "head": head_name,
-                "score": _predict(booster_ubj, matrix),
-                "age_hours": age_hours,
-                "label_at_scoring": HEADS_BY_NAME[head_name].label(aligned_labels).to_numpy(),
-            }
+    created_at = pd.to_datetime(pool["report_created_at"], utc=True).to_numpy()
+    age_hours = pool["report_age_hours"].astype(float).to_numpy()
+    matrices: dict[str, xgb.DMatrix] = {}
+    frames: list[pd.DataFrame] = []
+    for model in models:
+        feature_set = model.feature_set
+        if feature_set.name not in matrices:
+            matrices[feature_set.name] = xgb.DMatrix(
+                feature_set.build_matrix(state_rows(pool, feature_set), extras),
+                feature_names=list(feature_set.feature_names),
+            )
+        matrix = matrices[feature_set.name]
+        frames.extend(
+            pd.DataFrame(
+                {
+                    "report_id": report_ids,
+                    "team_id": team_ids,
+                    "report_created_at": created_at,
+                    "snapshot_date": snapshot_date,
+                    "pool": POOL_NAME,
+                    "model_name": model.model_name,
+                    "model_version": model.model_version,
+                    "model_role": model.model_role,
+                    "feature_schema_version": feature_set.schema_version,
+                    "head": head_name,
+                    "score": _predict(booster_ubj, matrix),
+                    "age_hours": age_hours,
+                    "label_at_scoring": HEADS_BY_NAME[head_name].label(aligned_labels).to_numpy(),
+                }
+            )
+            for head_name, booster_ubj in model.boosters.items()
         )
-        for model in models
-        for head_name, booster_ubj in model.boosters.items()
-    ]
     if not frames:
         return pd.DataFrame(columns=list(SCORE_COLUMNS))
     return pd.concat(frames, ignore_index=True)[list(SCORE_COLUMNS)]

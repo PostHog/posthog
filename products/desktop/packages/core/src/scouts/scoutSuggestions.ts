@@ -2,30 +2,39 @@ import type {
   ScoutSuggestionItem,
   ScoutSuggestionProposedConfig,
 } from "@posthog/api-client/posthog-client";
-import { formatScoutScheduleShort } from "./scoutPresentation";
+import {
+  formatScoutScheduleShort,
+  scoutScheduleNamesClockTime,
+} from "./scoutPresentation";
 
 /** Minutes between runs for a suggestion that names no schedule of its own. */
 export const DEFAULT_SUGGESTION_INTERVAL_MINUTES = 1440;
 
-/** How often the suggested agent would run, in the roster's own words. */
+/** How often the suggested agent would run, in the roster's own words and project timezone. */
 export function suggestionCadenceLabel(
   config: ScoutSuggestionProposedConfig,
+  timezoneAbbreviation?: string | null,
 ): string {
-  return formatScoutScheduleShort({
+  const schedule = {
     run_cron_schedule: config.run_cron_schedule,
     run_interval_minutes:
       config.run_interval_minutes ?? DEFAULT_SUGGESTION_INTERVAL_MINUTES,
-  });
+  };
+  const label = formatScoutScheduleShort(schedule);
+  return timezoneAbbreviation && scoutScheduleNamesClockTime(schedule)
+    ? `${label} (${timezoneAbbreviation})`
+    : label;
 }
 
 /** One line on what the agent would do: how often, and where its output goes. */
 export function suggestionMetaLine(
   config: ScoutSuggestionProposedConfig,
+  timezoneAbbreviation?: string | null,
 ): string {
   const output = config.emit
     ? "sends what it finds to Self-driving"
     : "dry run, sends nothing";
-  return `Runs ${suggestionCadenceLabel(config)} · ${output}`;
+  return `Runs ${suggestionCadenceLabel(config, timezoneAbbreviation)} · ${output}`;
 }
 
 /** What the primary action on a suggestion does. */

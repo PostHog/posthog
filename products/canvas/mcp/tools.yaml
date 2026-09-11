@@ -423,3 +423,6 @@ tools:
     canvases-versions-retrieve:
         operation: canvases_versions_retrieve
         enabled: false
+    canvases-view-retrieve:
+        operation: canvases_view_retrieve
+        enabled: false

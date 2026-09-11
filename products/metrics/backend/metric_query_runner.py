@@ -7,10 +7,16 @@ range, with a choice of aggregation. Modelled after the logs
 isn't going through HogQL `DataNode` caching, schema-gen or the data-viz
 pipeline yet.
 
-Every aggregation resolves per physical series (`_series_key_exprs`) before
+Every aggregation resolves per physical series (`_series_key_expr`) before
 combining across series: instant aggregations reduce each series to its last
 sample in the bucket, counter functions diff within a series. Aggregating raw
 samples instead would weight a series by how often it was scraped.
+
+Storage is the `metrics` / `metric_series` split: a data point row carries only
+its `series_fingerprint`, and the label maps live once per series on
+`metric_series`. Label filters therefore become a fingerprint IN-list resolved
+on the series table (`series_scope_expr`), and group-by labels come from a join
+to the series table after the per-series reduction (`_splice_group_columns`).
 """
 
 import re
@@ -57,31 +63,26 @@ _QUERY_SETTINGS = HogQLGlobalSettings(
     read_overflow_mode="throw",
 )
 
-# The OTel service name is a first-class `metrics1` column (extracted at
-# ingest from the `service.name` resource attribute); both spellings resolve
-# to it so filters/group-bys match real ingested rows.
+# The OTel service name is a first-class column on both `metrics` and
+# `metric_series` (extracted at ingest from the `service.name` resource
+# attribute); both spellings resolve to it so filters/group-bys match real
+# ingested rows.
 _SERVICE_NAME_KEYS: frozenset[str] = frozenset({"service_name", "service.name"})
-
-# Synthetic per-data-point attribute ingest stamps on a point whose timestamp it
-# had to override. Never part of a series' identity — see `_series_key_exprs`.
-_ORIGINAL_TIMESTAMP_KEY = "$originalTimestamp"
 
 
 def attribute_field(name: str, *, scope: AttributeScope = "auto") -> ast.Expr:
     """Build the HogQL AST node that accesses a metric attribute by name.
 
-    This is the single seam between the upcoming filter / group-by / rate /
-    histogram-quantile work (PR3-PR6) and the underlying `metrics1` storage
-    shape. When the Snuffle-style streams-table rewrite lands, only this
-    function changes — every call site keeps working.
+    The expression reads the `attributes` / `resource_attributes` maps, which
+    exist only on `metric_series`, so it must land in a scope where that table
+    (or a subquery re-exporting those columns) is visible.
 
     `scope` resolves *where* the attribute lives:
 
     - ``"resource"`` — look in ``resource_attributes`` only (Prometheus-style
       `service.name`, `k8s.pod.name` — set once per scrape target).
-    - ``"attribute"`` — look in ``attributes`` only (the alias view of
-      ``attributes_map_str`` that strips the 5-char ``__str`` type tag from
-      each key). Per-data-point labels like ``http.method`` live here.
+    - ``"attribute"`` — look in ``attributes`` only. Per-data-point labels
+      like ``http.method`` live here.
     - ``"auto"`` (default) — try resource first, fall back to attribute if
       empty. Map lookups in ClickHouse return ``''`` for missing keys, not
       NULL, so the fallback compares against the empty string.
@@ -117,41 +118,21 @@ def attribute_field(name: str, *, scope: AttributeScope = "auto") -> ast.Expr:
     )
 
 
-def _series_key_exprs() -> list[ast.Expr]:
+def _series_key_expr() -> ast.Expr:
     """Identifies the physical series a row belongs to.
 
     Every aggregation resolves per series before combining across series, so
     all three query builders share this definition rather than restating it.
 
-    `metric_type` belongs to the identity, not just to filtering: one name can
-    be ingested as both a counter and a gauge, and `metric_type` is optional on
-    the query, so an unconstrained query sees both sets of rows at once.
-
-    `$originalTimestamp` is dropped back out of `attributes`. Ingest adds it to
-    the map for a point whose timestamp is more than a day off, carrying a
-    per-sample value, and deliberately fingerprints the series before adding it
-    (`compute_series_fingerprint` in `rust/capture-logs/src/metric_record.rs`).
-    Keeping it would shatter a skewed exporter's series into one series per
-    sample, which is the exact weighting these keys exist to prevent.
-
-    `resource_attributes` appears here rather than its `resource_fingerprint`
-    digest so that the key stays exact — a hash collision would merge two
-    targets into one series.
-
-    These are grouping and partitioning keys only; a query that also needs the
-    attributes themselves reads them off `posthog.metrics` in the same scope,
-    because a column aliased `attributes` in a scope that already resolves the
-    `attributes` map collides with it.
+    `series_fingerprint` is assigned once at ingest over the metric name, the
+    metric type, the service name and both label maps (`compute_series_fingerprint`
+    in `rust/capture-logs/src/metric_record.rs`), so it already separates a
+    counter from a gauge of the same name. Ingest fingerprints the series
+    before it adds the synthetic `$originalTimestamp` attribute to a skewed
+    point, so that per-sample value never shatters a series into one series
+    per sample.
     """
-    return [
-        ast.Field(chain=["service_name"]),
-        ast.Field(chain=["resource_attributes"]),
-        parse_expr(
-            "mapFilter((k, v) -> k != {synthetic}, attributes)",
-            placeholders={"synthetic": ast.Constant(value=_ORIGINAL_TIMESTAMP_KEY)},
-        ),
-        ast.Field(chain=["metric_type"]),
-    ]
+    return ast.Field(chain=["series_fingerprint"])
 
 
 def _aggregation_expr(name: str, value: ast.Expr) -> ast.Expr:
@@ -311,9 +292,9 @@ def _align_to_interval(timestamp: dt.datetime, interval: str, *, tzinfo: ZoneInf
 
 # Prometheus's default lookback delta. One interval step on its own is not
 # enough when the scrape interval is coarser than the bucket — a 60s scrape on
-# a `second` or `minute` chart — and `metrics1` is partitioned by day with
-# `timestamp` last in the sort key, so reaching back five minutes inside a day
-# reads the same partitions as reaching back one.
+# a `second` or `minute` chart — and `metrics` sorts by an hourly `time_bucket`
+# with `timestamp` last in the key, so reaching back five minutes inside an hour
+# reads the same granules as reaching back one.
 _MIN_COUNTER_LOOKBACK = dt.timedelta(minutes=5)
 
 
@@ -370,6 +351,38 @@ def filters_expr(filters: Sequence[MetricFilter]) -> ast.Expr:
     return ast.And(exprs=conditions)
 
 
+def time_range_expr(date_from: dt.datetime, date_to: dt.datetime) -> ast.Expr:
+    """Bound a `metrics` read to `[date_from, date_to)`.
+
+    The `timestamp` pair is the exact bound. The `time_bucket` pair is what
+    lets ClickHouse skip granules: `metrics` sorts by `(team_id, metric_name,
+    time_bucket, ...)` and is partitioned by expiry, so a bare `timestamp`
+    predicate prunes nothing inside a metric and the read covers the metric's
+    whole retention. `time_bucket` is `toStartOfHour(timestamp)` in UTC, so
+    the bounds snap to the UTC hour here rather than in HogQL, where
+    `toStartOfHour` follows the project's timezone and lands on :30 for a
+    half-hour offset.
+    """
+    return parse_expr(
+        """
+            timestamp >= {date_from}
+            AND timestamp < {date_to}
+            AND time_bucket >= {bucket_from}
+            AND time_bucket <= {bucket_to}
+        """,
+        placeholders={
+            "date_from": ast.Constant(value=date_from),
+            "date_to": ast.Constant(value=date_to),
+            "bucket_from": ast.Constant(value=_utc_hour(date_from)),
+            "bucket_to": ast.Constant(value=_utc_hour(date_to)),
+        },
+    )
+
+
+def _utc_hour(value: dt.datetime) -> dt.datetime:
+    return value.astimezone(dt.UTC).replace(minute=0, second=0, microsecond=0)
+
+
 def type_filter_expr(metric_type: str | None) -> ast.Expr:
     """Constrains rows to one metric type. A name can exist as several
     types (a counter and a gauge); their series are distinct and must not
@@ -380,6 +393,59 @@ def type_filter_expr(metric_type: str | None) -> ast.Expr:
     if metric_type is None:
         return ast.Constant(value=True)
     return parse_expr("metric_type = {metric_type}", placeholders={"metric_type": ast.Constant(value=metric_type)})
+
+
+def series_scope_expr(metric_name: str, filters: Sequence[MetricFilter]) -> ast.Expr:
+    """Restrict `metrics` rows to the series the label filters select.
+
+    Labels live only on `metric_series`, so a filter becomes an IN over the
+    fingerprints of the matching series. The subquery is pinned to one metric
+    name because the series table sorts by `(team_id, metric_name,
+    series_fingerprint)`, which keeps the lookup to that metric's series.
+
+    TRUE when there are no filters, so a data point whose series row has not
+    landed yet still counts. Once a filter is set there is no label set to
+    match such a point against, so it drops out.
+    """
+    if not filters:
+        return ast.Constant(value=True)
+    return parse_expr(
+        """
+            series_fingerprint IN (
+                SELECT series_fingerprint
+                FROM posthog.metric_series
+                WHERE metric_name = {metric_name}
+                  AND {filters}
+            )
+        """,
+        placeholders={"metric_name": ast.Constant(value=metric_name), "filters": filters_expr(filters)},
+    )
+
+
+def series_labels_query(metric_name: str) -> ast.SelectQuery:
+    """One row per series of `metric_name` with its labels, for joining onto a
+    per-series reduction.
+
+    Grouped rather than read with FINAL: ReplacingMergeTree duplicates share
+    the fingerprint and carry the same labels, since the labels are the
+    fingerprint's input, so `any()` cannot pick a stale value and the join
+    never multiplies a series.
+    """
+    query = parse_select(
+        """
+            SELECT
+                series_fingerprint,
+                any(service_name) AS service_name,
+                any(attributes) AS attributes,
+                any(resource_attributes) AS resource_attributes
+            FROM posthog.metric_series
+            WHERE metric_name = {metric_name}
+            GROUP BY series_fingerprint
+        """,
+        placeholders={"metric_name": ast.Constant(value=metric_name)},
+    )
+    assert isinstance(query, ast.SelectQuery)
+    return query
 
 
 class MetricQueryRunner:
@@ -512,31 +578,41 @@ class MetricQueryRunner:
                 "use a coarser interval, a narrower range, or a lower-cardinality group_by"
             )
 
-    def _splice_group_columns(self, query: ast.SelectQuery, *, resolve_in: ast.SelectQuery | None = None) -> None:
+    def _splice_group_columns(self, query: ast.SelectQuery) -> None:
         """Insert the group_by label columns between `time` and `value` —
         parse_select placeholders can't express a variable column count.
 
-        `attribute_field` resolves against the scope of the query it lands in,
-        so that query must expose `service_name`, `attributes` and
-        `resource_attributes` under those names — read straight off
-        `posthog.metrics`, or re-exported from a subquery. Pass `resolve_in`
-        when the labels have to be built a level down instead; `query` then
-        only forwards them up by name.
+        `query` reads a per-series subquery aliased `s` that exports
+        `series_fingerprint`. The labels are not on that side, so a LEFT JOIN
+        to the metric's series (`series_labels_query`, aliased `ser`) is added
+        on the fingerprint, and each label resolves against `ser`. The join is
+        only attached when there is a group_by, so an ungrouped chart never
+        pays for it. A series whose row has not landed yet keeps its points
+        and groups under an empty label.
         """
+        if not self.group_by:
+            return
         assert query.group_by is not None
+        assert query.select_from is not None and query.select_from.alias == "s"
+        query.select_from.next_join = ast.JoinExpr(
+            join_type="LEFT JOIN",
+            table=series_labels_query(self.metric_name),
+            alias="ser",
+            constraint=ast.JoinConstraint(
+                expr=parse_expr("s.series_fingerprint = ser.series_fingerprint"), constraint_type="ON"
+            ),
+        )
         for index, group in enumerate(self.group_by):
             alias = f"group_{index}"
             label_expr: ast.Expr = ast.Call(name="toString", args=[attribute_field(group.key, scope=group.scope.value)])
-            if resolve_in is not None:
-                assert resolve_in.group_by is not None
-                resolve_in.select.append(ast.Alias(alias=alias, expr=label_expr))
-                resolve_in.group_by.append(ast.Field(chain=[alias]))
-                label_expr = ast.Field(chain=[alias])
             query.select.insert(1 + index, ast.Alias(alias=alias, expr=label_expr))
             query.group_by.append(ast.Field(chain=[alias]))
 
     def _type_filter_expr(self) -> ast.Expr:
         return type_filter_expr(self.metric_type)
+
+    def _series_scope_expr(self) -> ast.Expr:
+        return series_scope_expr(self.metric_name, self.filters)
 
     def _build_simple_query(self) -> ast.SelectQuery:
         """sum/avg/count/p95: collapse each series to one value per bucket,
@@ -552,9 +628,8 @@ class MetricQueryRunner:
         make `argMax` pick between them arbitrarily; they are the same
         reading, so either answer is right.
 
-        Group-by labels are built in the inner query, where the attribute maps
-        are still in scope. A label is constant within a series, so the outer
-        query just carries it up.
+        Group-by labels join onto the reduced series by fingerprint. A label is
+        constant within a series, so the outer query groups on it directly.
         """
         # `metrics` is only registered under the `posthog.` HogQL namespace
         # (see posthog/hogql/database/database.py).
@@ -566,15 +641,15 @@ class MetricQueryRunner:
                 FROM (
                     SELECT
                         toStartOfInterval(timestamp, {interval}) AS time,
+                        series_fingerprint AS series_fingerprint,
                         argMax(value, timestamp) AS series_value
                     FROM posthog.metrics
                     WHERE metric_name = {metric_name}
-                      AND timestamp >= {date_from}
-                      AND timestamp < {date_to}
-                      AND {filters}
+                      AND {time_range}
+                      AND {series_scope}
                       AND {type_filter}
-                    GROUP BY time
-                )
+                    GROUP BY time, {series_key}
+                ) AS s
                 GROUP BY time
                 ORDER BY time ASC
                 LIMIT {row_limit}
@@ -583,29 +658,22 @@ class MetricQueryRunner:
                 "interval": _interval_expr(self.interval),
                 "aggregation": _aggregation_expr(self.aggregation, ast.Field(chain=["series_value"])),
                 "metric_name": ast.Constant(value=self.metric_name),
-                "date_from": ast.Constant(value=self.date_from),
-                "date_to": ast.Constant(value=self.date_to),
-                "filters": filters_expr(self.filters),
+                "time_range": time_range_expr(self.date_from, self.date_to),
+                "series_scope": self._series_scope_expr(),
+                "series_key": _series_key_expr(),
                 "type_filter": self._type_filter_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
             },
         )
         assert isinstance(query, ast.SelectQuery)
-        # Appended rather than written into the template so the key stays
-        # defined in exactly one place; a placeholder can only carry one
-        # expression.
-        inner = query.select_from.table if query.select_from else None
-        assert isinstance(inner, ast.SelectQuery) and inner.group_by is not None
-        inner.group_by.extend(_series_key_exprs())
-        self._splice_group_columns(query, resolve_in=inner)
+        self._splice_group_columns(query)
         return query
 
     def _build_counter_query(self) -> ast.SelectQuery:
         """rate/increase: per-underlying-series deltas, then aggregate.
 
-        Each physical series (service_name, resource_fingerprint, datapoint
-        attributes) gets its samples diffed in timestamp order via a window
-        function, Prometheus-style:
+        Each physical series (`series_fingerprint`) gets its samples diffed in
+        timestamp order via a window function, Prometheus-style:
 
         - cumulative temporality: contribution = value - prev, clamped for
           counter resets (value < prev means the counter restarted, so the
@@ -634,9 +702,7 @@ class MetricQueryRunner:
                 FROM (
                     SELECT
                         timestamp AS sample_timestamp,
-                        service_name AS service_name,
-                        attributes AS attributes,
-                        resource_attributes AS resource_attributes,
+                        series_fingerprint AS series_fingerprint,
                         multiIf(
                             aggregation_temporality = 'delta', value,
                             isNull(prev_value), NULL,
@@ -646,11 +712,9 @@ class MetricQueryRunner:
                     FROM (
                         SELECT
                             timestamp,
-                            service_name,
+                            series_fingerprint,
                             value,
                             aggregation_temporality,
-                            attributes,
-                            resource_attributes,
                             lagInFrame(toNullable(value)) OVER (
                                 PARTITION BY {series_key}
                                 ORDER BY timestamp ASC
@@ -658,12 +722,11 @@ class MetricQueryRunner:
                             ) AS prev_value
                         FROM posthog.metrics
                         WHERE metric_name = {metric_name}
-                          AND timestamp >= {scan_from}
-                          AND timestamp < {date_to}
-                          AND {filters}
+                          AND {scan_range}
+                          AND {series_scope}
                           AND {type_filter}
                     )
-                )
+                ) AS s
                 WHERE sample_timestamp >= {date_from}
                 GROUP BY time
                 HAVING isNotNull(value)
@@ -673,12 +736,11 @@ class MetricQueryRunner:
             placeholders={
                 "interval": _interval_expr(self.interval),
                 "divisor": ast.Constant(value=divisor),
-                "series_key": ast.Tuple(exprs=_series_key_exprs()),
+                "series_key": _series_key_expr(),
                 "metric_name": ast.Constant(value=self.metric_name),
-                "scan_from": ast.Constant(value=self.date_from - counter_lookback(self.interval)),
+                "scan_range": time_range_expr(self.date_from - counter_lookback(self.interval), self.date_to),
                 "date_from": ast.Constant(value=self.date_from),
-                "date_to": ast.Constant(value=self.date_to),
-                "filters": filters_expr(self.filters),
+                "series_scope": self._series_scope_expr(),
                 "type_filter": self._type_filter_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
             },
@@ -702,9 +764,7 @@ class MetricQueryRunner:
                 FROM (
                     SELECT
                         timestamp AS sample_timestamp,
-                        service_name AS service_name,
-                        attributes AS attributes,
-                        resource_attributes AS resource_attributes,
+                        series_fingerprint AS series_fingerprint,
                         histogram_bounds AS histogram_bounds,
                         multiIf(
                             aggregation_temporality = 'delta', counts_f,
@@ -716,10 +776,8 @@ class MetricQueryRunner:
                     FROM (
                         SELECT
                             timestamp,
-                            service_name,
+                            series_fingerprint,
                             aggregation_temporality,
-                            attributes,
-                            resource_attributes,
                             histogram_bounds,
                             arrayMap(x -> toFloat(x), histogram_counts) AS counts_f,
                             lagInFrame(arrayMap(x -> toFloat(x), histogram_counts)) OVER (
@@ -729,13 +787,12 @@ class MetricQueryRunner:
                             ) AS prev_counts
                         FROM posthog.metrics
                         WHERE metric_name = {metric_name}
-                          AND timestamp >= {scan_from}
-                          AND timestamp < {date_to}
+                          AND {scan_range}
                           AND notEmpty(histogram_counts)
-                          AND {filters}
+                          AND {series_scope}
                           AND {type_filter}
                     )
-                )
+                ) AS s
                 WHERE sample_timestamp >= {date_from}
                 GROUP BY time
                 ORDER BY time ASC
@@ -743,12 +800,11 @@ class MetricQueryRunner:
             """,
             placeholders={
                 "interval": _interval_expr(self.interval),
-                "series_key": ast.Tuple(exprs=_series_key_exprs()),
+                "series_key": _series_key_expr(),
                 "metric_name": ast.Constant(value=self.metric_name),
-                "scan_from": ast.Constant(value=self.date_from - counter_lookback(self.interval)),
+                "scan_range": time_range_expr(self.date_from - counter_lookback(self.interval), self.date_to),
                 "date_from": ast.Constant(value=self.date_from),
-                "date_to": ast.Constant(value=self.date_to),
-                "filters": filters_expr(self.filters),
+                "series_scope": self._series_scope_expr(),
                 "type_filter": self._type_filter_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
             },

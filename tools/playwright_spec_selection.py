@@ -61,6 +61,8 @@ import json
 import argparse
 import traceback
 import subprocess
+from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -164,6 +166,119 @@ def _result(
     }
 
 
+@dataclass(frozen=True)
+class FullRun:
+    """A changed file that forces the full suite: the human reason plus its analytics labels."""
+
+    reason: str
+    category: str
+    detail: str = ""
+
+
+# One file's contribution to the selection: a full run, the specs it selects, or
+# `None` when the file is ignore-listed and contributes nothing.
+FileOutcome = FullRun | set[str] | None
+
+
+class AreaMap:
+    """The area map with every glob compiled once, and one classifier per rule kind."""
+
+    def __init__(self, area_map: dict, all_specs: set[str]) -> None:
+        self._all_specs = all_specs
+        self._force_full = [(p, _compile_glob(p)) for p in area_map.get("force_full", [])]
+        self._ignore = [_compile_glob(p) for p in area_map.get("ignore", [])]
+        self._products = area_map.get("products", {})
+        self._scenes = area_map.get("scenes", {})
+        self._scenes_smoke_only = set(area_map.get("scenes_smoke_only", []))
+        self._smoke_subset = area_map.get("smoke_subset", [])
+        self._explicit = [(p, _compile_glob(p), targets) for p, targets in area_map.get("explicit", {}).items()]
+
+    def _expand(self, targets: Iterable[str]) -> set[str]:
+        specs: set[str] = set()
+        for target in targets:
+            specs |= expand_target(target, self._all_specs)
+        return specs
+
+    def force_full_pattern(self, path: str) -> str | None:
+        for pattern, rx in self._force_full:
+            if rx.match(path):
+                return pattern
+        return None
+
+    def is_ignored(self, path: str) -> bool:
+        return any(rx.match(path) for rx in self._ignore)
+
+    def explicit_specs(self, path: str) -> set[str] | None:
+        """The specs an explicit path rule maps this file to, or None when no rule matches."""
+        for _pattern, rx, targets in self._explicit:
+            if rx.match(path):
+                return self._expand(targets)
+        return None
+
+    def product_specs(self, path: str) -> FileOutcome:
+        """Product-owned frontend -> that product's specs (or an explicit rule for products
+        whose behavior is exercised by top-level specs). None when not product frontend code."""
+        match = _PRODUCT_FRONTEND_RE.match(path)
+        if not match:
+            return None
+        name = match.group(1)
+        if name in self._products:
+            return self._expand(self._products[name])
+        explicit = self.explicit_specs(path)
+        if explicit is not None:
+            return explicit
+        return FullRun(f"{path}: product '{name}' has no spec mapping", "unmapped_product", name)
+
+    def scene_specs(self, path: str) -> FileOutcome:
+        """Frontend scene -> mapped specs, or the smoke subset for scenes that declared they
+        have no direct e2e coverage (the full suite wouldn't exercise them either, so it only
+        buys the boot/auth smoke signal). None when not a scene file."""
+        match = _SCENE_RE.match(path)
+        if not match:
+            return None
+        area = match.group(1)
+        if area in self._scenes:
+            return self._expand(self._scenes[area])
+        if area in self._scenes_smoke_only:
+            return self._expand(self._smoke_subset)
+        return FullRun(f"{path}: scene '{area}' has no spec mapping", "unmapped_scene", area)
+
+    def classify(self, path: str) -> FileOutcome:
+        """The ordered decision flow for one changed file."""
+        # 1. Shared infra / backend / unattributable code -> full (highest priority,
+        #    deliberately above `ignore` so an ignore glob can never swallow a
+        #    force-full path like the playwright workflow file itself).
+        pattern = self.force_full_pattern(path)
+        if pattern is not None:
+            return FullRun(f"{path} matches force-full pattern '{pattern}'", "force_full", pattern)
+
+        # 2. Provably inert paths contribute nothing (and don't force full).
+        if self.is_ignored(path):
+            return None
+
+        # 3. Product-owned frontend.
+        product = self.product_specs(path)
+        if product is not None:
+            return product
+
+        # 4. Frontend scene.
+        scene = self.scene_specs(path)
+        if scene is not None:
+            return scene
+
+        # 5. Explicit path rules.
+        explicit = self.explicit_specs(path)
+        if explicit is not None:
+            return explicit
+
+        # 6. A directly-edited spec runs itself.
+        if path in self._all_specs:
+            return {path}
+
+        # 7. Anything unrecognized -> full (fail closed).
+        return FullRun(f"{path}: unmapped path", "unmapped_path", _dir_prefix(path))
+
+
 def select(changed_files: list[str], area_map: dict, all_specs: set[str]) -> dict:
     """Pure selection: changed files + map + on-disk specs -> a full/selected decision."""
     total = len(all_specs)
@@ -176,77 +291,17 @@ def select(changed_files: list[str], area_map: dict, all_specs: set[str]) -> dic
     if len(changed_files) > MAX_CHANGED_FILES:
         return full(f"{len(changed_files)} changed files exceed the {MAX_CHANGED_FILES} ceiling", "over_ceiling")
 
-    force_full = [(p, _compile_glob(p)) for p in area_map.get("force_full", [])]
-    ignore = [_compile_glob(p) for p in area_map.get("ignore", [])]
-    products = area_map.get("products", {})
-    scenes = area_map.get("scenes", {})
-    scenes_smoke_only = set(area_map.get("scenes_smoke_only", []))
-    smoke_subset = area_map.get("smoke_subset", [])
-    explicit = [(p, _compile_glob(p), targets) for p, targets in area_map.get("explicit", {}).items()]
-
-    def explicit_match(path: str, selected: set[str]) -> bool:
-        for _pat, rx, targets in explicit:
-            if rx.match(path):
-                for t in targets:
-                    selected |= expand_target(t, all_specs)
-                return True
-        return False
-
+    rules = AreaMap(area_map, all_specs)
     selected: set[str] = set()
     ignored_count = 0
     for f in changed_files:
-        # 1. Shared infra / backend / unattributable code -> full (highest priority,
-        #    deliberately above `ignore` so an ignore glob can never swallow a
-        #    force-full path like the playwright workflow file itself).
-        for pat, rx in force_full:
-            if rx.match(f):
-                return full(f"{f} matches force-full pattern '{pat}'", "force_full", pat)
-
-        # 2. Provably inert paths contribute nothing (and don't force full).
-        if any(rx.match(f) for rx in ignore):
+        outcome = rules.classify(f)
+        if isinstance(outcome, FullRun):
+            return full(outcome.reason, outcome.category, outcome.detail)
+        if outcome is None:
             ignored_count += 1
             continue
-
-        # 3. Product-owned frontend -> that product's specs (or an explicit rule for
-        #    products whose behavior is exercised by top-level specs).
-        pm = _PRODUCT_FRONTEND_RE.match(f)
-        if pm:
-            name = pm.group(1)
-            if name in products:
-                for t in products[name]:
-                    selected |= expand_target(t, all_specs)
-                continue
-            if explicit_match(f, selected):
-                continue
-            return full(f"{f}: product '{name}' has no spec mapping", "unmapped_product", name)
-
-        # 4. Frontend scene -> mapped specs, or the smoke subset for scenes that
-        #    declared they have no direct e2e coverage (the full suite wouldn't
-        #    exercise them either, so it only buys the boot/auth smoke signal).
-        sm = _SCENE_RE.match(f)
-        if sm:
-            area = sm.group(1)
-            if area in scenes:
-                for t in scenes[area]:
-                    selected |= expand_target(t, all_specs)
-                continue
-            if area in scenes_smoke_only:
-                for t in smoke_subset:
-                    selected |= expand_target(t, all_specs)
-                continue
-            return full(f"{f}: scene '{area}' has no spec mapping", "unmapped_scene", area)
-
-        # 5. Explicit path rules.
-        if explicit_match(f, selected):
-            continue
-
-        # 6. A directly-edited spec runs itself.
-        if f in all_specs:
-            selected.add(f)
-            continue
-
-        # 7. Anything unrecognized -> full (fail closed).
-        return full(f"{f}: unmapped path", "unmapped_path", _dir_prefix(f))
+        selected |= outcome
 
     # Belt-and-suspenders: a directly-edited spec always runs even if its area also mapped.
     selected |= {f for f in changed_files if f in all_specs}
