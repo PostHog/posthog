@@ -6,6 +6,7 @@ ee/api/agentic_provisioning/test/test_region_proxy.py::TestShouldProxyTokenLooku
 ee/api/test/test_billing.py::TestExportStreaming
 ee/api/test/test_billing.py::TestResolveTeamLabels
 ee/api/test/test_billing.py::TestRewriteCsvLabels
+ee/api/test/test_google_oauth_diagnostics.py::TestGoogleOAuthDiagnostics
 ee/api/vercel/test/test_vercel_connect.py::TestValidateNextUrl
 ee/billing/test/test_billing_consumer.py::TestBillingConsumerUsageSpike
 ee/billing/test/test_billing_manager.py::TestParamSerialization
