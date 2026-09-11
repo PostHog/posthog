@@ -1,6 +1,7 @@
 import re
 import uuid
 from datetime import timedelta
+from functools import partial
 from typing import TYPE_CHECKING, Any, Optional, Union
 from urllib.parse import urlparse
 
