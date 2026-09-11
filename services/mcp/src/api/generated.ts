@@ -45888,10 +45888,10 @@ export namespace Schemas {
     } as const;
 
     export interface MetricsThreshold {
-      /** Lower bound of this band. The lowest step is the base color below every other step. */
-      value: number;
       /** A named color token (e.g. "green", "red"), never raw hex, so light and dark themes both work. */
       color: string;
+      /** Lower bound of this band. The lowest step is the base color below every other step. */
+      value: number;
     }
 
     export type MetricsDisplayType = typeof MetricsDisplayType[keyof typeof MetricsDisplayType];
@@ -45934,7 +45934,7 @@ export namespace Schemas {
       nullMode?: MetricsNullMode | null;
       /** How scalar panels and legend calcs collapse a series to one number. */
       reduce?: MetricsReducer | null;
-      /** `stat` display only: which summary the headline value shows. Deprecated: use `reduce`. */
+      /** `stat` display only: which summary the headline value shows. */
       statSummary?: MetricsStatSummary | null;
       /** Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter. */
       thresholds?: MetricsThreshold[] | null;
