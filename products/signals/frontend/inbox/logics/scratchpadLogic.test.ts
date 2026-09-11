@@ -260,6 +260,21 @@ describe('scratchpadLogic', () => {
         expect(logic.values.hasActiveFilters).toBe(false)
     })
 
+    // kea-loaders leaves `entries` at its prior value on failure, so a failed reload keeps rows on
+    // screen that answer the span the reader had before. The flag is the only thing that can tell
+    // the panel to say so, instead of presenting those rows as the answer to the new span.
+    it('keeps the loaded rows and records the failure when a reload rejects', async () => {
+        logic.actions.loadEntriesSuccess([TRUNCATED, WHOLE])
+        useMocks({ get: { [SCRATCHPAD_URL]: () => [500, {}] } })
+
+        logic.actions.setTimeFilter('1h')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.loadFailed).toBe(true)
+        expect(logic.values.entries).toEqual([TRUNCATED, WHOLE])
+        expect(logic.values.filteredEntries).toHaveLength(2)
+    })
+
     // A wider span is the slower read, so narrowing the span right after widening it is the order
     // that lets the older response answer last. If it lands, the ledger and the header describe a
     // span the select does not name, and re-picking that span fires nothing.

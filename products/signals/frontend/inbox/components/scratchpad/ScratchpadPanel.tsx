@@ -1,7 +1,15 @@
 import { useActions, useValues } from 'kea'
 
 import { IconNotebook } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonInputSelect, LemonSelect, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInput,
+    LemonInputSelect,
+    LemonSelect,
+    LemonSkeleton,
+    LemonSwitch,
+} from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils/strings'
@@ -142,6 +150,17 @@ export function ScratchpadPanel(): JSX.Element {
                 />
             ) : (
                 <>
+                    {listFailed && (
+                        // A reload rejected while a previous result set is still on screen, so these
+                        // rows answer the search or the span the reader had before. Say so, rather
+                        // than let the ledger assert they match the controls above.
+                        <LemonBanner
+                            type="warning"
+                            action={{ children: 'Retry', onClick: () => retry(), loading: retryLoading }}
+                        >
+                            Couldn't refresh the list. These rows may not match the filters above.
+                        </LemonBanner>
+                    )}
                     <ScratchpadLedger />
                     <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
                         <span>
