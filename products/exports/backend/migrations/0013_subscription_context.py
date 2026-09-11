@@ -10,7 +10,7 @@ from posthog.migration_helpers import AddForeignKeyNotValid
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("exports", "0011_exportedasset_exportedasset_system_session"),
+        ("exports", "0012_alter_subscription_created_by_and_more"),
     ]
 
     operations = [
