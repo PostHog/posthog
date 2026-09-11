@@ -2,7 +2,32 @@
 
 ## Getting results
 
-Use `experiment-timeseries-results` with the `metric_uuid` and `fingerprint` from the experiment's metrics array. Get the experiment first via `experiment-get` to find these values.
+Start with `experiment-metrics-recalculation-latest-retrieve`.
+It takes the experiment ID.
+It returns the most recent completed run, with one entry per metric.
+Each entry carries per-variant exposures, counts, means, credible intervals, chance to beat control, and significance.
+The run also carries `query_to`, the data freshness cutoff the numbers were computed against.
+Use `query_to` to tell the user how fresh the results are.
+
+Read two fields before you report anything:
+
+- `active_run`: a run is executing now, and the numbers you got come from the previous run.
+  Poll `active_run.id` with `experiment-metrics-recalculation-retrieve` for progress.
+- `result_source`: `timeseries_fallback` means the experiment never completed a run, and the numbers are a cold-start placeholder.
+  Say so when you report them.
+  A real run reads `recalculation`.
+
+This call is a pure read and never starts a calculation, so the numbers can be stale.
+When `query_to` is old, or the user wants fresh numbers, call `experiment-metrics-recalculation-create` and then poll.
+
+A 404 means the experiment has no results yet.
+It usually has not run long enough.
+
+### Day-by-day history of one metric
+
+Use `experiment-timeseries-results` only when the user asks how a single metric moved over the course of the experiment.
+It needs `metric_uuid` and `fingerprint` from the experiment's `metrics` array, so call `experiment-get` first.
+It covers one metric per call, so it cannot answer "is this winning?" across every metric.
 
 ## Statistical significance
 
