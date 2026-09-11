@@ -104,13 +104,7 @@ export interface replayTriggersLogicValues {
     augmentedData: AugmentedTeamSdkVersionsInfo // sdkHealthLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     checkUrlBlocklist: string
-    checkUrlBlocklistResults: {
-        [key: number]: boolean
-    }
     checkUrlTrigger: string
-    checkUrlTriggerResults: {
-        [key: number]: boolean
-    }
     editUrlBlocklistIndex: number | null
     editUrlTriggerIndex: number | null
     eventTriggerConfig: string[] | null
@@ -364,18 +358,6 @@ export interface replayTriggersLogicMeta {
             matching: string
             url: string
         }
-        checkUrlTriggerResults: (
-            checkUrlTrigger: string,
-            urlTriggerConfig: UrlTriggerConfig[] | null
-        ) => {
-            [key: number]: boolean
-        }
-        checkUrlBlocklistResults: (
-            checkUrlBlocklist: string,
-            urlBlocklistConfig: UrlTriggerConfig[] | null
-        ) => {
-            [key: number]: boolean
-        }
     }
 }
 
@@ -611,46 +593,6 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
                     return NEW_URL_TRIGGER
                 }
                 return urlBlocklistConfig[editUrlBlocklistIndex]
-            },
-        ],
-
-        checkUrlTriggerResults: [
-            (s) => [s.checkUrlTrigger, s.urlTriggerConfig],
-            (checkUrl: string, urlTriggerConfig: UrlTriggerConfig[] | null): { [key: number]: boolean } => {
-                if (!checkUrl.trim() || !urlTriggerConfig) {
-                    return {}
-                }
-
-                const results: { [key: number]: boolean } = {}
-                urlTriggerConfig.forEach((trigger, index) => {
-                    try {
-                        const regex = new RegExp(trigger.url)
-                        results[index] = regex.test(checkUrl)
-                    } catch {
-                        results[index] = false
-                    }
-                })
-                return results
-            },
-        ],
-
-        checkUrlBlocklistResults: [
-            (s) => [s.checkUrlBlocklist, s.urlBlocklistConfig],
-            (checkUrl: string, urlBlocklistConfig: UrlTriggerConfig[] | null): { [key: number]: boolean } => {
-                if (!checkUrl.trim() || !urlBlocklistConfig) {
-                    return {}
-                }
-
-                const results: { [key: number]: boolean } = {}
-                urlBlocklistConfig.forEach((trigger, index) => {
-                    try {
-                        const regex = new RegExp(trigger.url)
-                        results[index] = regex.test(checkUrl)
-                    } catch {
-                        results[index] = false
-                    }
-                })
-                return results
             },
         ],
     }),

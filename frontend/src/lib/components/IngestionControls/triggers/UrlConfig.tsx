@@ -1,5 +1,6 @@
 import { LogicWrapper, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { useId } from 'react'
 
 import { IconCheck, IconPencil, IconPlus, IconTrash, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonLabel, lemonToast } from '@posthog/lemon-ui'
@@ -7,11 +8,14 @@ import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonLabel, lemonToa
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { RegexCheckResult } from 'lib/regex/regexMatching'
+import { regexMatchingLogic } from 'lib/regex/regexMatchingLogic'
 import { cn } from 'lib/utils/css-classes'
 import { AiRegexHelper, AiRegexHelperButton } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 
 import { ingestionControlsLogic } from '../ingestionControlsLogic'
 import { UrlTriggerConfig } from '../types'
+import { UrlRegexPreviewStatus } from './UrlRegexPreviewStatus'
 
 export function UrlConfig({
     logic,
@@ -22,7 +26,6 @@ export function UrlConfig({
     title,
     description,
     checkUrl,
-    checkUrlResults,
     setCheckUrl,
     titleBadge,
     ...props
@@ -36,7 +39,6 @@ export function UrlConfig({
     titleBadge?: JSX.Element
     description: string
     checkUrl: string
-    checkUrlResults: { [key: number]: boolean }
     setCheckUrl: (url: string) => void
     isAddFormVisible: boolean
     config: UrlTriggerConfig[] | null
@@ -47,6 +49,16 @@ export function UrlConfig({
     onEdit: (index: number) => void
     onRemove: (index: number) => void
 }): JSX.Element {
+    const instanceKey = useId()
+    const { preview } = useValues(
+        regexMatchingLogic({
+            instanceKey,
+            checks:
+                checkUrl.trim() && !props.isAddFormVisible
+                    ? (props.config ?? []).map(({ url }) => ({ pattern: url, subject: checkUrl }))
+                    : [],
+        })
+    )
     const { logicKey } = useValues(ingestionControlsLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -97,15 +109,7 @@ export function UrlConfig({
                         data-attr="url-check-input"
                         className="mb-2"
                     />
-                    {checkUrl && (
-                        <div className="text-xs text-muted">
-                            {Object.values(checkUrlResults).some(Boolean) ? (
-                                <span className="text-success">✓ This URL matches at least one pattern</span>
-                            ) : (
-                                <span className="text-danger">✗ This URL doesn't match any patterns</span>
-                            )}
-                        </div>
-                    )}
+                    <UrlRegexPreviewStatus preview={preview} />
                 </div>
             )}
             {props.config?.map((trigger, index) => (
@@ -121,7 +125,7 @@ export function UrlConfig({
                     editIndex={props.editIndex}
                     onEdit={props.onEdit}
                     onRemove={props.onRemove}
-                    checkUrlResult={checkUrlResults[index]}
+                    checkUrlResult={preview.status === 'success' ? preview.results[index] : undefined}
                 />
             ))}
         </div>
@@ -146,7 +150,7 @@ function UrlConfigRow({
     editIndex: number | null
     onEdit: (index: number) => void
     onRemove: (index: number) => void
-    checkUrlResult?: boolean
+    checkUrlResult?: RegexCheckResult
     logic: LogicWrapper
     logicProps: Record<string, any>
     formKey: string
@@ -177,8 +181,8 @@ function UrlConfigRow({
     return (
         <div
             className={cn('border rounded flex items-center p-2 pl-4 bg-surface-primary', {
-                'border-success': checkUrlResult === true,
-                'border-danger': checkUrlResult === false,
+                'border-success': checkUrlResult && 'matches' in checkUrlResult && checkUrlResult.matches,
+                'border-danger': checkUrlResult && ('error' in checkUrlResult || !checkUrlResult.matches),
             })}
         >
             <span title={trigger.url} className="flex-1 truncate">
@@ -187,11 +191,13 @@ function UrlConfigRow({
                 {checkUrlResult !== undefined && (
                     <span
                         className={cn('ml-2 text-xs', {
-                            'text-success': checkUrlResult === true,
-                            'text-danger': checkUrlResult === false,
+                            'text-success': 'matches' in checkUrlResult && checkUrlResult.matches,
+                            'text-danger': 'error' in checkUrlResult || !checkUrlResult.matches,
                         })}
                     >
-                        {checkUrlResult ? (
+                        {'error' in checkUrlResult ? (
+                            <span>Invalid regex</span>
+                        ) : checkUrlResult.matches ? (
                             <>
                                 <IconCheck /> Matches
                             </>

@@ -138,7 +138,6 @@ function UrlTriggerOptions(): JSX.Element | null {
         editUrlTriggerIndex,
         isProposedUrlTriggerSubmitting,
         checkUrlTrigger,
-        checkUrlTriggerResults,
         urlTriggerInputValidationWarning,
     } = useValues(replayTriggersLogic)
     const {
@@ -161,7 +160,6 @@ function UrlTriggerOptions(): JSX.Element | null {
             titleBadge={<Since web={{ version: '1.171.0' }} />}
             description="Adding a URL trigger means recording will only be started when the user visits a page that matches the URL."
             checkUrl={checkUrlTrigger}
-            checkUrlResults={checkUrlTriggerResults}
             setCheckUrl={setCheckUrlTrigger}
             isAddFormVisible={isAddUrlTriggerConfigFormVisible}
             config={urlTriggerConfig}
@@ -182,7 +180,6 @@ function UrlBlocklistOptions(): JSX.Element | null {
         editUrlBlocklistIndex,
         isProposedUrlBlocklistSubmitting,
         checkUrlBlocklist,
-        checkUrlBlocklistResults,
         urlBlocklistInputValidationWarning,
     } = useValues(replayTriggersLogic)
     const {
@@ -204,7 +201,6 @@ function UrlBlocklistOptions(): JSX.Element | null {
             title="Pause recordings when URL matches"
             description="Pause recordings while the user is on a page that matches the URL."
             checkUrl={checkUrlBlocklist}
-            checkUrlResults={checkUrlBlocklistResults}
             setCheckUrl={setCheckUrlBlocklist}
             isAddFormVisible={isAddUrlBlocklistConfigFormVisible}
             config={urlBlocklistConfig}

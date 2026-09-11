@@ -1,5 +1,6 @@
 import { useValues, useActions } from 'kea'
 import { Form } from 'kea-forms'
+import { useId } from 'react'
 
 import { IconChevronDown, IconFilter, IconPlus } from '@posthog/icons'
 import {
@@ -14,12 +15,14 @@ import {
 
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { EventTriggerSelect } from 'lib/components/IngestionControls/triggers/EventTrigger'
+import { UrlRegexPreviewStatus } from 'lib/components/IngestionControls/triggers/UrlRegexPreviewStatus'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS, TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { regexMatchingLogic } from 'lib/regex/regexMatchingLogic'
 import { TRIGGER_GROUPS_MIN_SDK_VERSION } from 'scenes/settings/environment/ReplayTriggers'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 
@@ -317,6 +320,16 @@ function EventTriggerRow({
 function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
     const logic = triggerGroupFormLogic({ group, onSave, onCancel })
     const { triggerGroup, isAddingUrl, newUrl, testUrl, isTriggerGroupSubmitting, expandedEvent } = useValues(logic)
+    const instanceKey = useId()
+    const { preview } = useValues(
+        regexMatchingLogic({
+            instanceKey,
+            checks:
+                isAddingUrl && testUrl.trim()
+                    ? triggerGroup.urls.map(({ url }) => ({ pattern: url, subject: testUrl }))
+                    : [],
+        })
+    )
     const {
         setTriggerGroupValue,
         setIsAddingUrl,
@@ -470,22 +483,7 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                                             fullWidth
                                             size="small"
                                         />
-                                        {testUrl && (
-                                            <div className="text-xs mt-1">
-                                                {triggerGroup.urls.some((urlConfig) => {
-                                                    try {
-                                                        const regex = new RegExp(urlConfig.url)
-                                                        return regex.test(testUrl)
-                                                    } catch {
-                                                        return false
-                                                    }
-                                                }) ? (
-                                                    <span className="text-success">Matches at least one pattern</span>
-                                                ) : (
-                                                    <span className="text-danger">Doesn't match any patterns</span>
-                                                )}
-                                            </div>
-                                        )}
+                                        <UrlRegexPreviewStatus preview={preview} />
                                     </div>
                                 )}
                             </div>
