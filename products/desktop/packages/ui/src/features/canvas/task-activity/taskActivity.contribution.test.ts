@@ -10,6 +10,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TaskActivityContribution } from "./taskActivity.contribution";
 
 let activityListener: ((signal: TaskActivitySignal) => void) | undefined;
+const promptCompleteSpy = vi.fn();
+const permissionRequestSpy = vi.fn();
 const notificationBus = {
   subscribeToTaskActivity: vi.fn(
     (listener: (signal: TaskActivitySignal) => void) => {
@@ -17,7 +19,38 @@ const notificationBus = {
       return vi.fn();
     },
   ),
+  notifyPromptComplete: promptCompleteSpy,
+  notifyPermissionRequest: permissionRequestSpy,
 } as unknown as NotificationBus;
+
+function activityRow(
+  overrides: Partial<TaskActivityPage["results"][number]> = {},
+): TaskActivityPage["results"][number] {
+  return {
+    id: "activity-1",
+    task_id: "task-1",
+    task_title: "Nightly issue triage",
+    channel_id: null,
+    channel_name: null,
+    activity_at: "2026-07-27T09:00:00Z",
+    activity_kind: "completed",
+    snippet: "",
+    latest_author: null,
+    latest_message_id: null,
+    is_unread: true,
+    ...overrides,
+  };
+}
+
+function setFeed(
+  queryClient: QueryClient,
+  results: TaskActivityPage["results"],
+): void {
+  queryClient.setQueryData<InfiniteData<TaskActivityPage>>(["task-activity"], {
+    pages: [{ results, unread_count: 0 }],
+    pageParams: [undefined],
+  });
+}
 
 function task(overrides: Partial<Task> = {}): Task {
   return {
@@ -42,6 +75,67 @@ describe("TaskActivityContribution", () => {
     queryClient = new QueryClient();
     contribution = new TaskActivityContribution(notificationBus, queryClient);
     contribution.start();
+  });
+
+  it("raises a notification for agent activity that arrives from the cloud, once", () => {
+    queryClient.setQueryDefaults(["task-activity"], {
+      meta: AUTH_SCOPED_QUERY_META,
+    });
+    // The first page seeds what is already known; nothing in it is new.
+    setFeed(queryClient, [activityRow({ id: "activity-1" })]);
+    expect(promptCompleteSpy).not.toHaveBeenCalled();
+
+    setFeed(queryClient, [
+      activityRow({
+        id: "activity-2",
+        task_id: "task-2",
+        task_title: "Weekly PR digest",
+        activity_kind: "awaiting_input",
+        activity_at: "2026-07-27T10:00:00Z",
+      }),
+      activityRow({ id: "activity-1" }),
+    ]);
+    expect(permissionRequestSpy).toHaveBeenCalledTimes(1);
+    expect(permissionRequestSpy).toHaveBeenCalledWith(
+      "Weekly PR digest",
+      "task-2",
+      { source: "task_activity_feed", activityId: "activity-2" },
+    );
+
+    // A refetch with the same rows, and a row the user already read, stay quiet.
+    setFeed(queryClient, [
+      activityRow({
+        id: "activity-2",
+        task_id: "task-2",
+        activity_kind: "awaiting_input",
+        activity_at: "2026-07-27T10:00:00Z",
+      }),
+      activityRow({
+        id: "activity-3",
+        task_id: "task-3",
+        activity_at: "2026-07-27T11:00:00Z",
+        is_unread: false,
+      }),
+    ]);
+    expect(permissionRequestSpy).toHaveBeenCalledTimes(1);
+    expect(promptCompleteSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not re-raise a local session's activity when its cloud row lands", () => {
+    queryClient.setQueryDefaults(["task-activity"], {
+      meta: AUTH_SCOPED_QUERY_META,
+    });
+    setFeed(queryClient, []);
+    activityListener?.({
+      taskId: "task-1",
+      taskTitle: "Channel task",
+      activityKind: "completed",
+      activityAt: "2026-07-27T10:00:00Z",
+    });
+    setFeed(queryClient, [
+      activityRow({ id: "server-1", activity_at: "2026-07-27T09:59:58Z" }),
+    ]);
+    expect(promptCompleteSpy).not.toHaveBeenCalled();
   });
 
   it("shows task activity immediately when its backend projection is not available yet", () => {
