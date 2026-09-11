@@ -4,48 +4,61 @@ import { loaders } from 'kea-loaders'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { signalsScoutScratchpadSearch } from 'products/signals/frontend/generated/api'
+import { signalsReportsRetrieve, signalsScoutScratchpadSearch } from 'products/signals/frontend/generated/api'
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
+import {
+    BOOKKEEPING_KINDS,
+    isReportUuid,
+    scratchpadKindOf,
+    scratchpadTopicOf,
+} from '../utils/scratchpadKeys'
 import { SCOUT_ROSTER_WINDOW_HOURS } from '../utils/scoutRunsWindow'
-
-// The list view shows two ways to read the fleet's memory: newest-first (the API's
-// native order) or clustered by the key namespace scouts choose (`tags:*`, `dedupe:*`).
-export type ScratchpadGrouping = 'recent' | 'topic'
 
 // Search reruns the server-side ILIKE on every keystroke; debounce so typing doesn't
 // fire a request per character.
 const SEARCH_DEBOUNCE_MS = 300
 // `list` caps at 1000 newest-first with no pagination wrapper — pull the whole window in
-// one read and group/search client-side. The endpoint exposes a `date_to` cursor for
-// walking past the cap; a team that routinely exceeds 1000 wants that wired into a "load
-// more" here, not a bigger single read.
+// one read and filter it client-side. Older memory arrives through `loadOlderEntries`, which
+// walks the endpoint's `date_to` cursor a page at a time.
 export const SCRATCHPAD_FETCH_LIMIT = 1000
 // Bodies are an unbounded TextField clamped at 50k chars on write, so a full-fat window of
-// 1000 entries is a payload nobody needs: the card renders a 2-line clamp until you open it.
-// Pull previews for the list and fetch the one body you expand. Sized well past two lines so
+// 1000 entries is a payload nobody needs: the ledger renders a one-line clamp until you open it.
+// Pull previews for the list and fetch the one body you expand. Sized well past one line so
 // the overwhelming majority of notes arrive complete and never need the second read.
 export const SCRATCHPAD_PREVIEW_CHARS = 1200
+// Rows per ledger page. Sized so the report-title resolution below covers the first page or two.
+export const SCRATCHPAD_PAGE_SIZE = 25
+/**
+ * How many report titles the panel resolves per pass. Keys namespaced by a report UUID need that
+ * report's title to read as anything, but the reports endpoint has no bulk-by-id filter, so each
+ * one costs a request. Cap the pass at the rows a reader can actually see; everything past it
+ * falls back to the shortened UUID until it scrolls into a later pass.
+ */
+export const REPORT_TITLE_RESOLVE_CAP = 30
 
-/** One namespace cluster in the "By topic" view: the raw prefix, a friendly label, and its entries. */
-export interface ScratchpadNamespaceGroup {
-    namespace: string
-    label: string
-    entries: ScratchpadEntryApi[]
+/** The time spans the ledger can ask the endpoint for, mapped to `date_from`. */
+export type ScratchpadTimeFilter = 'window' | '1h' | '24h' | '7d' | '30d'
+
+const TIME_FILTER_HOURS: Record<Exclude<ScratchpadTimeFilter, 'window'>, number> = {
+    '1h': 1,
+    '24h': 24,
+    '7d': 24 * 7,
+    '30d': 24 * 30,
 }
 
-/** Scouts namespace keys with a leading `prefix:` (e.g. `tags:errors:taxonomy`). Everything
- * before the first colon is the topic; keys without one fall into a shared "General" bucket. */
-export function scratchpadNamespaceOf(key: string): string {
-    const idx = key.indexOf(':')
-    return idx > 0 ? key.slice(0, idx) : 'general'
-}
-
-export function humanizeNamespace(namespace: string): string {
-    if (namespace === 'general') {
-        return 'General'
+/** The `date_from` bound a time filter asks the endpoint for, or nothing for the default window. */
+function dateFromParam(timeFilter: ScratchpadTimeFilter): { date_from?: string } {
+    if (timeFilter === 'window') {
+        return {}
     }
-    return namespace.replace(/[-_]/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
+    return { date_from: dayjs().subtract(TIME_FILTER_HOURS[timeFilter], 'hour').toISOString() }
+}
+
+/** One option in the scout, kind or topic multi-select: the raw value and how many rows carry it. */
+export interface ScratchpadFacet {
+    value: string
+    count: number
 }
 
 /** Whether a listed entry's body may have been cut short by the preview projection. The API
@@ -66,30 +79,89 @@ export function entriesForSkill(entries: ScratchpadEntryApi[] | null, skillName:
     return (entries ?? []).filter((entry) => entry.created_by_skill === skillName)
 }
 
+/**
+ * How wide a span the loaded rows actually cover, e.g. "last 8 h". The header needs this because
+ * 1,000 rows is a cap, not a total: on a busy project the window closes after a few hours, and a
+ * bare "1,000 entries" reads as the whole memory.
+ */
+export function describeLoadedSpan(entries: ScratchpadEntryApi[] | null): string | null {
+    const stamps = (entries ?? []).map((entry) => entry.updated_at).filter((stamp): stamp is string => !!stamp)
+    if (stamps.length === 0) {
+        return null
+    }
+    const oldest = dayjs(stamps[stamps.length - 1])
+    const hours = dayjs().diff(oldest, 'hour')
+    if (hours < 1) {
+        return 'last hour'
+    }
+    if (hours < 48) {
+        return `last ${hours} h`
+    }
+    return `last ${Math.round(hours / 24)} days`
+}
+
+/** Counts of each distinct value across the rows, most common first, blanks dropped. */
+function facetsOf(entries: ScratchpadEntryApi[], valueOf: (entry: ScratchpadEntryApi) => string | null): ScratchpadFacet[] {
+    const counts = new Map<string, number>()
+    for (const entry of entries) {
+        const value = valueOf(entry)
+        if (value) {
+            counts.set(value, (counts.get(value) ?? 0) + 1)
+        }
+    }
+    return [...counts.entries()]
+        .map(([value, count]) => ({ value, count }))
+        .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+}
+
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface scratchpadLogicValues {
     entries: ScratchpadEntryApi[] | null
     entriesLoading: boolean
     expandedKeys: string[]
-    expandedNamespaces: string[]
+    expiringSoonCount: number
+    filteredEntries: ScratchpadEntryApi[] | null
     fullContentByKey: Record<string, string>
-    grouping: ScratchpadGrouping
-    groups: ScratchpadNamespaceGroup[]
+    hasActiveFilters: boolean
+    hasMoreOlderEntries: boolean
+    hideBookkeeping: boolean
+    kindFacets: ScratchpadFacet[]
+    kindFilter: string[]
     lastUpdatedAt: string | null
     loadFailed: boolean
+    loadedSpanLabel: string | null
     loadingContentKeys: string[]
+    olderEntries: ScratchpadEntryApi[]
+    olderEntriesLoading: boolean
     recentlyLearnedCount: number
     recentlyLearnedCountCapped: boolean
+    reportTitles: Record<string, string | null>
+    scoutFacets: ScratchpadFacet[]
+    scoutFilter: string[]
     searchFailed: boolean
     searchResults: ScratchpadEntryApi[] | null
     searchResultsLoading: boolean
     searchText: string
+    timeFilter: ScratchpadTimeFilter
+    topicFacets: ScratchpadFacet[]
+    topicFilter: string[]
     totalCount: number | null
+    unresolvedReportIds: string[]
+    visibleBookkeepingCount: number
     visibleEntries: ScratchpadEntryApi[] | null
+    windowEntries: ScratchpadEntryApi[] | null
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface scratchpadLogicActions {
+    appendOlderEntries: (
+        entries: ScratchpadEntryApi[],
+        hasMore: boolean
+    ) => {
+        entries: ScratchpadEntryApi[]
+        hasMore: boolean
+    }
+    clearFilters: () => void
     loadEntries: () => any
     loadEntriesFailure: (
         error: string,
@@ -118,6 +190,8 @@ export interface scratchpadLogicActions {
         content: string
         key: string
     }
+    loadOlderEntries: () => void
+    loadOlderEntriesFailure: () => void
     loadSearchResults: (_payload: void) => void
     loadSearchResultsFailure: (
         error: string,
@@ -133,33 +207,78 @@ export interface scratchpadLogicActions {
         searchResults: ScratchpadEntryApi[] | null
         payload?: void
     }
-    setGrouping: (grouping: ScratchpadGrouping) => {
-        grouping: ScratchpadGrouping
+    resolveReportTitles: () => void
+    setHideBookkeeping: (hideBookkeeping: boolean) => {
+        hideBookkeeping: boolean
+    }
+    setKindFilter: (kindFilter: string[]) => {
+        kindFilter: string[]
+    }
+    setReportTitle: (
+        reportId: string,
+        title: string | null
+    ) => {
+        reportId: string
+        title: string | null
+    }
+    setScoutFilter: (scoutFilter: string[]) => {
+        scoutFilter: string[]
     }
     setSearchText: (searchText: string) => {
         searchText: string
     }
+    setTimeFilter: (timeFilter: ScratchpadTimeFilter) => {
+        timeFilter: ScratchpadTimeFilter
+    }
+    setTopicFilter: (topicFilter: string[]) => {
+        topicFilter: string[]
+    }
     toggleEntry: (key: string) => {
         key: string
-    }
-    toggleNamespace: (namespace: string) => {
-        namespace: string
     }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface scratchpadLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        totalCount: (entries: ScratchpadEntryApi[] | null) => number | null
+        windowEntries: (
+            entries: ScratchpadEntryApi[] | null,
+            olderEntries: ScratchpadEntryApi[]
+        ) => ScratchpadEntryApi[] | null
+        totalCount: (windowEntries: ScratchpadEntryApi[] | null) => number | null
+        loadedSpanLabel: (windowEntries: ScratchpadEntryApi[] | null) => string | null
         recentlyLearnedCount: (entries: ScratchpadEntryApi[] | null) => number
         recentlyLearnedCountCapped: (entries: ScratchpadEntryApi[] | null, recentlyLearnedCount: number) => boolean
         lastUpdatedAt: (entries: ScratchpadEntryApi[] | null) => string | null
         visibleEntries: (
-            entries: ScratchpadEntryApi[] | null,
+            windowEntries: ScratchpadEntryApi[] | null,
             searchResults: ScratchpadEntryApi[] | null,
             searchText: string
         ) => ScratchpadEntryApi[] | null
-        groups: (visibleEntries: ScratchpadEntryApi[] | null) => ScratchpadNamespaceGroup[]
+        scoutFacets: (visibleEntries: ScratchpadEntryApi[] | null) => ScratchpadFacet[]
+        kindFacets: (visibleEntries: ScratchpadEntryApi[] | null) => ScratchpadFacet[]
+        topicFacets: (visibleEntries: ScratchpadEntryApi[] | null) => ScratchpadFacet[]
+        expiringSoonCount: (visibleEntries: ScratchpadEntryApi[] | null) => number
+        visibleBookkeepingCount: (visibleEntries: ScratchpadEntryApi[] | null) => number
+        hasActiveFilters: (
+            scoutFilter: string[],
+            kindFilter: string[],
+            topicFilter: string[],
+            hideBookkeeping: boolean,
+            searchText: string,
+            timeFilter: ScratchpadTimeFilter
+        ) => boolean
+        filteredEntries: (
+            visibleEntries: ScratchpadEntryApi[] | null,
+            scoutFilter: string[],
+            kindFilter: string[],
+            topicFilter: string[],
+            hideBookkeeping: boolean
+        ) => ScratchpadEntryApi[] | null
+        unresolvedReportIds: (
+            filteredEntries: ScratchpadEntryApi[] | null,
+            reportTitles: Record<string, string | null>
+        ) => string[]
     }
 }
 
@@ -171,26 +290,37 @@ export type scratchpadLogicType = MakeLogicType<
 >
 
 /**
- * Read-only view over the scout fleet's durable memory (`SignalScratchpad`). Owns the entry list,
- * the debounced search text (wired straight to the endpoint's `?text=` ILIKE), and the recent /
- * by-topic grouping toggle. There is no write surface on purpose — humans inspect this memory;
- * only the harness (internal-scope) writes it.
+ * Read-only view over the scout fleet's durable memory (`SignalScratchpad`). Owns the loaded
+ * window, the debounced search text (wired straight to the endpoint's `?text=` ILIKE), the
+ * client-side ledger filters, and the report titles that make UUID-namespaced keys readable.
+ * There is no write surface on purpose — humans inspect this memory; only the harness
+ * (internal-scope) writes it.
  *
- * `entries` is always the unfiltered project window: the roster's "learned" headline and the
- * scout page's memory panel read it, and a search must not shrink those. A search lands in
- * `searchResults` instead, and the panel shows whichever applies via `visibleEntries`.
+ * `entries` is always the unfiltered first page: the roster's "learned" headline and the scout
+ * page's memory panel read it, and neither a search nor a ledger filter may shrink those. A
+ * search lands in `searchResults`, older pages land in `olderEntries`, and the ledger reads
+ * `filteredEntries` on top of whichever applies.
  */
 export const scratchpadLogic = kea<scratchpadLogicType>([
     path(['scenes', 'inbox', 'logics', 'scratchpadLogic']),
 
     actions({
         setSearchText: (searchText: string) => ({ searchText }),
-        setGrouping: (grouping: ScratchpadGrouping) => ({ grouping }),
-        toggleNamespace: (namespace: string) => ({ namespace }),
+        setScoutFilter: (scoutFilter: string[]) => ({ scoutFilter }),
+        setKindFilter: (kindFilter: string[]) => ({ kindFilter }),
+        setTopicFilter: (topicFilter: string[]) => ({ topicFilter }),
+        setTimeFilter: (timeFilter: ScratchpadTimeFilter) => ({ timeFilter }),
+        setHideBookkeeping: (hideBookkeeping: boolean) => ({ hideBookkeeping }),
+        clearFilters: true,
         toggleEntry: (key: string) => ({ key }),
         loadFullContent: (key: string) => ({ key }),
         loadFullContentSuccess: (key: string, content: string) => ({ key, content }),
         loadFullContentFailure: (key: string) => ({ key }),
+        loadOlderEntries: true,
+        appendOlderEntries: (entries: ScratchpadEntryApi[], hasMore: boolean) => ({ entries, hasMore }),
+        loadOlderEntriesFailure: true,
+        resolveReportTitles: true,
+        setReportTitle: (reportId: string, title: string | null) => ({ reportId, title }),
     }),
 
     loaders(({ values }) => ({
@@ -205,6 +335,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                     return await signalsScoutScratchpadSearch(String(teamId), {
                         limit: SCRATCHPAD_FETCH_LIMIT,
                         content_max_chars: SCRATCHPAD_PREVIEW_CHARS,
+                        ...dateFromParam(values.timeFilter),
                     })
                 },
             },
@@ -222,6 +353,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                         text,
                         limit: SCRATCHPAD_FETCH_LIMIT,
                         content_max_chars: SCRATCHPAD_PREVIEW_CHARS,
+                        ...dateFromParam(values.timeFilter),
                     })
                     // Drop a stale response if the search moved on while this request was in flight.
                     breakpoint()
@@ -232,8 +364,24 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
     })),
 
     reducers({
-        searchText: ['', { setSearchText: (_, { searchText }) => searchText }],
-        grouping: ['recent' as ScratchpadGrouping, { setGrouping: (_, { grouping }) => grouping }],
+        searchText: ['', { setSearchText: (_, { searchText }) => searchText, clearFilters: () => '' }],
+        scoutFilter: [
+            [] as string[],
+            { setScoutFilter: (_, { scoutFilter }) => scoutFilter, clearFilters: () => [] },
+        ],
+        kindFilter: [[] as string[], { setKindFilter: (_, { kindFilter }) => kindFilter, clearFilters: () => [] }],
+        topicFilter: [[] as string[], { setTopicFilter: (_, { topicFilter }) => topicFilter, clearFilters: () => [] }],
+        timeFilter: [
+            'window' as ScratchpadTimeFilter,
+            { setTimeFilter: (_, { timeFilter }) => timeFilter, clearFilters: () => 'window' as ScratchpadTimeFilter },
+        ],
+        // Whether to drop the scouts' self-bookkeeping. Off by default — a first-time reader should
+        // see everything the fleet writes — but a reader who turns it off keeps it off.
+        hideBookkeeping: [
+            false,
+            { persist: true },
+            { setHideBookkeeping: (_, { hideBookkeeping }) => hideBookkeeping },
+        ],
         // Did the most recent load reject? Lets the panel tell a failed load apart from an empty
         // project (kea-loaders leaves `entries` at its prior value on failure, so it can't).
         loadFailed: [
@@ -258,19 +406,37 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             null as ScratchpadEntryApi[] | null,
             {
                 setSearchText: (state, { searchText }) => (searchText.trim() ? state : null),
+                clearFilters: () => null,
             },
         ],
-        // Which "By topic" clusters are open. Start collapsed (high-level view of topics first);
-        // switching grouping resets the set so entering "By topic" always opens fully collapsed.
-        expandedNamespaces: [
-            [] as string[],
+        // Pages walked back past the 1,000-row cap with the endpoint's `date_to` cursor. A fresh
+        // first page invalidates them: it may already carry rows these pages hold.
+        olderEntries: [
+            [] as ScratchpadEntryApi[],
             {
-                toggleNamespace: (state, { namespace }) =>
-                    state.includes(namespace) ? state.filter((n) => n !== namespace) : [...state, namespace],
-                setGrouping: () => [],
+                appendOlderEntries: (state, { entries }) => [...state, ...entries],
+                loadEntries: () => [],
             },
         ],
-        // Which entry cards are open. Lives here rather than in the card's own state so the
+        olderEntriesLoading: [
+            false,
+            {
+                loadOlderEntries: () => true,
+                appendOlderEntries: () => false,
+                loadOlderEntriesFailure: () => false,
+                loadEntries: () => false,
+            },
+        ],
+        // Is there anything past what's loaded? A first page that came back short has already
+        // reached the end of the memory, so the load-older button stays hidden.
+        hasMoreOlderEntries: [
+            false,
+            {
+                loadEntriesSuccess: (_, { entries }) => entries.length >= SCRATCHPAD_FETCH_LIMIT,
+                appendOlderEntries: (_, { hasMore }) => hasMore,
+            },
+        ],
+        // Which entry rows are open. Lives here rather than in the table's own state so the
         // listener below can hang the full-body fetch off the same toggle.
         expandedKeys: [
             [] as string[],
@@ -297,12 +463,31 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                 loadEntriesSuccess: () => [],
             },
         ],
+        // Report titles for UUID-namespaced keys. A null means the lookup came back empty — the
+        // report is gone — and stops the key being asked for again.
+        reportTitles: [
+            {} as Record<string, string | null>,
+            {
+                setReportTitle: (state, { reportId, title }) => ({ ...state, [reportId]: title }),
+            },
+        ],
     }),
 
     selectors({
+        // Everything loaded, newest first: the first page plus any older pages walked after it.
+        windowEntries: [
+            (s) => [s.entries, s.olderEntries],
+            (entries: ScratchpadEntryApi[] | null, olderEntries: ScratchpadEntryApi[]): ScratchpadEntryApi[] | null =>
+                entries === null ? null : [...entries, ...olderEntries],
+        ],
         totalCount: [
-            (s) => [s.entries],
-            (entries: ScratchpadEntryApi[] | null): number | null => (entries ? entries.length : null),
+            (s) => [s.windowEntries],
+            (windowEntries: ScratchpadEntryApi[] | null): number | null =>
+                windowEntries ? windowEntries.length : null,
+        ],
+        loadedSpanLabel: [
+            (s) => [s.windowEntries],
+            (windowEntries: ScratchpadEntryApi[] | null): string | null => describeLoadedSpan(windowEntries),
         ],
         // Entries written or refreshed over the roster window, so the roster's "learned" headline
         // sits on the same span as the run and report numbers the summary endpoint returns for it.
@@ -329,38 +514,117 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             (s) => [s.entries],
             (entries: ScratchpadEntryApi[] | null): string | null => entries?.[0]?.updated_at ?? null,
         ],
-        // What the panel lists: the search hits while a search is typed, the whole window otherwise.
-        // Null while the applicable set is still loading.
+        // What the ledger filters over: the search hits while a search is typed, the whole loaded
+        // window otherwise. Null while the applicable set is still loading.
         visibleEntries: [
-            (s) => [s.entries, s.searchResults, s.searchText],
+            (s) => [s.windowEntries, s.searchResults, s.searchText],
             (
-                entries: ScratchpadEntryApi[] | null,
+                windowEntries: ScratchpadEntryApi[] | null,
                 searchResults: ScratchpadEntryApi[] | null,
                 searchText: string
-            ): ScratchpadEntryApi[] | null => (searchText.trim() ? searchResults : entries),
+            ): ScratchpadEntryApi[] | null => (searchText.trim() ? searchResults : windowEntries),
         ],
-        // Entries arrive newest-first; preserve that order within each namespace cluster, and order
-        // the clusters by their most recently touched entry so the liveliest topic floats to the top.
-        groups: [
+        scoutFacets: [
             (s) => [s.visibleEntries],
-            (entries: ScratchpadEntryApi[] | null): ScratchpadNamespaceGroup[] => {
-                const byNamespace = new Map<string, ScratchpadEntryApi[]>()
-                for (const entry of entries ?? []) {
-                    const namespace = scratchpadNamespaceOf(entry.key)
-                    const bucket = byNamespace.get(namespace)
-                    if (bucket) {
-                        bucket.push(entry)
-                    } else {
-                        byNamespace.set(namespace, [entry])
+            (visibleEntries: ScratchpadEntryApi[] | null): ScratchpadFacet[] =>
+                facetsOf(visibleEntries ?? [], (entry) => entry.created_by_skill ?? null),
+        ],
+        kindFacets: [
+            (s) => [s.visibleEntries],
+            (visibleEntries: ScratchpadEntryApi[] | null): ScratchpadFacet[] =>
+                facetsOf(visibleEntries ?? [], (entry) => scratchpadKindOf(entry.key)),
+        ],
+        topicFacets: [
+            (s) => [s.visibleEntries],
+            (visibleEntries: ScratchpadEntryApi[] | null): ScratchpadFacet[] =>
+                facetsOf(visibleEntries ?? [], (entry) => scratchpadTopicOf(entry.key)),
+        ],
+        // Memories about to lapse. Expiry is the one property that changes what a row means without
+        // anyone touching it, so the header counts it rather than leaving it to a reader to notice.
+        expiringSoonCount: [
+            (s) => [s.visibleEntries],
+            (visibleEntries: ScratchpadEntryApi[] | null): number => {
+                const horizon = dayjs().add(7, 'day')
+                return (visibleEntries ?? []).filter(
+                    (entry) => entry.expires_at && dayjs(entry.expires_at).isBefore(horizon)
+                ).length
+            },
+        ],
+        visibleBookkeepingCount: [
+            (s) => [s.visibleEntries],
+            (visibleEntries: ScratchpadEntryApi[] | null): number =>
+                (visibleEntries ?? []).filter((entry) => {
+                    const kind = scratchpadKindOf(entry.key)
+                    return kind !== null && BOOKKEEPING_KINDS.has(kind)
+                }).length,
+        ],
+        hasActiveFilters: [
+            (s) => [s.scoutFilter, s.kindFilter, s.topicFilter, s.hideBookkeeping, s.searchText, s.timeFilter],
+            (
+                scoutFilter: string[],
+                kindFilter: string[],
+                topicFilter: string[],
+                hideBookkeeping: boolean,
+                searchText: string,
+                timeFilter: ScratchpadTimeFilter
+            ): boolean =>
+                scoutFilter.length > 0 ||
+                kindFilter.length > 0 ||
+                topicFilter.length > 0 ||
+                hideBookkeeping ||
+                searchText.trim().length > 0 ||
+                timeFilter !== 'window',
+        ],
+        // The rows the ledger lists. Newest-first order comes from the endpoint and is preserved.
+        filteredEntries: [
+            (s) => [s.visibleEntries, s.scoutFilter, s.kindFilter, s.topicFilter, s.hideBookkeeping],
+            (
+                visibleEntries: ScratchpadEntryApi[] | null,
+                scoutFilter: string[],
+                kindFilter: string[],
+                topicFilter: string[],
+                hideBookkeeping: boolean
+            ): ScratchpadEntryApi[] | null => {
+                if (visibleEntries === null) {
+                    return null
+                }
+                return visibleEntries.filter((entry) => {
+                    if (scoutFilter.length > 0 && !scoutFilter.includes(entry.created_by_skill ?? '')) {
+                        return false
+                    }
+                    const kind = scratchpadKindOf(entry.key)
+                    if (kindFilter.length > 0 && (kind === null || !kindFilter.includes(kind))) {
+                        return false
+                    }
+                    if (hideBookkeeping && kind !== null && BOOKKEEPING_KINDS.has(kind)) {
+                        return false
+                    }
+                    const topic = scratchpadTopicOf(entry.key)
+                    if (topicFilter.length > 0 && (topic === null || !topicFilter.includes(topic))) {
+                        return false
+                    }
+                    return true
+                })
+            },
+        ],
+        // Report UUIDs on screen whose title hasn't been looked up yet, newest first and capped.
+        unresolvedReportIds: [
+            (s) => [s.filteredEntries, s.reportTitles],
+            (
+                filteredEntries: ScratchpadEntryApi[] | null,
+                reportTitles: Record<string, string | null>
+            ): string[] => {
+                const ids: string[] = []
+                for (const entry of filteredEntries ?? []) {
+                    const topic = scratchpadTopicOf(entry.key)
+                    if (topic && isReportUuid(topic) && !Object.hasOwn(reportTitles, topic) && !ids.includes(topic)) {
+                        ids.push(topic)
+                        if (ids.length >= REPORT_TITLE_RESOLVE_CAP) {
+                            break
+                        }
                     }
                 }
-                return [...byNamespace.entries()]
-                    .map(([namespace, namespaceEntries]) => ({
-                        namespace,
-                        label: humanizeNamespace(namespace),
-                        entries: namespaceEntries,
-                    }))
-                    .sort((a, b) => (b.entries[0]?.updated_at ?? '').localeCompare(a.entries[0]?.updated_at ?? ''))
+                return ids
             },
         ],
     }),
@@ -374,7 +638,57 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             actions.loadSearchResults()
         },
 
-        // Opening a card is the only moment a full body is worth fetching — and only when the
+        // The time span is the one filter the endpoint applies, so changing it reloads rather than
+        // narrowing what's already here — a wider span has rows the loaded window never held.
+        setTimeFilter: () => {
+            actions.loadEntries()
+            if (values.searchText.trim()) {
+                actions.loadSearchResults()
+            }
+        },
+
+        loadEntriesSuccess: () => {
+            actions.resolveReportTitles()
+        },
+
+        loadSearchResultsSuccess: () => {
+            actions.resolveReportTitles()
+        },
+
+        appendOlderEntries: () => {
+            actions.resolveReportTitles()
+        },
+
+        // Walk one page further back with the endpoint's `date_to` cursor. Exclusive upper bound,
+        // so the oldest loaded row's own timestamp is the right cursor and never repeats it.
+        loadOlderEntries: async () => {
+            const teamId = teamLogic.values.currentTeamId
+            const loaded = values.windowEntries ?? []
+            const cursor = loaded[loaded.length - 1]?.updated_at
+            if (!teamId || !cursor) {
+                actions.loadOlderEntriesFailure()
+                return
+            }
+            try {
+                const page = await signalsScoutScratchpadSearch(String(teamId), {
+                    limit: SCRATCHPAD_FETCH_LIMIT,
+                    content_max_chars: SCRATCHPAD_PREVIEW_CHARS,
+                    date_to: cursor,
+                    ...dateFromParam(values.timeFilter),
+                })
+                // Rows sharing the cursor timestamp fall outside an exclusive bound, so a page can
+                // still carry a key already on screen. Keys are unique per team, so drop by key.
+                const seen = new Set(loaded.map((entry) => entry.key))
+                actions.appendOlderEntries(
+                    page.filter((entry) => !seen.has(entry.key)),
+                    page.length >= SCRATCHPAD_FETCH_LIMIT
+                )
+            } catch {
+                actions.loadOlderEntriesFailure()
+            }
+        },
+
+        // Opening a row is the only moment a full body is worth fetching — and only when the
         // preview actually cut one off. Collapsing, re-opening a cached entry, or opening a note
         // that arrived whole all stay local.
         toggleEntry: ({ key }) => {
@@ -385,9 +699,9 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             if (Object.hasOwn(values.fullContentByKey, key) || values.loadingContentKeys.includes(key)) {
                 return
             }
-            // A card can sit in either list (the scout page renders from the window while a search
+            // A row can sit in either list (the scout page renders from the window while a search
             // may still be typed in the panel), so look in both.
-            const entry = [...(values.entries ?? []), ...(values.searchResults ?? [])].find((e) => e.key === key)
+            const entry = [...(values.windowEntries ?? []), ...(values.searchResults ?? [])].find((e) => e.key === key)
             if (entry && isPreviewTruncated(entry.content)) {
                 actions.loadFullContent(key)
             }
@@ -395,7 +709,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
 
         // Deliberately no `breakpoint()`: kea's is per-action, not per-key, so opening a second
         // note would unwind the first request mid-flight and strand its key in
-        // `loadingContentKeys` — a card stuck on a skeleton that `toggleEntry` then refuses to
+        // `loadingContentKeys` — a row stuck on a skeleton that `toggleEntry` then refuses to
         // retry. Every result is keyed, so a late response is written to its own entry and a
         // superseded one is harmless.
         loadFullContent: async ({ key }) => {
@@ -417,9 +731,29 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                 actions.loadFullContentFailure(key)
             } catch {
                 // The preview stays on screen, so a failure costs the reader the tail of one note
-                // rather than the whole card.
+                // rather than the whole row.
                 actions.loadFullContentFailure(key)
             }
+        },
+
+        // One request per report, so the cap above is what keeps this bounded. A missing report
+        // resolves to null and is never asked for again.
+        resolveReportTitles: async () => {
+            const teamId = teamLogic.values.currentTeamId
+            const ids = values.unresolvedReportIds
+            if (!teamId || ids.length === 0) {
+                return
+            }
+            await Promise.all(
+                ids.map(async (reportId) => {
+                    try {
+                        const report = await signalsReportsRetrieve(String(teamId), reportId)
+                        actions.setReportTitle(reportId, report.title ?? null)
+                    } catch {
+                        actions.setReportTitle(reportId, null)
+                    }
+                })
+            )
         },
     })),
 
