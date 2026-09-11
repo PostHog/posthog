@@ -686,6 +686,28 @@ class TestSchedulerClaimLifecycle(TestCase):
         self.assertEqual(registry.get_sample_value(transition_total, {**labels, "transition": "recovery_deferred"}), 1)
         self.assertIsNone(registry.get_sample_value(transition_total, {**labels, "transition": "renewed"}))
 
+    def test_recovery_deferral_rejects_a_caller_owned_transaction(self) -> None:
+        claim = TemporalSchedulerClaim.objects.get(id=self.reservation.claim_id)
+        assert claim.lease_expires_at is not None
+        metrics = MagicMock(spec=SchedulerMetrics)
+
+        with transaction.atomic():
+            with self.assertRaises(RuntimeError):
+                defer_scheduler_claim_recovery(
+                    self.reservation.claim_id,
+                    self.reservation.claim_token,
+                    lease_duration=timedelta(minutes=5),
+                    error="Temporal status unavailable",
+                    expected_lease_expires_at=claim.lease_expires_at,
+                    now=self.now,
+                    metrics=metrics,
+                )
+
+        claim.refresh_from_db()
+        self.assertEqual(claim.lease_expires_at, self.now + timedelta(minutes=5))
+        self.assertEqual(claim.last_error, "")
+        metrics.record_claim_transition.assert_not_called()
+
     def test_recovery_can_confirm_an_expired_reserved_claim(self) -> None:
         recovery_time = self.now + timedelta(minutes=6)
 
