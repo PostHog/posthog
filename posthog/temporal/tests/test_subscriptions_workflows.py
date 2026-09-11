@@ -3824,8 +3824,8 @@ async def test_recover_subscription_scheduler_claims_stops_at_the_pass_budget(te
 
 def test_recover_subscription_scheduler_claims_stops_before_activity_deadline() -> None:
     expired_claims = [
-        (uuid.uuid4(), uuid.uuid4(), "workflow-one", TemporalSchedulerClaim.Status.RESERVED, timezone.now()),
-        (uuid.uuid4(), uuid.uuid4(), "workflow-two", TemporalSchedulerClaim.Status.RESERVED, timezone.now()),
+        (uuid.uuid4(), uuid.uuid4(), "workflow-one", TemporalSchedulerClaim.Status.RESERVED.value, timezone.now()),
+        (uuid.uuid4(), uuid.uuid4(), "workflow-two", TemporalSchedulerClaim.Status.RESERVED.value, timezone.now()),
     ]
     statuses = [_WorkflowClaimStatus(is_open=False), _WorkflowClaimStatus(is_open=False)]
     with (
@@ -4279,7 +4279,9 @@ async def test_claimed_subscription_dispatch_ignores_duplicate_occurrences() -> 
         await _start_claimed_subscription_children([subscription, subscription], "eu")
 
     start_child.assert_awaited_once()
-    child_inputs = start_child.await_args.args[1]
+    start_call = start_child.await_args
+    assert start_call is not None
+    child_inputs = start_call.args[1]
     assert (
         child_inputs.scheduler_claim_lease_expires_at
         == (
@@ -4288,7 +4290,7 @@ async def test_claimed_subscription_dispatch_ignores_duplicate_occurrences() -> 
             + SUBSCRIPTION_CLAIM_LEASE_SAFETY_MARGIN
         ).isoformat()
     )
-    assert start_child.await_args.kwargs["execution_timeout"] == SUBSCRIPTION_WORKFLOW_EXECUTION_TIMEOUT
+    assert start_call.kwargs["execution_timeout"] == SUBSCRIPTION_WORKFLOW_EXECUTION_TIMEOUT
     execute_activity.assert_not_awaited()
     assert record_dispatch_outcome.call_args_list == [
         mock.call("eu", "accepted", 1),
