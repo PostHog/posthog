@@ -168,6 +168,13 @@ class _ClaimRecoveryCounts:
     retained: int = 0
 
 
+@frozen
+class _AdvanceNextDeliveryDateResult:
+    advanced: bool
+    next_delivery_date: dt.datetime | None
+    outcome: str
+
+
 def _defer_subscription_claim_after_recovery_error(
     claim_id: uuid.UUID,
     claim_token: uuid.UUID,
@@ -1342,27 +1349,37 @@ async def advance_next_delivery_date_v2(inputs: AdvanceNextDeliveryDateInputs) -
         raise ValueError("expected_next_delivery_date must be timezone-aware")
 
     @database_sync_to_async(thread_sensitive=False)
-    def advance_if_current() -> tuple[bool, dt.datetime | None, str]:
+    def advance_if_current() -> _AdvanceNextDeliveryDateResult:
         with transaction.atomic():
             subscription = Subscription.objects.select_for_update().get(pk=inputs.subscription_id)
             if not subscription.enabled or subscription.deleted:
-                return False, subscription.next_delivery_date, "inactive"
+                return _AdvanceNextDeliveryDateResult(
+                    advanced=False, next_delivery_date=subscription.next_delivery_date, outcome="inactive"
+                )
             if subscription.next_delivery_date is None:
-                return True, None, "already_advanced"
+                return _AdvanceNextDeliveryDateResult(
+                    advanced=True, next_delivery_date=None, outcome="already_advanced"
+                )
             if subscription.next_delivery_date < expected_next_delivery_date:
-                return False, subscription.next_delivery_date, "schedule_changed"
+                return _AdvanceNextDeliveryDateResult(
+                    advanced=False, next_delivery_date=subscription.next_delivery_date, outcome="schedule_changed"
+                )
             if subscription.next_delivery_date > expected_next_delivery_date:
-                return True, subscription.next_delivery_date, "already_advanced"
+                return _AdvanceNextDeliveryDateResult(
+                    advanced=True, next_delivery_date=subscription.next_delivery_date, outcome="already_advanced"
+                )
 
             subscription.set_next_delivery_date(expected_next_delivery_date)
             subscription.save(update_fields=["next_delivery_date"])
-            return True, subscription.next_delivery_date, "advanced"
+            return _AdvanceNextDeliveryDateResult(
+                advanced=True, next_delivery_date=subscription.next_delivery_date, outcome="advanced"
+            )
 
-    advanced, next_delivery_date, outcome = await advance_if_current()
+    result = await advance_if_current()
     await LOGGER.ainfo(
         "advance_next_delivery_date_v2.finished",
         subscription_id=inputs.subscription_id,
-        next_delivery_date=next_delivery_date,
-        outcome=outcome,
+        next_delivery_date=result.next_delivery_date,
+        outcome=result.outcome,
     )
-    return advanced
+    return result.advanced
