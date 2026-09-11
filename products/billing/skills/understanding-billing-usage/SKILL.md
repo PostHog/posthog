@@ -4,8 +4,9 @@ description: >
   Explains PostHog billing usage and spend from the customer's visible Billing
   MCP tools. Use when the user asks why usage or spend is high, which product or
   project is driving usage, what a usage type means, how to reduce usage, what
-  changed over time, why they got a usage change alert, or whether a spike/drop
-  alert was real or noisy. Also use before product-specific analytics skills when
+  changed over time, why they got a usage change alert, whether a spike/drop
+  alert was real or noisy, or whether events from a historic import or backfill
+  count toward their quota. Also use before product-specific analytics skills when
   the user names a billable PostHog product metric such as events, recordings,
   feature flag requests, exceptions, survey responses, synced rows, logs, AI
   events, AI credits, or Inbox credits. Starts from Billing usage/spend tools,
@@ -39,6 +40,10 @@ or contract questions. Keep it focused on usage and spend behavior.
 | `posthog:billing-usage-get`    | Time-series usage by day, usage type, and team                          |
 | `posthog:billing-spend-get`    | Optional spend context when the user asks about dollars                 |
 | Product-specific MCP tools     | Follow-up investigation inside the affected product/project             |
+
+One question here needs no Billing tools: whether events from a historic import or
+backfill count toward the quota. That answer comes from "Historic imports and
+backfills" below, so answer it even when the Billing tools are missing.
 
 Only use this skill when the Billing read tools above are available. If the user asks
 about Billing usage and those tools are not available, do not continue with this
@@ -243,3 +248,43 @@ root cause, say that. If an alert is mathematically valid but likely caused by a
 weekend pattern, holiday, campaign, batch job, or other expected cycle, say that. If the
 dashboard data does not support the alert, say that too and suggest checking the exact
 email date, product filter, or longer history window.
+
+## Historic imports and backfills
+
+Customers who migrate in from another tool often ask whether the imported volume counts
+against their event quota. It does. Answer this directly, because the docs phrase
+"historic imports are free" is about the feature, not the volume, and the separate
+historical ingestion pipeline is about routing and rate limits, not billing.
+
+What to tell them:
+
+- Imported events are billable. `get_teams_with_billable_event_count_in_period` in
+  `posthog/tasks/usage_report.py` filters only on the event timestamp window and the
+  excluded event names above. It does not filter on `historical_migration`, so an
+  imported event counts exactly like a live one.
+- Volume is attributed by event timestamp, not by import date. An event backfilled with
+  a timestamp from March lands in March's usage, however long after that the import ran.
+- The daily usage report covers the previous day only. Events backfilled into a period
+  that was already reported are normally never counted at all, so imported volume can be
+  lower than the customer's own export suggests.
+
+To size an import, filter on the properties the importer writes. The internal
+`historical_migration` column is not exposed in HogQL, but that does not mean an import
+cannot be filtered. The importer also writes ordinary event properties, and HogQL reaches
+those through `properties`.
+
+- Every managed migration stamps `$import_job_id` on the events it writes, with the
+  migration's own id as the value. Filter `properties.$import_job_id` to that id for an
+  exact per-migration count. The Mixpanel, Amplitude, and S3 import paths all do this.
+- Mixpanel and Amplitude imports also write `historical_migration` as an event property,
+  which is queryable and separate from the column of the same name. Amplitude's generated
+  identify events carry only that property and no `$import_job_id`, so match on both
+  markers for an Amplitude import.
+- Exclude the event names listed above when the count is meant to be billable volume.
+- Fall back to the event timestamp range only when no job id is available, and say that
+  the result is an upper bound. That range also holds live events and any earlier import
+  over the same dates.
+
+Do not tell a customer that a paid plan waives imported volume. Route pricing questions
+about whether historic volume should be exempt to the billing team instead of answering
+them from this skill.

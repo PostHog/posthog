@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconSort } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -161,6 +161,11 @@ export function ManagedMigration(): JSX.Element {
                         name: 'Managed migrations',
                     }}
                 />
+                <LemonBanner type="info">
+                    Imported events count toward your event usage, the same as events you send live. Each event counts
+                    in the billing period of its own timestamp, not on the day you run the import. See{' '}
+                    <Link to={urls.organizationBilling()}>billing</Link> for your current usage.
+                </LemonBanner>
                 <LemonField name="source_type" label="Source">
                     <LemonSelect
                         value={managedMigration.source_type}
