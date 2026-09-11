@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.db import OperationalError
@@ -610,7 +610,7 @@ def test_previous_run_slot(now: str, expected: str) -> None:
     ids=["first_digest_cadence_window", "established_audience_week_floor"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-@freeze_time("2026-07-15T08:00:00+00:00")  # a Wednesday; previous slot = Tue 07:00 UTC
+@time_machine.travel("2026-07-15T08:00:00+00:00", tick=False)  # a Wednesday; previous slot = Tue 07:00 UTC
 def test_digest_claim_floor(team, has_history: bool, claimed_offset: timedelta, unclaimed_offset: timedelta) -> None:
     # An audience's first digest must cover only the natural cadence window (what it would have
     # received had it been routable one run earlier), never an arbitrary backlog; an established

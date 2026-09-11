@@ -40,7 +40,8 @@ tools:
             own flag. Release conditions, rollout percentages, multivariate variants, and payloads all go in the
             structured `filters` param (`filters.groups` for release conditions, `filters.multivariate.variants` for
             variants, `filters.payloads` for JSON-encoded payloads). Use `update-feature-flag` to change an existing
-            flag, and `feature-flag-get-all` first to check whether the key is already taken.
+            flag. Check the key first: `feature-flag-get-definition-by-key` when you already have the exact key it will
+            use, `feature-flag-get-all` when you only know part of the key or the name.
         include_params:
             - key
             - name
@@ -428,9 +429,6 @@ tools:
     feature-flags-create-static-cohort-for-flag-create:
         operation: feature_flags_create_static_cohort_for_flag_create
         enabled: false
-    feature-flags-dashboard-create:
-        operation: feature_flags_dashboard_create
-        enabled: false
     feature-flags-dependent-flags-retrieve:
         operation: feature_flags_dependent_flags_list
         enabled: true
@@ -447,9 +445,6 @@ tools:
         param_overrides:
             id:
                 cast: string-int
-    feature-flags-enrich-usage-dashboard-create:
-        operation: feature_flags_enrich_usage_dashboard_create
-        enabled: false
     feature-flags-evaluation-reasons-retrieve:
         operation: feature_flags_evaluation_reasons_retrieve
         enabled: true
@@ -699,10 +694,12 @@ tools:
 
 
             Rollout conditions, variants, and payloads live in the structured `filters` param, and sending `filters`
-            replaces the whole object, so read the flag first and merge your change. Use
-            `feature-flag-get-definition-by-key` when you have the string key: it returns the numeric ID and the full
-            definition in one call. Use `feature-flag-get-definition` when you already have the ID. To apply a change at
-            a future time instead, use `scheduled-changes-create`.
+            replaces the whole object, so read the flag first and merge your change. When the flag targets groups, keep
+            `type: "group"`, `group_type_index`, and `filters.aggregation_group_type_index` in what you send; if you
+            omit them this tool restores them from the existing flag so group targeting is not silently converted to
+            person targeting. Use `feature-flag-get-definition-by-key` when you have the string key: it returns the
+            numeric ID and the full definition in one call. Use `feature-flag-get-definition` when you already have the
+            ID. To apply a change at a future time instead, use `scheduled-changes-create`.
         include_params:
             - key
             - name
@@ -718,6 +715,12 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+            filters:
+                description: >
+                    Full release-condition object (replaces filters at the API). For group flags set
+                    aggregation_group_type_index and property type "group" + group_type_index. Omitted type /
+                    group_type_index / aggregation_group_type_index are filled from the existing flag to prevent silent
+                    person demotion (see #46501).
             is_remote_configuration:
                 description:
                     Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the

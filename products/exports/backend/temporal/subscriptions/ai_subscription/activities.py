@@ -44,6 +44,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
+    AI_REPORT_QUERY_PLAN_STATUS_KEY,
     AI_REPORT_SNAPSHOT_KEY,
     AI_REPORT_WINDOW_END_KEY,
     DeliverSubscriptionInputs,
@@ -209,6 +210,7 @@ async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, pro
             AI_REPORT_WINDOW_END_KEY: result.window_end_utc,
             AI_REPORT_CHARTS_KEY: strip_null_bytes([dataclasses.asdict(chart) for chart in result.charts]),
             AI_REPORT_CONTEXT_KEY: strip_null_bytes(dataclasses.asdict(result.context)),
+            AI_REPORT_QUERY_PLAN_STATUS_KEY: result.query_plan_status.value,
             # prompt is None for non-AI subs; "" if cleared — omit either.
             **({AI_REPORT_PROMPT_SNAPSHOT_KEY: strip_null_bytes(prompt)} if prompt else {}),
         }
@@ -485,7 +487,7 @@ async def _deliver_ai_subscription(
             ),
         )
     if subscription.target_type == Subscription.SubscriptionTarget.TEAMS:
-        card = build_ai_teams_card(subscription, markdown, delivery_id=delivery_id)
+        card = build_ai_teams_card(subscription, markdown, delivery_id=delivery_id, charts=chart_images)
         return await deliver_teams_webhook(subscription, recipient_results, body=card)
     # `validate_subscription_for_delivery` auto-disables unsupported targets up front,
     # so reaching here means an invariant was violated.

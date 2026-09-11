@@ -57,6 +57,47 @@ const queryTrendsToolMeta = {
 } as const
 
 describe('buildToolResultPayload — query-trends for Claude Code', () => {
+    it.each(['optimized', 'json'] as const)(
+        'keeps native widget data without a UI resource or formatted table in %s mode',
+        (outputFormat) => {
+            const data = { short_id: 'example', query: { kind: 'HogQLQuery', query: "SELECT 'a\\nb'" } }
+            const payload = buildToolResultPayload({
+                handlerResult: data,
+                toolName: 'mock-tool',
+                params: { output_format: outputFormat },
+                includeAppData: true,
+            })
+            expect(payload._meta?.[APP_DATA_META_KEY]).toEqual(data)
+            expect(payload.structuredContent).toBeUndefined()
+            expect(payload.content[0]!.text).not.toBe(STRUCTURED_CONTENT_ONLY_TEXT)
+            if (outputFormat === 'json') {
+                expect(JSON.parse(payload.content[0]!.text)).toEqual(data)
+            }
+        }
+    )
+
+    it.each(['optimized', 'json'] as const)(
+        'carries a UI-resource tool payload once beside native widget data in %s mode',
+        (outputFormat) => {
+            const payload = buildToolResultPayload({
+                handlerResult: queryTrendsHandlerResult(/* withFormatted */ false),
+                toolMeta: queryTrendsToolMeta,
+                toolName: 'query-trends',
+                params: { output_format: outputFormat },
+                includeAppData: true,
+                distinctId: 'd',
+            })
+
+            // The widget reads `_meta`, so structuredContent would repeat what the text
+            // channel already hands the model.
+            expect(payload).not.toHaveProperty('structuredContent')
+            expect(payload._meta?.[APP_DATA_META_KEY]).toMatchObject({ results: expect.any(Array) })
+            if (outputFormat === 'json') {
+                expect(JSON.parse(payload.content[0]!.text)).toMatchObject({ results: expect.any(Array) })
+            }
+        }
+    )
+
     it('returns formatted table as text AND suppresses structuredContent for claude-code', () => {
         const payload = buildToolResultPayload({
             handlerResult: queryTrendsHandlerResult(),
@@ -72,6 +113,10 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
         // No structuredContent: Claude Code would otherwise prefer it over text,
         // defeating the purpose of the formatted_results override.
         expect(payload).not.toHaveProperty('structuredContent')
+        // A host that registers the tools directly still mounts the UI app from the
+        // resource URI it read in `tools/list`. Without this the app has no data at all
+        // and renders its failure state instead of the chart.
+        expect(payload._meta?.[APP_DATA_META_KEY]).toMatchObject({ results: expect.any(Array) })
     })
 
     it('keeps structuredContent when suppression is false', () => {

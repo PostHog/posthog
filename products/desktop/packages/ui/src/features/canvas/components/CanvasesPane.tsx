@@ -18,7 +18,6 @@ import {
   EmptyMedia,
   EmptyTitle,
   MenuLabel,
-  Spinner,
 } from "@posthog/quill";
 import { formatAbsoluteDateTime, formatRelativeAge } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -32,6 +31,7 @@ import { useAllCanvases } from "@posthog/ui/features/canvas/hooks/useDashboards"
 import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
 import { useCanvasViewedStore } from "@posthog/ui/features/canvas/stores/canvasViewedStore";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -166,9 +166,7 @@ export function CanvasesPane({
         />
         <AutocompleteList className="sidebar-autocomplete-tree scroll-mask-8 !max-h-none !p-1.5 min-h-0 flex-1 overflow-y-auto">
           {isLoading ? (
-            <div className="flex justify-center py-10">
-              <Spinner />
-            </div>
+            <LoadingState className="py-10" />
           ) : viewModel.canvases.length === 0 ? (
             <Empty className="border-0 py-8">
               <EmptyHeader>

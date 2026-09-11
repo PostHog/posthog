@@ -2,6 +2,7 @@ import type { AcpMessage } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import type { BuildResult } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { SessionFooter } from "@posthog/ui/features/sessions/components/SessionFooter";
+import { SessionStartupRow } from "@posthog/ui/features/sessions/components/SessionStartupRow";
 import { useConversationItems } from "@posthog/ui/features/sessions/hooks/useConversationItems";
 import {
   usePendingPermissionsForTask,
@@ -19,6 +20,7 @@ interface ChatThreadFooterProps {
   taskId?: string;
   footerState?: Omit<BuildResult, "items">;
   hasPendingPermission?: boolean;
+  currentWork?: string;
 }
 
 /**
@@ -38,6 +40,7 @@ export function ChatThreadFooter({
   taskId,
   footerState,
   hasPendingPermission,
+  currentWork,
 }: ChatThreadFooterProps) {
   const showDebugLogs = useSettingsStore((s) => s.debugLogsCloudRuns);
   const eventFooterState = useConversationItems(events, isPromptPending, {
@@ -67,6 +70,11 @@ export function ChatThreadFooter({
 
   return (
     <div className="pt-1">
+      {taskId && task && (
+        <div className="-mx-2.5 pb-1">
+          <SessionStartupRow taskId={taskId} task={task} />
+        </div>
+      )}
       <SessionFooter
         task={task}
         isPromptPending={isPromptPending}
@@ -85,6 +93,7 @@ export function ChatThreadFooter({
         isBackgroundTurnActive={isBackgroundTurnActive}
         completedToolCallCount={completedToolCallCount}
         lastActivityAt={lastActivityAt}
+        currentWork={currentWork}
       />
     </div>
   );

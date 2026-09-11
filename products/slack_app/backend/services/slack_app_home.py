@@ -40,7 +40,7 @@ from products.slack_app.backend.services.model_catalogue import (
     RUNTIME_ADAPTER_DISPLAY_NAMES,
     available_model_choices,
     describe_run_model,
-    format_model_id,
+    display_name_for_model,
     group_by_runtime,
     label_for,
 )
@@ -631,7 +631,7 @@ def _active_model_blocks(
         )
         source_label = f"{run_defaults.source_label} in PostHog"
     else:
-        headline = f"Defaulting to {format_model_id(SLACK_DEFAULT_MODEL)}. Pick your own settings to override."
+        headline = f"Defaulting to {display_name_for_model(SLACK_DEFAULT_MODEL)}. Pick your own settings to override."
         source_label = source.label
 
     blocks: list[dict] = [
@@ -1296,7 +1296,7 @@ def _bar(value: int, peak: int, width: int = _STATS_BAR_WIDTH) -> str:
 
 def _stats_model_label(usage: ModelUsage) -> str:
     """Display label for a model, truncated so the bar column stays aligned."""
-    label = format_model_id(usage.model)
+    label = display_name_for_model(usage.model)
     return _truncate(label, _STATS_COLUMN_LABEL_CHARS)
 
 
@@ -1325,7 +1325,7 @@ def _row_summary(row: SlackSettings | None) -> str:
     if not row or not row.runtime_adapter or not row.model:
         return "_(none)_"
     parts = [
-        f"*Model:* {format_model_id(row.model)}",
+        f"*Model:* {display_name_for_model(row.model)}",
         f"*Runtime:* {label_for(row.runtime_adapter, RUNTIME_ADAPTER_DISPLAY_NAMES)}",
     ]
     if row.reasoning_effort:
