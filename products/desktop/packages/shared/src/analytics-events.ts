@@ -313,6 +313,33 @@ export interface SidebarNavItemClickedProperties {
   layout?: SidebarLayout;
 }
 
+/** Every row of the account / project / org menu, plus opening it. */
+export type ProjectMenuAction =
+  | "open"
+  | "switch_project"
+  | "switch_organization"
+  | "create_project"
+  | "create_organization"
+  | "discord"
+  | "changelog"
+  | "website"
+  | "privacy_policy"
+  | "keyboard_shortcuts"
+  | "archived"
+  | "settings"
+  | "log_out";
+
+export interface ProjectMenuActionProperties {
+  action: ProjectMenuAction;
+  /** The rail draws the trigger as an icon, the code sidebar as a footer row. */
+  appearance: "row" | "icon";
+  /**
+   * For switch_project / switch_organization: whether the pick was the one
+   * already current, which closes the menu without moving anywhere.
+   */
+  changed?: boolean;
+}
+
 export type TaskListSurface = "sidebar" | "space" | "saved_search";
 
 export interface TaskListGroupingChangedProperties {
@@ -1149,7 +1176,13 @@ type ChannelActionType =
   | "mention_member"
   | "view_activity"
   | "open_mention"
-  | "activity_tab_change";
+  | "activity_tab_change"
+  /** Sessions ↔ Canvases in a space's sidebar list. */
+  | "space_tab_change"
+  | "expand_channel"
+  | "activity_unreads_toggle"
+  | "activity_mark_all_read"
+  | "activity_load_more";
 
 type TaskFeedActionType = "create" | "update" | "delete" | "open";
 
@@ -1170,14 +1203,19 @@ export interface ChannelActionProperties {
   task_id?: string;
   /** For file_task: destination channel when different from `channel_id`. */
   target_channel_id?: string;
-  /** For nav_click: which destination ("home"|"activity"|"inbox"|"canvas"|"agents"|"files"|"settings"). */
+  /**
+   * For nav_click: which destination ("home"|"activity"|"inbox"|"canvas"|"agents"|"files"|"settings").
+   * A space's own sidebar rows name their page: "new_session"|"feed"|"context"|"loops".
+   */
   nav_target?: string;
   /** For mention_member: the tagged teammate's user uuid. */
   mentioned_user_id?: string;
   /** For new_task_suggestion: the starter-prompt card label. */
   suggestion_label?: string;
-  /** For activity_tab_change: the tab landed on. */
+  /** For activity_tab_change and space_tab_change: the tab landed on. */
   tab?: string;
+  /** For activity_unreads_toggle: the state being entered. */
+  enabled?: boolean;
   /** Whether the underlying mutation resolved successfully. */
   success?: boolean;
   /** For auto_archive_update: the selected inactivity window. Null disables it. */
@@ -1714,6 +1752,7 @@ export const ANALYTICS_EVENTS = {
   CANVAS_RENDERED: "Canvas rendered",
   CANVAS_RUNTIME_ERROR: "Canvas runtime error",
   CONTEXT_ACTION: "Context action",
+  PROJECT_MENU_ACTION: "Project menu action",
 
   // Autoresearch events
   AUTORESEARCH_ARMED: "Autoresearch armed",
@@ -1926,6 +1965,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;
   [ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR]: CanvasRuntimeErrorProperties;
   [ANALYTICS_EVENTS.CONTEXT_ACTION]: ContextActionProperties;
+  [ANALYTICS_EVENTS.PROJECT_MENU_ACTION]: ProjectMenuActionProperties;
 
   // Autoresearch events
   [ANALYTICS_EVENTS.AUTORESEARCH_ARMED]: AutoresearchArmedProperties;

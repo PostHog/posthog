@@ -184,7 +184,7 @@ export function ActivityFeedList({
           onClear={() => setQuery("")}
           actions={
             <>
-              <ActivityUnreadsToggle />
+              <ActivityUnreadsToggle surface="activity_panel" />
               <ActivityActionsMenu
                 loadedUnreadCount={unreadItems.length}
                 totalUnreadCount={unreadCount}
