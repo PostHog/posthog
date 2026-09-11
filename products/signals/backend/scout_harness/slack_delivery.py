@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import quote
@@ -63,6 +63,7 @@ _PERMANENT_SLACK_ERROR_CODES = frozenset(
 _BLOCK_REJECTION_ERROR_CODES = frozenset({"invalid_blocks", "invalid_blocks_format"})
 
 ScoutSlackOutputType = Literal["finding", "report"]
+ScoutSlackReplyRetryScheduler = Callable[[int, list[list[dict]], int, str, str], None]
 
 # Each member gets an individual DM (a group DM would need the `mpim:write` scope the Slack app
 # doesn't request), so this bounds the per-output Slack API fan-out.
@@ -133,13 +134,16 @@ def slack_api_error_code(exc: SlackApiError) -> str | None:
 
 
 def _slack_retry_after_seconds(exc: Exception) -> int | None:
-    """Return Slack's bounded retry delay for a rate-limited request."""
+    """Return Slack's retry delay, bounded by the delivery task's one-hour limit."""
     if not isinstance(exc, SlackApiError) or slack_api_error_code(exc) != "ratelimited" or exc.response is None:
         return None
+    headers = exc.response.headers or {}
+    raw_value = headers.get("Retry-After") or headers.get("retry-after")
     try:
-        return min(max(int(exc.response.headers.get("Retry-After", "1")), 1), 30)
+        retry_after = int(raw_value) if raw_value is not None else None
     except (TypeError, ValueError):
-        return 1
+        return None
+    return min(retry_after, 3600) if retry_after is not None and retry_after > 0 else None
 
 
 def _post_scout_slack_reply(
@@ -541,6 +545,8 @@ def _post_scout_report_thread_replies(
     delivery_id: str,
     reply_blocks: list[list[dict]],
     fallback: str,
+    schedule_retry: ScoutSlackReplyRetryScheduler,
+    chunk_offset: int = 0,
 ) -> None:
     """Post the remaining summary chunks as threaded replies under an already-delivered lead.
 
@@ -565,29 +571,24 @@ def _post_scout_report_thread_replies(
         )
 
     for index, blocks in enumerate(reply_blocks):
+        chunk_index = chunk_offset + index
         try:
-            _post_reply(index, blocks)
+            _post_reply(chunk_index, blocks)
         except Exception as exc:
-            retry_after = _slack_retry_after_seconds(exc)
-            if retry_after is not None:
-                time.sleep(retry_after)
-                try:
-                    _post_reply(index, blocks)
-                    continue
-                except Exception:
-                    logger.warning(
-                        "scout_slack_report_thread_reply_failed",
-                        channel=channel_id,
-                        delivery_id=delivery_id,
-                        chunk_index=index,
-                        exc_info=True,
-                    )
-                    continue
+            if isinstance(exc, SlackApiError) and slack_api_error_code(exc) == "ratelimited":
+                schedule_retry(
+                    _slack_retry_after_seconds(exc) or 60,
+                    reply_blocks[index:],
+                    chunk_index,
+                    thread_ts,
+                    fallback,
+                )
+                return
             logger.warning(
                 "scout_slack_report_thread_reply_failed",
                 channel=channel_id,
                 delivery_id=delivery_id,
-                chunk_index=index,
+                chunk_index=chunk_index,
                 exc_info=True,
             )
 
@@ -638,6 +639,7 @@ def post_scout_report_to_slack(
     delivery_id: str,
     integration_id: int,
     channel: str,
+    schedule_thread_reply_retry: ScoutSlackReplyRetryScheduler,
     edit_note: str | None = None,
     thread_reports: bool = False,
 ) -> None:
@@ -754,6 +756,7 @@ def post_scout_report_to_slack(
             delivery_id=delivery_id,
             reply_blocks=messages.reply_blocks,
             fallback=messages.fallback,
+            schedule_retry=schedule_thread_reply_retry,
         )
 
     _post_scout_slack_reply(

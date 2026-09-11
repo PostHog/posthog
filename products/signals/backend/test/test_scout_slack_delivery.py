@@ -24,6 +24,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
     ScoutSlackDestination,
     ScoutSlackPermanentDeliveryError,
     _latest_report_delivery_key,
+    _slack_retry_after_seconds,
     get_scout_slack_destination,
     mark_latest_scout_report_delivery,
     post_scout_emission_to_slack,
@@ -473,7 +474,7 @@ class TestScoutSlackDelivery(BaseTest):
         assert "second one" in markdown_texts[0]
         assert calls[1].kwargs["blocks"][0]["type"] == "context"
 
-    def test_threaded_report_retries_a_rate_limited_reply(self) -> None:
+    def test_threaded_report_schedules_a_rate_limited_reply(self) -> None:
         emission = self._make_emission()
         report = SignalReport.objects.create(
             team=self.team,
@@ -483,18 +484,16 @@ class TestScoutSlackDelivery(BaseTest):
         )
         integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
         fake_client = MagicMock()
-        rate_limited = FakeSlackResponse({"error": "ratelimited"}, headers={"Retry-After": "2"})
+        rate_limited = FakeSlackResponse({"error": "ratelimited"}, headers={"retry-after": "120"})
         fake_client.chat_postMessage.side_effect = [
             {"ts": "1785418710.000800"},
             SlackApiError(message="rate limited", response=rate_limited),
             {"ts": "1785418710.000801"},
-            {"ts": "1785418710.000802"},
-            {"ts": "1785418710.000803"},
         ]
 
         with (
             patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
-            patch("products.signals.backend.scout_harness.slack_delivery.time.sleep") as sleep,
+            patch("products.signals.backend.tasks.deliver_scout_slack_thread_replies.apply_async") as apply_async,
         ):
             slack_integration.return_value.client = fake_client
             deliver_scout_slack_output.run(
@@ -508,12 +507,18 @@ class TestScoutSlackDelivery(BaseTest):
                 thread_reports=True,
             )
 
-        sleep.assert_called_once_with(2)
-        first_attempt = fake_client.chat_postMessage.call_args_list[1].kwargs
-        retry = fake_client.chat_postMessage.call_args_list[2].kwargs
-        assert retry == first_attempt
-        assert "First body" in retry["blocks"][0]["text"]
-        assert fake_client.chat_postMessage.call_count == 5
+        assert apply_async.call_args.kwargs["countdown"] == 120
+        retry_kwargs = apply_async.call_args.kwargs["kwargs"]
+        assert retry_kwargs["chunk_offset"] == 0
+        assert len(retry_kwargs["reply_blocks"]) == 2
+        assert "First body" in retry_kwargs["reply_blocks"][0][0]["text"]
+        assert fake_client.chat_postMessage.call_count == 3
+
+    def test_thread_reply_retry_after_is_bounded_to_one_hour(self) -> None:
+        response = FakeSlackResponse({"error": "ratelimited"}, headers={"Retry-After": "7200"})
+        error = SlackApiError(message="rate limited", response=response)
+
+        assert _slack_retry_after_seconds(error) == 3600
 
     def test_reply_posted_regardless_of_ai_approval(self) -> None:
         # The Slack follow-up invite is unconditional — no AI-approval gate on scout output.

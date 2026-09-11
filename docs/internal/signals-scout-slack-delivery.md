@@ -18,6 +18,7 @@ The setting stays the same when you change the channel, direct-message
 recipients, or Slack workspace. Finding messages and report update notes always
 use one message.
 
-If Slack rate-limits a report reply, delivery waits for the `Retry-After` period
-and tries that reply one more time. A reply that still fails is logged without
-posting the report lead again.
+If Slack rate-limits a report reply, delivery schedules a separate task after
+the `Retry-After` period. The delay is at most one hour. Each task continues
+from the section that Slack rejected, so it does not block a delivery worker or
+post the report lead again.

@@ -811,7 +811,6 @@ export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersItemR
 )
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersMax = 5
 
-export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneThreadReportsDefault = true
 export const signalsScoutConfigUpdateBodyModelMax = 200
 
 export const signalsScoutConfigUpdateBodyTagsMax = 10
@@ -885,7 +884,7 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
                                 ),
                             thread_reports: zod
                                 .boolean()
-                                .default(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneThreadReportsDefault)
+                                .optional()
                                 .describe(
                                     "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post."
                                 ),

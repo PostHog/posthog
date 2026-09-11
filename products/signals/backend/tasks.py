@@ -16,6 +16,7 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubR
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.models.integration import SlackIntegration
 from posthog.models.organization import BillingPeriod
 from posthog.models.scoping import with_team_scope
 from posthog.ph_client import ph_scoped_capture
@@ -43,6 +44,10 @@ from products.signals.backend.scout_harness.slack_delivery import (
     DELIVERABLE_REPORT_STATUSES,
     ScoutSlackOutputType,
     ScoutSlackPermanentDeliveryError,
+    _ensure_dm_recipient_eligible,
+    _post_scout_report_thread_replies,
+    _slack_channel_id,
+    _slack_integration_for_project,
     clear_latest_scout_report_delivery,
     mark_latest_scout_report_delivery,
     post_scout_emission_to_slack,
@@ -174,6 +179,76 @@ def _scout_slack_retry_countdown(exc: Exception, retries: int) -> int:
 
 
 @shared_task(
+    name="products.signals.backend.tasks.deliver_scout_slack_thread_replies",
+    ignore_result=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+@with_team_scope(canonical=True)
+def deliver_scout_slack_thread_replies(
+    team_id: int,
+    integration_id: int,
+    channel: str,
+    thread_ts: str,
+    delivery_id: str,
+    reply_blocks: list[list[dict]],
+    fallback: str,
+    chunk_offset: int,
+    attempt: int = 1,
+) -> None:
+    """Continue a rate-limited report thread without holding or retrying the lead-message worker."""
+    team = Team.objects.only("project_id").get(id=team_id)
+    integration = _slack_integration_for_project(integration_id=integration_id, project_id=team.project_id)
+    slack = SlackIntegration(integration)
+    channel_id = _slack_channel_id(channel)
+    _ensure_dm_recipient_eligible(slack, channel_id)
+
+    def _schedule_retry(
+        countdown: int,
+        blocks: list[list[dict]],
+        offset: int,
+        retry_thread_ts: str,
+        retry_fallback: str,
+    ) -> None:
+        if attempt >= _SCOUT_SLACK_MAX_RETRIES:
+            logger.warning(
+                "scout_slack_report_thread_reply_exhausted",
+                team_id=team_id,
+                integration_id=integration_id,
+                channel=channel_id,
+                delivery_id=delivery_id,
+                chunk_index=offset,
+                attempts=attempt,
+            )
+            return
+        deliver_scout_slack_thread_replies.apply_async(
+            kwargs={
+                "team_id": team_id,
+                "integration_id": integration_id,
+                "channel": channel,
+                "thread_ts": retry_thread_ts,
+                "delivery_id": delivery_id,
+                "reply_blocks": blocks,
+                "fallback": retry_fallback,
+                "chunk_offset": offset,
+                "attempt": attempt + 1,
+            },
+            countdown=countdown,
+        )
+
+    _post_scout_report_thread_replies(
+        slack.client,
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        delivery_id=delivery_id,
+        reply_blocks=reply_blocks,
+        fallback=fallback,
+        schedule_retry=_schedule_retry,
+        chunk_offset=chunk_offset,
+    )
+
+
+@shared_task(
     name="products.signals.backend.tasks.deliver_scout_slack_output",
     ignore_result=True,
     bind=True,
@@ -230,12 +305,35 @@ def deliver_scout_slack_output(
                     report_status=report.status,
                 )
                 return
+
+            def _schedule_thread_reply_retry(
+                countdown: int,
+                blocks: list[list[dict]],
+                offset: int,
+                thread_ts: str,
+                fallback: str,
+            ) -> None:
+                deliver_scout_slack_thread_replies.apply_async(
+                    kwargs={
+                        "team_id": team_id,
+                        "integration_id": integration_id,
+                        "channel": channel,
+                        "thread_ts": thread_ts,
+                        "delivery_id": delivery_id,
+                        "reply_blocks": blocks,
+                        "fallback": fallback,
+                        "chunk_offset": offset,
+                    },
+                    countdown=countdown,
+                )
+
             post_scout_report_to_slack(
                 report,
                 run,
                 delivery_id=delivery_id,
                 integration_id=integration_id,
                 channel=channel,
+                schedule_thread_reply_retry=_schedule_thread_reply_retry,
                 edit_note=edit_note,
                 thread_reports=thread_reports,
             )
