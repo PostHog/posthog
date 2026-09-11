@@ -171,6 +171,35 @@ describe('insight error states', () => {
         }
     )
 
+    it.each([
+        { name: 'a gateway timeout', titleStatus: 504, elapsedMs: undefined },
+        { name: 'a dropped long-running request', titleStatus: undefined, elapsedMs: 100000 },
+    ])('asks for less data after $name', ({ titleStatus, elapsedMs }) => {
+        preflightLogic.actions.loadPreflightSuccess({ cloud: true } as any)
+
+        render(
+            <InsightErrorState
+                title="Failed to fetch"
+                titleStatus={titleStatus}
+                elapsedMs={elapsedMs}
+                query={{ kind: 'DataTableNode' }}
+                onRetry={() => {}}
+            />
+        )
+
+        expect(screen.getByText('This query took too long to finish')).toBeTruthy()
+        expect(screen.getByText('Try a shorter date range or narrower filters, then run it again.')).toBeTruthy()
+        expect(screen.queryByText('Failed to fetch')).toBeNull()
+    })
+
+    it('still treats a short status-less failure as unknown', () => {
+        // A browser that cannot reach the server fails in well under a second, and a date range
+        // has nothing to do with it.
+        render(<InsightErrorState title="Failed to fetch" elapsedMs={200} onRetry={() => {}} />)
+
+        expect(screen.getByText(/Try again in a moment/)).toBeTruthy()
+    })
+
     it('keeps raw ClickHouse traces out of memory failures', () => {
         const rawTrace = 'Code: 241. DB::Exception: Memory limit (for query) exceeded. Stack trace:\n0.'
         render(<InsightErrorState title={rawTrace} titleStatus={513} onRetry={() => {}} />)

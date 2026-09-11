@@ -20,10 +20,11 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api, { ApiMethodOptions } from 'lib/api'
+import { isRequestTimeoutFailure } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
-import { shouldCancelQuery } from 'lib/utils/requests'
+import { isAbortedRequest, shouldCancelQuery } from 'lib/utils/requests'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -977,7 +978,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     // Default to non-force variants
                     let refresh: RefreshType = refreshArg ?? (isInsightQueryNode(query) ? 'async' : 'blocking')
 
-                    if (!pollOnly && ['async', 'force_async'].includes(refresh)) {
+                    // A blocking refresh is one long HTTP request, which the edge drops before a
+                    // slow query can answer. It is still the cheaper path while queries return, so
+                    // downgrade to it by default and poll only once a query has already failed the
+                    // way a dropped one does. Reissuing that request blocking cannot recover it.
+                    if (!pollOnly && !cache.pollUntilSuccess && ['async', 'force_async'].includes(refresh)) {
                         refresh = refresh.startsWith('force_') ? 'force_blocking' : 'blocking'
                     }
 
@@ -2011,12 +2016,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         loadDataSuccess: ({ response }) => {
             props.onData?.(response as Record<string, unknown> | null | undefined)
             actions.collectionNodeLoadDataSuccess(props.key)
+            cache.pollUntilSuccess = false
             if ('query' in props.query) {
                 cache.localResults[JSON.stringify(props.query.query)] = response
             }
         },
-        loadDataFailure: () => {
+        loadDataFailure: ({ errorObject }) => {
             actions.collectionNodeLoadDataFailure(props.key)
+            // A cancel is the user's own action, and it looks the same as a dropped request
+            cache.pollUntilSuccess =
+                isRequestTimeoutFailure(errorObject?.status, errorObject?.duration) && !isAbortedRequest(errorObject)
         },
         loadNewDataSuccess: ({ response }) => {
             props.onData?.(response as Record<string, unknown> | null | undefined)

@@ -187,6 +187,7 @@ export function DataTable({
         responseLoading,
         responseError,
         responseErrorObject,
+        elapsedTime,
         queryId,
         queryCancelled,
         nextDataLoading,
@@ -1095,7 +1096,10 @@ export function DataTable({
                                                 titleStatus={responseErrorObject?.status}
                                                 // A cancel is the user's own action: no apology or bug-report guidance
                                                 excludeDetail={queryCancelled}
-                                                onRetry={() => loadData('force_blocking')}
+                                                // A cancel is status-less and can be slow, which
+                                                // would otherwise read as a query that timed out
+                                                elapsedMs={queryCancelled ? null : elapsedTime}
+                                                onRetry={() => loadData('force_async')}
                                                 title={
                                                     queryCancelled
                                                         ? 'The query was cancelled'
@@ -1105,10 +1109,7 @@ export function DataTable({
                                                 }
                                             />
                                         ) : (
-                                            <InsightErrorState
-                                                query={query}
-                                                onRetry={() => loadData('force_blocking')}
-                                            />
+                                            <InsightErrorState query={query} onRetry={() => loadData('force_async')} />
                                         )
                                     ) : (
                                         <InsightEmptyState
