@@ -4,6 +4,7 @@ from uuid import UUID
 
 import structlog
 from asgiref.sync import async_to_sync, sync_to_async
+from temporalio.client import ScheduleDescription
 
 from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
@@ -30,10 +31,60 @@ class MetricCheckSchedule:
     last_suite_run: UUID | None = None
 
 
+@frozen
+class ScheduleUpdateResult:
+    before: MetricCheckSchedule
+    after: MetricCheckSchedule
+
+
 def schedule_key(team_id: int, subject_type: str, subject_uuid: str | UUID) -> MetricScheduleKey:
     if subject_type != SubjectType.METRIC:
         raise ValueError("Only metrics support recurring check schedules")
     return MetricScheduleKey(team_id=resolve_effective_team_id(team_id), metric_id=UUID(str(subject_uuid)))
+
+
+def schedule_snapshot(key: MetricScheduleKey, description: ScheduleDescription) -> MetricCheckSchedule:
+    schedule = description.schedule
+    upcoming = description.info.next_action_times
+    return MetricCheckSchedule(
+        id=key.id,
+        interval=label_from_interval(schedule.spec.intervals[0].every),
+        enabled=not schedule.state.paused,
+        next_run_at=upcoming[0] if upcoming and not schedule.state.paused else None,
+    )
+
+
+async def _describe_schedule(schedules: MetricSchedules, key: MetricScheduleKey) -> MetricCheckSchedule | None:
+    async with asyncio.timeout(SCHEDULE_REQUEST_TIMEOUT_SECONDS):
+        description = await schedules.describe(key)
+    return schedule_snapshot(key, description) if description is not None else None
+
+
+async def _update_schedule_with_snapshots(
+    team_id: int,
+    subject_type: str,
+    subject_uuid: str | UUID,
+    *,
+    interval: str | None = None,
+    enabled: bool | None = None,
+) -> ScheduleUpdateResult:
+    key = await sync_to_async(schedule_key)(team_id, subject_type, subject_uuid)
+    try:
+        async with asyncio.timeout(SCHEDULE_REQUEST_TIMEOUT_SECONDS):
+            schedules = MetricSchedules(await async_connect())
+        before = await _describe_schedule(schedules, key)
+        if before is None:
+            raise ScheduleUnavailableError()
+        async with asyncio.timeout(SCHEDULE_REQUEST_TIMEOUT_SECONDS):
+            await schedules.update(key, interval=interval, enabled=enabled)
+        after = await _describe_schedule(schedules, key)
+        if after is None:
+            raise ScheduleUnavailableError()
+        return ScheduleUpdateResult(before=before, after=after)
+    except ScheduleUnavailableError:
+        raise
+    except Exception as error:
+        raise ScheduleUnavailableError() from error
 
 
 @async_to_sync
@@ -52,17 +103,7 @@ async def get_schedule(team_id: int, subject_type: str, subject_uuid: str | UUID
     try:
         async with asyncio.timeout(SCHEDULE_REQUEST_TIMEOUT_SECONDS):
             description = await MetricSchedules(await async_connect()).describe(key)
-        if description is None:
-            return None
-        schedule = description.schedule
-        interval = label_from_interval(schedule.spec.intervals[0].every)
-        upcoming = description.info.next_action_times
-        return MetricCheckSchedule(
-            id=key.id,
-            interval=interval,
-            enabled=not schedule.state.paused,
-            next_run_at=upcoming[0] if upcoming and not schedule.state.paused else None,
-        )
+        return schedule_snapshot(key, description) if description is not None else None
     except Exception as error:
         raise ScheduleUnavailableError() from error
 
@@ -82,3 +123,21 @@ async def set_schedule(
             await MetricSchedules(await async_connect()).update(key, interval=interval, enabled=enabled)
     except Exception as error:
         raise ScheduleUnavailableError() from error
+
+
+@async_to_sync
+async def update_schedule_with_snapshots(
+    team_id: int,
+    subject_type: str,
+    subject_uuid: str | UUID,
+    *,
+    interval: str | None = None,
+    enabled: bool | None = None,
+) -> ScheduleUpdateResult:
+    return await _update_schedule_with_snapshots(
+        team_id,
+        subject_type,
+        subject_uuid,
+        interval=interval,
+        enabled=enabled,
+    )
