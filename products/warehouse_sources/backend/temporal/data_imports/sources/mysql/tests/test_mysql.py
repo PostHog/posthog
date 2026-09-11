@@ -2851,8 +2851,10 @@ class TestConnectCertificateVerification:
     def test_authentication_against_a_server_that_advertises_tls_or_not(self, mocker, capabilities, refused):
         # The credentials go out during `_request_authentication`, and every reconnect runs it
         # again, so refusing here is what keeps both off a plaintext connection.
+        # `ssl_verify_cert` is what the connect path passes, and it sets `ssl` without reading a CA
+        # file off disk, which no fixed path can promise across a developer machine and CI.
         connection = _TLSRequiredConnection(
-            host="db.example.com", user="u", password="p", ssl_ca="/etc/ssl/cert.pem", defer_connect=True
+            host="db.example.com", user="u", password="p", ssl_verify_cert=True, defer_connect=True
         )
         connection.server_capabilities = capabilities  # type: ignore[attr-defined]
         delegate = mocker.patch.object(pymysql.connections.Connection, "_request_authentication")
