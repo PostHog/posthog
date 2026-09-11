@@ -44,10 +44,13 @@ def record_insight_view(*, insight_id: int, team_id: int | None, user_id: int | 
 
 
 def record_insight_views(*, team_id: int, user_id: int, last_viewed_at_by_insight_id: Mapping[int, datetime]) -> None:
+    # Sorted by insight id, because the statement locks the rows in the order they are given.
+    # Two overlapping batches from one viewer then lock the shared rows in the same order,
+    # instead of each holding a row the other waits for.
     InsightViewed.objects.bulk_create(
         [
             InsightViewed(team_id=team_id, user_id=user_id, insight_id=insight_id, last_viewed_at=last_viewed_at)
-            for insight_id, last_viewed_at in last_viewed_at_by_insight_id.items()
+            for insight_id, last_viewed_at in sorted(last_viewed_at_by_insight_id.items())
         ],
         update_conflicts=True,
         unique_fields=["team", "user", "insight"],

@@ -19,6 +19,7 @@ from unittest import mock
 from unittest.case import skip
 from unittest.mock import ANY, PropertyMock, patch
 
+from django.db import IntegrityError, OperationalError
 from django.test import override_settings
 from django.utils import timezone
 
@@ -2816,6 +2817,37 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(InsightViewed.objects.count(), 0)
+
+    def test_insight_viewed_survives_a_failed_write(self) -> None:
+        filter_dict = {"events": [{"id": "$pageview"}]}
+        insight = Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="viewed1")
+
+        with patch(
+            "products.product_analytics.backend.presentation.insight.record_insight_views",
+            side_effect=OperationalError("canceling statement due to statement timeout"),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/viewed",
+                {"insight_ids": [insight.id]},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(InsightViewed.objects.count(), 0)
+
+    def test_insight_viewed_surfaces_a_database_defect(self) -> None:
+        filter_dict = {"events": [{"id": "$pageview"}]}
+        insight = Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="viewed2")
+
+        with patch(
+            "products.product_analytics.backend.presentation.insight.record_insight_views",
+            side_effect=IntegrityError("duplicate key value violates unique constraint"),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/viewed",
+                {"insight_ids": [insight.id]},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def test_update_insight_viewed(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
