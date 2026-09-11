@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from collections.abc import Iterable
 
 from django.db import models
+from django.db.models.base import ModelBase
 from django.db.models.functions import Cast
 from django.db.models.lookups import LessThanOrEqual
 from django.utils import timezone
@@ -106,11 +107,16 @@ class DeliveryQueueRowMixin(models.Model):
     class Meta:
         abstract = True
 
-    def save(self, *args: Any, **kwargs: Any) -> None:
-        update_fields = kwargs.get("update_fields")
+    def save(
+        self,
+        *args: object,
+        force_insert: bool | tuple[ModelBase, ...] = False,
+        force_update: bool = False,
+        using: str | None = None,
+        update_fields: Iterable[str] | None = None,
+    ) -> None:
         if update_fields is not None:
             update_fields = {*update_fields, "updated_at"}
-            kwargs["update_fields"] = update_fields
         terminal_at_changed = False
         if self.status in self.TERMINAL_STATUSES and self.terminal_at is None:
             self.terminal_at = timezone.now()
@@ -119,14 +125,19 @@ class DeliveryQueueRowMixin(models.Model):
             self.terminal_at = None
             terminal_at_changed = True
         if terminal_at_changed and update_fields is not None:
-            kwargs["update_fields"] = {*update_fields, "terminal_at"}
+            update_fields = {*update_fields, "terminal_at"}
         if self.last_error:
             self.last_error = self.last_error[:DELIVERY_ERROR_MAX_LENGTH]
         if update_fields is None or "payload" in update_fields:
             reject_oversized_delivery_snapshot(self.payload, field="payload")
         if update_fields is None or "route" in update_fields:
             reject_oversized_delivery_snapshot(self.route, field="route")
-        super().save(*args, **kwargs)
+        super().save(
+            force_insert=force_insert,
+            force_update=force_update,
+            using=using,
+            update_fields=update_fields,
+        )
 
 
 class ConversationDelivery(DeliveryQueueRowMixin, TeamScopedRootMixin, UUIDModel):
@@ -161,6 +172,11 @@ class ConversationDelivery(DeliveryQueueRowMixin, TeamScopedRootMixin, UUIDModel
             models.UniqueConstraint(
                 fields=["team", "channel", "comment_id"],
                 name="unique_delivery_per_comment_channel",
+            ),
+            # Target for the part composite FK so a part cannot point at another team's delivery.
+            models.UniqueConstraint(
+                fields=["id", "team"],
+                name="unique_delivery_id_team",
             ),
             models.CheckConstraint(
                 condition=~models.Q(channel=""),
@@ -246,7 +262,8 @@ class ConversationDeliveryPart(DeliveryQueueRowMixin, TeamScopedRootMixin, UUIDM
         constraints = [
             models.UniqueConstraint(
                 # Identity is the parent plus part_key. Including team would let a
-                # mismatched team_id insert a second body for the same delivery.
+                # mismatched team_id insert a second body. Team match is the composite
+                # FK (delivery_id, team_id) on this table, not this unique key.
                 fields=["delivery", "part_key"],
                 name="unique_delivery_part_per_key",
             ),

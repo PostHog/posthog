@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
 
@@ -23,11 +23,10 @@ from products.conversations.backend.models.delivery import DELIVERY_ERROR_MAX_LE
 class _DeliveryQueueRowTests:
     model: type[ConversationDelivery] | type[ConversationDeliveryPart]
 
-    def _create(self, **kwargs: object):
+    def _create(self, **kwargs: object) -> ConversationDelivery | ConversationDeliveryPart:
         raise NotImplementedError
 
     def test_queryset_without_team_context_raises(self) -> None:
-        # Bare objects.all() must not return every team's rows.
         self._create()
         with self.assertRaises(TeamScopeError):
             list(self.model.objects.all())
@@ -82,7 +81,6 @@ class _DeliveryQueueRowTests:
             self.model.objects.for_team(self.team.id).filter(id=row.id).update(**{field: snapshot})
 
     def test_conditional_update_honors_fencing_token(self) -> None:
-        # A reclaimed row must ignore the stale worker's complete.
         row = self._create(status=self.model.Status.PROCESSING, fencing_token=7)
         now = timezone.now()
 
@@ -133,7 +131,7 @@ class TestConversationDelivery(_DeliveryQueueRowTests, BaseTest):
         *,
         team: Team | None = None,
         channel: str = ConversationDeliveryChannel.SLACK,
-        comment_id=None,
+        comment_id: UUID | None = None,
         provider_account_id: str = "T00000001",
         status: str = ConversationDelivery.Status.PENDING,
         payload: dict[str, str] | None = None,
@@ -161,7 +159,6 @@ class TestConversationDelivery(_DeliveryQueueRowTests, BaseTest):
         )
 
     def test_duplicate_comment_on_same_team_and_channel_rejected(self) -> None:
-        # Two Slack deliveries for one comment would double-post the body.
         first = self._create()
         with self.assertRaises(IntegrityError), transaction.atomic():
             self._create(comment_id=first.comment_id)
@@ -248,7 +245,6 @@ class TestConversationDeliveryPart(_DeliveryQueueRowTests, BaseTest):
         )
 
     def test_duplicate_part_key_on_same_delivery_rejected(self) -> None:
-        # Two body parts on one delivery would resend an accepted Slack message.
         first = self._create()
         with self.assertRaises(IntegrityError), transaction.atomic():
             self._create(delivery=first.delivery, part_key=first.part_key)
@@ -258,6 +254,16 @@ class TestConversationDeliveryPart(_DeliveryQueueRowTests, BaseTest):
         other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
         with self.assertRaises(IntegrityError), transaction.atomic():
             self._create(team=other_team, delivery=first.delivery, part_key=first.part_key)
+
+    def test_part_team_must_match_parent_delivery_team(self) -> None:
+        delivery = self._delivery()
+        other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self._create(team=other_team, delivery=delivery, part_key="image-1")
+
+        part = self._create(delivery=delivery, part_key="body")
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            ConversationDeliveryPart.objects.unscoped().filter(id=part.id).update(team_id=other_team.id)
 
     def test_same_part_key_can_repeat_across_deliveries(self) -> None:
         first = self._create(part_key="body")

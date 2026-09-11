@@ -86,6 +86,7 @@ Fencing still stops the stale worker settling the receipt.
 One row per comment per channel, keyed by `(team, channel, comment_id)`.
 Parts (`ConversationDeliveryPart`) are the retry units, keyed by `(delivery_id, part_key)`.
 `team` is denormalized onto each part for fail-closed scoping; it is not part of the unique key, because a mismatched `team_id` must not be able to insert a second body for the same delivery.
+A composite foreign key `(delivery_id, team_id)` requires the part's team to match the parent, so a different `part_key` cannot attach work to another team's delivery.
 `provider_account_id` on the delivery preserves the Slack workspace or other provider account after snapshot cleanup.
 
 Ticket and comment are UUID references, not foreign keys: they must not take locks on `posthog_comment` or `posthog_conversations_ticket`.
