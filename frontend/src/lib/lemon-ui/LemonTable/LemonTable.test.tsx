@@ -148,6 +148,27 @@ describe('LemonTable', () => {
         expect(spanningCell).not.toHaveClass('whitespace-nowrap')
     })
 
+    it.each([
+        ['auto', '1%'],
+        ['fixed', '3rem'],
+    ] as const)('reserves toggle space and expands rows with %s layout', (tableLayout, toggleWidth) => {
+        render(
+            <LemonTable
+                rowKey="id"
+                dataSource={DATA.slice(0, 1)}
+                columns={COLUMNS}
+                tableLayout={tableLayout}
+                expandable={{ expandedRowRender: (row) => <span>{row.name} details</span> }}
+            />
+        )
+
+        expect(document.querySelector('colgroup > col:first-child')).toHaveStyle({ width: toggleWidth })
+        fireEvent.click(screen.getByTitle('Show more'))
+        expect(screen.getByText('alpha details')).toBeInTheDocument()
+        fireEvent.click(screen.getByTitle('Show less'))
+        expect(screen.queryByText('alpha details')).not.toBeInTheDocument()
+    })
+
     it('keeps headers, expanded rows, and empty states aligned when the row expansion toggle is hidden', () => {
         const { rerender } = render(
             <LemonTable

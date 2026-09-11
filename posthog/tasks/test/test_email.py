@@ -1,8 +1,9 @@
 import uuid
 import datetime as dt
 from typing import cast
+from uuid import uuid4
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, run_clickhouse_statement_in_parallel
 from unittest.mock import MagicMock, patch
 
@@ -48,6 +49,8 @@ from posthog.tasks.email import (
     send_provisioning_welcome,
     send_team_matview_failure_digest,
     send_wizard_pr_ready_email,
+    send_workflow_email_sending_paused,
+    send_workflow_email_sending_warning,
     should_send_pipeline_error_notification,
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
@@ -66,7 +69,7 @@ from products.data_modeling.backend.facade.models import DataModelingJob, DataMo
 
 
 def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> tuple[Organization, User]:
-    with freeze_time(creation_date):
+    with time_machine.travel(creation_date, tick=False):
         org = Organization.objects.create(name="too_late_org")
         Team.objects.create(organization=org, name="Default Project", ingested_event=ingested_event)
         user = User.objects.create_and_join(
@@ -152,6 +155,38 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
+
+    def test_workflow_email_subjects_survive_a_newline_in_the_name(self, MockEmailMessage: MagicMock) -> None:
+        # A CR or LF in the workflow name would make Django reject the whole email as a multiline
+        # header. The send path swallows that error, so a name with an embedded newline would
+        # silently drop this notice to every project admin.
+        mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        name_with_newline = "Welcome series\nBcc: sneaky@example.com"
+
+        send_workflow_email_sending_paused(
+            team_id=self.team.id,
+            hog_flow_id=str(uuid4()),
+            hog_flow_name=name_with_newline,
+            reason="Spam complaints reached 2% of the 400 emails this workflow sent in the last hour.",
+            paused_at="2026-01-01T00:00:00+00:00",
+        )
+        send_workflow_email_sending_warning(
+            team_id=self.team.id,
+            hog_flow_id=str(uuid4()),
+            hog_flow_name=name_with_newline,
+            reason="Spam complaints reached 0.2% of the 10,000 emails this workflow sent in the last 24 hours.",
+            pause_rate="0.3%",
+            warned_at="2026-01-01T00:00:00+00:00",
+        )
+
+        subjects = [call.kwargs["subject"] for call in MockEmailMessage.call_args_list]
+        assert len(subjects) == 2
+        for subject in subjects:
+            assert "\n" not in subject
+            assert "\r" not in subject
+            assert "Welcome series" in subject
 
     def test_send_delegation_invite_falls_back_when_organization_name_is_a_url(
         self, MockEmailMessage: MagicMock
@@ -726,7 +761,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_external_data_failure_digest(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
-        with freeze_time("2024-05-15 10:00:00"):
+        with time_machine.travel("2024-05-15 10:00:00", tick=False):
             sent = send_external_data_failure_digest(
                 self.team.pk,
                 [
@@ -768,7 +803,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     ) -> None:
         mock_email_messages(MockEmailMessage)
 
-        with freeze_time("2024-05-15 09:59:00"):
+        with time_machine.travel("2024-05-15 09:59:00", tick=False):
             send_external_data_failure_digest(
                 self.team.pk,
                 [
@@ -828,7 +863,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_external_data_failure_digest_skips_when_already_sent_today(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
-        with freeze_time("2024-05-15 10:00:00"):
+        with time_machine.travel("2024-05-15 10:00:00", tick=False):
             record, _ = MessagingRecord.objects.get_or_create(
                 raw_email="someone@posthog.com",
                 campaign_key=f"external_data_failure_digest_{self.team.pk}_2024-05-15",
@@ -895,7 +930,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
             }
         ]
-        with freeze_time("2024-05-15 10:00:00"):
+        with time_machine.travel("2024-05-15 10:00:00", tick=False):
             send_external_data_failure_digest(self.team.pk, items)
 
         assert mocked_email_messages[0].to == [
@@ -905,11 +940,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         self.user.partial_notification_settings = {"plugin_disabled": True}
         self.user.save()
 
-        with freeze_time("2024-05-15 18:00:00"):
+        with time_machine.travel("2024-05-15 18:00:00", tick=False):
             send_external_data_failure_digest(self.team.pk, items)
         assert len(mocked_email_messages) == 1
 
-        with freeze_time("2024-05-16 10:00:00"):
+        with time_machine.travel("2024-05-16 10:00:00", tick=False):
             send_external_data_failure_digest(self.team.pk, items)
         assert len(mocked_email_messages[1].to) == 2
 

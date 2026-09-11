@@ -1,5 +1,5 @@
 import { IconCheckCircle, IconClock, IconWarning, IconXCircle } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
+import { Spinner } from '@posthog/quill-primitives'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
@@ -64,7 +64,7 @@ function ProgressIcon({ state }: { state: ProgressState }): JSX.Element {
         return <IconCheckCircle className="text-success" />
     }
     if (state === 'active') {
-        return <Spinner textColored />
+        return <Spinner />
     }
     if (state === 'failed') {
         return <IconXCircle className="text-danger" />

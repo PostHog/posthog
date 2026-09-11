@@ -47,7 +47,6 @@ import {
     isTrendsQuery,
     queryUsesDataWarehouse,
 } from '~/queries/utils'
-import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import {
     ChartDisplayType,
     CohortType,
@@ -3350,6 +3349,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             breakpoint
         ) => {
             await breakpoint(500)
+            // Not a module-scope import: the taxonomy JSON is a quarter-MiB table and this logic boots every page.
+            const { PROPERTY_KEYS } = await import('~/taxonomy/taxonomy')
+            breakpoint()
 
             let custom_properties_count = 0
             let posthog_properties_count = 0
