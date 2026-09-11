@@ -1,13 +1,15 @@
 """Resolve a check's subject id to something queryable.
 
-The check row carries the subject as a foreign key (``saved_query`` or ``table``); resolution still
+The check row carries the subject as a foreign key (``saved_query``, ``table`` or ``metric``); resolution still
 goes through the owning product's facade rather than traversing the FK, so model instances never
 cross the product boundary. A subject that no longer resolves marks the check orphaned, and the
 denormalized name is refreshed on every run so renames self-heal.
 """
 
+from collections.abc import Collection
 from uuid import UUID
 
+from products.data_catalog.backend.facade import api as data_catalog_facade
 from products.data_modeling.backend.facade import api as data_modeling_facade
 from products.warehouse_sources.backend.facade import api as warehouse_facade
 from products.warehouse_sources.backend.facade.contracts import WAREHOUSE_OBJECT_TABLE, WAREHOUSE_OBJECT_VIEW
@@ -26,7 +28,32 @@ def resolve_subject(team_id: int, subject_type: str, subject_uuid: str | UUID) -
     kind = SubjectType(subject_type)
     if kind is SubjectType.TABLE:
         return _resolve_table(team_id, subject_uuid)
+    if kind is SubjectType.METRIC:
+        return _resolve_metric(team_id, subject_uuid)
     return _resolve_view(team_id, subject_uuid)
+
+
+def _resolve_metric(team_id: int, subject_uuid: str | UUID) -> SubjectRef:
+    identifier = UUID(str(subject_uuid))
+    return resolve_metric_subjects(team_id, [identifier])[identifier]
+
+
+def resolve_metric_subjects(team_id: int, metric_ids: Collection[UUID]) -> dict[UUID, SubjectRef]:
+    reads = data_catalog_facade.metric_reads_for_ids(team_id, metric_ids)
+    return {
+        metric_id: SubjectRef(
+            subject_type=SubjectType.METRIC,
+            subject_uuid=str(metric_id),
+            name=reads[metric_id].summary.name,
+            queryable_name="",
+            exists=True,
+            definition_kind=reads[metric_id].summary.definition_kind,
+            metric_definition=reads[metric_id].hogql_definition,
+        )
+        if metric_id in reads
+        else _missing(SubjectType.METRIC, metric_id)
+        for metric_id in metric_ids
+    }
 
 
 def resolve_subject_by_name(team_id: int, name: str) -> SubjectRef | None:
@@ -84,6 +111,8 @@ def subject_column_type(team_id: int, subject_type: str, subject_uuid: str | UUI
     if not column_name:
         return None
     kind = SubjectType(subject_type)
+    if kind is SubjectType.METRIC:
+        return None
     if kind is SubjectType.TABLE:
         table = warehouse_facade.get_queryable_table(UUID(str(subject_uuid)), team_id)
         columns = table.columns if table else {}

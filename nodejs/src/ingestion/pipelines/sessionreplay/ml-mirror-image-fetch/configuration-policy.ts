@@ -7,6 +7,7 @@ import { fetchStreamed } from '~/common/utils/request'
 import { ConfigurationCacheItem, ConfigurationFile, HttpCacheMetadata, configurationCacheKey } from './crawl-history'
 import { ImageFetchRequestMetrics } from './metrics'
 import { canonicalizeUrl, politenessKey } from './politeness-key'
+import { ConfigurationFetchReason, ImageFetchProcessingMetrics } from './processing-metrics'
 import { WebBotAuthRequestSigner } from './web-bot-auth'
 import { wildcardPatternMatchesPathname } from './wildcard-pattern'
 
@@ -54,7 +55,7 @@ export interface ConfigurationRequestScheduler {
 
 type ConfigurationHop =
     | { kind: 'redirect'; location: string; cache: HttpCacheMetadata }
-    | { kind: 'done'; result: ConfigurationFetchResult }
+    | { kind: 'done'; result: ConfigurationFetchResult; reason?: ConfigurationFetchReason }
 
 export class HttpConfigurationFetcher {
     constructor(
@@ -64,13 +65,23 @@ export class HttpConfigurationFetcher {
     ) {}
 
     public async fetch(origin: string, file: ConfigurationFile): Promise<ConfigurationFetchResult> {
+        return await ImageFetchProcessingMetrics.measure('configuration_fetch', () =>
+            this.fetchConfiguration(origin, file)
+        )
+    }
+
+    private async fetchConfiguration(origin: string, file: ConfigurationFile): Promise<ConfigurationFetchResult> {
+        const complete = (
+            result: ConfigurationFetchResult,
+            reason: ConfigurationFetchReason = result.outcome
+        ): ConfigurationFetchResult => ImageFetchProcessingMetrics.observeConfigurationFetch(file, result, reason)
         const deadlineMs = Date.now() + this.timeoutMs
         let target = new URL(file === 'robots' ? '/robots.txt' : '/.well-known/tdmrep.json', origin)
         const registrableDomain = politenessKey(target.hostname)
         for (let redirects = 0; ; redirects++) {
             const canonical = canonicalizeUrl(target.toString())
             if (!canonical) {
-                return { outcome: 'refused' }
+                return complete({ outcome: 'refused' }, 'invalid_url')
             }
             target = new URL(canonical.fetch)
             let scheduled:
@@ -79,26 +90,26 @@ export class HttpConfigurationFetcher {
             try {
                 scheduled = await this.scheduler.run(target, deadlineMs, () => this.hop(target, file, deadlineMs))
             } catch {
-                return { outcome: 'unreachable' }
+                return complete({ outcome: 'unreachable' }, Date.now() >= deadlineMs ? 'timeout' : 'request_error')
             }
             if (!scheduled.ran) {
-                return { outcome: 'deferred', reason: scheduled.reason }
+                return complete({ outcome: 'deferred', reason: scheduled.reason })
             }
             const hop = scheduled.value
             if (hop.kind === 'done') {
-                return hop.result
+                return complete(hop.result, hop.reason)
             }
             if (redirects >= CONFIG_REDIRECT_LIMIT) {
-                return { outcome: 'unreachable', cache: hop.cache }
+                return complete({ outcome: 'unreachable', cache: hop.cache }, 'redirect_limit')
             }
             try {
                 const redirectTarget = new URL(hop.location, target)
                 if (politenessKey(redirectTarget.hostname) !== registrableDomain) {
-                    return { outcome: 'unreachable', cache: hop.cache }
+                    return complete({ outcome: 'unreachable', cache: hop.cache }, 'cross_domain_redirect')
                 }
                 target = redirectTarget
             } catch {
-                return { outcome: 'unreachable', cache: hop.cache }
+                return complete({ outcome: 'unreachable', cache: hop.cache }, 'invalid_redirect')
             }
         }
     }
@@ -141,7 +152,7 @@ export class HttpConfigurationFetcher {
             return complete(
                 location
                     ? { kind: 'redirect', location, cache }
-                    : { kind: 'done', result: { outcome: 'unreachable', cache } }
+                    : { kind: 'done', result: { outcome: 'unreachable', cache }, reason: 'missing_location' }
             )
         }
         if (response.status === 404 || response.status === 410) {
@@ -150,7 +161,11 @@ export class HttpConfigurationFetcher {
         }
         if (response.status === 429 || response.status >= 500) {
             response.discard()
-            return complete({ kind: 'done', result: { outcome: 'unreachable', cache } })
+            return complete({
+                kind: 'done',
+                result: { outcome: 'unreachable', cache },
+                reason: response.status === 429 ? 'http_429' : 'http_5xx',
+            })
         }
         if (response.status >= 400 && response.status < 500) {
             response.discard()
@@ -158,20 +173,20 @@ export class HttpConfigurationFetcher {
         }
         if (response.status !== 200) {
             response.discard()
-            return complete({ kind: 'done', result: { outcome: 'unreachable', cache } })
+            return complete({ kind: 'done', result: { outcome: 'unreachable', cache }, reason: 'unexpected_status' })
         }
         const body = await response.read(CONFIG_BODY_LIMIT)
         if (body.overLimit && file === 'tdmrep') {
-            return complete({ kind: 'done', result: { outcome: 'unreachable', cache } })
+            return complete({ kind: 'done', result: { outcome: 'unreachable', cache }, reason: 'body_limit' })
         }
         let text: string
         try {
             text = new TextDecoder('utf-8', { fatal: true }).decode(body.bytes, { stream: body.overLimit })
         } catch {
-            return complete({ kind: 'done', result: { outcome: 'unreachable', cache } })
+            return complete({ kind: 'done', result: { outcome: 'unreachable', cache }, reason: 'invalid_utf8' })
         }
         if (file === 'tdmrep' && !isValidTdmrepDocument(text)) {
-            return complete({ kind: 'done', result: { outcome: 'unreachable', cache } })
+            return complete({ kind: 'done', result: { outcome: 'unreachable', cache }, reason: 'invalid_document' })
         }
         return complete({ kind: 'done', result: { outcome: 'available', body: text, cache } })
     }
@@ -316,18 +331,25 @@ export class ConfigurationPolicyService {
             previous = undefined
         }
         if (previous && previous.refreshAtMs > nowMs) {
+            ImageFetchProcessingMetrics.observeConfigurationLookup(file, 'cache', previous.status)
             return { item: previous, updates: [] }
         }
         if (previous?.status === 'unreachable' && previous.retryAtMs > nowMs) {
+            ImageFetchProcessingMetrics.observeConfigurationLookup(file, 'cache', previous.status)
             return { item: previous, updates: [] }
         }
         const key = configurationCacheKey(origin, file)
         let request = this.inFlight.get(key)
+        const source = request ? 'shared' : 'network'
         if (!request) {
             request = this.fetcher.fetch(origin, file).finally(() => this.inFlight.delete(key))
             this.inFlight.set(key, request)
         }
-        const fetched = await request
+        const fetched = await request.catch((error) => {
+            ImageFetchProcessingMetrics.observeConfigurationLookup(file, source, 'error')
+            throw error
+        })
+        ImageFetchProcessingMetrics.observeConfigurationLookup(file, source, fetched.outcome)
         if (fetched.outcome === 'deferred') {
             return {
                 item: previous ?? unreachableItem(origin, file, nowMs),

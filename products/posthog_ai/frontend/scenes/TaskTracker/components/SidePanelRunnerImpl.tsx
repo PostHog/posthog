@@ -98,6 +98,7 @@ function SidePanelRunnerContent({ composer }: { composer?: ReactNode }): JSX.Ele
                         taskId={activeCreation.taskId}
                         runId={activeCreation.runId}
                         streamKey={activeCreation.streamKey}
+                        interactionKey={activeCreation.interactionKey}
                         onRunStarted={updateActiveCreationRun}
                         escapeScope="composer"
                         initialDraft={activeCreation.draft}
@@ -106,7 +107,9 @@ function SidePanelRunnerContent({ composer }: { composer?: ReactNode }): JSX.Ele
                     />
                 </div>
             ) : (
-                <StartupRunChat streamKey={activeCreation.streamKey} focusedRef={startupFocusedRef} />
+                <div className="flex-1 min-h-0 px-4">
+                    <StartupRunChat streamKey={activeCreation.streamKey} focusedRef={startupFocusedRef} />
+                </div>
             )}
         </div>
     )
