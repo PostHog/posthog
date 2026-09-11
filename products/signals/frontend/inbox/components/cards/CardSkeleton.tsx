@@ -54,14 +54,12 @@ function SkeletonRow({
             <div className="flex min-w-0 flex-1 flex-col gap-2 py-0.5">
                 <LemonSkeleton className="h-3.5 w-3/5" />
                 <LemonSkeleton className="h-3 w-4/5" />
-                {/* Matches the card's meta row: source chips, then the timestamp at the far end. */}
                 <div className="flex items-center gap-2.5 pt-0.5">
                     <LemonSkeleton className="h-3.5 w-16" />
                     <LemonSkeleton className="h-3.5 w-20" />
                     <LemonSkeleton className="ml-auto h-3 w-14" />
                 </div>
             </div>
-            {/* Matches the card's action column: one small button behind the divider. */}
             <div className="flex shrink-0 items-center self-stretch border-l border-primary pl-3">
                 <LemonSkeleton className="h-8 w-24 rounded" />
             </div>
