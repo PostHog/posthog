@@ -107,7 +107,12 @@ export interface TaskListParams {
     internal?: 'true' | 'false' | 'all'
     search?: string
     status?: TaskRunStatus
-    /** Staff-only. List every task on the team, bypassing the per-user visibility filter. Ignored server-side for non-staff. */
+    /**
+     * Drops the `created_by` pin, so the list widens to every task the caller can read.
+     * The server's full bypass of the per-user visibility filter is local development only: it needs
+     * `ph_debug=true` on the internal debug team, and staff alone does not unlock it. Production
+     * therefore returns the caller's readable tasks, not every task on the team.
+     */
     all_team_tasks?: boolean
     /** Sort order; the server defaults to `-created_at` when unset. */
     ordering?: TasksListOrdering

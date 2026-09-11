@@ -37,7 +37,7 @@ export function TaskAssigneeFilterMenu(): JSX.Element {
                     <DropdownMenuRadioItem value="my_scouts">My scouts</DropdownMenuRadioItem>
                     <DropdownMenuRadioItem value="team_scouts">Team scouts</DropdownMenuRadioItem>
                     {isStaffUser && (
-                        <DropdownMenuRadioItem value="all_team">All team tasks (staff)</DropdownMenuRadioItem>
+                        <DropdownMenuRadioItem value="all_team">Everything you can see</DropdownMenuRadioItem>
                     )}
                 </DropdownMenuRadioGroup>
             </DropdownMenuContent>

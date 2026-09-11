@@ -347,8 +347,9 @@ export const tasksLogic = kea<tasksLogicType>([
         // `created_by` rows: those runs are what clutters their list, so they are what the split has to
         // move. Keying "my scouts" on scout ownership (`LLMSkillOwner`) instead would hide the runs from
         // the person actually seeing them, since the executing identity and the owner can differ.
-        // "Team scouts" is every scout task on the team; "all team" (staff only) lists every task,
-        // letting the server bypass the per-user visibility filter.
+        // "Team scouts" is every scout task on the team. "All team" drops the `created_by` pin, so the
+        // list widens to every task the user can read. It is not a team-wide read: the server bypasses
+        // the visibility filter in local development only (see `all_team_tasks` in `TaskListParams`).
         taskListParams: [
             (s) => [s.searchQuery, s.assigneeFilter, s.user],
             (
@@ -362,8 +363,9 @@ export const tasksLogic = kea<tasksLogicType>([
                     search: searchQuery || undefined,
                     ordering: TasksListOrdering.LastActivityAt,
                 }
-                // Guard here too: a non-staff user must never send `all_team_tasks` (the server ignores
-                // it, but this keeps the request honest and falls back to their own tasks).
+                // Guard here too: only the staff-gated menu item may send `all_team_tasks`, so a
+                // non-staff caller falls back to their own tasks instead of sending a parameter the
+                // server would discard.
                 if (assigneeFilter === 'all_team' && user?.is_staff) {
                     return { ...base, all_team_tasks: true }
                 }
