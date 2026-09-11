@@ -160,6 +160,18 @@ def _summarize_export_failure_details(errors: list[ExportError]) -> dict[str, st
     }
 
 
+def _delivery_error_details(exc: BaseException) -> dict[str, str]:
+    """Temporal wraps an activity failure in an `ActivityError` whose message says only that the
+    activity failed. Record the cause instead, so the delivery history names what went wrong."""
+    application_error = unwrap_temporal_cause(exc)
+    timeout = find_temporal_timeout_error(exc)
+    cause = application_error or timeout or exc
+    return {
+        "message": str(cause)[:500],
+        "type": type(timeout).__name__ if timeout else resolve_exception_class(exc),
+    }
+
+
 def _record_subscription_failure(
     slo: SloConfig | None,
     stage: SubscriptionFailureStage,
@@ -547,11 +559,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                             exported_asset_ids=delivery_exported_asset_ids or None,
                             recipient_results=delivery_recipient_results or None,
                             change_summary=change_summary,
-                            error=(
-                                {"message": str(caught_error)[:500], "type": type(caught_error).__name__}
-                                if caught_error
-                                else delivery_error
-                            ),
+                            error=_delivery_error_details(caught_error) if caught_error else delivery_error,
                             finished=True,
                         ),
                         start_to_close_timeout=dt.timedelta(minutes=2),
@@ -778,9 +786,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                             delivery_id=delivery_id,
                             status=final_status,
                             recipient_results=delivery_recipient_results or None,
-                            error={"message": str(caught_error)[:500], "type": type(caught_error).__name__}
-                            if caught_error
-                            else generation_error,
+                            error=_delivery_error_details(caught_error) if caught_error else generation_error,
                             finished=True,
                         ),
                         start_to_close_timeout=dt.timedelta(minutes=2),

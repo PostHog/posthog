@@ -841,6 +841,33 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
         assert "Could not generate" in gallery.initial_comment
         assert "Second insight" in gallery.initial_comment
 
+    def test_prepare_slack_gallery_gives_each_dashboard_export_its_own_filename(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Weekly metrics")
+        subscription = create_subscription(
+            team=self.team,
+            created_by=self.user,
+            target_type="slack",
+            target_value="C123|#test",
+            dashboard=dashboard,
+            delivery_config={"post_all_insights_in_main_message": True},
+        )
+        assets = [
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format="image/png",
+                content=b"PNG",
+                dashboard_id=dashboard.id,
+                insight_id=insight.id,
+            )
+            for insight in (self.insight, self.insight2)
+        ]
+
+        gallery = _prepare_slack_gallery(subscription, assets, total_asset_count=2)
+
+        filenames = [upload["filename"] for upload in gallery.file_uploads]
+        assert len(set(filenames)) == 2
+        assert all(name.endswith(".png") for name in filenames)
+
     def test_prepare_slack_gallery_includes_overflow_note_in_comment(self) -> None:
         subscription = self._subscription(post_all_in_main=True)
         assets = [

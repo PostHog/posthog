@@ -18,7 +18,7 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 from slack_sdk.errors import SlackApiError
 from temporalio.client import Client, WorkflowFailureError
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -84,6 +84,7 @@ from products.exports.backend.temporal.subscriptions.workflows import (
     ProcessAISubscriptionWorkflow,
     ProcessSubscriptionWorkflow,
     ScheduleAllSubscriptionsWorkflow,
+    _delivery_error_details,
     _summarize_export_failure_details,
 )
 from products.product_analytics.backend.facade.models import Insight
@@ -115,6 +116,25 @@ async def test_subscription_workflows_accept_legacy_previous_target_payload() ->
 
     assert process_inputs.previous_target_value == "old@example.com"
     assert update_inputs.previous_target_value == "old@example.com"
+
+
+async def test_delivery_error_details_reports_the_cause_of_an_activity_failure() -> None:
+    cause = ApplicationError("two files cannot share a name", type="SlackRequestError")
+    activity_error = ActivityError(
+        "Activity task failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="worker",
+        activity_type="deliver_subscription",
+        activity_id="1",
+        retry_state=None,
+    )
+    activity_error.__cause__ = cause
+
+    details = _delivery_error_details(activity_error)
+
+    assert details["type"] == "SlackRequestError"
+    assert "two files cannot share a name" in details["message"]
 
 
 async def test_subscription_slo_failure_summary_preserves_mixed_failure_details() -> None:

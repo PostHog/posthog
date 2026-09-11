@@ -1,5 +1,6 @@
 import asyncio
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from django.conf import settings
@@ -89,6 +90,15 @@ def _asset_image_bytes(asset: ExportedAsset) -> bytes | None:
     return None
 
 
+def _gallery_filename(asset: ExportedAsset, index: int) -> str:
+    """Every tile of a dashboard export takes its name from the dashboard, so one gallery upload
+    would carry the same filename for each insight. Qualify the name with the insight and its
+    position, which keeps the names distinct and tells a recipient which chart a file holds."""
+    name = Path(asset.filename)
+    qualifier = f"{index + 1}-{asset.insight.short_id}" if asset.insight else str(index + 1)
+    return f"{name.stem}-{qualifier}{name.suffix}"
+
+
 def _insight_name(asset: ExportedAsset) -> str:
     return ((asset.insight.name or asset.insight.derived_name) if asset.insight else "Insight") or "Insight"
 
@@ -144,7 +154,7 @@ def _prepare_slack_gallery(
 
     file_uploads: list[dict[str, Any]] = []
     failed_names: list[str] = []
-    for asset in assets:
+    for index, asset in enumerate(assets):
         if _has_asset_failed(asset):
             failed_names.append(_insight_name(asset))
             continue
@@ -161,7 +171,9 @@ def _prepare_slack_gallery(
             )
             failed_names.append(_insight_name(asset))
             continue
-        file_uploads.append({"content": content, "filename": asset.filename, "title": _insight_name(asset)})
+        file_uploads.append(
+            {"content": content, "filename": _gallery_filename(asset, index), "title": _insight_name(asset)}
+        )
 
     if failed_names:
         lines.append("_Could not generate: " + ", ".join(failed_names) + "_")
