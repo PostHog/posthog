@@ -48,7 +48,7 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
-from posthog.schema_enums import PersonsOnEventsMode
+from posthog.schema_enums import PersonsOnEventsMode, ScanEstimateTimeRange
 
 logger = structlog.get_logger(__name__)
 
@@ -288,7 +288,7 @@ def _attach_events_scan_estimate(
         rows=estimate.rows,
         days=estimate.days,
         events=list(estimate.events),
-        time_range=estimate.time_range,
+        time_range=ScanEstimateTimeRange(estimate.time_range),
     )
 
 

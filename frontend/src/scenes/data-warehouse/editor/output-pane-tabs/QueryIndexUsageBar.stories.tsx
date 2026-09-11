@@ -5,6 +5,7 @@ import {
     PredicateIndexUsage,
     PredicateIndexVerdict,
     PredicateScope,
+    ScanEstimateTimeRange,
 } from '~/queries/schema/schema-general'
 
 import { QueryIndexUsageBar } from './QueryIndexUsageBar'
@@ -97,8 +98,18 @@ export const RefreshingAfterAnEdit: Story = {
     ),
 }
 
-const SMALL_SCAN: EventsScanEstimate = { rows: 42_000_000, days: 30, events: ['$pageview'], time_range: 'bounded' }
-const LARGE_OPEN_SCAN: EventsScanEstimate = { rows: 2_100_000_000, days: 365, events: [], time_range: 'open' }
+const SMALL_SCAN: EventsScanEstimate = {
+    rows: 42_000_000,
+    days: 30,
+    events: ['$pageview'],
+    time_range: ScanEstimateTimeRange.Bounded,
+}
+const LARGE_OPEN_SCAN: EventsScanEstimate = {
+    rows: 2_100_000_000,
+    days: 365,
+    events: [],
+    time_range: ScanEstimateTimeRange.Open,
+}
 
 export const ScanEstimateWithFilters: Story = {
     render: () => (
