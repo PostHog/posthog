@@ -9,6 +9,7 @@ import asyncio
 from collections.abc import Callable, Iterable
 from dataclasses import asdict
 from datetime import UTC, datetime
+from operator import attrgetter
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -24,7 +25,7 @@ from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
 
 from ..facade.contracts import CHECK_SUITE_WORKFLOW_NAME
-from ..facade.enums import CheckType, SubjectHealth, SubjectStatus, SubjectType, SuiteRunStatus, SuiteRunTrigger
+from ..facade.enums import SubjectHealth, SubjectStatus, SubjectType, SuiteRunStatus, SuiteRunTrigger
 from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from .compiler import related_subject_ref
 from .errors import (
@@ -60,9 +61,10 @@ _ASSERTION_FIELDS = ("check_type", "column_name", "config")
 _EDITABLE_FIELDS = (*_UPSERTABLE_FIELDS, *_ASSERTION_FIELDS)
 
 _MAX_EDIT_ATTEMPTS = 3
+_definition_identity = attrgetter("subject_type", "subject_uuid", "fingerprint")
 
 
-def edits_the_assertion(fields: Iterable[str]) -> bool:
+def _edits_the_assertion(fields: Iterable[str]) -> bool:
     """Whether a write proposes a new assertion, rather than only presentation fields."""
     requested = set(fields)
     return any(field in requested for field in _ASSERTION_FIELDS)
@@ -100,14 +102,9 @@ def validate_check(
     subject = resolve_subject(team.id, subject_type, subject_uuid)
     if not subject.exists:
         raise SubjectUnresolvableError(f"No {subject_type} with id {subject_uuid} in this project.")
-    if subject.subject_type == SubjectType.METRIC:
-        if check_type != CheckType.CUSTOM_SQL or column_name:
-            raise CheckConfigError("A metric check requires custom_sql and an empty column_name.")
-        if subject.metric_definition is None:
-            raise CheckConfigError("Metric checks require a live HogQL definition.")
-        spec.build(subject, column_name, parsed)
-    else:
-        spec.validate_for_subject(parsed, subject)
+    if subject.subject_type == SubjectType.METRIC and column_name:
+        raise CheckConfigError("A check on a metric takes no column. Remove the column and save again.")
+    spec.referenced_table_names(parsed, subject)
     # After the subject resolves, so the column type is only looked up for a check that could run.
     parsed = spec.coerce_to_column(parsed, subject_column_type(team.id, subject_type, subject_uuid, column_name))
 
@@ -242,7 +239,7 @@ def edit_check(
         try:
             with transaction.atomic():
                 locked = DataQualityCheck.objects.for_team(team.id).select_for_update().get(id=check.id)
-                if _stored_definition(locked) != _stored_definition(current):
+                if _definition_identity(locked) != _definition_identity(current):
                     continue
                 return _commit_edit(team, locked, editor, requested, candidate)
         except IntegrityError:
@@ -255,21 +252,6 @@ def edit_check(
                 raise NameConflictError()
             raise
     raise ConcurrentEditError()
-
-
-@frozen
-class _StoredDefinition:
-    subject_type: str
-    subject_uuid: UUID | None
-    fingerprint: str
-
-
-def _stored_definition(check: DataQualityCheck) -> _StoredDefinition:
-    return _StoredDefinition(
-        subject_type=check.subject_type,
-        subject_uuid=check.subject_uuid,
-        fingerprint=check.fingerprint,
-    )
 
 
 def _commit_edit(
@@ -303,7 +285,7 @@ def _commit_edit(
 
 
 def _candidate_definition(team: Team, check: DataQualityCheck, requested: dict[str, Any]) -> _CandidateDefinition:
-    if not edits_the_assertion(requested):
+    if not _edits_the_assertion(requested):
         # A presentation-only edit asserts nothing new, so the stored definition is kept as it is
         # rather than revalidated. A subject can stop supporting its check after the check exists (a
         # metric moves off a HogQL definition), and revalidating here would block the very edit that

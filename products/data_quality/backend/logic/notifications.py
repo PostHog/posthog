@@ -29,6 +29,7 @@ from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from .checks import checks_for_subject
 from .flags import is_data_quality_checks_enabled_for_team_id
 from .subject_access import (
+    DenialContext,
     SubjectMetadata,
     caller_denial_context,
     can_be_object_denied,
@@ -66,13 +67,15 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         subject_type: str,
         subject_uuid: str,
         referenced_names: list[str] | None = None,
-        executed_references: Sequence[dict[str, str]] | None = (),
+        executed_references: Sequence[dict[str, str]] = (),
+        references_unknown: bool = False,
     ) -> None:
         self._team = team
         self._subject_type = subject_type
         self._subject_uuid = subject_uuid
         self._referenced_names = referenced_names or []
         self._executed_references = executed_references
+        self._references_unknown = references_unknown
         # One access-control object per member, reused across both gates below (and the warehouse
         # database build the referenced-subject gate runs) so a single failing check doesn't rebuild
         # it -- and its membership, role, and access-control lookups -- once per pass.
@@ -97,55 +100,56 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         user_ids = self.filter_by_access_control(user_ids, "query", self._team)
         if self._subject_type == SubjectType.METRIC:
             user_ids = self.filter_by_access_control(user_ids, "data_catalog", self._team)
-        user_ids = self._filter_by_object_access(user_ids)
-        return self._filter_by_referenced_subject_access(user_ids)
+        return self._filter_by_subject_access(user_ids)
 
-    def _filter_by_object_access(self, user_ids: list[int]) -> list[int]:
-        if SubjectType(self._subject_type) not in _OBJECT_GATED_SUBJECT_TYPES:
+    def _filter_by_subject_access(self, user_ids: list[int]) -> list[int]:
+        # Both gates below are per-member, so they share one member query, one access-control object
+        # and one denial snapshot each rather than a pass apiece.
+        if not self._object_gate_applies() and not self._reference_gate_applies():
             return user_ids
-        object_id = UUID(self._subject_uuid)
 
+        # No warehouse access control means no denials, so skip the per-member work entirely.
         if not self._access_controls_supported(user_ids):
             return user_ids
 
-        allowed: list[int] = []
-        for user in User.objects.filter(id__in=user_ids):
-            access = self._access_of(user)
-            allowed_ids = (
-                warehouse_facade.allowed_table_ids(self._team.id, access, ids=[object_id])
-                if self._subject_type == SubjectType.TABLE
-                else data_modeling_facade.allowed_saved_query_ids(self._team.id, access, ids=[object_id])
-            )
-            if object_id in allowed_ids:
-                allowed.append(user.id)
-        return allowed
+        return [user.id for user in User.objects.filter(id__in=user_ids) if self._may_receive(user)]
 
-    def _filter_by_referenced_subject_access(self, user_ids: list[int]) -> list[int]:
+    def _object_gate_applies(self) -> bool:
+        return SubjectType(self._subject_type) in _OBJECT_GATED_SUBJECT_TYPES
+
+    def _reference_gate_applies(self) -> bool:
         # The declared subject isn't the only one the count depends on: a relationships check reads
-        # its target and a custom_sql check reads arbitrary tables. Drop members denied any of those,
-        # matching the run-history endpoint -- resolved by name the same way the loaders resolve them.
-        if not self._referenced_names and self._executed_references is not None and not self._executed_references:
-            return user_ids
+        # its target and a custom_sql check reads arbitrary tables.
+        return bool(self._referenced_names) or bool(self._executed_references) or self._references_unknown
 
-        # No warehouse access control means no denials, so skip the per-member database build the
-        # denial check would otherwise run -- the same early exit the object-access gate makes.
-        if not self._access_controls_supported(user_ids):
-            return user_ids
+    def _may_receive(self, user: User) -> bool:
+        access = self._access_of(user)
+        if self._object_gate_applies() and not self._has_object_access(access):
+            return False
+        if not self._reference_gate_applies():
+            return True
+        if self._references_unknown and can_be_object_denied(access):
+            return False
+        context = self._denial_context_of(user)
+        if self._executed_references and not all(
+            context.readable.contains(ref["subject_type"], ref["subject_uuid"]) for ref in self._executed_references
+        ):
+            return False
+        return not context.matcher.matches(self._referenced_names)
 
-        allowed: list[int] = []
-        for user in User.objects.filter(id__in=user_ids):
-            if self._executed_references is None and can_be_object_denied(self._access_of(user)):
-                continue
-            if self._subject_metadata is None:
-                self._subject_metadata = subject_metadata(self._team.id)
-            context = caller_denial_context(self._team, user, self._access_of(user), metadata=self._subject_metadata)
-            if self._executed_references and not all(
-                context.readable.contains(ref["subject_type"], ref["subject_uuid"]) for ref in self._executed_references
-            ):
-                continue
-            if not context.matcher.matches(self._referenced_names):
-                allowed.append(user.id)
-        return allowed
+    def _has_object_access(self, access: UserAccessControl) -> bool:
+        object_id = UUID(self._subject_uuid)
+        allowed_ids = (
+            warehouse_facade.allowed_table_ids(self._team.id, access, ids=[object_id])
+            if self._subject_type == SubjectType.TABLE
+            else data_modeling_facade.allowed_saved_query_ids(self._team.id, access, ids=[object_id])
+        )
+        return object_id in allowed_ids
+
+    def _denial_context_of(self, user: User) -> DenialContext:
+        if self._subject_metadata is None:
+            self._subject_metadata = subject_metadata(self._team.id)
+        return caller_denial_context(self._team, user, self._access_of(user), metadata=self._subject_metadata)
 
 
 def notify_check_started_failing(
@@ -183,7 +187,8 @@ def notify_check_started_failing(
                     check.subject_type,
                     str(check.subject_uuid),
                     referenced_names=referenced_subject_names(team.id, check.check_type, check.config, subject=subject),
-                    executed_references=executed_references,
+                    executed_references=executed_references or (),
+                    references_unknown=executed_references is None,
                 ),
             )
         )

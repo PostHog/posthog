@@ -40,31 +40,23 @@ def bind_metric_query(
     metric_placeholders: dict[str, ast.Expr] = {
         name: ast.Constant(value=value) for name, value in metric_definition.values.items()
     }
-    metric_query = _parse_metric_query(metric_definition.query, metric_placeholders)
-    check_ast = _parse_check_query(check_query)
+    metric_query = _parse(metric_definition.query, "Could not parse the metric query.", metric_placeholders)
+    check_ast = _parse(check_query, "Could not parse the metric custom_sql query.")
     _validate_metric_placeholder(check_ast)
     _MetricCheckCteValidator().visit(check_ast)
     return cast("ast.SelectQuery | ast.SelectSetQuery", replace_placeholders(check_ast, {"metric": metric_query}))
 
 
-def _parse_metric_query(query: str, placeholders: dict[str, ast.Expr]) -> ast.SelectQuery | ast.SelectSetQuery:
+def _parse(
+    query: str, unparseable: str, placeholders: dict[str, ast.Expr] | None = None
+) -> ast.SelectQuery | ast.SelectSetQuery:
     try:
         return parse_select(query.rstrip(";").strip(), placeholders=placeholders)
     except ExposedHogQLError:
-        raise CheckConfigError("Could not parse the metric query.")
+        raise CheckConfigError(unparseable)
     except Exception as error:
         capture_exception(error)
-        raise CheckConfigError("Could not parse the metric query.")
-
-
-def _parse_check_query(query: str) -> ast.SelectQuery | ast.SelectSetQuery:
-    try:
-        return parse_select(query.rstrip(";").strip())
-    except ExposedHogQLError:
-        raise CheckConfigError("Could not parse the metric custom_sql query.")
-    except Exception as error:
-        capture_exception(error)
-        raise CheckConfigError("Could not parse the metric custom_sql query.")
+        raise CheckConfigError(unparseable)
 
 
 def _validate_metric_placeholder(check_ast: ast.SelectQuery | ast.SelectSetQuery) -> None:

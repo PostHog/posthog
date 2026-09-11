@@ -232,7 +232,7 @@ class TestWarehouseSourcesFacade(BaseTest):
         access = UserAccessControl(member, team=self.team)
         expected = frozenset({granted.id, owned.id} | ({self.table.id} if required_level == "viewer" else set()))
         assert api.allowed_table_ids(self.team.id, access, required_level=required_level) == expected
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(0):
             assert api.allowed_table_ids(self.team.id, access, required_level=required_level) == expected
 
         narrowed = api.allowed_table_ids(

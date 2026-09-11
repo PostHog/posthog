@@ -40,7 +40,7 @@ def build_failing_rows(subject: SubjectRef | None, config: "CustomSqlConfig") ->
     if subject is None or subject.subject_type is not SubjectType.METRIC:
         return parse_failing_rows_query(config.query)
     if subject.metric_definition is None:
-        raise CheckConfigError("The metric definition is unavailable.")
+        raise CheckConfigError("Metric checks require a live HogQL definition.")
     return bind_metric_query(config.query, subject.metric_definition)
 
 
@@ -72,16 +72,9 @@ class CustomSqlSpec(CheckTypeSpec):
     reads_beyond_subject = True
     description = "Fails on every row the custom HogQL SELECT returns. Metric checks query the {metric} relation."
 
-    def referenced_table_names(self, config: CheckConfig) -> list[str]:
-        assert isinstance(config, CustomSqlConfig)
-        return referenced_table_names(build_failing_rows(None, config))
-
-    def referenced_table_names_for_subject(self, subject: SubjectRef, config: CheckConfig) -> list[str]:
+    def referenced_table_names(self, config: CheckConfig, subject: SubjectRef | None = None) -> list[str]:
         assert isinstance(config, CustomSqlConfig)
         return referenced_table_names(build_failing_rows(subject, config))
-
-    def validate_for_subject(self, config: CheckConfig, subject: SubjectRef) -> None:
-        self.referenced_table_names_for_subject(subject, config)
 
     def build(
         self, subject: SubjectRef, column_name: str, config: CheckConfig, related: SubjectRef | None = None

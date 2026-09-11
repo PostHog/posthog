@@ -168,11 +168,7 @@ def _sweep_dead_subjects(now: datetime) -> CleanupOutcome:
 def _teams_with_history() -> set[int]:
     return {
         team_id
-        for manager in (
-            DataQualityCheck.objects,
-            DataQualityCheckRun.objects,
-            DataQualitySuiteRun.objects,
-        )
+        for manager in (DataQualityCheck.objects, DataQualityCheckRun.objects, DataQualitySuiteRun.objects)
         for team_id in manager.unscoped().values_list("team_id", flat=True).distinct()
     }
 

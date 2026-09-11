@@ -104,9 +104,9 @@ class TestCheckCompiler:
 
         if subject_type == SubjectType.METRIC and has_cte:
             with pytest.raises(CheckConfigError, match="cannot use CTEs"):
-                CustomSqlSpec().referenced_table_names_for_subject(subject, config)
+                CustomSqlSpec().referenced_table_names(config, subject)
             return
-        assert sorted(CustomSqlSpec().referenced_table_names_for_subject(subject, config)) == references
+        assert sorted(CustomSqlSpec().referenced_table_names(config, subject)) == references
 
     @parameterized.expand(
         [
@@ -164,9 +164,7 @@ class TestCheckCompiler:
         config = CustomSqlConfig(query=query)
 
         with pytest.raises(CheckConfigError, match="table expression"):
-            spec.referenced_table_names_for_subject(subject, config)
-        with pytest.raises(CheckConfigError, match="table expression"):
-            spec.validate_for_subject(config, subject)
+            spec.referenced_table_names(config, subject)
         with pytest.raises(CheckConfigError, match="table expression"):
             compile_check(check_type=CheckType.CUSTOM_SQL, subject=subject, column_name="", config={"query": query})
 
@@ -239,7 +237,7 @@ class TestCheckCompiler:
         config = spec.validate({"query": "SELECT * FORM {metric}"}, "")
 
         with pytest.raises(CheckConfigError, match="^Could not parse the metric custom_sql query\\.$"):
-            spec.validate_for_subject(config, metric)
+            spec.referenced_table_names(config, metric)
 
     def test_table_custom_sql_keeps_its_existing_invalid_query_error(self) -> None:
         """Catches deferring metric parsing from changing table and view custom-SQL validation."""

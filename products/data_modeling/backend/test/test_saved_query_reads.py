@@ -51,7 +51,7 @@ class TestSavedQueryReads(BaseTest):
         access = UserAccessControl(member, team=self.team)
         expected = frozenset({editable.id, owned.id} | ({readable.id} if required_level == "viewer" else set()))
         assert api.allowed_saved_query_ids(self.team.id, access, required_level=required_level) == expected
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(0):
             assert api.allowed_saved_query_ids(self.team.id, access, required_level=required_level) == expected
 
         narrowed = api.allowed_saved_query_ids(

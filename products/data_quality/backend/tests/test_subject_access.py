@@ -23,6 +23,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.api import upsert_metric
 from products.data_catalog.backend.facade.models import Metric
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_quality.backend.facade.enums import SubjectType
 from products.data_quality.backend.logic.checks import upsert_check
 from products.data_quality.backend.logic.permissions import writable_subjects
 from products.data_quality.backend.logic.runner import run_check
@@ -34,6 +35,7 @@ from products.data_quality.backend.logic.subject_access import (
     pin_referenced_subjects,
     readable_subjects,
     referenced_subject_names,
+    subject_metadata,
     without_denied_runs,
 )
 from products.data_quality.backend.logic.subjects import resolve_subject
@@ -69,7 +71,12 @@ class TestMetricSubjectAccess(BaseTest):
     )
     def test_composed_references_control_access(self, _name: str, denied: set[str], expected: bool) -> None:
         database = Database.create_for(team=self.team, user=self.user)
-        context = DenialContext(readable=readable_subjects(self.team.id, denied), denied=denied, database=database)
+        context = DenialContext(
+            readable=readable_subjects(self.team.id, denied),
+            denied=denied,
+            database=database,
+            metadata=subject_metadata(self.team.id),
+        )
         assert (
             definition_reads_unreadable_subject(self.team.id, "custom_sql", self.config, context, subject=self.subject)
             is expected
@@ -158,7 +165,7 @@ class TestMetricSubjectAccess(BaseTest):
                 context,
                 subject=self.subject,
             )
-        writable = writable_subjects(context, access)
+        writable = writable_subjects(context, access, allowed=frozenset(SubjectType))
         assert writable.table_ids == (context.readable.table_ids if access_level == "editor" else frozenset())
         assert writable.view_ids == (context.readable.view_ids if access_level == "editor" else frozenset())
 
@@ -192,7 +199,10 @@ class TestMetricSubjectAccess(BaseTest):
         readable = readable_subjects(self.team.id, denied)
         assert readable.contains("metric", self.metric.id) is expected
         context = DenialContext(
-            readable=readable, denied=denied, database=Database.create_for(team=self.team, user=self.user)
+            readable=readable,
+            denied=denied,
+            database=Database.create_for(team=self.team, user=self.user),
+            metadata=subject_metadata(self.team.id),
         )
         assert (
             without_denied_runs(DataQualityCheckRun.objects.for_team(self.team.id), context).filter(id=run.id).exists()
@@ -205,6 +215,7 @@ class TestMetricSubjectAccess(BaseTest):
             readable=readable_subjects(self.team.id, set()),
             denied=set(),
             database=Database.create_for(team=self.team, user=self.user),
+            metadata=subject_metadata(self.team.id),
         )
         with self.assertNumQueries(4):
             assert hidden_check_ids(self.team.id, [check] * 20, context) == set()

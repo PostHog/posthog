@@ -81,6 +81,22 @@ def allowed_saved_query_ids(
     """
     if ids is not None and not ids:
         return frozenset()
+    if ids is None:
+        return user_access_control.allowed_object_ids(
+            "warehouse_view",
+            team_id,
+            required_level,
+            lambda: _resolve_allowed_saved_query_ids(team_id, user_access_control, required_level, None),
+        )
+    return _resolve_allowed_saved_query_ids(team_id, user_access_control, required_level, ids)
+
+
+def _resolve_allowed_saved_query_ids(
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    required_level: "AccessControlLevel",
+    ids: Collection[UUID] | None,
+) -> frozenset[UUID]:
     candidates = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True)
     if ids is not None:
         candidates = candidates.filter(id__in=ids)

@@ -395,6 +395,22 @@ def allowed_table_ids(
     """
     if ids is not None and not ids:
         return frozenset()
+    if ids is None:
+        return user_access_control.allowed_object_ids(
+            "warehouse_table",
+            team_id,
+            required_level,
+            lambda: _resolve_allowed_table_ids(team_id, user_access_control, required_level, None),
+        )
+    return _resolve_allowed_table_ids(team_id, user_access_control, required_level, ids)
+
+
+def _resolve_allowed_table_ids(
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    required_level: "AccessControlLevel",
+    ids: Collection[UUID] | None,
+) -> frozenset[UUID]:
     candidates = _DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id)
     if ids is not None:
         candidates = candidates.filter(id__in=ids)

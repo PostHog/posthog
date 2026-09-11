@@ -1055,6 +1055,9 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
         return []
 
 
+_DATA_QUALITY_READ_ATTR = "_data_quality_read_verdict"
+
+
 def _can_read_data_quality(context: "HogQLContext") -> bool:
     """Whether the caller can read warehouse metadata, mirroring the REST viewsets' resource gate.
 
@@ -1067,7 +1070,13 @@ def _can_read_data_quality(context: "HogQLContext") -> bool:
     access_control = _access_control(context)
     if access_control is None:
         return False
-    return bool(data_quality.authorized_subject_types(access_control, None))
+    # Resolved once per caller: for a member without resource-level warehouse access this falls
+    # through to a scan of every warehouse object, and all three loaders below ask the same question.
+    cached = getattr(access_control, _DATA_QUALITY_READ_ATTR, None)
+    if cached is None:
+        cached = bool(data_quality.authorized_subject_types(access_control, None))
+        setattr(access_control, _DATA_QUALITY_READ_ATTR, cached)
+    return cached
 
 
 def _access_control(context: "HogQLContext") -> Any:

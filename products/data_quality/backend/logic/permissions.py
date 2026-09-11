@@ -50,7 +50,16 @@ def _has_subject_access(access: "UserAccessControl", kind: SubjectType, level: L
     return bool(data_modeling_facade.allowed_saved_query_ids(access.team.id, access, required_level=level))
 
 
-def writable_subjects(context: DenialContext, access: "UserAccessControl") -> ReadableSubjects:
+def writable_subjects(
+    context: DenialContext, access: "UserAccessControl", *, allowed: Collection[SubjectType]
+) -> ReadableSubjects:
+    """The subjects this caller may change, narrowed to the kinds ``allowed`` permits.
+
+    Takes the restriction rather than a pre-restricted context: the two have to be applied in that
+    order, and a caller that passed an unrestricted context would get a wider answer than its scopes
+    allow.
+    """
+    context = restrict_subject_types(context, allowed)
     if access.team is None:
         return ReadableSubjects(table_ids=frozenset(), view_ids=frozenset())
     return ReadableSubjects(
@@ -71,8 +80,6 @@ def _scope_allows(scopes: Collection[str] | None, resource: str, write: bool) ->
 
 
 def restrict_subject_types(context: DenialContext, allowed: Collection[SubjectType]) -> DenialContext:
-    if context.metadata is None:
-        raise ValueError("Subject metadata is required to restrict subject types")
     denied = set(context.denied)
     if SubjectType.TABLE not in allowed:
         denied.update(context.metadata.table_names.values())

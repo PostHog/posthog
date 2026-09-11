@@ -42,9 +42,6 @@ class CheckTypeSpec(ABC):
     subject_types: ClassVar[frozenset[SubjectType]] = frozenset({SubjectType.TABLE, SubjectType.VIEW})
     reads_beyond_subject: ClassVar[bool] = False
 
-    def validate_for_subject(self, config: CheckConfig, subject: SubjectRef) -> None:
-        return None
-
     @property
     def json_schema(self) -> dict[str, Any]:
         """Published by the check_types endpoint and the MCP tool docs. Generated, never written."""
@@ -78,23 +75,20 @@ class CheckTypeSpec(ABC):
         """The second subject this check needs resolved before it can compile, if any."""
         return None
 
-    def referenced_table_names(self, config: CheckConfig) -> list[str]:
+    def referenced_table_names(self, config: CheckConfig, subject: SubjectRef | None = None) -> list[str]:
         """Warehouse names this check reads directly, besides its subject and related subject.
 
         Only ``custom_sql`` needs this -- its query names arbitrary tables. Every structured type
         reaches exactly its subject plus, via ``related_subject_ref``, one other, so the default is
         empty. Used to authorize every subject a check reads, since the worker executes with team
-        scope only."""
-        return []
+        scope only.
 
-    def referenced_table_names_for_subject(self, subject: SubjectRef, config: CheckConfig) -> list[str]:
-        """Warehouse names this check reads after its subject has been resolved.
-
-        Most checks are independent of their subject's definition, so their existing config-only
-        reference list remains sufficient. Custom SQL over metrics binds a saved query into its AST,
-        which needs the resolved subject to identify the tables it reaches.
+        ``subject`` is the resolved subject when the caller has one. Custom SQL over a metric binds
+        the metric query into its AST, so only a resolved subject reveals the tables it reaches;
+        every other type ignores it and answers from config alone. Raises ``CheckConfigError`` when
+        the references cannot be established.
         """
-        return self.referenced_table_names(config)
+        return []
 
     @abstractmethod
     def build(

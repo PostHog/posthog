@@ -1,6 +1,6 @@
 """Resolve a check's subject id to something queryable.
 
-The check row carries the subject as a foreign key (``saved_query`` or ``table``); resolution still
+The check row carries the subject as a foreign key (``saved_query``, ``table`` or ``metric``); resolution still
 goes through the owning product's facade rather than traversing the FK, so model instances never
 cross the product boundary. A subject that no longer resolves marks the check orphaned, and the
 denormalized name is refreshed on every run so renames self-heal.

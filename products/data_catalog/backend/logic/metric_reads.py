@@ -53,7 +53,12 @@ def metric_reads_for_ids(team_id: int, metric_ids: Collection[UUID]) -> dict[UUI
 
 
 def live_metric_summaries(team_id: int) -> list[MetricSummary]:
-    metrics = Metric.objects.for_team(team_id).filter(deleted=False).order_by("created_at", "id")
+    metrics = (
+        Metric.objects.for_team(team_id)
+        .filter(deleted=False)
+        .only("id", "name", "display_name", "definition", "referenced_table_names")
+        .order_by("created_at", "id")
+    )
     return [_summary(metric) for metric in metrics]
 
 

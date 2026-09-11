@@ -21,7 +21,7 @@ from uuid import UUID
 from django.db.models import Exists, OuterRef, Q, QuerySet
 
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.schema.information_schema import DeniedTableMatcher, references_denied_table
+from posthog.hogql.database.schema.information_schema import DeniedTableMatcher
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -49,22 +49,6 @@ _SUBJECT_UUID_KEY = "subject_uuid"
 _RunQS = TypeVar("_RunQS", bound=QuerySet)
 _CHECK_VISIBILITY_BATCH_SIZE = 200
 _CHECK_VISIBILITY_FIELDS = ("id", "subject_type", "table_id", "saved_query_id", "metric_id", "check_type", "config")
-
-
-def denied_subject_names(
-    team: "Team", user: "User", user_access_control: Optional["UserAccessControl"] = None
-) -> set[str]:
-    """The warehouse table/view identifiers this caller cannot query, as the HogQL database sees them.
-
-    This is the exact set the ``information_schema`` loaders consult, so the two paths stay in
-    lock-step. Fails closed with no principal (the database denies every warehouse table)."""
-    database = Database.create_for(team=team, user=user, user_access_control=user_access_control)
-    return set(database._denied_tables)
-
-
-def is_subject_denied(subject_name: str, denied: set[str]) -> bool:
-    """Whether a check's subject is in the caller's denied set, matched the same way the loaders match."""
-    return references_denied_table([subject_name], denied)
 
 
 def can_be_object_denied(user_access_control: Optional["UserAccessControl"]) -> bool:
@@ -124,7 +108,7 @@ class DenialContext:
     readable: ReadableSubjects
     denied: set[str]
     database: Database
-    metadata: "SubjectMetadata | None" = None
+    metadata: "SubjectMetadata"
     matcher: DeniedTableMatcher = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -277,8 +261,21 @@ def hidden_check_ids(team_id: int, checks: Sequence[DataQualityCheck], context: 
     tenses at once, so each is judged by the rule for its own tense -- the definition by the names it
     resolves today, the stored run by the identities it recorded.
     """
+    hidden = definition_hidden_ids(team_id, checks, context, {})
+    return hidden | _checks_whose_latest_run_is_unreadable(
+        team_id, [check.id for check in checks if check.id not in hidden], context
+    )
+
+
+def definition_hidden_ids(
+    team_id: int, checks: Sequence[DataQualityCheck], context: DenialContext, verdicts: dict[str, bool]
+) -> set[UUID]:
+    """The present-tense half of :func:`hidden_check_ids`: unreadable subject, or unreadable definition.
+
+    ``verdicts`` is carried in by the caller so a scan that runs in batches parses a definition it has
+    already seen once, whichever batch it lands in.
+    """
     hidden = {check.id for check in checks if not context.readable.contains(check.subject_type, check.subject_uuid)}
-    verdicts: dict[str, bool] = {}
     metric_subjects = resolve_metric_subjects(
         team_id,
         {
@@ -291,11 +288,9 @@ def hidden_check_ids(team_id: int, checks: Sequence[DataQualityCheck], context: 
         if check.id in hidden:
             continue
         subject = metric_subjects.get(UUID(str(check.metric_id))) if check.metric_id is not None else None
-        if _memoized_definition_verdict(team_id, check.check_type, check.config or {}, context, verdicts, subject):
+        if memoized_definition_verdict(team_id, check.check_type, check.config or {}, context, verdicts, subject):
             hidden.add(check.id)
-    return hidden | _checks_whose_latest_run_is_unreadable(
-        team_id, [check.id for check in checks if check.id not in hidden], context
-    )
+    return hidden
 
 
 def visible_checks(team_id: int, checks: Sequence[DataQualityCheck], context: DenialContext) -> list[DataQualityCheck]:
@@ -324,10 +319,18 @@ def visible_check_queryset(
     queryset = readable_check_subjects(queryset, context.readable)
     candidates = queryset.select_related(None).prefetch_related(None).only(*_CHECK_VISIBILITY_FIELDS)
     hidden: set[UUID] = set()
+    survivors: list[UUID] = []
+    verdicts: dict[str, bool] = {}
+    # The definition scan stays batched, because it holds a parsed config per row. The history scan
+    # only needs ids, so it runs once over everything the definition scan let through rather than
+    # once per batch.
     for batch in batched(
         candidates.iterator(chunk_size=_CHECK_VISIBILITY_BATCH_SIZE), _CHECK_VISIBILITY_BATCH_SIZE, strict=False
     ):
-        hidden.update(hidden_check_ids(team_id, batch, context))
+        batch_hidden = definition_hidden_ids(team_id, batch, context, verdicts)
+        hidden |= batch_hidden
+        survivors.extend(check.id for check in batch if check.id not in batch_hidden)
+    hidden |= _checks_whose_latest_run_is_unreadable(team_id, survivors, context)
     return queryset.exclude(id__in=hidden)
 
 
@@ -425,11 +428,7 @@ def referenced_subjects(
         if (related := spec.related_subject_ref(parsed))
         else None
     )
-    names = (
-        spec.referenced_table_names_for_subject(subject, parsed)
-        if subject is not None
-        else spec.referenced_table_names(parsed)
-    )
+    names = spec.referenced_table_names(parsed, subject)
     return ReferencedSubjects(names=tuple(names), related_subject=related_subject)
 
 
@@ -467,6 +466,8 @@ def pin_referenced_subjects(
     """
     try:
         references = referenced_subjects(team_id, check_type, config, subject=subject)
+        if not references.names and references.related_subject is None:
+            return []
         backing_tables = data_modeling_facade.backing_table_ids_by_saved_query(team_id)
         pinned = [
             identity for name in references.names if (identity := _pin_name(team_id, name, backing_tables)) is not None
@@ -514,7 +515,7 @@ def _checks_whose_latest_run_is_unreadable(
     return {check_id for check_id in unreadable if check_id is not None}
 
 
-def _memoized_definition_verdict(
+def memoized_definition_verdict(
     team_id: int,
     check_type: str,
     config: dict[str, Any],
