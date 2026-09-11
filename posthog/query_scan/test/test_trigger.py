@@ -155,6 +155,15 @@ class TestQueryScanTrigger(SimpleTestCase):
         assert result.skipped_reason == "enqueue_failed"
         self.redis.delete.assert_called_once_with("query_scan:1:cache_key_1")
 
+    def test_the_payload_carries_the_event_filter_classification(self) -> None:
+        # The job folds this verdict into the plan, so a payload that stopped carrying it would
+        # drop the tree's reason for why the filter could not prune.
+        result = self._trigger()
+
+        assert result.triggered is True
+        enqueued = self.delay.call_args.kwargs["executions"]
+        assert enqueued[0]["event_filter"] == {"classification": "usable", "reason": None}
+
     def test_a_killed_run_records_that_on_the_pending_slot(self) -> None:
         # The scan endpoint answers from this slot until the job finishes, so a stopped run that
         # left no `killed` here would be reported as one that ran to completion.

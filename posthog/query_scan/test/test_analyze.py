@@ -3,6 +3,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.query_scan.analyze import PlanSet, QueryScanResult, analyze
+from posthog.query_scan.checks.event_filter import EventFilterOutcome
 from posthog.query_scan.explain import QueryPlan, parse_query_plan
 from posthog.query_scan.findings import FindingReason, ScanMeasurements, ScanThresholds
 from posthog.query_scan.test.test_explain import load_plan
@@ -23,6 +24,7 @@ def analyze_fixture(
     persons_ratio: float = 0.5,
     query_kind: str = "HogQLQuery",
     open_filters_placeholder: bool = False,
+    event_filter: EventFilterOutcome | None = None,
     table_row_averages: dict[str, float] | None = None,
 ) -> QueryScanResult:
     return analyze(
@@ -36,6 +38,7 @@ def analyze_fixture(
         query_kind=query_kind,
         open_filters_placeholder=open_filters_placeholder,
         measurements=MEASUREMENTS,
+        event_filter=event_filter,
         table_row_averages=table_row_averages,
     )
 
@@ -53,13 +56,6 @@ class TestAnalyze(SimpleTestCase):
             # event gate the other way: the read is a small share, so nothing is flagged
             ("no event filter, under the ratio", "plan_no_event_filter", {"range_granules": 100_000_000}, []),
             ("event filter in the key stays quiet", "plan_event_filter_used", {}, []),
-            # `event != x` lists `event` as a used key but keeps most of the range, so it is flagged
-            (
-                "negated event filter is no filter",
-                "plan_event_filter_negated",
-                {"range_granules": 400_000},
-                ["no_event_filter"],
-            ),
             ("event filter inside an OR still used", "plan_event_filter_in_or", {}, []),
             ("no date bound is flagged", "plan_no_date_bound", {}, ["no_start_date"]),
             # persons gate: the persons read dwarfs the events read
@@ -130,6 +126,19 @@ class TestAnalyze(SimpleTestCase):
         self.assertEqual(result.finding_kinds(), ["no_start_date"])
         self.assertIsNone(result.findings[0].reason)
         self.assertIn("This insight has no start date", result.findings[0].message)
+
+    def test_a_negated_event_filter_is_flagged_with_its_reason(self) -> None:
+        # `event != x` lists `event` in the key yet keeps most of the range, so the plan alone
+        # cannot flag it; the combined outcome the job ships carries the tree's `negated` reason.
+        result = analyze_fixture(
+            "plan_event_filter_negated",
+            range_granules=400_000,
+            event_filter=EventFilterOutcome(classification="not_used", reason="negated"),
+        )
+
+        self.assertEqual(result.finding_kinds(), ["no_event_filter"])
+        self.assertEqual(result.findings[0].reason, FindingReason.NEGATED)
+        self.assertIn("only excludes events", result.findings[0].message)
 
     def test_shares_are_the_read_over_the_denominators(self) -> None:
         result = analyze_fixture("plan_no_event_filter", team_granules=10_000_000, range_granules=1_000_000)

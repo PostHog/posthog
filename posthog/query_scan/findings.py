@@ -60,6 +60,67 @@ _NO_EVENT_FILTER_INSIGHT = _Copy(
     fix="Pick the events this insight is about instead of All events.",
 )
 
+# A raw SQL query can name events yet leave ClickHouse unable to prune on them. The reason from the
+# tree says which shape blocked it, so the copy names that shape and the specific fix.
+_NO_EVENT_FILTER_BY_REASON: dict[FindingReason, _Copy] = {
+    FindingReason.IN_OR: _Copy(
+        lead=(
+            "Queries are fastest when they name a fixed set of events. This query names events only inside an OR "
+            "with another condition, so that filter cannot be used and it still reads every event, which is slow."
+        ),
+        advice="Put the event filter outside the OR: `WHERE event IN ('…') AND (… OR …)`.",
+        fix=(
+            "If every branch of the OR names events, move the event filter out so it stands on its own, and "
+            "change nothing else. If moving it would change which rows match, leave the query as it is and "
+            "explain that ClickHouse cannot use an event filter inside an OR."
+        ),
+    ),
+    FindingReason.WRAPPED: _Copy(
+        lead=(
+            "Queries are fastest when they compare `event` directly to fixed names. This query wraps `event` in a "
+            "function, so that filter cannot be used and it still reads every event, which is slow."
+        ),
+        advice="Compare `event` directly to the names.",
+        fix=(
+            "If the function around `event` does not change which events match, compare `event` directly to "
+            "the names and change nothing else. If it does, leave the query as it is and explain that "
+            "ClickHouse cannot use an event filter with a function around the column."
+        ),
+    ),
+    FindingReason.NEGATED: _Copy(
+        lead=(
+            "Queries are fastest when they explicitly enumerate the events they want. This query only excludes "
+            "events, so that filter cannot be used and it still reads most events, which is slow."
+        ),
+        advice="Explicitly enumerate the events you want instead.",
+        fix=(
+            "If the events to keep can be named, replace the exclusion with a filter that names them, and "
+            "change nothing else. If they cannot, leave the query as it is and explain that ClickHouse "
+            "cannot use an event filter that excludes events."
+        ),
+    ),
+    FindingReason.DYNAMIC: _Copy(
+        lead=(
+            "Queries are fastest when they compare `event` to fixed names. This query compares `event` to another "
+            "column or a subquery, so that filter cannot be used and it still reads every event, which is slow."
+        ),
+        advice="Compare `event` to fixed names.",
+        fix=(
+            "If the column or subquery stands for a fixed set of event names, compare `event` to those names "
+            "and change nothing else. If it does not, leave the query as it is and explain that ClickHouse "
+            "cannot use an event filter that compares `event` to data."
+        ),
+    ),
+    FindingReason.NOT_PRUNED: _Copy(
+        lead=(
+            "Queries are fastest when they compare `event` directly to fixed names. This query has an event "
+            "filter, but it could not be used, so it still read every event, which is slow."
+        ),
+        advice="Compare `event` directly to fixed names, outside any OR.",
+        fix="Compare `event` directly to fixed event names, outside any OR. Change nothing else.",
+    ),
+}
+
 _NO_START_DATE_SQL = _Copy(
     lead=(
         "Queries are fastest when they start from a recent date. This query has no start date, so it reads "
@@ -105,7 +166,9 @@ _PERSONS_JOIN = _Copy(
 
 def _copy_for(kind: FindingKind, reason: FindingReason | None, *, is_sql: bool) -> _Copy:
     if kind == FindingKind.NO_EVENT_FILTER:
-        return _NO_EVENT_FILTER_SQL if is_sql else _NO_EVENT_FILTER_INSIGHT
+        if not is_sql:
+            return _NO_EVENT_FILTER_INSIGHT
+        return _NO_EVENT_FILTER_BY_REASON.get(reason, _NO_EVENT_FILTER_SQL) if reason else _NO_EVENT_FILTER_SQL
     if kind == FindingKind.NO_START_DATE:
         if not is_sql:
             return _NO_START_DATE_INSIGHT

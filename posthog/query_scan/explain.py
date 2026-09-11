@@ -78,18 +78,15 @@ class PlanTableRead:
     def primary_key(self) -> PlanIndex | None:
         return self._first(_PRIMARY_KEY_TYPE)
 
-    def event_key_usable(self) -> bool:
-        """Whether the primary key pruned on `event`.
+    def uses_event_key(self) -> bool:
+        """Whether the primary key lists `event`, from the plan's keys alone.
 
-        A negated condition (`event not in [...]`, from `!=` or `NOT IN`) lists `event` as a used
-        key but excludes a few values, so it prunes nothing; on prod it kept 90% of a range's
-        granules. It counts as usable only next to a positive `event in` term.
+        Why the key could not prune, a negation or a wrapping function that lists `event` yet
+        skips almost nothing, comes from the query tree, which `combine_event_filter` folds in.
+        This is the plan side of that combination, and the fallback when no tree verdict shipped.
         """
         primary_key = self.primary_key()
-        if primary_key is None or "event" not in primary_key.keys:
-            return False
-        condition = primary_key.condition or ""
-        return "(event not in " not in condition or "(event in " in condition
+        return primary_key is not None and "event" in primary_key.keys
 
     def min_max(self) -> PlanIndex | None:
         return self._first(_MIN_MAX_TYPE)
@@ -131,6 +128,14 @@ class QueryPlan:
 
     def events_read(self) -> PlanTableRead | None:
         return next(iter(self.events_reads()), None)
+
+    def event_key_used(self) -> bool | None:
+        """Whether every events read pruned on `event`. None when the plan has no events read,
+        so the tree's verdict is left to stand."""
+        reads = self.events_reads()
+        if not reads:
+            return None
+        return all(read.uses_event_key() for read in reads)
 
     def person_reads(self) -> tuple[PlanTableRead, ...]:
         return tuple(read for read in self.reads if read.reads_persons())

@@ -7,6 +7,7 @@ project's events in the query's date range or over all time.
 from posthog.schema import QueryScanWarning
 
 from posthog.dataclasses import frozen
+from posthog.query_scan.checks.event_filter import EventFilterOutcome
 from posthog.query_scan.explain import PlanTableRead, QueryPlan
 from posthog.query_scan.findings import (
     FindingKind,
@@ -54,10 +55,16 @@ def analyze(
     query_kind: str,
     open_filters_placeholder: bool,
     measurements: ScanMeasurements,
+    event_filter: EventFilterOutcome | None = None,
     table_row_averages: dict[str, float] | None = None,
 ) -> QueryScanResult:
     """`open_filters_placeholder` is true when the query left its date range to a `{filters}`
     placeholder that expanded to no bound, so the fix is on the insight, not in the SQL.
+
+    `event_filter` is the combined tree-and-plan verdict for the outer execution, from the job.
+    None means no verdict shipped, so the outer read's no-event-filter gate falls back to the
+    plan's keys alone. A subquery is never classified from the tree, so it always uses that
+    fallback.
 
     `table_row_averages` is empty when the `system.parts` read failed; the persons gate then falls
     back to a raw granule comparison, so the analysis still runs without the metadata query."""
@@ -81,6 +88,7 @@ def analyze(
         range_share=range_share,
         subquery_index=None,
         table_row_averages=averages,
+        event_filter=event_filter,
     )
     for index, subquery in enumerate(plans.subqueries):
         findings += _findings_for_plan(
@@ -92,6 +100,7 @@ def analyze(
             range_share=None,
             subquery_index=index,
             table_row_averages=averages,
+            event_filter=None,
         )
 
     return QueryScanResult(
@@ -113,6 +122,7 @@ def _findings_for_plan(
     range_share: float | None,
     subquery_index: int | None,
     table_row_averages: dict[str, float],
+    event_filter: EventFilterOutcome | None,
 ) -> list[QueryScanWarning]:
     events_read = plan.events_read()
     # A plan that does not read the events table has no denominator and nothing to advise on.
@@ -133,11 +143,13 @@ def _findings_for_plan(
             )
         )
 
-    if _event_key_missing(events_read) and _passes_event_gate(events_read, range_share, thresholds):
+    no_event_filter, event_reason = _no_event_filter(events_read, event_filter)
+    if no_event_filter and _passes_event_gate(events_read, range_share, thresholds):
         findings.append(
             build_warning(
                 kind=FindingKind.NO_EVENT_FILTER,
                 query_kind=query_kind,
+                reason=event_reason,
                 measurements=measurements,
                 evidence=_primary_key_evidence(events_read, subquery_index),
             )
@@ -157,8 +169,16 @@ def _findings_for_plan(
     return findings
 
 
-def _event_key_missing(read: PlanTableRead) -> bool:
-    return not read.event_key_usable()
+def _no_event_filter(read: PlanTableRead, event_filter: EventFilterOutcome | None) -> tuple[bool, FindingReason | None]:
+    """Whether the read has no usable event filter, and the reason for the copy.
+
+    The combined outcome, when the job shipped one, carries the tree's reason for why the filter
+    could not prune. Without one the plan's keys decide alone, so there is no reason to name.
+    """
+    if event_filter is not None:
+        reason = FindingReason(event_filter.reason) if event_filter.reason is not None else None
+        return event_filter.classification != "usable", reason
+    return not read.uses_event_key(), None
 
 
 def _passes_event_gate(read: PlanTableRead, range_share: float | None, thresholds: ScanThresholds) -> bool:

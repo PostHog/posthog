@@ -24,6 +24,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.query_scan.analyze import PlanSet, QueryScanResult, analyze
+from posthog.query_scan.checks.event_filter import EventFilterOutcome, combine_event_filter
 from posthog.query_scan.explain import QueryPlan, TimestampBounds, parse_query_plan
 from posthog.query_scan.findings import ScanMeasurements, ScanThresholds
 from posthog.query_scan.flag import get_query_scan_flag
@@ -37,16 +38,26 @@ TABLE_AVERAGES_MAX_SECONDS = 5
 # The events table and the three persons tables the persons gate compares in rows.
 _ROW_AVERAGE_TABLES = ("sharded_events", "person", "person_distinct_id2", "person_distinct_id_overrides")
 
+# The tree verdict the trigger ships per execution. A payload outside these leaves the event filter
+# to the plan alone, the same as an older payload that carried no verdict.
+_EVENT_FILTER_CLASSES = ("usable", "not_used", "none")
+_EVENT_FILTER_REASONS = ("in_or", "wrapped", "negated", "dynamic", "not_pruned")
+
 
 @frozen
 class Execution:
-    """One printed execution of the run, as the trigger enqueued it."""
+    """One printed execution of the run, as the trigger enqueued it.
+
+    ``event_filter`` is the tree verdict the trigger classified, ``{"classification", "reason"}``
+    or None when the classifier failed or an older trigger shipped nothing.
+    """
 
     sql: str
     stubbed_sql: str
     subqueries: tuple[str, ...]
     values: dict[str, Any]
     rows_read: int
+    event_filter: dict[str, Any] | None = None
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> Execution:
@@ -56,6 +67,7 @@ class Execution:
             subqueries=tuple(payload.get("subqueries") or ()),
             values=payload.get("values") or {},
             rows_read=payload.get("rows_read") or 0,
+            event_filter=payload.get("event_filter"),
         )
 
 
@@ -136,6 +148,7 @@ def _run(job: QueryScanJob, started: float) -> None:
                 query_kind=job.query_kind or "",
                 open_filters_placeholder=job.open_filters_placeholder,
                 measurements=measurements,
+                event_filter=_combined_event_filter(execution, outer),
                 table_row_averages=table_row_averages,
             )
         )
@@ -178,6 +191,25 @@ def _subquery_plan(sql: str, values: dict[str, Any], team_id: int) -> QueryPlan 
     if rows is None:
         return None
     return parse_query_plan(rows[0][0])
+
+
+def _combined_event_filter(execution: Execution, outer: QueryPlan | None) -> EventFilterOutcome | None:
+    """The tree verdict the trigger shipped, folded together with the outer plan's key use.
+
+    None when the trigger shipped no verdict, so the analysis falls back to the plan alone.
+    """
+    payload = execution.event_filter
+    if not payload:
+        return None
+    classification = payload.get("classification")
+    if classification not in _EVENT_FILTER_CLASSES:
+        return None
+    reason = payload.get("reason")
+    outcome = EventFilterOutcome(
+        classification=classification,
+        reason=reason if reason in _EVENT_FILTER_REASONS else None,
+    )
+    return combine_event_filter(outcome, outer)
 
 
 def _range_granules(

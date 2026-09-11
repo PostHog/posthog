@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from posthog.schema import HogQLFilters
 
+from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.printer import print_prepared_ast
@@ -26,6 +27,7 @@ from posthog.hogql.query_stats import QueryStats, RecordedExecution
 from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, is_api_key_access_method
 from posthog.dataclasses import frozen
 from posthog.models.user import User
+from posthog.query_scan.checks.event_filter import classify_event_filter
 from posthog.query_scan.flag import QueryScanFlag
 from posthog.query_scan.slot import (
     claim_enqueue_budget,
@@ -202,12 +204,29 @@ def _print_execution(execution: RecordedExecution, subquery_budget: int) -> dict
             # them back to `sync_execute`, whose substitution reads a datetime the same as its text.
             "values": _json_safe(context.values),
             "rows_read": execution.rows_read,
+            # The plan says whether ClickHouse pruned on `event`; the tree says why it could not.
+            # Classify here, where the prepared tree is held; the job folds it into the plan.
+            "event_filter": _event_filter_verdict(execution.tree),
         }
     except Exception:
         # A tree that will not print is one the job could not EXPLAIN either. Drop it rather than
         # fail the run the person already waited for.
         logger.warning("query_scan_print_failed", exc_info=True)
         return None
+
+
+def _event_filter_verdict(tree: ast.Expr) -> dict[str, str | None] | None:
+    """The tree's event-filter classification, JSON-safe, for the job to combine with the plan.
+
+    A classifier failure ships None rather than dropping the execution, because the plan-only
+    fallback still produces a finding.
+    """
+    try:
+        outcome = classify_event_filter(tree)
+    except Exception:
+        logger.warning("query_scan_classify_failed", exc_info=True)
+        return None
+    return {"classification": outcome.classification, "reason": outcome.reason}
 
 
 def _json_safe(values: dict[str, Any]) -> dict[str, Any]:
