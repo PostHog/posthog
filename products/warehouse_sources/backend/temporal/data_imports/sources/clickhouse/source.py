@@ -355,6 +355,14 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # `_get_client`'s in-process retry never sees it; Temporal's activity retry
             # reopens a fresh tunnel + client and resumes from the last committed cursor.
             "Connection broken: IncompleteRead",
+            # pyarrow raises this `OSError` from its own IPC framing (not urllib3) when the
+            # connection carrying `query_arrow_stream` closes mid-message: the Arrow message
+            # header already promised a body length, and the stream delivered fewer bytes
+            # than that before ending. Same mid-transfer connection drop as
+            # "Connection broken: IncompleteRead" above, just detected one layer up, in
+            # pyarrow's message reader instead of urllib3. The byte counts vary; the
+            # "bytes for message body, got" wording is stable.
+            "bytes for message body, got",
             # requests/urllib3 raises this when the server accepts the connection but never
             # answers within our timeout — typically ClickHouse Cloud still cold-resuming an
             # idle service past our `METADATA_QUERY_TIMEOUT_SECONDS` allowance. Not in
