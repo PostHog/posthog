@@ -9,8 +9,8 @@ import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
 import { Breadcrumb } from '~/types'
 
-import type { Noun } from '../../models/groupsModel'
-import type { GroupType, GroupTypeIndex } from '../../types'
+import type { Noun } from '../../../../frontend/src/models/groupsModel'
+import type { GroupType, GroupTypeIndex } from '../../../../frontend/src/types'
 
 export type GroupsTab = {
     key: string

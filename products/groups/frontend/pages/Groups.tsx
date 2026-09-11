@@ -8,7 +8,6 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -22,9 +21,10 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
+import { GroupsIntroduction } from 'products/groups/frontend/components/GroupsIntroduction'
 
-import { groupsListLogic } from './groupsListLogic'
-import { groupsSceneLogic } from './groupsSceneLogic'
+import { groupsListLogic } from '../logics/groupsListLogic'
+import { groupsSceneLogic } from '../logics/groupsSceneLogic'
 
 export const scene: SceneExport = {
     component: GroupsScene,

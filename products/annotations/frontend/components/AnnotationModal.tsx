@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { AnnotationScope, AnnotationType } from '~/types'
 
-import { annotationModalLogic, annotationScopeToName } from './annotationModalLogic'
+import { annotationModalLogic, annotationScopeToName } from '../logics/annotationModalLogic'
 
 export function NewAnnotationButton(): JSX.Element {
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
