@@ -366,17 +366,23 @@ export const WARNING_TYPE_RENDERER = {
             transformationId?: string
             transformationName?: string
         }
+        // A page-translation extension replaces every bare text node with a <font> element that
+        // React does not own, so removing one, or inserting a sibling before one, throws
+        // NotFoundError (react#11538). The outer span keeps the link swap away from the text of
+        // the sentence, and the fallback is an element so that the swap removes a node React owns.
         return (
             <>
                 Event <strong>{details.event}</strong> for distinct_id{' '}
                 <Link to={urls.personByDistinctId(details.distinctId)}>{details.distinctId}</Link> was dropped by{' '}
-                {details.transformationId ? (
-                    <Link to={urls.hogFunction(details.transformationId)}>
-                        {details.transformationName || 'a transformation'}
-                    </Link>
-                ) : (
-                    'a transformation'
-                )}
+                <span>
+                    {details.transformationId ? (
+                        <Link to={urls.hogFunction(details.transformationId)}>
+                            {details.transformationName || 'a transformation'}
+                        </Link>
+                    ) : (
+                        <span>a transformation</span>
+                    )}
+                </span>
                 , so it was never stored (event uuid: <code>{details.eventUuid}</code>). Edit or disable that
                 transformation to keep these events.
             </>
@@ -391,14 +397,17 @@ export const WARNING_TYPE_RENDERER = {
             ageInSeconds: number
             dropThresholdSeconds: number
         }
+        // The durations opt out of page translation. A translated text node detaches from React,
+        // so a reused table row would keep showing the previous warning's durations
+        // (react#11538). A duration holds nothing worth translating.
         return (
             <>
                 Event <strong>{details.event}</strong> for distinct_id{' '}
                 <Link to={urls.personByDistinctId(details.distinctId)}>{details.distinctId}</Link> arrived{' '}
-                {humanFriendlyDuration(details.ageInSeconds)} after its timestamp, over this project limit of{' '}
-                {humanFriendlyDuration(details.dropThresholdSeconds)}, so it was never stored (event timestamp:{' '}
-                <TZLabel time={details.eventTimestamp} showSeconds />, event uuid: <code>{details.eventUuid}</code>).
-                Contact support to change the limit.
+                <span translate="no">{humanFriendlyDuration(details.ageInSeconds)}</span> after its timestamp, over this
+                project limit of <span translate="no">{humanFriendlyDuration(details.dropThresholdSeconds)}</span>, so
+                it was never stored (event timestamp: <TZLabel time={details.eventTimestamp} showSeconds />, event uuid:{' '}
+                <code>{details.eventUuid}</code>). Contact support to change the limit.
             </>
         )
     },
