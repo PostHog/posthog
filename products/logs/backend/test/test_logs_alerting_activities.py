@@ -209,12 +209,14 @@ class TestEmitAlertSignalsActivity(NonAtomicBaseTest):
         )
 
     def test_emits_one_signal_per_notified_alert(self):
+        # First alert's stored check configuration differs from the notified payload,
+        # standing in for an edit that lands between evaluation and emission.
         first_alert = LogsAlertConfiguration.objects.create(
             team=self.team,
             name="Checkout failures",
-            threshold_count=10,
-            threshold_operator="above",
-            window_minutes=5,
+            threshold_count=200,
+            threshold_operator="below",
+            window_minutes=60,
             filters={"serviceNames": ["checkout"]},
         )
         second_alert = LogsAlertConfiguration.objects.create(
@@ -243,6 +245,15 @@ class TestEmitAlertSignalsActivity(NonAtomicBaseTest):
         assert extras_by_source[f"{first_alert.id}:firing"]["filters"] == {"serviceNames": ["checkout"]}
         assert extras_by_source[f"{second_alert.id}:broken"]["alert_name"] == "Ingestion failures"
         assert extras_by_source[f"{second_alert.id}:broken"]["filters"] == {"severityLevels": ["error"]}
+        first_extra = extras_by_source[f"{first_alert.id}:firing"]
+        assert first_extra["threshold_count"] == 10
+        assert first_extra["threshold_operator"] == "above"
+        assert first_extra["window_minutes"] == 5
+        descriptions_by_source = {c.kwargs["source_id"]: c.kwargs["description"] for c in mock_emit.call_args_list}
+        assert (
+            "went above the threshold of 10 over a 5m window (observed 99)"
+            in descriptions_by_source[f"{first_alert.id}:firing"]
+        )
 
     def test_missing_alert_is_skipped(self):
         notified = [self._notified("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "firing", 99, 0)]

@@ -1177,13 +1177,13 @@ async def emit_alert_signals_activity(input: EmitAlertSignalsInput) -> int:
                     alert_id=na.alert_id,
                 )
                 return False
+            # Only the placeholder presentation fields come from the row. The check
+            # configuration stays as evaluated, so an edit landing between the two
+            # activities cannot make the signal describe a check that never ran.
             hydrated = dataclasses.replace(
                 na,
                 team_id=alert.team_id,
                 alert_name=alert.name,
-                threshold_count=alert.threshold_count,
-                threshold_operator=alert.threshold_operator,
-                window_minutes=alert.window_minutes,
                 filters=alert.filters,
             )
             ok = await emit_alert_state_change_signal(alert.team, hydrated)
