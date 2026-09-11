@@ -4,14 +4,23 @@ import { expectLogic } from 'kea-test-utils'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType } from '~/types'
 
 import { NEW_FLAG, featureFlagLogic } from './featureFlagLogic'
 import { featureFlagUsageLogic } from './featureFlagUsageLogic'
-import { DEFAULT_USAGE_DATE_RANGE } from './featureFlagUsageQueries'
+import { DEFAULT_USAGE_DATE_RANGE, FlagUsageQuery } from './featureFlagUsageQueries'
 
 const FLAG_ID = 1
+
+// No feature flag is enabled in these tests, so every chart reads the events table.
+function trendsSource(query: FlagUsageQuery): TrendsQuery {
+    if (query.kind !== NodeKind.InsightVizNode) {
+        throw new Error(`Expected an events-table trend, got ${query.kind}`)
+    }
+    return query.source
+}
 
 function flag(overrides: Partial<FeatureFlagType> = {}): FeatureFlagType {
     return {
@@ -56,8 +65,8 @@ describe('featureFlagUsageLogic', () => {
 
         expect(logic.values.usageCharts).toHaveLength(4)
         for (const chart of logic.values.usageCharts) {
-            expect(chart.query.source.dateRange).toEqual({ date_from: '-24h', date_to: null })
-            expect(chart.query.source.interval).toEqual('hour')
+            expect(trendsSource(chart.query).dateRange).toEqual({ date_from: '-24h', date_to: null })
+            expect(trendsSource(chart.query).interval).toEqual('hour')
         }
     })
 
@@ -65,7 +74,9 @@ describe('featureFlagUsageLogic', () => {
         featureFlagLogic({ id: FLAG_ID }).actions.loadFeatureFlagSuccess(flag({ key: 'renamed-feature' }))
 
         for (const chart of logic.values.usageCharts) {
-            expect(chart.query.source.properties).toEqual([expect.objectContaining({ value: 'renamed-feature' })])
+            expect(trendsSource(chart.query).properties).toEqual([
+                expect.objectContaining({ value: 'renamed-feature' }),
+            ])
         }
     })
 
