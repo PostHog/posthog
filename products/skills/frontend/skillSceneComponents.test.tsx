@@ -24,6 +24,7 @@ const mockRetrieve = llmSkillsNameRetrieve as jest.MockedFunction<typeof llmSkil
 type OpenFormConfig = Parameters<typeof LemonDialog.openForm>[0]
 
 const MOCK_PREVIEW = {
+    id: '123e4567-e89b-12d3-a456-426614174000',
     name: 'my-skill',
     version: 3,
     files: [
@@ -88,7 +89,13 @@ describe('skillSceneComponents', () => {
             )
             fireEvent.click(screen.getByText('Publish to community').closest('button')!)
 
-            expect(onPublish).toHaveBeenCalledWith('my-skill', expect.objectContaining({ expected_version: 3 }))
+            expect(onPublish).toHaveBeenCalledWith(
+                'my-skill',
+                expect.objectContaining({
+                    expected_skill_id: '123e4567-e89b-12d3-a456-426614174000',
+                    expected_version: 3,
+                })
+            )
         })
 
         it('names the destination and version, with the file list behind Review files', async () => {

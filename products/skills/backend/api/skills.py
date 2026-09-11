@@ -1487,7 +1487,10 @@ class LLMSkillViewSet(
         payload = LLMSkillPublishToCommunitySerializer(data=request.data)
         payload.is_valid(raise_exception=True)
 
-        if skill.version != payload.validated_data["expected_version"]:
+        if (
+            skill.id != payload.validated_data["expected_skill_id"]
+            or skill.version != payload.validated_data["expected_version"]
+        ):
             return Response(
                 {
                     "detail": "This skill changed after you reviewed it. Reopen the dialog and review the latest version."

@@ -675,6 +675,8 @@ export interface LLMSkillFileApi {
 }
 
 export interface LLMSkillPublishToCommunityApi {
+    /** Immutable ID of the skill version that the publisher reviewed. */
+    expected_skill_id: string
     /**
      * Skill version that the publisher reviewed. The request returns 409 if the latest version changed.
      * @minimum 1

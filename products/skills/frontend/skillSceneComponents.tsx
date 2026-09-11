@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { Suspense, useEffect } from 'react'
+import { Suspense } from 'react'
 
-import { LemonButton, LemonCollapse, LemonModal, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTag } from '@posthog/lemon-ui'
 
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -13,8 +12,8 @@ import { LemonDialog } from '~/lib/lemon-ui/LemonDialog'
 
 import type { SkillFormFileValues } from './llmSkillLogic'
 import { isSkill, llmSkillLogic } from './llmSkillLogic'
+import { PublishToCommunityContents } from './PublishToCommunityContents'
 import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
-import { skillPublishPreviewLogic } from './skillPublishPreviewLogic'
 
 export { LLMSkillsScene } from './LLMSkillsScene'
 export { LLMSkillScene } from './LLMSkillScene'
@@ -55,6 +54,7 @@ export function openRenameSkillDialog(skillName: string, onRename: (newName: str
 }
 
 interface PublishToCommunityOptions {
+    expected_skill_id: string
     expected_version: number
     display_name?: string
     tags?: string[]
@@ -91,81 +91,6 @@ export function publishToCommunityDisabledReason({
     return undefined
 }
 
-/** What the pending publish sends: the destination repo, the version, and every file in the commit. */
-function PublishToCommunityContents({
-    skillName,
-    onVersionChange,
-}: {
-    skillName: string
-    onVersionChange: (version: number | null) => void
-}): JSX.Element {
-    const { publishPreview, publishPreviewLoading } = useValues(skillPublishPreviewLogic({ skillName }))
-    const { loadPublishPreview } = useActions(skillPublishPreviewLogic({ skillName }))
-
-    useEffect(() => {
-        onVersionChange(publishPreview?.version ?? null)
-    }, [onVersionChange, publishPreview?.version])
-
-    return (
-        <>
-            <div className="flex flex-col gap-1 rounded border p-2 bg-primary-highlight">
-                <div className="flex items-center gap-2">
-                    <span className="font-semibold">Visibility</span>
-                    <span>Public on GitHub</span>
-                    <LemonTag type="danger">Public</LemonTag>
-                </div>
-                {publishPreviewLoading ? (
-                    <LemonSkeleton active className="h-4 w-3/5" />
-                ) : publishPreview ? (
-                    <>
-                        <div>
-                            <span className="font-semibold">Version</span> v{publishPreview.version}
-                        </div>
-                        <LemonCollapse
-                            embedded
-                            size="small"
-                            panels={[
-                                {
-                                    key: 'files',
-                                    header: 'Review files',
-                                    content: (
-                                        <ul className="m-0 pl-4 list-disc font-mono text-xs max-h-40 overflow-y-auto">
-                                            <li>SKILL.md</li>
-                                            {publishPreview.files.map((file) => (
-                                                <li key={file.path}>{file.path}</li>
-                                            ))}
-                                        </ul>
-                                    ),
-                                },
-                            ]}
-                        />
-                    </>
-                ) : (
-                    <div className="flex items-center gap-2">
-                        <span className="text-secondary">Could not load the version and file list.</span>
-                        <LemonButton size="small" onClick={loadPublishPreview}>
-                            Retry
-                        </LemonButton>
-                    </div>
-                )}
-            </div>
-            <LemonField name="consent">
-                {({ value, onChange }) => (
-                    <LemonCheckbox
-                        checked={!!value}
-                        onChange={onChange}
-                        disabledReason={
-                            !publishPreview ? 'Wait for the version and file list before you publish' : undefined
-                        }
-                        data-attr="llma-publish-consent"
-                        label="I reviewed this skill and can share it publicly"
-                    />
-                )}
-            </LemonField>
-        </>
-    )
-}
-
 /** Collect the publish fields, then hand them to `onPublish`. Shared so the list view and the
  * single-skill view open the identical dialog. */
 export function openPublishToCommunityDialog({
@@ -177,7 +102,7 @@ export function openPublishToCommunityDialog({
     githubLogin: string | null
     onPublish: (skillName: string, options: PublishToCommunityOptions) => void
 }): void {
-    let expectedVersion: number | null = null
+    let expectedSkill: { id: string; version: number } | null = null
 
     LemonDialog.openForm({
         title: 'Publish to the PostHog community?',
@@ -194,8 +119,8 @@ export function openPublishToCommunityDialog({
             <div className="flex flex-col gap-2">
                 <PublishToCommunityContents
                     skillName={skillName}
-                    onVersionChange={(version) => {
-                        expectedVersion = version
+                    onPreviewChange={(preview) => {
+                        expectedSkill = preview ? { id: preview.id, version: preview.version } : null
                     }}
                 />
                 <LemonField name="display_name" label="Display name">
@@ -215,11 +140,12 @@ export function openPublishToCommunityDialog({
         },
         primaryButtonProps: { children: 'Publish to community' },
         onSubmit: ({ display_name, tags, author_handle }) => {
-            if (expectedVersion === null) {
+            if (expectedSkill === null) {
                 return
             }
             onPublish(skillName, {
-                expected_version: expectedVersion,
+                expected_skill_id: expectedSkill.id,
+                expected_version: expectedSkill.version,
                 display_name: display_name?.trim() || undefined,
                 tags: tags
                     ? tags
