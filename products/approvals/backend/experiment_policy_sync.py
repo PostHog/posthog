@@ -72,15 +72,16 @@ def sync_experiment_policies() -> None:
                 continue
 
             stale = [field for field, value in fields.items() if getattr(mirror, field) != value]
-            if stale:
-                for field in stale:
-                    setattr(mirror, field, fields[field])
-                mirror.save(update_fields=[*stale, "updated_at"])
-            if set(mirror.bypass_roles.values_list("id", flat=True)) != roles:
+            roles_changed = set(mirror.bypass_roles.values_list("id", flat=True)) != roles
+            if not stale and not roles_changed:
+                continue
+
+            for field in stale:
+                setattr(mirror, field, fields[field])
+            mirror.save(update_fields=[*stale, "updated_at"])
+            if roles_changed:
                 mirror.bypass_roles.set(roles)
-                stale.append("bypass_roles")
-            if stale:
-                updated += 1
+            updated += 1
 
         orphans = [
             mirror
