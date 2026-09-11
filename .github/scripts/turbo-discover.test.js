@@ -20,6 +20,7 @@ const {
     DJANGO_SEGMENTS,
     getIsolatedProducts,
     getTestOnlyProducts,
+    testOnlyNarrowingAllowed,
     changedFilesSinceBase,
 } = require('./turbo-discover')
 
@@ -202,6 +203,22 @@ test('test-only product changes select only their product suites', () => {
     )
     // No tach map, or a file the head tree no longer has: importers unknown.
     assert.equal(getTestOnlyProducts([base], () => null), null)
+})
+
+// Narrowing takes Django off the run, and decideSelection stops looking at the
+// kill switch once Django is off. So the switch has to be honored before the
+// shortcut runs, or flipping the repo variable during an incident cannot put a
+// product test-only PR back on the full matrices.
+test('the kill switch stops the test-only shortcut before it can drop Django', () => {
+    for (const [env, allowed] of [
+        [{ SELECTION_APPLIES: 'true' }, true],
+        [{ SELECTION_APPLIES: 'true', SELECTION_DISABLED: 'false' }, true],
+        [{ SELECTION_APPLIES: 'true', SELECTION_DISABLED: 'true' }, false],
+        [{ SELECTION_APPLIES: 'false', SELECTION_DISABLED: 'true' }, false],
+        [{}, false],
+    ]) {
+        assert.equal(testOnlyNarrowingAllowed(env), allowed, JSON.stringify(env))
+    }
 })
 
 // Git reports a pure move as its new path alone, which reads as a test-only

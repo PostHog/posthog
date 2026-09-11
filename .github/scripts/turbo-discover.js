@@ -373,6 +373,17 @@ function getTestOnlyProducts(changedFiles, dependentsOf) {
     return [...products].sort()
 }
 
+// Whether this run may narrow to the changed products' test suites at all.
+// SELECTION_APPLIES keeps the shortcut off the merge queue and off a forced run,
+// and the DISABLE_BACKEND_TEST_SELECTION kill switch has to be read here too.
+// decideSelection returns early when runLegacy is false, before it reaches its
+// own `disabled` check, so a run this shortcut has already taken Django off
+// cannot be put back on the full matrices by the repo variable. Reading it here
+// keeps the promise the variable is documented with.
+function testOnlyNarrowingAllowed(env = process.env) {
+    return env.SELECTION_APPLIES === 'true' && env.SELECTION_DISABLED !== 'true'
+}
+
 // Rename detection stays off, the same way deletedProductPythonFiles turns it
 // off. Git reports a pure move as its new path alone, so a production module
 // moved into a test directory would read as a test-only change while the module
@@ -1336,6 +1347,7 @@ module.exports = {
     loadTachModuleGraph,
     tachDependents,
     getTestOnlyProducts,
+    testOnlyNarrowingAllowed,
     changedFilesSinceBase,
 }
 
@@ -1399,10 +1411,9 @@ if (legacyChanged) {
     const isolatedProducts = getIsolatedProducts(contractTasks)
     const affectedProducts = getAffectedTaskProducts(affectedTestTasks)
     const nonIsolatedAffectedProducts = affectedProducts.filter((p) => !isolatedProducts.has(p))
-    const testOnlyProducts =
-        process.env.SELECTION_APPLIES === 'true'
-            ? getTestOnlyProducts(changedFilesSinceBase() || [], tachFileDependents())
-            : null
+    const testOnlyProducts = testOnlyNarrowingAllowed()
+        ? getTestOnlyProducts(changedFilesSinceBase() || [], tachFileDependents())
+        : null
     const onlyAffectedProductTestsChanged =
         testOnlyProducts !== null &&
         testOnlyProducts.length === affectedProducts.length &&
