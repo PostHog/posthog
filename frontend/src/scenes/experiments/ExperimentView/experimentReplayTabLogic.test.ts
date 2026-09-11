@@ -58,8 +58,12 @@ const BUCKET_RESPONSE = {
     truncated: false,
     considered_metrics: [{ metric_uuid: 'metric-purchase', metric_name: 'Purchase' }],
     excluded_metrics: [],
-    date_from: '2026-01-01T00:00:00Z',
-    date_to: '2026-02-01T00:00:00Z',
+    // Read against today, like the run windows below. A fixed scan window would age past the
+    // project's retention and start naming a different empty reason.
+    date_from: dayjs()
+        .subtract(30 * 24, 'hour')
+        .toISOString(),
+    date_to: dayjs().toISOString(),
     filter_test_accounts: true,
 }
 
@@ -220,6 +224,22 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
             ;(experimentsSessionBucketsCreate as jest.Mock).mockResolvedValue({
                 ...BUCKET_RESPONSE,
                 session_ids: ['bucket-session'],
+            })
+            logic.actions.setMetricSelected('metric-purchase', true)
+            logic.actions.setMetricFilterMode('no_metric_activity')
+        },
+    },
+    {
+        // A running experiment whose exposures stopped. The filter's window is anchored back
+        // there, so retention explains the empty list and changing the filter cannot.
+        reason: ExperimentReplayListEmptyReason.EndedPastRetention,
+        experimentId: 148,
+        experiment: { start_date: daysAgo(120), end_date: null },
+        setup: (logic) => {
+            ;(experimentsSessionBucketsCreate as jest.Mock).mockResolvedValue({
+                ...BUCKET_RESPONSE,
+                session_ids: [],
+                date_to: daysAgo(60),
             })
             logic.actions.setMetricSelected('metric-purchase', true)
             logic.actions.setMetricFilterMode('no_metric_activity')

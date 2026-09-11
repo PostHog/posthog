@@ -155,6 +155,28 @@ const REASON_CASES: ReasonCase[] = [
         actions: [],
     },
     {
+        // A running experiment whose exposures stopped, so the filter's window sits behind
+        // retention. Naming the run's end here would print no date at all.
+        reason: ExperimentReplayListEmptyReason.EndedPastRetention,
+        experimentId: 214,
+        experiment: { start_date: daysAgo(120), end_date: null },
+        setup: (logic) => {
+            ;(experimentsSessionBucketsCreate as jest.Mock).mockResolvedValue({
+                session_ids: [],
+                truncated: false,
+                considered_metrics: [],
+                excluded_metrics: [],
+                date_from: daysAgo(90),
+                date_to: daysAgo(60),
+                filter_test_accounts: true,
+            })
+            logic.actions.setMetricSelected('metric-purchase', true)
+            logic.actions.setMetricFilterMode('no_metric_activity')
+        },
+        copy: 'This filter only covers sessions up to',
+        actions: ['experiment-recordings-empty-retention-docs'],
+    },
+    {
         reason: ExperimentReplayListEmptyReason.MetricFilterFailed,
         experimentId: 206,
         experiment: { start_date: daysAgo(10), end_date: null },

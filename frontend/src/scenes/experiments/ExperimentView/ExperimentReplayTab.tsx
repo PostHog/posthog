@@ -510,7 +510,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                     <span>Finding matching sessions…</span>
                 ) : (
                     <span data-attr="experiment-recordings-bucket-caption">
-                        {bucketCaption(sessionBucket, experiment.start_date)}
+                        {bucketCaption(sessionBucket, experiment.start_date ?? null)}
                     </span>
                 )}
             </div>

@@ -96,10 +96,8 @@ logger = logging.getLogger(__name__)
 MAX_SESSION_BUCKET_LIMIT = 100
 # The scan reads every session in the window, not a known id list, so the window is what bounds
 # it. It ends at the latest in-session exposure rather than at now, because an experiment whose
-# exposures slowed down or stopped more than this many days ago has nothing left in its recent
-# days: a window anchored on now would read an empty stretch of time and answer "no sessions
-# matched" for every bucket. Recency-ordered output capped at 100 means older sessions could not
-# surface anyway, so the length itself costs little, but it must be stated wherever the bucket is.
+# exposures stopped has nothing left in its recent days. The response carries the window it read,
+# because a clamped scan has to state what it left out.
 MAX_BUCKET_SCAN_DAYS = 30
 # Rows fetched before filtering to sessions that actually have a recording, so the cap isn't
 # spent on sessions sampled out of replay.
@@ -302,8 +300,7 @@ def get_experiment_session_bucket(
     if cached is not None:
         return cached
 
-    # One virtual database for both scans below. Building it is the expensive part, the contexts
-    # stay per-query, and both scans read only `events` — the conditions the class docstring sets.
+    # Shared by both scans below, which read only `events` — the condition its docstring sets.
     modifiers = create_default_modifiers_for_team(team)
     shared_hogql = SharedHogQLDatabase(
         # Postgres foreign-key lazy joins are the most expensive part of building the virtual
@@ -322,11 +319,10 @@ def get_experiment_session_bucket(
         shared_hogql=shared_hogql,
     )
     if anchored_end is None:
-        # Nothing in the whole run carries in-session exposure evidence, so there is no session to
-        # classify and nothing to anchor a window on. Report the window the clamp alone describes,
-        # and skip the bucket query, which could only return the same empty list.
+        # The anchor read the whole run and found no in-session exposure, so no older stretch went
+        # unread: the window to report is the run itself, and the bucket query would return [].
+        window_start = experiment.start_date
         window_end = run_end
-        window_start = max(experiment.start_date, run_end - timedelta(days=MAX_BUCKET_SCAN_DAYS))
         candidate_session_ids: list[str] = []
         scan_hit_cap = False
     else:
@@ -362,6 +358,31 @@ def get_experiment_session_bucket(
     return result
 
 
+def _restriction_signature(team: Team, user: User) -> str:
+    """The viewer's property restrictions, as a cache-key fragment.
+
+    Restrictions are compiled into the SQL, so unlike recording access they can't be re-filtered on
+    read; a restriction change has to miss the cache instead.
+    """
+    return json.dumps(
+        [
+            {
+                "name": restriction.name,
+                "property_type": restriction.property_type,
+                "group_type_index": restriction.group_type_index,
+            }
+            for restriction in sorted(
+                get_restricted_properties_with_group_type_index_for_team(user=user, team=team),
+                key=lambda restriction: (
+                    restriction.name,
+                    restriction.property_type,
+                    restriction.group_type_index if restriction.group_type_index is not None else -1,
+                ),
+            )
+        ]
+    )
+
+
 def _cache_key(
     team: Team,
     user: User,
@@ -382,11 +403,9 @@ def _cache_key(
             bucket.value,
             sorted(metric.metric_uuid for metric in considered),
             variant,
-            # The run window, not the scanned one. The scanned window is a function of the data
-            # inside the run window, so keying on it would mean resolving the anchor before every
-            # lookup, cache hits included. The run end moves with wall-clock time on a running
-            # experiment; rounding to the minute keeps a burst of requests on one entry without
-            # pinning a stale window.
+            # The run window, not the scanned one, which is a function of the data inside it:
+            # keying on that would mean resolving the anchor before every lookup, hits included.
+            # Rounded to the minute so a burst of requests shares one entry as the run end moves.
             run_start.replace(second=0, microsecond=0).isoformat(),
             run_end.replace(second=0, microsecond=0).isoformat(),
             # Part of the key even though the cut happens on read: the scan over-fetches a
@@ -395,27 +414,49 @@ def _cache_key(
             # The rollout flag can flip which event the default exposure reads mid-window, and a
             # scan computed on the other event must not be served after the flip.
             default_exposure_event,
-            # Property restrictions are compiled into the SQL, so unlike recording access they
-            # can't be re-filtered on read; a restriction change has to miss the cache instead.
-            [
-                {
-                    "name": restriction.name,
-                    "property_type": restriction.property_type,
-                    "group_type_index": restriction.group_type_index,
-                }
-                for restriction in sorted(
-                    get_restricted_properties_with_group_type_index_for_team(user=user, team=team),
-                    key=lambda restriction: (
-                        restriction.name,
-                        restriction.property_type,
-                        restriction.group_type_index if restriction.group_type_index is not None else -1,
-                    ),
-                )
-            ],
+            _restriction_signature(team, user),
         ]
     )
     digest = hashlib.sha256(spec.encode()).hexdigest()[:16]
     return f"experiment_session_bucket_v5_{team.pk}_{user.pk}_{experiment.pk}_{digest}"
+
+
+def _anchor_cache_key(
+    team: Team,
+    user: User,
+    experiment: Experiment,
+    *,
+    variant_keys: list[str],
+    run_end: datetime,
+    exposure: SessionExposure,
+) -> str:
+    """Per (team, viewer, experiment, exposure, variants, run window).
+
+    Deliberately narrower than the bucket key: the anchor is the same timestamp whichever bucket or
+    metrics are asked for, so every mode and metric switch on one experiment shares this entry
+    rather than paying for the scan again.
+    """
+    spec = json.dumps(
+        [
+            variant_keys,
+            experiment.start_date.replace(second=0, microsecond=0).isoformat(),
+            run_end.replace(second=0, microsecond=0).isoformat(),
+            exposure.default_exposure_event,
+            exposure.variant_property,
+            exposure.used_fallback,
+            _restriction_signature(team, user),
+        ]
+    )
+    digest = hashlib.sha256(spec.encode()).hexdigest()[:16]
+    return f"experiment_session_bucket_anchor_v1_{team.pk}_{user.pk}_{experiment.pk}_{digest}"
+
+
+@dataclass(frozen=True)
+class _WindowAnchor:
+    """A resolved scan-window end, wrapped so that a cached "no exposure in the run" reads as a
+    cache hit rather than a miss."""
+
+    window_end: Optional[datetime]
 
 
 def _resolve_window_end(
@@ -441,16 +482,34 @@ def _resolve_window_end(
         # list refuses exactly this scan on these teams, so keep the recent-to-now window instead
         # of buying the anchor at that price.
         return run_end
-    latest = _latest_session_exposure_at(
-        team,
-        user,
-        experiment,
-        exposure=exposure,
-        variant_keys=variant_keys,
-        run_end=run_end,
-        shared_hogql=shared_hogql,
-    )
-    return None if latest is None else min(run_end, latest + timedelta(hours=MAX_SESSION_DURATION_HOURS))
+
+    cache_key = _anchor_cache_key(team, user, experiment, variant_keys=variant_keys, run_end=run_end, exposure=exposure)
+    cached = get_safe_cache(cache_key)
+    if cached is not None:
+        return cached.window_end
+
+    def latest_from(window_start: datetime) -> Optional[datetime]:
+        return _latest_session_exposure_at(
+            team,
+            user,
+            experiment,
+            exposure=exposure,
+            variant_keys=variant_keys,
+            window_start=window_start,
+            window_end=run_end,
+            shared_hogql=shared_hogql,
+        )
+
+    # The recent stretch first, and it settles the anchor on its own whenever it holds an exposure:
+    # every exposure outside it is older than every exposure inside it, so its latest is the run's
+    # latest. An experiment with current traffic therefore never reads its older days.
+    recent_start = max(experiment.start_date, run_end - timedelta(days=MAX_BUCKET_SCAN_DAYS))
+    latest = latest_from(recent_start)
+    if latest is None and recent_start > experiment.start_date:
+        latest = latest_from(experiment.start_date)
+    window_end = None if latest is None else min(run_end, latest + timedelta(hours=MAX_SESSION_DURATION_HOURS))
+    safe_cache_set(cache_key, _WindowAnchor(window_end=window_end), timeout=SESSION_BUCKET_CACHE_TTL)
+    return window_end
 
 
 def _latest_session_exposure_at(
@@ -460,10 +519,11 @@ def _latest_session_exposure_at(
     *,
     exposure: SessionExposure,
     variant_keys: list[str],
-    run_end: datetime,
+    window_start: datetime,
+    window_end: datetime,
     shared_hogql: SharedHogQLDatabase,
 ) -> Optional[datetime]:
-    """When a session last carried exposure evidence in this run, or None when none ever did.
+    """When a session last carried exposure evidence in this window, or None when none did.
 
     The same exposure condition, variant keys and test-account filter the bucket query gets, so the
     anchor is the latest exposure that query could count rather than a wider one. `count()` rides
@@ -481,12 +541,12 @@ def _latest_session_exposure_at(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=experiment.start_date),
+                    right=ast.Constant(value=window_start),
                 ),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
                     left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=run_end),
+                    right=ast.Constant(value=window_end),
                 ),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.NotEq, left=ast.Field(chain=["$session_id"]), right=ast.Constant(value="")
