@@ -210,6 +210,7 @@ def search_entities(
     # The merged page takes at most `cap` rows from any one entity, so the cap costs no results.
     cap = offset + limit
     rows: list[dict[str, Any]] = []
+    saturated: list[tuple[str, str, QuerySet[Any]]] = []
     deadline = monotonic() + SEARCH_BUDGET_MS / 1000
     order_by = "-rank" if query else F("_sort_name").asc(nulls_first=True)
 
@@ -234,11 +235,15 @@ def search_entities(
             rows.extend(entity_rows)
             if include_counts:
                 # A short page is already the whole result set, so fetching it has done the count.
-                counts[entity_name] = (
-                    len(entity_rows)
-                    if len(entity_rows) < cap
-                    else _run_bounded(entity_name, alias, deadline, klass_qs.count)
-                )
+                if len(entity_rows) < cap:
+                    counts[entity_name] = len(entity_rows)
+                else:
+                    saturated.append((entity_name, alias, klass_qs))
+
+        # Count last. A count that spends what is left of the budget would otherwise cost a later
+        # entity its rows, and the rows are what the caller came for.
+        for entity_name, alias, klass_qs in saturated:
+            counts[entity_name] = _run_bounded(entity_name, alias, deadline, klass_qs.count)
 
     if query:
         rows.sort(key=lambda row: row["rank"], reverse=True)

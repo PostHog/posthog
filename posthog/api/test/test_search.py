@@ -328,6 +328,20 @@ class TestSearch(APIBaseTest):
         assert counts["dashboard"] == 1
         assert total_count is None  # the dropped entity's rows are missing from the total too
 
+    def test_every_page_is_fetched_before_any_count_runs(self):
+        with CaptureQueriesContext(connection) as ctx:
+            search_entities(
+                entities={"insight", "dashboard"},
+                query="sec",
+                project_id=self.team.project_id,
+                view=self._mock_view(),
+                entity_map=ENTITY_MAP,
+                limit=1,  # both entities fill the page, so both need a count query
+            )
+
+        selects = [query["sql"] for query in ctx.captured_queries if query["sql"].startswith("SELECT")]
+        assert ["COUNT(" in select for select in selects] == [False, False, True, True]
+
     def test_a_spent_budget_skips_the_remaining_entities(self):
         with patch.object(search_module, "SEARCH_BUDGET_MS", 0):
             results, counts, total_count = search_entities(
