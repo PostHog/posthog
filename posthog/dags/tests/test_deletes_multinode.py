@@ -25,7 +25,7 @@ from posthog.storage import object_storage
 
 pytestmark = [
     pytest.mark.django_db,
-    pytest.mark.timeout(180),
+    pytest.mark.timeout(180, func_only=True),
     pytest.mark.skipif(os.getenv("TEST_MULTINODE_DELETES") != "1", reason="Requires docker-compose.deletes-test.yml"),
 ]
 
