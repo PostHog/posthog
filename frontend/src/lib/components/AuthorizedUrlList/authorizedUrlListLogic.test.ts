@@ -143,6 +143,23 @@ describe('the authorized urls list logic', () => {
     })
 
     describe('checkUrlIsAuthorized', () => {
+        it('rejects a five-wildcard nonmatch', () => {
+            expect(
+                checkUrlIsAuthorized(`https://${'a'.repeat(2000)}.example`, [`https://${'*a'.repeat(5)}b.example`])
+            ).toBe(false)
+        })
+
+        it.each([
+            ['http://[::1]:3000', 'http://[::1]:*', true],
+            ['https://a+b.example', 'https://*a+b.example', true],
+            ['https://aaab.example', 'https://*a+b.example', false],
+            ['https://a.example', 'https://*(a|b).example', false],
+            ['https://a.example', 'https://*[ab].example', false],
+            ['https://a.example', 'https://*a?.example', false],
+        ])('treats punctuation literally: %s against %s', (url, authorized, expected) => {
+            expect(checkUrlIsAuthorized(url, [authorized])).toBe(expected)
+        })
+
         const testCases: { url: string; authorized: string[]; expected: boolean }[] = [
             // Legitimate matches
             { url: 'https://example.com', authorized: ['https://example.com'], expected: true },

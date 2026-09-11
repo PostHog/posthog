@@ -1,7 +1,8 @@
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { CSSProperties } from 'react'
 
-import { CLICK_TARGETS, CLICK_TARGET_SELECTOR, TAGS_TO_IGNORE, escapeRegex } from 'lib/utils/actions'
+import { CLICK_TARGETS, CLICK_TARGET_SELECTOR, TAGS_TO_IGNORE } from 'lib/utils/actions'
+import { createWildcardMatcher } from 'lib/utils/wildcard'
 
 import { patch } from '~/toolbar/patch'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
@@ -402,7 +403,7 @@ export function stepMatchesHref(step: ActionStepType, href: string): boolean {
 }
 
 function matchRuleShort(str: string, rule: string): boolean {
-    return new RegExp('^' + rule.split('%').map(escapeRegex).join('.*') + '$').test(str)
+    return createWildcardMatcher(rule, '%')(str)
 }
 
 export function isParentOf(element: HTMLElement, possibleParent: HTMLElement): boolean {

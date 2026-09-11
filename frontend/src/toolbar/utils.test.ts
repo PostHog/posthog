@@ -4,10 +4,37 @@ import {
     elementToQuery,
     joinWithUiHost,
     safeFetch,
+    stepMatchesHref,
     unescapeCssSelector,
 } from './utils'
 
 describe('utils', () => {
+    describe('stepMatchesHref', () => {
+        it('rejects repeated wildcard nonmatches', () => {
+            expect(stepMatchesHref({ url_matching: 'contains', url: '%a'.repeat(24) + 'b' }, 'a'.repeat(2000))).toBe(
+                false
+            )
+        })
+
+        it.each<[string | undefined, string, string, boolean]>([
+            ['contains', 'a%b', 'prefix-a-middle-b-suffix', true],
+            ['contains', 'a.b', 'aXb', false],
+            ['contains', 'a', 'a\n', false],
+            ['contains', 'a', '\ra', false],
+            ['contains', 'a', 'a\u2028', false],
+            ['contains', 'a', 'a\u2029', false],
+            ['contains', 'a\nb', 'prefix-a\nb-suffix', true],
+            ['contains', '\ud83d', '\ud83d\ude00', true],
+            ['exact', 'a%b', 'a-middle-b', false],
+            ['exact', 'a\n', 'a\n', true],
+            [undefined, 'a', 'b', true],
+            ['contains', '', 'b', true],
+            ['unknown', 'a', 'a', false],
+        ])('%p %p against %p', (url_matching, url, href, expected) => {
+            expect(stepMatchesHref({ url_matching, url } as Parameters<typeof stepMatchesHref>[0], href)).toBe(expected)
+        })
+    })
+
     describe('asNonEmptyString', () => {
         const testCases: Array<{ input: unknown; expected: string | null }> = [
             { input: 'hello', expected: 'hello' },

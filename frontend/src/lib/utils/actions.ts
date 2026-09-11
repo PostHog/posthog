@@ -1,5 +1,7 @@
 import { ElementType } from '~/types'
 
+import { createWildcardMatcher } from './wildcard'
+
 // these plus any element with cursor:pointer will be click targets
 export const CLICK_TARGETS = ['a', 'button', 'input', 'select', 'textarea']
 export const EXPERIMENT_TARGETS = [
@@ -46,8 +48,8 @@ export function matchesDataAttribute(element: ElementType, dataAttributes: strin
         return
     }
     for (const attribute of dataAttributes) {
-        const regex = new RegExp(`^attr__${attribute.split('*').map(escapeRegex).join('.*')}$`)
-        const match = Object.keys(element.attributes).find((a) => regex.test(a))
+        const matches = createWildcardMatcher(`attr__${attribute}`)
+        const match = Object.keys(element.attributes).find(matches)
         if (match) {
             return match.replace(/^attr__/, '')
         }

@@ -36,6 +36,100 @@ function capturesOf(event: string): any[][] {
 describe('flagMatchesSearch', () => {
     const flag = { ...NEW_FLAG, id: 1, key: 'my-feature', name: 'My Feature Flag' } as FeatureFlagType
 
+    it('rejects repeated separator nonmatches', () => {
+        expect(flagMatchesSearch({ ...flag, key: '-'.repeat(2000), name: '' }, '- '.repeat(24) + 'b')).toBe(false)
+    })
+
+    it('matches across experiment names while ignoring missing names', () => {
+        const experimentFlag = {
+            ...flag,
+            name: null,
+            experiment_set_metadata: [
+                { id: 1, name: 'first', is_running: false },
+                { id: 2, name: null, is_running: false },
+                { id: 3, name: undefined, is_running: false },
+                { id: 4, name: 'second', is_running: false },
+            ],
+        } as unknown as FeatureFlagType
+        expect(flagMatchesSearch(experimentFlag, 'first second')).toBe(true)
+        expect(flagMatchesSearch(experimentFlag, null as any)).toBe(true)
+        expect(flagMatchesSearch(experimentFlag, 'missing')).toBe(false)
+    })
+
+    it.each([
+        ['Σ', 'ς', true],
+        ['ς', 'σ', true],
+        ['ſ', 's', false],
+        ['K', 'k', true],
+        ['İ', 'i\u0307', true],
+        ['ß', 'ss', false],
+        ['a-_-b', 'a - _ b', true],
+        ['ab', 'a\u00a0b', true],
+        ['a\u2028_b', 'a b', true],
+        ['aXb', 'a b', false],
+        ['x.*[a]', '.*[a]', true],
+        ['anything', '\t \n', true],
+        ['\ud83d\ude00', '\ud83d', true],
+    ])('preserves search grammar for %p and %p', (key, search, expected) => {
+        expect(flagMatchesSearch({ ...flag, key, name: '' }, search)).toBe(expected)
+    })
+
+    it('agrees with the escaped regex grammar on seeded short Unicode inputs', () => {
+        let seed = 71023
+        const alphabet = [
+            'a',
+            'b',
+            '-',
+            '_',
+            ' ',
+            '\t',
+            '\n',
+            '\u00a0',
+            '\u2028',
+            'Σ',
+            'ς',
+            'ſ',
+            'K',
+            'İ',
+            'ß',
+            '.',
+            '*',
+            '[',
+            '\\',
+            '\ud83d',
+            '\ude00',
+        ]
+        const random = (): number => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0)
+        const word = (): string => {
+            const length = random() % 9
+            return Array.from({ length }, () => alphabet[random() % alphabet.length]).join('')
+        }
+        for (let index = 0; index < 600; index++) {
+            const key = word()
+            const name = word()
+            const experimentName = word()
+            const search = index % 3 === 0 ? key.slice(0, 3) : word()
+            const pattern = search
+                .trim()
+                .toLowerCase()
+                .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+                .replace(/\s+/g, '[\\s\\-_]*')
+            const regex = new RegExp(pattern, 'i')
+            const expected = [key, name, experimentName].some((value) => regex.test(value.toLowerCase()))
+            expect(
+                flagMatchesSearch(
+                    {
+                        ...flag,
+                        key,
+                        name,
+                        experiment_set_metadata: [{ id: 1, name: experimentName, is_running: false }],
+                    },
+                    search
+                )
+            ).toBe(expected)
+        }
+    })
+
     it.each<[string | undefined, boolean]>([
         [undefined, true],
         ['my', true],

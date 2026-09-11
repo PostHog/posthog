@@ -24,6 +24,7 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { isDomain, isURL } from 'lib/utils/url'
+import { createWildcardMatcher } from 'lib/utils/wildcard'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -206,12 +207,7 @@ export const checkUrlIsAuthorized = (url: string | URL, authorizedUrls: string[]
             // pattern with ^…$ so a `*` cannot match a suffix of an unrelated origin such as
             // `https://app.example.com.evil.com`.
             if (authorizedUrl.includes('*')) {
-                try {
-                    const regex = new RegExp('^' + authorizedUrl.replace(/\./g, '\\.').replace(/\*/g, '.*') + '$')
-                    return regex.test(urlWithoutPath)
-                } catch {
-                    return false
-                }
+                return createWildcardMatcher(authorizedUrl)(urlWithoutPath)
             }
 
             // Exact entries: compare by origin (protocol + host) instead of a substring check, so a

@@ -27,6 +27,41 @@ export const FLAGS_PER_PAGE = 100
 // The search input caps at the same length so the client and server agree.
 export const FEATURE_FLAG_SEARCH_MAX_LENGTH = 200
 
+function canonicalSearchCharacter(character: string): string {
+    const upper = character.toUpperCase()
+    // Non-Unicode RegExp /i excludes multi-unit and non-ASCII-to-ASCII uppercase mappings.
+    return upper.length !== 1 || (character.charCodeAt(0) >= 128 && upper.charCodeAt(0) < 128) ? character : upper
+}
+
+function createFlagSearchMatcher(searchValue: string): (value: string) => boolean {
+    const tokens = searchValue
+        .replace(/\s+/g, ' ')
+        .split('')
+        .map((character) => (character === ' ' ? null : canonicalSearchCharacter(character)))
+    return (value) => {
+        // Track matching prefixes together so separator runs cannot cause backtracking.
+        const states = new Uint8Array(tokens.length + 1)
+        states[0] = 1
+        for (let offset = 0; offset < value.length; offset++) {
+            const character = canonicalSearchCharacter(value[offset])
+            const separator = /[\s\-_]/.test(character)
+            let previous = states[0]
+            for (let index = 1; index <= tokens.length; index++) {
+                const saved = states[index]
+                states[index] =
+                    tokens[index - 1] === null
+                        ? Number(Boolean(states[index - 1] || (saved && separator)))
+                        : Number(Boolean(previous && tokens[index - 1] === character))
+                previous = saved
+            }
+            if (states[tokens.length]) {
+                return true
+            }
+        }
+        return false
+    }
+}
+
 export function flagMatchesSearch(flag: FeatureFlagType, search?: string): boolean {
     if (!search?.trim()) {
         return true
@@ -43,19 +78,8 @@ export function flagMatchesSearch(flag: FeatureFlagType, search?: string): boole
             .filter(Boolean)
             .join(' ') || ''
 
-    // Use regex pattern matching like the backend - escape metacharacters then replace spaces with word boundary pattern
-    const escapedSearchValue = searchValue.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const regexPattern = escapedSearchValue.replace(/\s+/g, '[\\s\\-_]*')
-
-    try {
-        const regex = new RegExp(regexPattern, 'i')
-        return regex.test(keyLower) || regex.test(nameLower) || regex.test(experimentNames)
-    } catch {
-        // Fallback to simple case-insensitive substring search if regex fails
-        return (
-            keyLower.includes(searchValue) || nameLower.includes(searchValue) || experimentNames.includes(searchValue)
-        )
-    }
+    const matches = createFlagSearchMatcher(searchValue)
+    return matches(keyLower) || matches(nameLower) || matches(experimentNames)
 }
 
 export function flagMatchesStatus(flag: FeatureFlagType, active?: string): boolean {
