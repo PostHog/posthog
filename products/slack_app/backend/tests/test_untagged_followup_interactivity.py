@@ -1,5 +1,7 @@
 import json
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from unittest.mock import MagicMock, patch
@@ -130,11 +132,19 @@ class TestUntaggedFollowupInteractivity(TestCase):
             headers={"x-slack-signature": signed.signature, "x-slack-request-timestamp": signed.timestamp},
         )
 
-    def _stub_slack_user_email(self, email: str) -> Any:
-        return patch(
-            "products.slack_app.backend.api.get_slack_user_info",
-            return_value={"user": {"profile": {"email": email}}},
-        )
+    @contextmanager
+    def _stub_slack_user_email(self, email: str) -> Iterator[None]:
+        # Both the email lookup and the workspace check read the profile, each through the
+        # name bound in its own module, so the stub has to cover both bindings.
+        payload = {"user": {"team_id": self.slack_team_id, "profile": {"email": email}}}
+        with (
+            patch("products.slack_app.backend.api.get_slack_user_info", return_value=payload),
+            patch(
+                "products.slack_app.backend.services.slack_user_info.get_slack_user_info",
+                return_value=payload,
+            ),
+        ):
+            yield
 
     def test_confirmation_dispatches_the_original_message(self, mock_slack_cls, mock_post):
         mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}

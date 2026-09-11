@@ -230,6 +230,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
             email=email,
             display_name="Dev",
             real_name="Dev User",
+            is_workspace_member=True,
             refreshed_at=timezone.now(),
         )
 
@@ -1315,6 +1316,7 @@ class TestChannelApprovalGate(TestCase):
             email="dev@example.com",
             display_name="Dev",
             real_name="Dev User",
+            is_workspace_member=True,
             refreshed_at=timezone.now(),
         )
         self.event = {
@@ -1633,6 +1635,7 @@ class TestQueueWorkflowDispatch(TestCase):
             email="dev@example.com",
             display_name="Dev",
             real_name="Dev User",
+            is_workspace_member=True,
             refreshed_at=timezone.now(),
         )
 

@@ -42,6 +42,23 @@ SLACK_CHANNELS_PAGE_SIZE = 1000
 SLACK_CHANNELS_MAX_PAGES = 10
 
 
+def slack_member_belongs_to_workspace(member: dict, slack_team_id: str | None) -> bool:
+    """Whether a ``users.info``/``users.list`` member's home workspace is ``slack_team_id``.
+
+    Slack also surfaces Connect externals the bot shares a channel with (users.info always,
+    users.list depending on workspace shape), so reject members whose home workspace isn't
+    this integration's: internal scout/DM output must never be routable outside the
+    connected workspace, and an external member's profile email must never be matched
+    against the connected organization's members. Enterprise Grid members may carry another
+    primary team_id while still belonging to this workspace via enterprise_user.teams.
+    """
+    member_team_id = member.get("team_id")
+    enterprise_teams = (member.get("enterprise_user") or {}).get("teams") or []
+    return not member.get("is_stranger") and (
+        member_team_id is None or member_team_id == slack_team_id or slack_team_id in enterprise_teams
+    )
+
+
 class SlackIntegration:
     integration: model.Integration
 
@@ -163,18 +180,7 @@ class SlackIntegration:
             raise
 
     def _belongs_to_workspace(self, member: dict) -> bool:
-        # Slack also surfaces Connect externals the bot shares a channel with (users.info always,
-        # users.list depending on workspace shape), so reject members whose home workspace isn't
-        # this integration's: internal scout/DM output must never be routable outside the
-        # connected workspace. Enterprise Grid members may carry another primary team_id while
-        # still belonging to this workspace via enterprise_user.teams.
-        member_team_id = member.get("team_id")
-        enterprise_teams = (member.get("enterprise_user") or {}).get("teams") or []
-        return not member.get("is_stranger") and (
-            member_team_id is None
-            or member_team_id == self.integration.integration_id
-            or self.integration.integration_id in enterprise_teams
-        )
+        return slack_member_belongs_to_workspace(member, self.integration.integration_id)
 
     @staticmethod
     def _is_dmable_user(member: dict) -> bool:

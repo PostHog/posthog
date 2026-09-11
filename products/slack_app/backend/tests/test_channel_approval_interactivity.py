@@ -1,5 +1,7 @@
 import json
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from unittest.mock import patch
@@ -113,11 +115,19 @@ class TestChannelApprovalInteractivity(_ChannelApprovalTestBase):
     def _set_signing_secret(self, mock_slack_cls: Any) -> None:
         mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
 
-    def _stub_slack_user_email(self, email: str) -> Any:
-        return patch(
-            "products.slack_app.backend.api.get_slack_user_info",
-            return_value={"user": {"profile": {"email": email}}},
-        )
+    @contextmanager
+    def _stub_slack_user_email(self, email: str) -> Iterator[None]:
+        # Both the email lookup and the workspace check read the profile, each through the
+        # name bound in its own module, so the stub has to cover both bindings.
+        payload = {"user": {"team_id": self.slack_team_id, "profile": {"email": email}}}
+        with (
+            patch("products.slack_app.backend.api.get_slack_user_info", return_value=payload),
+            patch(
+                "products.slack_app.backend.services.slack_user_info.get_slack_user_info",
+                return_value=payload,
+            ),
+        ):
+            yield
 
     def _assert_ephemeral_deleted(self, mock_post: Any) -> None:
         # Every click outcome cleans up the ephemeral prompt via ``response_url``.

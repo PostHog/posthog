@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration
@@ -137,6 +139,55 @@ class TestGetSlackEmailForUser:
         # log filter for "needs reconnect" cleanly excludes them.
         assert all("'error_code': None" in r.message for r in failed)
         assert all("'token_broken': False" in r.message for r in failed)
+
+
+class TestWorkspaceGate:
+    """An email only identifies a PostHog user when the workspace PostHog is installed in
+    vouches for it. Slack Connect also answers ``users.info`` for members of other
+    workspaces, whose profile — and so whose email — a foreign admin controls."""
+
+    @pytest.mark.parametrize(
+        ("user_fields", "expected_email"),
+        [
+            pytest.param({"team_id": "T12345"}, "dev@example.com", id="same_workspace"),
+            pytest.param({}, "dev@example.com", id="no_team_id_reported"),
+            pytest.param(
+                {"team_id": "T_PRIMARY", "enterprise_user": {"teams": ["T12345"]}},
+                "dev@example.com",
+                id="enterprise_grid_secondary_workspace",
+            ),
+            pytest.param({"team_id": "T_OTHER"}, None, id="slack_connect_external"),
+            pytest.param({"team_id": "T_OTHER", "is_stranger": True}, None, id="stranger"),
+        ],
+    )
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_only_returns_email_for_workspace_members(
+        self, mock_webclient_class, integration, user_fields, expected_email
+    ):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.users_info.return_value = _make_slack_response(
+            {"ok": True, "user": {"id": "U1", "profile": {"email": "dev@example.com"}, **user_fields}}
+        )
+
+        assert get_slack_email_for_user(integration, "U1") == expected_email
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_cached_profile_of_an_external_member_is_still_refused(self, mock_webclient_class, integration):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        # The cached row carries the email but also the verdict that produced it, so the
+        # gate holds on the cache-hit path without a second Slack call.
+        SlackUserProfileCache.objects.create(
+            integration=integration,
+            slack_user_id="U1",
+            email="dev@example.com",
+            is_workspace_member=False,
+            refreshed_at=timezone.now(),
+        )
+
+        assert get_slack_email_for_user(integration, "U1") is None
+        mock_client.users_info.assert_not_called()
 
 
 class TestAuthStateSideEffects:
