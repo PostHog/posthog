@@ -79,12 +79,13 @@ class QueryPlan(BaseModel):
         max_length=500,
         description="Plain-English summary of what the report will tell the user.",
     )
-    steps: list[QueryPlanStep] = Field(..., min_length=1, max_length=MAX_QUERY_PLAN_STEPS)
+    steps: list[QueryPlanStep] = Field(..., max_length=MAX_QUERY_PLAN_STEPS)
 
 
 class EnrichedPromptSpec(BaseModel):
     cleaned_prompt: str
     context_blob: str
+    formatted_context: str = ""
     plan: QueryPlan
     # Raw event names whose per-event property schema is folded into context_blob. Persisted in the
     # frozen envelope so the reuse path can rebuild the same property-aware blob the fixer needs.

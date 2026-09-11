@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
 
+from django.db import transaction
 from django.db.models import Q
 
 import nh3
@@ -12,6 +13,7 @@ from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
 from slack_sdk.errors import SlackApiError
 
+from posthog.dataclasses import frozen
 from posthog.email import EmailMessage, raise_if_delivery_rejected
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.markdown_safety import strip_external_links_markdown
@@ -21,12 +23,19 @@ from posthog.models.integration import Integration
 from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.exports.backend.facade.api import get_delivery_image_url
 from products.exports.backend.models.subscription import (
     AIQueryPlanStatus,
     Subscription,
     SubscriptionDelivery,
     get_unsubscribe_token,
+)
+from products.exports.backend.models.subscription_context import SubscriptionContext
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
+    MAX_REPORT_CONTEXTS,
+    ReportContextSelection,
+    resolve_report_context,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportResult,
@@ -130,20 +139,23 @@ def _split_text_into_chunks(text: str, limit: int = SLACK_MRKDWN_SECTION_LIMIT) 
 
 def _last_scheduled_report_cutoff(subscription: Subscription) -> datetime | None:
     try:
-        row = (
-            SubscriptionDelivery.objects.filter(
-                subscription_id=subscription.id,
-                status=SubscriptionDelivery.Status.COMPLETED,
-                # Only real scheduled sends move the anchor: a manual "Test delivery" (or an immediate
-                # target-change confirmation) right before a run would otherwise shrink its window to
-                # near-empty — a test is a preview, not a send.
-                trigger_type=SubscriptionTriggerType.SCHEDULED,
-                finished_at__isnull=False,
+        # Savepoint: the caller reads this inside its own transaction, and a statement error left
+        # un-rolled-back would abort every later query there instead of degrading to the fallback.
+        with transaction.atomic():
+            row = (
+                SubscriptionDelivery.objects.filter(
+                    subscription_id=subscription.id,
+                    status=SubscriptionDelivery.Status.COMPLETED,
+                    # Only real scheduled sends move the anchor: a manual "Test delivery" (or an immediate
+                    # target-change confirmation) right before a run would otherwise shrink its window to
+                    # near-empty — a test is a preview, not a send.
+                    trigger_type=SubscriptionTriggerType.SCHEDULED,
+                    finished_at__isnull=False,
+                )
+                .order_by("-finished_at")
+                .values_list("finished_at", "content_snapshot")
+                .first()
             )
-            .order_by("-finished_at")
-            .values_list("finished_at", "content_snapshot")
-            .first()
-        )
         if row is None:
             return None
         finished_at, snapshot = row
@@ -169,29 +181,78 @@ def _last_scheduled_report_cutoff(subscription: Subscription) -> datetime | None
         return None
 
 
-def _resolve_subscription_context(
-    subscription: Subscription,
-) -> tuple[Team, User | None, ReportWindow, dict | None]:
+@frozen
+class SubscriptionReportContext:
+    team: Team
+    user: User | None
+    prompt: str | None
+    window: ReportWindow
+    ai_query_plan: dict | None
+    context_selection: ReportContextSelection
+    creator_can_query: bool
+
+
+class QueryAccessRevokedError(PromptRejectedError):
+    pass
+
+
+def _resolve_subscription_context(subscription: Subscription) -> SubscriptionReportContext:
     # team/created_by are FK relations and the last-delivery lookup hits the DB; resolving the window
     # here keeps all ORM access (and the timezone math) off the event loop in one sync hop. The frozen
     # plan (if any) is read here too so the generation path stays free of ORM access.
-    team = subscription.team
-    # Day-based window modes don't anchor to delivery history — skip the lookup for them.
-    last_scheduled_cutoff = (
-        _last_scheduled_report_cutoff(subscription)
-        if subscription.ai_window_mode == Subscription.AIWindowMode.SINCE_LAST_SENT
-        else None
-    )
-    window = compute_report_window(
-        team=team,
-        last_scheduled_cutoff=last_scheduled_cutoff,
-        now=datetime.now(tz=UTC),
-        window_days=subscription.ai_report_window_days,
-        mode=subscription.ai_window_mode,
-        start_days_ago=subscription.ai_window_start_days_ago,
-        end_days_ago=subscription.ai_window_end_days_ago,
-    )
-    return team, subscription.created_by, window, subscription.ai_query_plan
+    with transaction.atomic():
+        # of=("self",) keeps the lock on the subscription row: created_by is nullable, so
+        # select_related joins it as an outer join, and Postgres refuses a lock that reaches it.
+        current = (
+            Subscription.objects.select_for_update(of=("self",))
+            .select_related("team", "created_by")
+            .get(id=subscription.id, team_id=subscription.team_id)
+        )
+        context_rows = list(
+            SubscriptionContext.objects.for_team(current.team_id)
+            .filter(subscription_id=current.id)
+            .order_by("created_at", "id")
+            .values_list("dashboard_id", "insight_id")[: MAX_REPORT_CONTEXTS + 1]
+        )
+        selection = ReportContextSelection(
+            dashboard_ids=tuple(
+                sorted(
+                    dashboard_id for dashboard_id, _ in context_rows[:MAX_REPORT_CONTEXTS] if dashboard_id is not None
+                )
+            ),
+            insight_ids=tuple(
+                sorted(insight_id for _, insight_id in context_rows[:MAX_REPORT_CONTEXTS] if insight_id is not None)
+            ),
+            over_limit=len(context_rows) > MAX_REPORT_CONTEXTS,
+        )
+        last_scheduled_cutoff = (
+            _last_scheduled_report_cutoff(current)
+            if current.ai_window_mode == Subscription.AIWindowMode.SINCE_LAST_SENT
+            else None
+        )
+        window = compute_report_window(
+            team=current.team,
+            last_scheduled_cutoff=last_scheduled_cutoff,
+            now=datetime.now(tz=UTC),
+            window_days=current.ai_report_window_days,
+            mode=current.ai_window_mode,
+            start_days_ago=current.ai_window_start_days_ago,
+            end_days_ago=current.ai_window_end_days_ago,
+        )
+        return SubscriptionReportContext(
+            team=current.team,
+            user=current.created_by,
+            prompt=current.prompt,
+            window=window,
+            ai_query_plan=current.ai_query_plan,
+            context_selection=selection,
+            creator_can_query=(
+                current.created_by is not None
+                and UserAccessControl(user=current.created_by, team=current.team).check_access_level_for_resource(
+                    "query", "viewer"
+                )
+            ),
+        )
 
 
 def _persist_ai_query_plan(
@@ -217,20 +278,23 @@ def _persist_ai_query_plan(
 
 
 async def build_ai_subscription_report(subscription: Subscription) -> AiReportResult:
-    team, user, window, ai_query_plan = await database_sync_to_async(
-        _resolve_subscription_context, thread_sensitive=False
-    )(subscription)
+    context = await database_sync_to_async(_resolve_subscription_context, thread_sensitive=False)(subscription)
     # created_by is FK SET_NULL; the pipeline requires a non-None user
-    if user is None:
+    if context.user is None:
         raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
+    if not context.creator_can_query:
+        raise QueryAccessRevokedError("AI subscription creator no longer has query access; cannot deliver.")
+
+    report_context = await resolve_report_context(subscription, context.context_selection)
 
     include_images = subscription.includes_delivery_part("include_images")
     result = await generate_ai_report(
-        team=team,
-        user=user,
-        prompt=subscription.prompt,
-        window=window,
-        ai_query_plan=ai_query_plan,
+        team=context.team,
+        user=context.user,
+        prompt=context.prompt,
+        window=context.window,
+        ai_query_plan=context.ai_query_plan,
+        report_context=report_context,
         trace_correlation_id=subscription.id,
         include_charts=include_images,
         include_manage_link=subscription.includes_delivery_part("include_manage_link"),
@@ -242,7 +306,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
             plan_persisted = await database_sync_to_async(_persist_ai_query_plan, thread_sensitive=False)(
                 subscription.id,
                 subscription.team_id,
-                subscription.prompt,
+                context.prompt,
                 result.plan_to_persist,
                 expected_include_images=include_images,
             )

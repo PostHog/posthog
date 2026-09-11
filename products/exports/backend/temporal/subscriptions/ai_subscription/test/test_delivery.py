@@ -5,6 +5,7 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import connection
 from django.template.loader import render_to_string
 
 from parameterized import parameterized
@@ -19,9 +20,11 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
     SLACK_MRKDWN_SECTION_LIMIT,
     TEAMS_REPORT_BLOCK_COUNT,
     TEAMS_TEXT_BLOCK_LIMIT,
+    SubscriptionReportContext,
     _build_ai_slack_message,
     _last_scheduled_report_cutoff,
     _persist_ai_query_plan,
+    _resolve_subscription_context,
     _split_text_into_chunks,
     build_ai_subscription_report,
     build_ai_teams_card,
@@ -30,8 +33,15 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
     send_email_ai_subscription_report,
     send_slack_ai_subscription_report,
 )
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
+    ReportContextEvidence,
+    ReportContextSelection,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
-from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import ReportWindow
+from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
+    PromptRejectedError,
+    ReportWindow,
+)
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
     AI_REPORT_SNAPSHOT_KEY,
@@ -461,6 +471,7 @@ class TestBuildAITeamsCard:
                     }
                 ),
             ),
+            patch(f"{_ACTIVITIES}._creator_can_access_delivery_context", return_value=True),
             patch(f"{_ACTIVITIES}.build_chart_image_urls", return_value=[_CHART]),
             patch(
                 f"{_ACTIVITIES}.deliver_teams_webhook",
@@ -732,6 +743,64 @@ class TestPersistAiQueryPlan(APIBaseTest):
         assert sub.ai_query_plan == (plan if written else None)
 
 
+class TestResolveSubscriptionContext(APIBaseTest):
+    @parameterized.expand(
+        [
+            # created_by is nullable, so select_related() joins it as a LEFT OUTER JOIN and Postgres
+            # refuses a row lock that reaches the nullable side of it. The rest of the suite mocks this
+            # resolver, so only a real query catches that.
+            ("with_creator", True),
+            ("without_creator", False),
+        ]
+    )
+    def test_resolves_against_a_real_database(self, _name: str, has_creator: bool) -> None:
+        sub = Subscription.objects.create(
+            team=self.team,
+            prompt="how are exports doing?",
+            target_type="email",
+            target_value="a@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            created_by=self.user if has_creator else None,
+        )
+
+        context = _resolve_subscription_context(sub)
+
+        assert context.team == self.team
+        assert context.user == (self.user if has_creator else None)
+        assert context.prompt == "how are exports doing?"
+        assert context.context_selection == ReportContextSelection()
+
+    def test_a_failed_cutoff_lookup_falls_back_without_aborting_the_resolver(self) -> None:
+        # The cutoff lookup degrades to the cadence window on a database error, and it runs inside the
+        # resolver's transaction. An un-rolled-back statement error there would abort every later query
+        # in the block — including the creator's access check — turning the fallback into a failure.
+        sub = Subscription.objects.create(
+            team=self.team,
+            prompt="how are exports doing?",
+            target_type="email",
+            target_value="a@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            created_by=self.user,
+        )
+
+        def _statement_error(*args: object, **kwargs: object) -> None:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1 / 0")
+
+        with (
+            patch.object(SubscriptionDelivery.objects, "filter", side_effect=_statement_error),
+            patch(f"{_DELIVERY}.capture_exception"),
+        ):
+            context = _resolve_subscription_context(sub)
+
+        assert context.creator_can_query is True
+        assert context.window.start < context.window.end
+
+
 class TestLastSuccessfulDeliveryAnchor(APIBaseTest):
     def _delivery(
         self, trigger_type: str, status: str, finished_at: datetime | None, snapshot: dict | None = None
@@ -830,10 +899,22 @@ class TestFreezePlanPersistence:
             start_date=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-    def _context(self, sub: Subscription) -> tuple[MagicMock, MagicMock, ReportWindow, dict | None]:
+    def _context(self, sub: MagicMock, *, creator_can_query: bool = True) -> SubscriptionReportContext:
         end = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
         window = ReportWindow(start=end - timedelta(days=1), end=end)
-        return MagicMock(), MagicMock(), window, sub.ai_query_plan
+        return SubscriptionReportContext(
+            team=MagicMock(),
+            user=MagicMock(),
+            prompt=sub.prompt,
+            window=window,
+            ai_query_plan=sub.ai_query_plan,
+            context_selection=ReportContextSelection(),
+            creator_can_query=creator_can_query,
+        )
+
+    @staticmethod
+    def _empty_evidence() -> ReportContextEvidence:
+        return ReportContextEvidence(dashboards=(), insights=())
 
     @parameterized.expand(
         [
@@ -852,6 +933,7 @@ class TestFreezePlanPersistence:
         }
         with (
             patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
+            patch(f"{_DELIVERY}.resolve_report_context", new=AsyncMock(return_value=self._empty_evidence())),
             patch(
                 f"{_DELIVERY}.generate_ai_report",
                 new=AsyncMock(
@@ -891,6 +973,7 @@ class TestFreezePlanPersistence:
         )
         with (
             patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
+            patch(f"{_DELIVERY}.resolve_report_context", new=AsyncMock(return_value=self._empty_evidence())),
             patch(f"{_DELIVERY}.generate_ai_report", new=AsyncMock(return_value=result)),
             patch(f"{_DELIVERY}._persist_ai_query_plan", side_effect=Exception("db blip")),
             patch(f"{_DELIVERY}.capture_exception") as mock_capture,
@@ -925,6 +1008,7 @@ class TestFreezePlanPersistence:
         sub = self._subscription(ai_query_plan=frozen)
         with (
             patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)) as mock_ctx,
+            patch(f"{_DELIVERY}.resolve_report_context", new=AsyncMock(return_value=self._empty_evidence())),
             patch(
                 f"{_DELIVERY}.generate_ai_report",
                 new=AsyncMock(
@@ -948,6 +1032,22 @@ class TestFreezePlanPersistence:
         assert mock_gen.await_args.kwargs["ai_query_plan"] == frozen
         mock_ctx.assert_called_once()
         assert returned.query_plan_status == AIQueryPlanStatus.FROZEN
+
+    async def test_query_access_is_rejected_before_context_or_planner_work(self) -> None:
+        sub = self._subscription(ai_query_plan=None)
+        with (
+            patch(
+                f"{_DELIVERY}._resolve_subscription_context",
+                return_value=self._context(sub, creator_can_query=False),
+            ),
+            patch(f"{_DELIVERY}.resolve_report_context", new=AsyncMock()) as resolve_context,
+            patch(f"{_DELIVERY}.generate_ai_report", new=AsyncMock()) as generate,
+            pytest.raises(PromptRejectedError, match="query access"),
+        ):
+            await build_ai_subscription_report(sub)
+
+        resolve_context.assert_not_awaited()
+        generate.assert_not_awaited()
 
     @parameterized.expand(
         [
