@@ -416,7 +416,7 @@ class SignalReport(UUIDModel):
             # Pipeline transitions
             # - POTENTIAL -> CANDIDATE when the report is selected for summary generation
             # - READY -> CANDIDATE when new matching signals reopen the report for summary / agentic
-            #   research. RESOLVED is terminal and never reopens: a recurring issue starts a fresh
+            #   research. New signals never reopen RESOLVED: a recurring issue starts a fresh
             #   report, linked to the resolved one via related_to artefacts (see
             #   assign_and_emit_signal_activity).
             case (S.POTENTIAL | S.READY, S.CANDIDATE):
@@ -509,6 +509,9 @@ class SignalReport(UUIDModel):
                 | S.SUPPRESSED,
                 S.DELETED,
             ):
+                pass
+
+            case (S.RESOLVED, S.READY):
                 pass
 
             # Only ready reports can resolve

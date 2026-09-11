@@ -91,6 +91,12 @@ def link_pull_request(
         link.pull_request = pr
         link.save(update_fields=["pull_request"])
         if (
+            state_source != PullRequestStateSource.LEGACY_ASSIGNMENT
+            and report.status == SignalReport.Status.RESOLVED
+            and pr.state not in {SignalReportPullRequest.State.MERGED, SignalReportPullRequest.State.CLOSED}
+        ):
+            report.save(update_fields=report.transition_to(SignalReport.Status.READY))
+        if (
             notify_reviewers
             and not SignalReportArtefact.objects.filter(
                 team_id=report.team_id, report_id=report.id, pull_request_id=pr.id

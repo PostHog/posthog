@@ -180,10 +180,25 @@ class TestTaskRunArtefacts(BaseTest):
         record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
         assert SignalReportTask.objects.filter(report=report, task=task).count() == 1
 
-    def test_task_run_pr_is_linked_to_the_claim(self):
+    @parameterized.expand([(False,), (True,)])
+    def test_task_run_pr_is_linked_to_the_claim(self, attach_after_merge):
         report = self._report()
         task = self._task()
         record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+
+        if attach_after_merge:
+            TaskRun.objects.create(
+                team=self.team,
+                task=task,
+                status=TaskRun.Status.COMPLETED,
+                output={
+                    "pr_url": "https://github.com/PostHog/posthog/pull/42",
+                    "pr_state": "merged",
+                    "pr_merged": True,
+                },
+            )
+            report.refresh_from_db()
+            assert report.status == SignalReport.Status.RESOLVED
 
         TaskRun.objects.create(
             team=self.team,
