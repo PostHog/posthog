@@ -18,6 +18,10 @@ _VANISHABLE = frozenset(
     }
 )
 _REOPENABLE = frozenset({ClusterStatus.VANISHED})
+# A verdict only speaks for the code the verifier read, so a cluster whose files moved goes back in the
+# queue instead of resting on an answer about a tree that no longer exists. Without this, ALIVE and
+# UNDECIDED absorb a root for good and the candidate pool drains run after run.
+_RETRYABLE = frozenset({ClusterStatus.DECLINED, ClusterStatus.ALIVE, ClusterStatus.UNDECIDED})
 
 
 @frozen
@@ -82,7 +86,7 @@ def record_scan(
             created += 1
         else:
             files_changed = list(draft.files) != cluster.files
-            if cluster.status in _REOPENABLE or (cluster.status == ClusterStatus.DECLINED and files_changed):
+            if cluster.status in _REOPENABLE or (cluster.status in _RETRYABLE and files_changed):
                 cluster.status = ClusterStatus.CANDIDATE
                 reopened += 1
             else:

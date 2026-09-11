@@ -26,10 +26,10 @@ A root is dead when every path that reaches it is unreachable at runtime and rem
 
 For a feature flag root:
 
-- Deleted, archived or missing flag row: every check evaluates false, so the enabled branch is dead and the check can go.
+- Deleted, archived or missing flag row: a boolean check evaluates false, so its enabled branch is dead. A variant read returns nothing instead, and `undefined` is not `'"'"'control'"'"'` — a site that compares the variant with `!==` takes the gated path once the row is gone. For a multivariate flag, say which branch each call site lands on before you call any of them dead.
 - Flag disabled, or at 0% rollout with no enrollment override: nothing can take the enabled branch, so it is dead. The check can go once you confirm no SDK or backend reads the flag by another name.
 - Flag not evaluated for a long time, or checked by many users and enabled for none of them: this is supporting evidence, not proof. A stale evaluation count does not stop the next call returning true, and a sample that saw nobody enabled does not rule out a targeting rule that enables someone else. Show that every call site is unreachable, or answer `is_dead: false`.
-- Flag at 100% rollout: the disabled branch is dead. Keep the enabled path and remove the check.
+- Flag at 100% rollout with no holdout and no enrollment override: the disabled branch is dead. Keep the enabled path and remove the check. A holdout still serves its own variant to the users it excludes, so a flag that has one is alive.
 - Concluded experiment: keep the variant the scout named, remove the other variants and the flag check.
 
 For a directory root: nothing outside the directory imports it, routes to it, registers it, schedules it or links to it.
@@ -40,7 +40,7 @@ Run every search from the repository root with `rg`.
 Record each command and its hit count in `searches`.
 A search that you did not run is a search that found something.
 
-1. Every literal spelling of the root: the flag key with single and double quotes, the `FEATURE_FLAGS.CONSTANT` form, kebab and snake variants, the directory path.
+1. Every literal spelling of the root: the flag key with single and double quotes, the `FEATURE_FLAGS.CONSTANT` form, the quoted constant name that `useFeatureFlag('"'"'CONSTANT'"'"')` takes, kebab and snake variants, the directory path.
 2. Registries and config that name code by string: `INSTALLED_APPS`, URL confs, `apps.py`, Celery task names and beat schedules, Temporal workflow names, `tools.yaml`, `manifest.tsx` routes and scenes, `tach.toml`, `CODEOWNERS`, `turbo.json`, `package.json` workspaces.
 3. Dynamic dispatch: `getattr`, `importlib`, `__all__`, string maps keyed by the root, `import()` with a computed path.
 4. Templates, emails, docs and SDK code that mention the root.

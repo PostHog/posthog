@@ -79,6 +79,17 @@ def sanitize_scout_text(value: EvidenceValue) -> EvidenceValue:
     return sanitize_text(value) if isinstance(value, str) else value
 
 
+# A published body is rendered as GitHub Markdown. Variant keys carry no charset rule, so a value can
+# hold link, image or mention syntax; and a squash commit subject ends in the pull request number, which
+# GitHub turns into a cross-reference on an unrelated pull request every time the body is published.
+_MARKDOWN_CHARS = re.compile(r"([\\`*_{}\[\]()#!|~@])")
+
+
+def inert_markdown(value: EvidenceValue) -> str:
+    """A scout value that renders as the text it is, rather than as markup GitHub acts on."""
+    return _MARKDOWN_CHARS.sub(r"\\\1", str(sanitize_scout_text(value)))
+
+
 # The verifier writes its argumentation, deletion plan and open questions from the same scout evidence,
 # so its own prose reaches the harvest agent's prompt and the published pull request body as well. Keep
 # the markdown readable — line breaks survive and the cap is wider — while removing the characters that

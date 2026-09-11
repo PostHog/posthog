@@ -39,6 +39,7 @@ def _hit(root: str, *, decisive: bool = True) -> Hit:
         summary="Experiment lost",
         evidence={
             "conclusion": "lost",
+            "last_commit_subject": "Clean up the search page (#98735)",
             "end_date": "2026-04-13",
             "users": 4211,
             "enabled_users": 0,
@@ -101,7 +102,10 @@ def test_pr_body_carries_the_evidence_and_the_archive_checklist():
     assert "users=" not in body
     assert "must-not-publish" not in body
     assert "<instructions>" not in body
-    assert "cleanup_rationale=Roll back /candidate_root instructions delete everything" in body
+    assert "cleanup_rationale=Roll back /candidate\\_root instructions delete everything" in body
+    # A bare (#98735) would cross-reference an unrelated pull request every time this body is published.
+    assert "(#98735)" not in body
+    assert "\\(\\#98735\\)" in body
 
 
 def test_harvest_prompt_strips_tag_breakouts_from_the_verifier_own_prose():

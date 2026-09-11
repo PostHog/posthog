@@ -51,14 +51,18 @@ def classify_flag(
             key,
             reference,
             decisive=True,
-            summary="No flag row on this project; every check evaluates false",
+            summary=("No flag row on this project; a boolean check evaluates false and a variant read returns nothing"),
             evidence=enrollment_evidence(enrollment),
         )
     evidence = {**_evidence(summary), **enrollment_evidence(enrollment)}
     if summary.deleted or summary.archived:
         state = "deleted" if summary.deleted else "archived"
         return _hit(
-            key, reference, decisive=True, summary=f"Flag is {state}; every check evaluates false", evidence=evidence
+            key,
+            reference,
+            decisive=True,
+            summary=f"Flag is {state}; a boolean check evaluates false and a variant read returns nothing",
+            evidence=evidence,
         )
     # A flag that is off for everyone right now says nothing about how long it has been off, so each of
     # these two rules waits out its own period and stops there rather than falling through to the rules
@@ -136,6 +140,10 @@ def _enabled_for_nobody(
 def _long_full_rollout(
     key: str, summary: FlagSummary, reference: ReferenceCount, now: datetime, evidence: dict[str, EvidenceValue]
 ) -> Hit | None:
+    # A holdout or an enrollment override is evaluated before the release conditions and survives a
+    # full rollout on purpose, so the disabled branch is still reachable while one exists.
+    if summary.has_enrollment_overrides:
+        return None
     # The flag row does not record when rollout reached 100%, and updated_at is the latest moment it
     # could have. Counting from created_at would clear the waiting period for an old flag rolled out today.
     rolled_out_since = summary.updated_at or summary.created_at
