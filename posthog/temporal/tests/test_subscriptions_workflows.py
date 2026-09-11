@@ -3639,6 +3639,52 @@ async def test_recover_subscription_scheduler_claims_releases_closed_workflow(te
     assert claim.status == TemporalSchedulerClaim.Status.AVAILABLE
 
 
+async def test_recover_subscription_scheduler_claims_stops_at_the_pass_budget(team, user):
+    region = "claim-budget"
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="claim-budgt", name="Claim budget")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+    await sync_to_async(Subscription.objects.filter(id=subscription.id).update)(
+        next_delivery_date=datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+    )
+    fetched = await ActivityEnvironment().run(
+        fetch_claimed_due_subscriptions_activity,
+        FetchDueSubscriptionsActivityInputs(
+            buffer_minutes=15,
+            max_subscriptions_per_run=1,
+            region=region,
+            use_durable_claims=True,
+            claim_token_seed="claim-budget-run",
+        ),
+    )
+    claim_id = fetched.subscriptions[0].scheduler_claim_id
+    assert claim_id is not None
+    expired_at = timezone.now() - timedelta(minutes=1)
+    await sync_to_async(TemporalSchedulerClaim.objects.filter(id=claim_id).update)(lease_expires_at=expired_at)
+    description = MagicMock(status=WorkflowExecutionStatus.COMPLETED)
+    temporal = MagicMock()
+    temporal.get_workflow_handle.return_value = MagicMock(describe=AsyncMock(return_value=description))
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.activities.async_connect",
+            AsyncMock(return_value=temporal),
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.activities._SUBSCRIPTION_RECOVERY_BUDGET",
+            timedelta(0),
+        ),
+    ):
+        result = await ActivityEnvironment().run(
+            recover_subscription_scheduler_claims_activity,
+            RecoverSubscriptionSchedulerClaimsInputs(region=region, limit=1),
+        )
+
+    assert result == {"released": 0, "renewed": 0, "retained": 0, "pruned": 0}
+    claim = await sync_to_async(TemporalSchedulerClaim.objects.get)(id=claim_id)
+    assert claim.status == TemporalSchedulerClaim.Status.RESERVED
+    assert claim.lease_expires_at == expired_at
+
+
 async def test_recover_subscription_scheduler_claims_defers_uncertain_claims_behind_the_page(team, user):
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="recover-page", name="Recovery page")
     subscriptions = [

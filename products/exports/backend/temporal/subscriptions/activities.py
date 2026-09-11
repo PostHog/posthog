@@ -1,5 +1,6 @@
 import json
 import math
+import time
 import uuid
 import typing
 import asyncio
@@ -103,6 +104,9 @@ _SUBSCRIPTION_RECOVERY_CONCURRENCY = 20
 # Per-describe cap. The whole recovery pass is all-or-nothing under a 2-minute activity
 # timeout, so one Temporal frontend that stalls mid-response must not discard the page.
 _SUBSCRIPTION_RECOVERY_DESCRIBE_RPC_TIMEOUT = dt.timedelta(seconds=5)
+# Wall-clock cap on one pass. The activity timeout does not interrupt the sync reconcile thread,
+# which would keep taking the global permit-pool lock this run's own reservation step needs.
+_SUBSCRIPTION_RECOVERY_BUDGET = dt.timedelta(seconds=90)
 _SUBSCRIPTION_CANDIDATE_LIMIT = _SUBSCRIPTION_MAX_IN_FLIGHT + MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN + 1
 
 # Used only as the recipient_results error message — `no_assets` doesn't auto-disable
@@ -745,6 +749,7 @@ async def recover_subscription_scheduler_claims_activity(
     inputs = dataclasses.replace(inputs, region=_resolve_scheduler_region(inputs.region))
     if not 1 <= inputs.limit <= MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN:
         raise ValueError(f"limit must be between 1 and {MAX_DUE_SUBSCRIPTIONS_PER_SCHEDULE_RUN}")
+    started_at = time.monotonic()
 
     @database_sync_to_async(thread_sensitive=False)
     def load_expired_claims() -> _ExpiredSchedulerClaimsSnapshot:
@@ -797,7 +802,18 @@ async def recover_subscription_scheduler_claims_activity(
         released = 0
         renewed = 0
         retained = 0
-        for (claim_id, claim_token, _, lease_expires_at), status in zip(expired_claims, statuses, strict=True):
+        deadline = started_at + _SUBSCRIPTION_RECOVERY_BUDGET.total_seconds()
+        for index, ((claim_id, claim_token, _, lease_expires_at), status) in enumerate(
+            zip(expired_claims, statuses, strict=True)
+        ):
+            if time.monotonic() >= deadline:
+                # Untouched claims stay expired, so the next pass re-queries and continues.
+                LOGGER.warning(
+                    "subscription_scheduler.claim_recovery_budget_exhausted",
+                    reconciled=index,
+                    remaining=len(expired_claims) - index,
+                )
+                break
             counts = _reconcile_expired_subscription_claim(
                 claim_id,
                 claim_token,
