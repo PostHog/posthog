@@ -90,6 +90,9 @@ class InferenceRunError(Exception):
     """Raised when an inference run must fail (and be retried) rather than complete with wrong output."""
 
 
+_RESERVED_COLS = frozenset({"distinct_id", _LABEL_COL, _FOLD_COL})
+
+
 # Namespace for deterministic prediction event UUIDs, so a retried scoring activity
 # re-emits the same UUID per (pipeline, model, date, person) instead of a duplicate.
 _PREDICTION_UUID_NAMESPACE = uuid.UUID("6f9a4a24-0e5c-4a5a-9d0e-2f6a0f0b1c3d")
@@ -191,7 +194,6 @@ def run_inference_for_pipeline(
 
     try:
         team = pipeline.team
-        _check_prediction_date(team=team, pipeline=pipeline, window=window)
         acting_user = _acting_user(team=team, pipeline=pipeline, user=user)
         scored = score_population(team=team, pipeline=pipeline, model=model, window=window, user=acting_user)
         emitted = _emit_predictions(
@@ -292,7 +294,11 @@ def score_population(
     The agent recipe's SQL goes through the same runnable-SQL validator as a bundle, so a
     recipe with a trailing LIMIT or with ``{anchors}`` only in a comment fails here
     instead of producing a query that runs without a cutoff.
+
+    The prediction-date guards run here rather than in the emitting caller, so the dry run
+    refuses exactly the dates the live run refuses.
     """
+    _check_prediction_date(team=team, pipeline=pipeline, window=window)
     acting_user = _acting_user(team=team, pipeline=pipeline, user=user)
     cutoff_ts = window.cutoff_ts
 
@@ -496,6 +502,13 @@ def _person_rows(result: HogQLResult) -> list[dict[str, Any]]:
     duplicates = sorted({c for c in result.columns if result.columns.count(c) > 1})
     if duplicates:
         raise InferenceRunError(f"Feature SQL returned duplicate output columns: {', '.join(duplicates)}")
+    # Counted before any column is typed: the numeric filter discards non-numeric columns, so
+    # a result padded with string aliases would pass the matrix cap after being materialized.
+    output_cols = [c for c in result.columns if c not in _RESERVED_COLS]
+    if len(output_cols) > _MAX_FEATURE_COLS:
+        raise InferenceRunError(
+            f"Feature SQL returned {len(output_cols)} output columns; at most {_MAX_FEATURE_COLS} are allowed"
+        )
     rows = result.as_dicts()
     for row in rows:
         if row.get("distinct_id") is not None:
@@ -524,7 +537,9 @@ def _fetch_stub_feature_rows(
     The stub's SQL is templated in ``training/stub.py``, evaluates at now(), and carries
     no ``{anchors}``, so it does not go through the anchors builders. The population is
     applied inside the query rather than on the returned rows, so the row bound measures
-    the population being scored and not every person on the team.
+    the population being scored and not every person on the team. The rows are checked
+    against the population count, as the anchored paths check theirs against the anchors,
+    because stub SQL that drops a member leaves every returned row looking valid.
     """
     feature_sql = str(recipe.get("feature_sql") or "")
     if not feature_sql:
@@ -544,7 +559,8 @@ def _fetch_stub_feature_rows(
         sql = f"SELECT * FROM ({feature_sql}) AS f WHERE f.distinct_id IN ({population.sql})"
         values = population.values
     rows = _person_rows(_query(team=team, sql=sql, values=values, user=user, what="Feature"))
-    _require_one_row_per_person(rows, source="stub feature_sql", expected_count=None)
+    expected = _count_population(team=team, population=population, user=user) if population is not None else None
+    _require_one_row_per_person(rows, source="stub feature_sql", expected_count=expected)
     return rows
 
 
@@ -591,6 +607,19 @@ def _population_query(
         where_clause += " AND " + " AND ".join(parts)
     where_clause += identified_clause
     return _PopulationQuery(sql=f"SELECT DISTINCT person_id FROM events WHERE {where_clause}", values=values)
+
+
+def _count_population(*, team: Team, population: _PopulationQuery, user: User) -> int:
+    result = _query(
+        team=team,
+        sql=f"SELECT count() FROM ({population.sql})",
+        values=population.values,
+        user=user,
+        what="Population count",
+    )
+    if len(result.rows) != 1 or not result.rows[0]:
+        raise InferenceRunError("Population count query did not return a single row")
+    return int(result.rows[0][0])
 
 
 def _resolve_distinct_ids(
@@ -730,6 +759,9 @@ def _fit_on_training_predict_on_inference(
     fold for the AUC the run records, and predict on the inference rows. A fit or predict
     failure falls back to the stub formula so the cadence still emits.
     """
+    # Feature SQL without an ORDER BY returns rows in any order, and an estimator that
+    # samples row indices fits a different model on a different order despite its seed.
+    training_rows = sorted(training_rows, key=lambda r: str(r.get("distinct_id")))
     feature_cols = _numeric_feature_cols(training_rows)
     if not feature_cols:
         logger.warning("autoresearch_no_numeric_features", pipeline_id=pipeline_id)

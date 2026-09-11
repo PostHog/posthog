@@ -280,6 +280,25 @@ class TestPredictionDateGuards(TeamScopedTestMixin, BaseTest):
         )
         self._assert_refused(pipeline, model, date.today() - timedelta(days=3), MagicMock())
 
+    def test_the_dry_run_route_applies_the_same_date_guards(self):
+        pipeline, model = self._pipeline_and_model(
+            inference_population={
+                "properties": [{"key": "plan", "type": "person", "operator": "exact", "value": "pro"}]
+            }
+        )
+        model.artifact_prefix = "tasks/autoresearch/team_1/pipeline_x/run_y"
+        model.save(update_fields=["artifact_prefix"])
+        with patch.object(scoring, "score_via_sandbox") as sandbox:
+            with self.assertRaises(InferenceRunError):
+                score_population(
+                    team=self.team,
+                    pipeline=pipeline,
+                    model=model,
+                    window=ScoringWindow.for_date(date.today() - timedelta(days=3)),
+                    user=self.user,
+                )
+        sandbox.assert_not_called()
+
     def test_backfilling_a_past_date_leaves_last_scored_at_alone(self):
         # Advancing the watermark on a backfill makes the coordinator treat the pipeline as
         # freshly scored, suppressing today's live run for a whole cadence.
@@ -452,8 +471,12 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
         )
 
     def _sent(self, mock_run: MagicMock) -> tuple[str, dict]:
-        query = mock_run.call_args.kwargs["query"]
+        query = mock_run.call_args_list[0].kwargs["query"]
         return query.query, query.values
+
+    @staticmethod
+    def _feature_then_count(rows: list[list], count: int) -> list[HogQLResult]:
+        return [HogQLResult(columns=["distinct_id"], rows=rows), HogQLResult(columns=["count()"], rows=[[count]])]
 
     @patch("products.autoresearch.backend.inference.scoring.run_hogql")
     def test_population_is_applied_inside_the_bounded_query(self, mock_run: MagicMock):
@@ -462,25 +485,27 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
         pipeline = self._make_pipeline(
             {"properties": [{"key": "plan", "type": "person", "operator": "exact", "value": "pro"}]}
         )
-        mock_run.return_value = HogQLResult(columns=["distinct_id"], rows=[["user-1"], ["user-3"]])
+        mock_run.side_effect = self._feature_then_count([["user-1"], ["user-3"]], count=2)
 
         rows = _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
 
         assert {r["distinct_id"] for r in rows} == {"user-1", "user-3"}
         sql, values = self._sent(mock_run)
-        assert mock_run.call_count == 1
         assert "f.distinct_id IN (SELECT DISTINCT person_id FROM events WHERE" in sql
         assert "person.properties[{pop_k_0}] = {pop_0}" in sql
         assert values["pop_0"] == "pro"
         assert sql.rstrip().endswith(f"LIMIT {_MATERIALIZE_ROW_LIMIT}")
-        assert mock_run.call_args.kwargs["user"] == self.user
+        count_query = mock_run.call_args_list[1].kwargs["query"]
+        assert count_query.query.startswith("SELECT count() FROM (SELECT DISTINCT person_id FROM events WHERE")
+        assert count_query.values["pop_0"] == "pro"
+        assert all(call.kwargs["user"] == self.user for call in mock_run.call_args_list)
 
     @patch("products.autoresearch.backend.inference.scoring.run_hogql")
     def test_empty_population_restricts_to_identified_users_within_the_window(self, mock_run: MagicMock):
         # v1 scores identified users only; the scan must skip the product's own event, or a
         # scored person stays eligible forever, and a future-dated event must not count.
         pipeline = self._make_pipeline({})
-        mock_run.return_value = HogQLResult(columns=["distinct_id"], rows=[["user-1"]])
+        mock_run.side_effect = self._feature_then_count([["user-1"]], count=1)
 
         _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
 
@@ -516,7 +541,7 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
         # Template populations carry semantic kind specs; the stub path must compile them or
         # a template pipeline silently scores all identified users.
         pipeline = self._make_pipeline(population, target_event="downloaded_file")
-        mock_run.return_value = HogQLResult(columns=["distinct_id"], rows=[["user-1"]])
+        mock_run.side_effect = self._feature_then_count([["user-1"]], count=1)
 
         _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
 
@@ -532,13 +557,20 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
             _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
         mock_run.assert_not_called()
 
-    @parameterized.expand([("blank_identifier", [["user-1"], [""]]), ("duplicate_person", [["user-1"], ["user-1"]])])
+    @parameterized.expand(
+        [
+            ("blank_identifier", [["user-1"], [""]], 2),
+            ("duplicate_person", [["user-1"], ["user-1"]], 2),
+            ("dropped_member", [["user-1"]], 2),
+        ]
+    )
     @patch("products.autoresearch.backend.inference.scoring.run_hogql")
-    def test_rows_that_do_not_key_one_person_fail_the_run(self, _name, rows, mock_run: MagicMock):
+    def test_rows_that_do_not_key_one_person_fail_the_run(self, _name, rows, population_count, mock_run: MagicMock):
         # A blank identifier was silently dropped and a duplicate emitted the same event UUID
-        # twice; either way the run completed and reported a row count nobody received.
+        # twice; either way the run completed and reported a row count nobody received. Stub
+        # SQL that drops a member leaves valid rows behind, so only the population count notices.
         pipeline = self._make_pipeline({})
-        mock_run.return_value = HogQLResult(columns=["distinct_id"], rows=rows)
+        mock_run.side_effect = self._feature_then_count(rows, count=population_count)
         with self.assertRaises(InferenceRunError):
             _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
 
@@ -688,10 +720,19 @@ class TestAnchorsRecipeQueries(TeamScopedTestMixin, BaseTest):
                     team=self.team, pipeline=pipeline, feature_sql=_ANCHORS_FEATURE_SQL, user=self.user
                 )
 
-    def test_duplicate_output_columns_fail_the_run(self):
+    @parameterized.expand(
+        [
+            ("duplicate_columns", ["distinct_id", "n", "n"], ["p1", 1, 2]),
+            ("too_many_columns_of_any_type", ["distinct_id", "a", "b", "c"], ["p1", "x", "y", "z"]),
+        ]
+    )
+    def test_malformed_output_columns_fail_the_run(self, _name, columns, row):
+        # A column set is checked as it is read: the numeric filter would discard string
+        # columns after they were materialized, so a cap applied only to it never fires.
         pipeline = self._make_pipeline()
-        result = HogQLResult(columns=["distinct_id", "n", "n"], rows=[["p1", 1, 2]])
+        result = HogQLResult(columns=columns, rows=[row])
         with (
+            patch.object(scoring, "_MAX_FEATURE_COLS", 2),
             patch.object(scoring, "run_hogql", return_value=result),
             patch.object(scoring, "count_inference_anchors", return_value=1),
         ):
@@ -732,6 +773,30 @@ class TestRecipeFit(SimpleTestCase):
         # The fit runs in the worker process, so an agent's n_jobs=-1 would starve everything else on it.
         recipe = {"model_class": "sklearn.ensemble.RandomForestClassifier", "model_params": {"n_jobs": -1}}
         assert _estimator_for(recipe, seed=1).n_jobs == 1
+
+    def test_training_row_order_does_not_change_the_fit(self):
+        recipe = {
+            "model_class": "sklearn.ensemble.RandomForestClassifier",
+            "model_params": {"n_estimators": 5, "max_depth": 2},
+        }
+        training_rows = [
+            {
+                "distinct_id": f"t{i:02d}",
+                "x": i % 8,
+                "y": (i * 3) % 8,
+                "__label": int((i % 8 > 3) ^ ((i * 3) % 8 > 3)),
+                "__fold": i % 5,
+            }
+            for i in range(40)
+        ]
+        inference_rows = [{"distinct_id": f"s{i}", "x": i, "y": (i * 3) % 8} for i in range(8)]
+        forward = _fit_on_training_predict_on_inference(
+            training_rows=training_rows, inference_rows=inference_rows, recipe=recipe, pipeline_id="p"
+        )
+        backward = _fit_on_training_predict_on_inference(
+            training_rows=training_rows[::-1], inference_rows=inference_rows, recipe=recipe, pipeline_id="p"
+        )
+        assert [r["p_y"] for r in forward.rows] == [r["p_y"] for r in backward.rows]
 
     def test_too_many_feature_columns_fail_before_any_matrix_is_built(self):
         rows = [{"distinct_id": f"p{i}", "a": 1, "b": 2, "c": 3, "__label": i % 2, "__fold": i % 5} for i in range(10)]
