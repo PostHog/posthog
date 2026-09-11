@@ -9,6 +9,7 @@ common/hogvm/typescript/src/stl/bytecode.ts
 # services/mcp/scripts/generate-orval-schemas.mjs).
 services/mcp/src/generated/
 
-# Flox agent skills preserve the upstream formatting recorded in each UPSTREAM.md.
-.agents/skills/flox-debug/
-.agents/skills/flox/
+# Flox skill sources preserve the upstream formatting recorded in each UPSTREAM.md.
+.agents/skills/flox-debug/SKILL.md
+.agents/skills/flox/SKILL.md
+.agents/skills/flox/references/

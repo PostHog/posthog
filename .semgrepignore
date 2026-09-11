@@ -1,0 +1,2 @@
+# The vendored example uses a local Unix socket, not insecure network transport. See .agents/skills/flox/UPSTREAM.md.
+.agents/skills/flox/references/services.md

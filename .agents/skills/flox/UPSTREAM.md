@@ -20,7 +20,7 @@ No files are omitted from `flox-plugin/skills/flox/`. This repository does not v
 - The marked "PostHog repository safeguards" section requires agents to inspect and preserve the existing Flox configuration and activation files.
 - The local section prohibits `flox init`, replacing `.flox`, or redesigning the setup unless the user explicitly requests that work.
 
-`UPSTREAM.md` and `LICENSE` are local additions outside the upstream skill directory. The repository Markdown formatter, Markdown lint config, and Git whitespace attributes exclude this vendored directory so upstream Markdown remains byte-for-byte unchanged.
+`UPSTREAM.md` and `LICENSE` are local additions outside the upstream skill directory. Repository checks exclude the upstream Markdown sources and the adapted `SKILL.md` from formatting and Markdown lint. Git whitespace attributes preserve their bytes. A targeted Semgrep ignore covers the Unix-socket MongoDB example that its generic transport rule misclassifies.
 
 ## Manual resync
 
