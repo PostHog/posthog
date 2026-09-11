@@ -100,6 +100,18 @@ describe('useTracesQueryContext', () => {
         })
 
         it.each([
+            ['has no createdAt', { id: 'trace-1', events: [] }],
+            ['has an unparseable createdAt', { id: 'trace-1', createdAt: 'not a date', events: [] }],
+        ])('leaves the timestamp out of the trace detail url when the row %s', (_name, result) => {
+            const { plainCell } = renderRow({ result })
+
+            fireEvent.click(plainCell)
+
+            expect(router.values.location.pathname).toContain(TRACE_PATH)
+            expect(router.values.searchParams).not.toHaveProperty('timestamp')
+        })
+
+        it.each([
             ['a label row', { label: 'January 1' }],
             ['an array result', { result: ['trace-1'] }],
             ['a result without an id', { result: { createdAt: '2026-01-01T12:00:00Z' } }],

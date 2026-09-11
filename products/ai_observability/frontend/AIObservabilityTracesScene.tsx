@@ -6,6 +6,7 @@ import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -141,7 +142,10 @@ function buildTraceDetailUrl(row: LLMTrace, searchParams: Record<string, unknown
     return combineUrl(urls.aiObservabilityTrace(row.id), {
         ...nonTraceSearchParams,
         back_to: 'traces',
-        timestamp: getTraceTimestamp(row.createdAt),
+        // An omitted timestamp makes the detail view use its wide default date range. A timestamp
+        // built from a missing or unparseable `createdAt` would instead point the lookup at a
+        // ten-minute window around the present, where an older trace is not found.
+        timestamp: row.createdAt && dayjs(row.createdAt).isValid() ? getTraceTimestamp(row.createdAt) : undefined,
     }).url
 }
 
