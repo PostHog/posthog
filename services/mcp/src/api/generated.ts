@@ -49377,6 +49377,11 @@ export namespace Schemas {
       rotate?: boolean;
     }
 
+    export interface LLMSkillPublishConflict {
+      /** Reason that the reviewed skill version can no longer be published. */
+      detail: string;
+    }
+
     export interface LLMSkillPublishToCommunity {
       /** Immutable ID of the skill version that the publisher reviewed. */
       expected_skill_id: string;

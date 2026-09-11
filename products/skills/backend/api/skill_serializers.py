@@ -981,6 +981,10 @@ class LLMSkillPublishToCommunitySerializer(serializers.Serializer):
     )
 
 
+class LLMSkillPublishConflictSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Reason that the reviewed skill version can no longer be published.")
+
+
 class CommunitySkillPublishResultSerializer(serializers.Serializer):
     pr_url = serializers.URLField(
         help_text="URL of the pull request opened in the community-skills repo for maintainer review."

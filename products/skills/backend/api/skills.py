@@ -86,6 +86,7 @@ from .skill_serializers import (
     LLMSkillMarketplaceCommandSerializer,
     LLMSkillMarketplaceIssueSerializer,
     LLMSkillPublishSerializer,
+    LLMSkillPublishConflictSerializer,
     LLMSkillPublishToCommunitySerializer,
     LLMSkillRenameSerializer,
     LLMSkillResolveQuerySerializer,
@@ -1466,7 +1467,10 @@ class LLMSkillViewSet(
         )
         return Response(self._serialize_skill(renamed_skill))
 
-    @extend_schema(request=LLMSkillPublishToCommunitySerializer, responses={201: CommunitySkillPublishResultSerializer})
+    @extend_schema(
+        request=LLMSkillPublishToCommunitySerializer,
+        responses={201: CommunitySkillPublishResultSerializer, 409: LLMSkillPublishConflictSerializer},
+    )
     @action(
         methods=["POST"],
         detail=False,

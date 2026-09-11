@@ -702,6 +702,11 @@ export interface CommunitySkillPublishResultApi {
     branch: string
 }
 
+export interface LLMSkillPublishConflictApi {
+    /** Reason that the reviewed skill version can no longer be published. */
+    detail: string
+}
+
 export interface LLMSkillRenameApi {
     /**
      * New name for the skill. Must be unique in the project, and must not start with 'signals-scout-' or 'review-hog-'.
