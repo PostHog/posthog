@@ -1,8 +1,8 @@
 """Decide whether a finished run gets analyzed, print its SQL, and enqueue the job.
 
 The runner calls this once per blocking run. Everything before the enqueue is cheap; the run's SQL
-is printed only once a run's ClickHouse time reaches the flag's ``floor_ms``, which costs a few
-milliseconds.
+is printed only once a run's ClickHouse time reaches the flag's ``floor_ms``, or ClickHouse stopped
+the run, which costs a few milliseconds.
 
 Nothing here may change what the person gets. The analysis is advice, so a printer, broker or Redis
 failure drops the enqueue and reports a skip, never the query result.
@@ -107,7 +107,9 @@ def maybe_trigger_query_scan(
         return FLAG_OFF
 
     duration_ms = round(stats.duration_ms)
-    if duration_ms < flag.floor_ms:
+    # The floor leaves alone the runs nobody minded. Nobody gets a result from a run ClickHouse
+    # stopped, however fast it died, so a stopped run is analyzed at any duration.
+    if duration_ms < flag.floor_ms and not killed:
         return QueryScanTrigger(triggered=False, skipped_reason="below_floor")
     if is_api_key_access_method(get_query_tag_value("access_method")):
         # An API caller has no surface to read the advice on, so the analysis would only cost.

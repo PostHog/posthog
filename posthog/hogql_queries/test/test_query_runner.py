@@ -306,7 +306,8 @@ class TestQueryRunner(BaseTest):
         user = self.user if real_user else _shared_link_user(self.team)
 
         def calculate_until_clickhouse_gives_up(_self):
-            record(rows_read=90, duration_ms=4000.0)
+            # 400 ms is under the flag's 1000 ms floor: a stopped run is analyzed at any duration.
+            record(rows_read=90, duration_ms=400.0)
             # The executor records this before the kill; the fake runner stands in for it here.
             active = get_active()
             assert active is not None
@@ -346,7 +347,7 @@ class TestQueryRunner(BaseTest):
         assert getattr(raised.exception, "query_scan", None) == {
             "mode": "show",
             "rows_read": 90,
-            "duration_ms": 4000,
+            "duration_ms": 400,
             "killed": True,
             "status": "pending",
         }

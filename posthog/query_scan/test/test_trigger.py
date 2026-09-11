@@ -114,6 +114,17 @@ class TestQueryScanTrigger(SimpleTestCase):
         self.delay.assert_not_called()
         self._assert_no_slot_was_claimed()
 
+    def test_a_killed_run_is_analyzed_below_the_floor(self) -> None:
+        # A memory-limit kill can die in under a second, and nobody gets a result from it, so the
+        # floor must not keep it from the one analysis that can ever advise the person.
+        result = self._trigger(
+            stats=_stats(duration_ms=999.0), killed=True, error_type="ClickHouseQueryMemoryLimitExceeded"
+        )
+
+        assert result.triggered is True
+        assert self.delay.call_args.kwargs["killed"] is True
+        assert self.delay.call_args.kwargs["duration_ms"] == 999
+
     def test_a_lost_slot_claim_does_not_enqueue_a_second_job(self) -> None:
         # Two slow runs of the same query can both find no slot, so the conditional write is what
         # keeps one job per slot; without it the loser would enqueue a duplicate analysis.

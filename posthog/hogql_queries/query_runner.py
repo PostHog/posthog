@@ -2636,8 +2636,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # Same gate as the fresh path: the summary must not ride out on an error body a
             # shared link renders.
             return
-        if stats is None or round(stats.duration_ms) < flag.floor_ms:
-            # Same floor as the fresh path: below it no slot is ever written.
+        if stats is None:
+            # No stats scope was open, so nothing about the run was recorded to analyze.
             return
         try:
             scan = maybe_trigger_query_scan(
