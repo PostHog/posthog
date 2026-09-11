@@ -82,8 +82,8 @@ RUN --mount=type=secret,id=SCCACHE_WEBDAV_ENDPOINT,required=false \
 # The CLI installer is pinned to an immutable release tag and checksum-verified
 # before execution. To upgrade, change POSTHOG_CLI_VERSION and recompute:
 #   curl -LsSf "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv<X.Y.Z>/posthog-cli-installer.sh" | sha256sum
-ARG POSTHOG_CLI_VERSION=0.18.2
-ARG POSTHOG_CLI_INSTALLER_SHA256=1ed5ff785ca33f38458efb1677ffd35ed99d935ac59d5e28bfd0d07a4f697f7a
+ARG POSTHOG_CLI_VERSION=0.8.1
+ARG POSTHOG_CLI_INSTALLER_SHA256=b1f1781a78a37930884db3ad412d9508a9ac015b01339455a7357cd0b23d9c92
 ARG SYMBOL_UPLOAD_TRIGGER=""
 RUN --mount=type=secret,id=posthog_upload_symbols_cli_api_key \
     --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
