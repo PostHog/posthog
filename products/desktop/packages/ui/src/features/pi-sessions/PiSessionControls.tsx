@@ -21,8 +21,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@posthog/quill";
-import { customModelMeta } from "@posthog/shared";
 import type { PiModelAccess, PiSubscriptionProvider } from "@posthog/shared";
+import { customModelMeta } from "@posthog/shared";
 import {
   type AgentHarness,
   HarnessSubmenu,

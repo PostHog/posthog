@@ -145,6 +145,8 @@ const sharedOptions = {
     ...builtinModules.map((m) => `node:${m}`),
     "@agentclientprotocol/sdk",
     "@anthropic-ai/claude-agent-sdk",
+    "@earendil-works/pi-ai",
+    "@earendil-works/pi-coding-agent",
     "dotenv",
     "openai",
     "tar",
@@ -242,7 +244,14 @@ export default defineConfig([
     clean: false,
     banner: { js: nodeEsmBanner },
     ...sharedOptions,
-    noExternal: [/^(?!node:)/],
-    external: [...builtinModules, ...builtinModules.map((m) => `node:${m}`)],
+    noExternal: [
+      /^(?!node:|@earendil-works\/pi-ai$|@earendil-works\/pi-coding-agent$)/,
+    ],
+    external: [
+      ...builtinModules,
+      ...builtinModules.map((m) => `node:${m}`),
+      "@earendil-works/pi-ai",
+      "@earendil-works/pi-coding-agent",
+    ],
   },
 ]);
