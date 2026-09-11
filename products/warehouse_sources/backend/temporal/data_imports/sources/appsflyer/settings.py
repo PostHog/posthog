@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from enum import StrEnum
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import PartitionFormat
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
@@ -70,7 +72,7 @@ _RAW_EVENT_PRIMARY_KEYS = ["appsflyer_id", "event_time"]
 _AD_REVENUE_PRIMARY_KEYS = [*_RAW_EVENT_PRIMARY_KEYS, "monetization_network", "ad_unit", "placement"]
 
 
-@dataclass
+@frozen
 class AppsFlyerEndpointConfig:
     name: str
     # Report slug in the Pull API path. Empty for the Master API, whose path carries no slug.

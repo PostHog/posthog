@@ -10,6 +10,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.settings import (
     APPSFLYER_ENDPOINTS,
     AppsFlyerEndpointConfig,
@@ -48,6 +50,12 @@ REQUEST_TIMEOUT_SECONDS = 300
 MAX_RETRY_ATTEMPTS = 5
 # Yield rows in chunks so huge reports don't build one giant list.
 CHUNK_SIZE = 5000
+
+
+@frozen
+class _ReportWindow:
+    start: date
+    end: date
 
 
 class AppsFlyerRetryableError(Exception):
@@ -123,8 +131,8 @@ def _report_url(config: AppsFlyerEndpointConfig, app_id: str, params: dict[str, 
     return f"{APPSFLYER_BASE_URL}{path}?{urlencode(params)}"
 
 
-def _request_params(config: AppsFlyerEndpointConfig, window_start: date, window_end: date) -> dict[str, str]:
-    params = {"from": window_start.strftime("%Y-%m-%d"), "to": window_end.strftime("%Y-%m-%d")}
+def _request_params(config: AppsFlyerEndpointConfig, window: _ReportWindow) -> dict[str, str]:
+    params = {"from": window.start.strftime("%Y-%m-%d"), "to": window.end.strftime("%Y-%m-%d")}
     if config.kind == AppsFlyerReportKind.RAW:
         params["maximum_rows"] = str(RAW_MAX_ROWS)
     params.update(config.extra_params)
@@ -170,15 +178,15 @@ def _window_start(
     return min(max(start, earliest), today)
 
 
-def _request_windows(kind: AppsFlyerReportKind, start: date, end: date) -> Iterator[tuple[date, date]]:
+def _request_windows(kind: AppsFlyerReportKind, start: date, end: date) -> Iterator[_ReportWindow]:
     span = _max_request_days(kind)
     if span is None:
-        yield start, end
+        yield _ReportWindow(start=start, end=end)
         return
     window_start = start
     while window_start <= end:
         window_end = min(window_start + timedelta(days=span - 1), end)
-        yield window_start, window_end
+        yield _ReportWindow(start=window_start, end=window_end)
         window_start = window_end + timedelta(days=1)
 
 
@@ -281,8 +289,8 @@ def get_rows(
     start = _window_start(config, today, should_use_incremental_field, db_incremental_field_last_value)
 
     chunk: list[dict[str, Any]] = []
-    for window_start, window_end in _request_windows(config.kind, start, today):
-        url = _report_url(config, app, _request_params(config, window_start, window_end))
+    for window in _request_windows(config.kind, start, today):
+        url = _report_url(config, app, _request_params(config, window))
         rows_in_window = 0
         for row in _iter_report_rows(session, url, logger):
             rows_in_window += 1
@@ -294,8 +302,8 @@ def get_rows(
             logger.warning(
                 "AppsFlyer truncated the raw report at its row cap; some rows in this window were not returned",
                 report=endpoint,
-                window_start=window_start.isoformat(),
-                window_end=window_end.isoformat(),
+                window_start=window.start.isoformat(),
+                window_end=window.end.isoformat(),
                 row_cap=RAW_MAX_ROWS,
             )
     if chunk:
