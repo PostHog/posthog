@@ -171,11 +171,11 @@ describe('InsightDisplayConfig', () => {
                         'Statistical analysis',
                         'Axis labels',
                     ],
+                    // An area chart keeps one shared y-axis, so it drops "Show multiple Y-axes".
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
                         'Show alert threshold lines',
-                        'Show multiple Y-axes',
                         'Show trend lines',
                         'Show annotations',
                         'Show legendBottom',
@@ -246,6 +246,15 @@ describe('InsightDisplayConfig', () => {
                 },
             ],
             ['stickiness table', makeStickinessQuery(ChartDisplayType.ActionsTable), { sections: [] }],
+            [
+                'stickiness area graph',
+                makeStickinessQuery(ChartDisplayType.ActionsAreaGraph),
+                {
+                    sections: ['Display', 'Line style'],
+                    // Same shared axis as the trends area graph, so it drops "Show multiple Y-axes".
+                    displayItems: ['Show values on series', 'Show legendBottom'],
+                },
+            ],
             [
                 'lifecycle',
                 makeLifecycleQuery(),

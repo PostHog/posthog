@@ -160,6 +160,20 @@ describe('trendsChartTransforms', () => {
 
             expect(series.map((s) => s.yAxisId)).toEqual([DEFAULT_Y_AXIS_ID, 'y1', DEFAULT_Y_AXIS_ID])
         })
+
+        it('keeps every area series on one y-axis so the fills cannot cover each other', () => {
+            const results = [
+                makeResult({ id: 'a', data: [1, 2, 3] }),
+                makeResult({ id: 'b', data: [1000, 2000, 3000] }),
+            ]
+            const series = buildTrendsSeries(results, {
+                getColor: () => RED,
+                showMultipleYAxes: true,
+                isArea: true,
+            })
+
+            expect(series.map((s) => s.yAxisId)).toEqual([DEFAULT_Y_AXIS_ID, DEFAULT_Y_AXIS_ID])
+        })
     })
 
     describe('computeDashedFromIndex', () => {

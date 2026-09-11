@@ -85,7 +85,10 @@ export function buildTrendsSeries<R extends TrendsResultLike, M = unknown>(
     results: R[],
     opts: BuildTrendsSeriesOpts<R, M>
 ): Series<M>[] {
-    const yAxisIds = opts.showMultipleYAxes ? computeMagnitudeAxisIds(results.map((r) => r.data)) : undefined
+    // Area fills each scaled to their own axis all reach the top of the plot and cover each
+    // other, so an area chart keeps one shared axis.
+    const yAxisIds =
+        opts.showMultipleYAxes && !opts.isArea ? computeMagnitudeAxisIds(results.map((r) => r.data)) : undefined
     return results.map((r, index) => buildMainTrendsSeries(r, index, opts, yAxisIds?.[index]))
 }
 

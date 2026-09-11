@@ -9,9 +9,19 @@ describe('computeMagnitudeAxisIds', () => {
             datasets: [
                 [1, 2, 3],
                 [4, 5, 6],
-                [2, 8, 9],
+                [2, 5, 7],
             ],
             expected: [DEFAULT_Y_AXIS_ID, DEFAULT_Y_AXIS_ID, DEFAULT_Y_AXIS_ID],
+        },
+        {
+            name: 'a spread of a few times splits, well below an order of magnitude',
+            datasets: [[300], [100], [50]],
+            expected: [DEFAULT_Y_AXIS_ID, 'y1', 'y1'],
+        },
+        {
+            name: 'small steps that add up to a wide spread still split',
+            datasets: [[100], [250], [600]],
+            expected: [DEFAULT_Y_AXIS_ID, DEFAULT_Y_AXIS_ID, 'y1'],
         },
         {
             name: 'an order-of-magnitude gap splits into two axes, interleaved series regroup',
@@ -32,8 +42,8 @@ describe('computeMagnitudeAxisIds', () => {
             expected: [DEFAULT_Y_AXIS_ID, 'y1'],
         },
         {
-            name: 'a smooth magnitude ramp with sub-order gaps stays on one axis',
-            datasets: [[5], [20], [90], [400]],
+            name: 'peaks within the split ratio of each other stay on one axis',
+            datasets: [[5], [9], [12], [14]],
             expected: [DEFAULT_Y_AXIS_ID, DEFAULT_Y_AXIS_ID, DEFAULT_Y_AXIS_ID, DEFAULT_Y_AXIS_ID],
         },
         {
