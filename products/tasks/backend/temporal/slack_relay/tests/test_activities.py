@@ -485,7 +485,8 @@ class TestRelaySlackMessage(TestCase):
         self.assertEqual(composed_call.kwargs["channel"], "C123")
         self.assertEqual(composed_call.kwargs["thread_ts"], "1111.1")
         answer_block, header_block, image_block, actions_block = composed_call.kwargs["blocks"]
-        self.assertEqual(answer_block["text"]["text"], "<@U123> Here's the trend.")
+        self.assertEqual(answer_block["type"], "markdown")
+        self.assertEqual(answer_block["text"], "<@U123> Here's the trend.")
         self.assertEqual(header_block["text"]["text"], "*Signups by week*")
         self.assertEqual(
             image_block,
@@ -626,6 +627,8 @@ class TestAppendUnconfirmedAttachmentNotice(unittest.TestCase):
 
 
 class TestSplitTextForSlack(TestCase):
+    # The splitter takes its limit from the caller and behaves the same at any size, so these
+    # cases use a small one to keep the fixtures small. Production passes the markdown block cap.
     _LIMIT = 3500
 
     def test_short_text_returns_single_chunk(self):

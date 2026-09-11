@@ -1127,19 +1127,18 @@ def _post_composed_answer_message(
     # character cap comes from is spent across every markdown block in one payload. The
     # ones before it go out on their own. The relay chunks under that cap, so most answers
     # are one block and nothing spills.
-    spill_count = max(len(section_blocks) - 1, 0)
+    spilled, kept = section_blocks[:-1], section_blocks[-1:]
     posted_blocks = 0
-    for block in section_blocks[:spill_count]:
+    for block in spilled:
         # A spilled block is one post each, and a long answer spills several, so this loop
         # answers to the same budget as the posts below it.
         if time.monotonic() >= deadline:
             # The caller reposts the whole answer once this reports it unsent, so stop here
             # rather than adding a composed message that the repost would duplicate. The cards
             # stay pending and the next relay delivers them.
-            logger.warning("task_artifact.slack_post_budget_exhausted", spilled=posted_blocks, of=spill_count)
+            logger.warning("task_artifact.slack_post_budget_exhausted", spilled=posted_blocks, of=len(spilled))
             return False
         posted_blocks += 1 if _post_answer_block(slack, mapping=mapping, block=block) else 0
-    kept = section_blocks[spill_count:]
 
     # Cards alone can exceed the block cap (17+ charts) — composing would then fail
     # deterministically as invalid_blocks, so go straight to the per-card path.
@@ -1186,14 +1185,18 @@ def _post_composed_answer_message(
     return bool(section_blocks) and posted_blocks == len(section_blocks)
 
 
-# Markdown blocks hard-cap at 12,000 chars. The relay pre-splits under that, but the mention
-# prefix can push a block past the cap — re-split here, preferring whitespace so the cut doesn't
-# land inside an entity like `<url|text>` or a Markdown link. A cut inside a fenced block is
-# closed and reopened to keep each block self-contained.
 _SLACK_CODE_FENCE = "```"
 
 
 def _answer_text_blocks(sections: list[str]) -> list[dict[str, Any]]:
+    """One `markdown` block per section, re-split to the block's character cap.
+
+    The relay is the only producer of sections and already reserves the mention prefix out
+    of that cap, so the re-split is a guard for a section that arrives oversized rather than
+    a step the answer normally goes through. It prefers whitespace so a cut doesn't land
+    inside an entity like `<url|text>` or a Markdown link, and closes and reopens a fenced
+    block it has to cut so each block stays self-contained.
+    """
     blocks: list[dict[str, Any]] = []
     for section in sections:
         for piece in _split_section_text(section, limit_chars=SLACK_MARKDOWN_TEXT_MAX_LEN):

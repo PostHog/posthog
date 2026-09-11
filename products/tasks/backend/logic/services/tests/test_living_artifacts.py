@@ -712,8 +712,7 @@ class TestChartCardBlockBuilders(SimpleTestCase):
     def test_sections_split_below_the_markdown_block_cap(self):
         blocks = _answer_text_blocks(["a" * 14000, "short"])
         self.assertEqual([b["type"] for b in blocks], ["markdown"] * 3)
-        self.assertTrue(all(len(b["text"]) <= SLACK_MARKDOWN_TEXT_MAX_LEN for b in blocks))
-        self.assertEqual(sum(len(b["text"]) for b in blocks), 14005)
+        self.assertEqual([len(b["text"]) for b in blocks], [SLACK_MARKDOWN_TEXT_MAX_LEN, 2500, 5])
         self.assertEqual(blocks[-1]["text"], "short")
 
     def test_oversized_sections_split_at_whitespace_so_slack_entities_survive(self):
