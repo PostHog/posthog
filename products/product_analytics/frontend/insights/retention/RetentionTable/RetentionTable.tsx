@@ -13,10 +13,10 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { OVERALL_MEAN_KEY, retentionLogic } from './retentionLogic'
-import { retentionModalLogic } from './retentionModalLogic'
+import { OVERALL_MEAN_KEY, retentionLogic } from '../retentionLogic'
+import { retentionModalLogic } from '../retentionModalLogic'
+import { NO_BREAKDOWN_VALUE } from '../types'
 import { retentionTableLogic } from './retentionTableLogic'
-import { NO_BREAKDOWN_VALUE } from './types'
 
 export function RetentionTable({
     inSharedMode = false,
