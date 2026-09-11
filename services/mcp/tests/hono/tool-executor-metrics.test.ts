@@ -645,6 +645,25 @@ describe('ToolExecutor metrics', () => {
                 }
             }
 
+            /** A context whose skill fetch 404s with the store's own lookup detail,
+             *  which is the only 404 the dispatcher rewrites into a plain result. */
+            function contextThatMisses(): any {
+                return {
+                    ...contextThatServes(),
+                    api: {
+                        request: vi.fn().mockRejectedValue(
+                            new PostHogApiError({
+                                status: 404,
+                                statusText: 'Not Found',
+                                body: '{"detail":"Skill with name \'conductor\' not found."}',
+                                url: 'https://us.posthog.com/api/projects/2/llm_skills/name/conductor/',
+                                method: 'GET',
+                            })
+                        ),
+                    },
+                }
+            }
+
             function execStateWith(context: any): ResolvedState {
                 return { ...execState(), context }
             }
@@ -691,11 +710,12 @@ describe('ToolExecutor metrics', () => {
             it('records a rewritten lookup miss as a failed call', async () => {
                 const response: any = await executor.handleToolCall(
                     { name: 'exec', arguments: { command: 'call skill-get {"skill_name":"conductor"}' } },
-                    execStateWith(contextThatRejects())
+                    execStateWith(contextThatMisses())
                 )
 
                 expect(response.isError).toBeFalsy()
                 expect(mockTrackToolCall.mock.calls.at(-1)?.[2]).toBe(true)
+                expect(lastExtras()).not.toHaveProperty('$mcp_skill_name')
                 expect(lastExtras()).toMatchObject({ $mcp_error_type: 'api_4xx', $mcp_error_status: 404 })
                 expect(callsFor(mockToolErrorsInc, 'skill-get')).toEqual([{ tool: 'skill-get', error_type: 'api_4xx' }])
             })

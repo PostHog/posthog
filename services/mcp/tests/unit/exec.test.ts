@@ -874,7 +874,11 @@ describe('exec tool', () => {
         function makeSkillTool(name: string, body: string): Tool<ZodObjectAny> {
             return makeMockTool({
                 name,
-                schema: z.object({ skill_name: z.string(), file_path: z.string().optional() }),
+                schema: z.object({
+                    skill_name: z.string(),
+                    file_path: z.string().optional(),
+                    version: z.number().optional(),
+                }),
                 handler: async () => {
                     throw new PostHogApiError({
                         status: 404,
@@ -957,6 +961,36 @@ describe('exec tool', () => {
 
             await expect(
                 exec.handler(mockContext, { command: 'call insight-get {"skill_name":"whatever"}' })
+            ).rejects.toThrow(/Request failed/)
+        })
+
+        // The store returns its skill-level 404 for a version that was never
+        // published as well as for a name that does not exist. Reporting the
+        // skill as absent would contradict `skill-list`, which still lists it,
+        // and an agent may drop a skill it could have read.
+        it.each([
+            ['skill-get', 'call skill-get {"skill_name":"real-skill","version":7}'],
+            [
+                'skill-file-get',
+                'call skill-file-get {"skill_name":"real-skill","file_path":"refs/guide.md","version":7}',
+            ],
+        ])('names the version rather than the skill when %s pins one', async (name, command) => {
+            const exec = createExec([makeSkillTool(name, '{"detail":"Skill with name \'real-skill\' not found."}')])
+
+            const result = (await exec.handler(mockContext, { command })) as string
+
+            expect(result).toContain('No version 7 of the skill "real-skill"')
+            expect(result).not.toContain('No skill named')
+        })
+
+        // Only the name lookup emits the store's own detail. Any other 404 from
+        // these tools carries no evidence about what the store holds, so it must
+        // not be rewritten into a claim that the skill is absent.
+        it('leaves a 404 that the name lookup did not produce as an error', async () => {
+            const exec = createExec([makeSkillTool('skill-get', '{"detail":"Not found."}')])
+
+            await expect(
+                exec.handler(mockContext, { command: 'call skill-get {"skill_name":"real-skill"}' })
             ).rejects.toThrow(/Request failed/)
         })
     })
