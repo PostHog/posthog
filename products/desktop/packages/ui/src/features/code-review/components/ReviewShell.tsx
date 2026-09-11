@@ -1,4 +1,3 @@
-import { WorkerPoolContextProvider } from "@pierre/diffs/react";
 import { useService } from "@posthog/di/react";
 import { cn } from "@posthog/quill";
 import type { Task } from "@posthog/shared/domain-types";
@@ -121,7 +120,6 @@ export function ReviewShell({
   prSourceAvailable,
   defaultBranch,
 }: ReviewShellProps) {
-  const reviewHost = useService<ReviewHost>(REVIEW_HOST);
   const taskId = task.id;
   const listRef = useRef<VListHandle | null>(null);
   const listContainerRef = useRef<HTMLDivElement | null>(null);
@@ -171,11 +169,6 @@ export function ReviewShell({
   const visibleItemIndexByFilePath = useMemo(
     () => buildItemIndex(filteredItems),
     [filteredItems],
-  );
-
-  const workerFactory = useCallback(
-    () => reviewHost.diffWorkerFactory(),
-    [reviewHost],
   );
 
   // The room the review was given, not the mode it was opened in: the same
@@ -395,82 +388,56 @@ export function ReviewShell({
   }
 
   return (
-    <WorkerPoolContextProvider
-      // poolSize: each highlighter worker is a full V8 isolate with shiki
-      // grammars loaded (~40MB RSS); the library default of 8 is oversized.
-      poolOptions={{ workerFactory, poolSize: 2 }}
-      highlighterOptions={{
-        theme: { dark: "github-dark", light: "github-light" },
-        langs: [
-          "typescript",
-          "tsx",
-          "javascript",
-          "jsx",
-          "json",
-          "css",
-          "html",
-          "markdown",
-          "python",
-          "ruby",
-          "go",
-          "rust",
-          "shell",
-          "yaml",
-          "sql",
-        ],
-      }}
-    >
-      <ReviewViewedContext.Provider value={viewedContextValue}>
-        <Flex ref={shellRef} direction="column" height="100%" id="review-shell">
-          <ReviewToolbar
-            taskId={taskId}
-            fileCount={fileCount}
-            viewedCount={viewedCount}
-            commentedFileCount={commentedFileCount}
-            unresolvedCommentedFileCount={unresolvedCommentedFileCount}
-            commentFilter={activeCommentFilter}
-            hasFileBrowserRoom={hasRoomForFileBrowser}
-            fileBrowserCollapsed={fileBrowserCollapsed}
-            onCommentFilterChange={
-              commentedFilePaths && unresolvedCommentedFilePaths
-                ? (filter) => setCommentFileFilter(taskId, filter)
-                : undefined
-            }
-            hideViewedFiles={hideViewedFiles}
-            filteredFileCount={filteredFileCount}
-            onHideViewedFilesChange={(hideViewed) =>
-              setHideViewedFiles(taskId, hideViewed)
-            }
-            linesAdded={linesAdded}
-            linesRemoved={linesRemoved}
-            allExpanded={allExpanded}
-            onExpandAll={onExpandAll}
-            onCollapseAll={onCollapseAll}
-            onRefresh={onRefresh}
-            onDiscardAll={onDiscardAll}
-            effectiveSource={effectiveSource}
-            branchSourceAvailable={branchSourceAvailable}
-            prSourceAvailable={prSourceAvailable}
-            defaultBranch={defaultBranch}
-          />
-          <Flex className="min-h-0 flex-1">
-            <Flex
-              ref={listContainerRef}
-              direction="column"
-              className="min-w-0 flex-1"
-            >
-              {reviewContent}
-              <PendingReviewBar taskId={taskId} />
-            </Flex>
-
-            {/* Width auto-hides the browser (unmounts). An explicit collapse
-                keeps it mounted but hidden so its state persists. */}
-            {hasRoomForFileBrowser && (
-              <FileBrowser task={task} collapsed={fileBrowserCollapsed} />
-            )}
+    <ReviewViewedContext.Provider value={viewedContextValue}>
+      <Flex ref={shellRef} direction="column" height="100%" id="review-shell">
+        <ReviewToolbar
+          taskId={taskId}
+          fileCount={fileCount}
+          viewedCount={viewedCount}
+          commentedFileCount={commentedFileCount}
+          unresolvedCommentedFileCount={unresolvedCommentedFileCount}
+          commentFilter={activeCommentFilter}
+          hasFileBrowserRoom={hasRoomForFileBrowser}
+          fileBrowserCollapsed={fileBrowserCollapsed}
+          onCommentFilterChange={
+            commentedFilePaths && unresolvedCommentedFilePaths
+              ? (filter) => setCommentFileFilter(taskId, filter)
+              : undefined
+          }
+          hideViewedFiles={hideViewedFiles}
+          filteredFileCount={filteredFileCount}
+          onHideViewedFilesChange={(hideViewed) =>
+            setHideViewedFiles(taskId, hideViewed)
+          }
+          linesAdded={linesAdded}
+          linesRemoved={linesRemoved}
+          allExpanded={allExpanded}
+          onExpandAll={onExpandAll}
+          onCollapseAll={onCollapseAll}
+          onRefresh={onRefresh}
+          onDiscardAll={onDiscardAll}
+          effectiveSource={effectiveSource}
+          branchSourceAvailable={branchSourceAvailable}
+          prSourceAvailable={prSourceAvailable}
+          defaultBranch={defaultBranch}
+        />
+        <Flex className="min-h-0 flex-1">
+          <Flex
+            ref={listContainerRef}
+            direction="column"
+            className="min-w-0 flex-1"
+          >
+            {reviewContent}
+            <PendingReviewBar taskId={taskId} />
           </Flex>
+
+          {/* Width auto-hides the browser (unmounts). An explicit collapse
+                keeps it mounted but hidden so its state persists. */}
+          {hasRoomForFileBrowser && (
+            <FileBrowser task={task} collapsed={fileBrowserCollapsed} />
+          )}
         </Flex>
-      </ReviewViewedContext.Provider>
-    </WorkerPoolContextProvider>
+      </Flex>
+    </ReviewViewedContext.Provider>
   );
 }
