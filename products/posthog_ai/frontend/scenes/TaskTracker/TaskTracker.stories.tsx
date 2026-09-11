@@ -1,9 +1,13 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { useActions } from 'kea'
 import { delay, HttpResponse } from 'msw'
+import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { mswDecorator } from '~/mocks/browser'
 
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -23,14 +27,20 @@ const CREATED_BY: Task['created_by'] = {
     email: 'lottie@posthog.com',
 }
 
-function mockRun(taskId: string, status: TaskRunStatus, createdAt: string, completedAt: string | null): TaskRun {
+function mockRun(
+    taskId: string,
+    status: TaskRunStatus,
+    createdAt: string,
+    completedAt: string | null,
+    environment: TaskRunEnvironment = TaskRunEnvironment.CLOUD
+): TaskRun {
     return {
         id: `run-${taskId}`,
         task: taskId,
         stage: null,
         branch: status === TaskRunStatus.COMPLETED ? 'posthog/task-branch' : null,
         status,
-        environment: TaskRunEnvironment.CLOUD,
+        environment,
         runtime_adapter: null,
         model: null,
         reasoning_effort: null,
@@ -77,7 +87,13 @@ const TASKS: Task[] = [
         signal_report: null,
         json_schema: null,
         internal: false,
-        latest_run: mockRun('task-2', TaskRunStatus.COMPLETED, '2024-01-15T11:40:00Z', '2024-01-15T11:52:00Z'),
+        latest_run: mockRun(
+            'task-2',
+            TaskRunStatus.COMPLETED,
+            '2024-01-15T11:40:00Z',
+            '2024-01-15T11:52:00Z',
+            TaskRunEnvironment.LOCAL
+        ),
         created_at: '2024-01-15T11:38:00Z',
         updated_at: '2024-01-15T11:40:00Z',
         created_by: CREATED_BY,
@@ -119,6 +135,42 @@ const GITHUB_INTEGRATION = {
     created_at: '2024-01-01T00:00:00Z',
 }
 
+const CONVERSATIONS = {
+    count: 2,
+    next: null,
+    previous: null,
+    results: [
+        {
+            id: 'conversation-1',
+            status: 'idle',
+            title: 'Summarize weekly signups',
+            created_at: '2024-01-15T10:00:00Z',
+            updated_at: '2024-01-15T10:15:00Z',
+            user: CREATED_BY,
+        },
+        {
+            id: 'conversation-2',
+            status: 'idle',
+            title: 'Compare conversion by channel',
+            created_at: '2024-01-14T14:00:00Z',
+            updated_at: '2024-01-14T14:20:00Z',
+            user: CREATED_BY,
+        },
+    ],
+}
+
+function UnifiedNavigationStory(): JSX.Element {
+    const { setNavExperimentTab } = useActions(panelLayoutLogic)
+    const { setPhaiViewMode } = useActions(maxGlobalLogic)
+
+    useEffect(() => {
+        setNavExperimentTab('chat')
+        setPhaiViewMode('new')
+    }, [setNavExperimentTab, setPhaiViewMode])
+
+    return <App />
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Tasks',
@@ -128,6 +180,8 @@ const meta: Meta = {
                 '/api/code/invites/check-access/': { has_access: true, has_loops_access: false },
                 '/api/projects/:team_id/tasks/': listResponse(TASKS),
                 '/api/projects/:team_id/tasks/repositories/': { repositories: ['PostHog/posthog'] },
+                // nosemgrep: no-environments-api-urls-frontend -- Storybook mock for the shared AI navigation.
+                '/api/environments/:team_id/conversations/': CONVERSATIONS,
                 // Exact ids (not `:id`) so they never shadow the `repositories` action route.
                 '/api/projects/:team_id/tasks/task-3/': TASKS[2],
                 '/api/projects/:team_id/tasks/task-3/runs/': { count: 0, next: null, previous: null, results: [] },
@@ -147,10 +201,16 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-// Two-column layout: list on the left, the new-task composer on the right.
-export const ListWithComposer: Story = {}
+export const Composer: Story = {}
 
-// New-task route — same two columns, composer is the focused right pane.
+export const UnifiedNavigation: Story = {
+    render: () => <UnifiedNavigationStory />,
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TASKS, FEATURE_FLAGS.PHAI_SANDBOX_MODE],
+        pageUrl: taskTrackerUrl(),
+    },
+}
+
 export const NewTask: Story = {
     parameters: {
         pageUrl: taskNewUrl(),
@@ -184,15 +244,14 @@ export const NewTaskWithRepository: Story = {
     ],
 }
 
-// A task is selected: the row is highlighted and its detail fills the right column.
 export const TaskSelected: Story = {
     parameters: {
         pageUrl: taskDetailUrl('task-3'),
     },
 }
 
-// The tasks request never resolves, so the list column shows its loading skeletons.
 export const Loading: Story = {
+    render: () => <UnifiedNavigationStory />,
     parameters: {
         testOptions: { waitForLoadersToDisappear: false },
     },
@@ -210,8 +269,8 @@ export const Loading: Story = {
     ],
 }
 
-// The tasks list endpoint fails with no cached tasks — the column shows an error + retry, not "No tasks yet".
 export const ListLoadError: Story = {
+    render: () => <UnifiedNavigationStory />,
     decorators: [
         mswDecorator({
             get: {
@@ -312,8 +371,8 @@ export const TaskRunNotFound: Story = {
     ],
 }
 
-// No tasks yet — the list shows its empty state alongside the composer.
 export const Empty: Story = {
+    render: () => <UnifiedNavigationStory />,
     decorators: [
         mswDecorator({
             get: {
@@ -334,8 +393,7 @@ const MOBILE_PARAMETERS = {
     testOptions: { viewport: MOBILE_VIEWPORT },
 }
 
-// Mobile: the list fills the screen in its own scroll container, with a floating "New task" button.
-export const MobileList: Story = {
+export const MobileComposer: Story = {
     parameters: MOBILE_PARAMETERS,
 }
 
@@ -347,7 +405,6 @@ export const MobileNewTask: Story = {
     },
 }
 
-// Mobile: a selected task's detail fills the screen (its back button returns to the list).
 export const MobileTaskSelected: Story = {
     parameters: {
         ...MOBILE_PARAMETERS,

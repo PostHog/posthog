@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_USER, api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -11,6 +13,7 @@ import { initKeaTests } from '~/test/init'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { OriginProduct, Task } from '../types/taskTypes'
+import { taskHistoryLogic } from './taskHistoryLogic'
 import { tasksLogic } from './tasksLogic'
 
 const createMockTask = (id: string): Task => ({
@@ -57,6 +60,9 @@ describe('tasksLogic', () => {
     })
 
     afterEach(() => {
+        // `featureFlags` is a persisted reducer, so a flag set in one test survives the next
+        // `initKeaTests` and would make its mount fire an unexpected list load.
+        featureFlagLogic.findMounted()?.actions.setFeatureFlags([], {})
         logic.unmount()
     })
 
@@ -102,7 +108,12 @@ describe('tasksLogic', () => {
         ])('maps the %s filter to its query params', (assigneeFilter, expected) => {
             logic.actions.setAssigneeFilter(assigneeFilter)
 
-            expect(logic.values.taskListParams).toEqual({ search: undefined, ...expected })
+            // The nav presents recent activity, so every filter must ask the server for it.
+            expect(logic.values.taskListParams).toEqual({
+                search: undefined,
+                ordering: '-last_activity_at',
+                ...expected,
+            })
         })
 
         it('composes the search term with the active assignee filter', () => {
@@ -110,6 +121,7 @@ describe('tasksLogic', () => {
 
             expect(logic.values.taskListParams).toEqual({
                 search: 'checkout bug',
+                ordering: '-last_activity_at',
                 created_by: userLogic.values.user?.id,
                 exclude_origin_product: OriginProduct.SIGNALS_SCOUT,
             })
@@ -127,6 +139,42 @@ describe('tasksLogic', () => {
             expect(listRequestUrls).toHaveLength(1)
             expect(listRequestUrls[0].searchParams.get('exclude_origin_product')).toBe(OriginProduct.SIGNALS_SCOUT)
             expect(listRequestUrls[0].searchParams.get('created_by')).toBe(String(MOCK_DEFAULT_USER.id))
+        })
+
+        // Regression coverage: the app renders once the feature-flag request times out, so this
+        // singleton can mount with the flag still off and `afterMount` never runs again. Without a
+        // load on the late flag the nav sits on an empty list and reports "no tasks".
+        it('loads once when the task flag arrives after mount', async () => {
+            expect(listRequestUrls).toHaveLength(0)
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TASKS], { [FEATURE_FLAGS.TASKS]: true })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(listRequestUrls).toHaveLength(1)
+
+            // `onFeatureFlags` fires again on any later flag refresh; that must not re-request.
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TASKS], { [FEATURE_FLAGS.TASKS]: true })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(listRequestUrls).toHaveLength(1)
+        })
+    })
+
+    describe('setSearchQuery', () => {
+        // Regression coverage: the request sits behind a 300ms debounce, so `tasksLoading` is still
+        // false while a consumer filters the cached rows against the new query. Without a pending
+        // flag the nav reports "nothing found" for a search whose matches are still on the server.
+        it('stays pending across the debounce until the matching page lands', async () => {
+            logic.actions.loadTasksSuccess([createMockTask('task-1')])
+
+            logic.actions.setSearchQuery('checkout bug')
+
+            expect(logic.values.tasksSearchPending).toBe(true)
+            expect(logic.values.tasksLoading).toBe(false)
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.tasksSearchPending).toBe(false)
         })
     })
 
@@ -154,10 +202,11 @@ describe('tasksLogic', () => {
             expect(logic.values.tasksNext).toBeNull()
         })
 
-        // Regression coverage: without clearing `tasksNext` on failure, `hasMore` stays true forever
-        // and the infinite-scroll spinner never goes away after a failed page load.
-        it('clears tasksNext on failure so the list stops reporting more pages', async () => {
-            logic.actions.setTasksNext('/api/projects/1/tasks/?cursor=page-2')
+        // Regression coverage: the cursor is what renders the manual "Load more" control, so dropping
+        // it on a transient failure would remove the only retry for the rest of the session.
+        it('keeps tasksNext on failure so the page can be retried', async () => {
+            const cursor = '/api/projects/1/tasks/?cursor=page-2'
+            logic.actions.setTasksNext(cursor)
             // Deliberate loader failure — kea-loaders would log it
             silenceKeaLoadersErrors()
             jest.spyOn(api, 'get').mockRejectedValueOnce(new Error('network error'))
@@ -165,8 +214,38 @@ describe('tasksLogic', () => {
             logic.actions.loadMoreTasks()
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.tasksNext).toBeNull()
+            expect(logic.values.tasksNext).toBe(cursor)
             expect(logic.values.tasksLoadingMore).toBe(false)
+
+            // The retry reuses the same cursor and succeeds.
+            resumeKeaLoadersErrors()
+            jest.spyOn(api, 'get').mockResolvedValueOnce({ results: [createMockTask('task-2')], next: null })
+
+            logic.actions.loadMoreTasks()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.tasks.map((t) => t.id)).toEqual(['task-2'])
+            expect(logic.values.tasksNext).toBeNull()
+        })
+    })
+
+    describe('deleteTask', () => {
+        // Regression coverage: archiving from the shared navigation used to leave the row on the
+        // panel history, which loads its own list and never hears about the delete.
+        it('drops the task from a mounted panel history', async () => {
+            jest.spyOn(api, 'delete').mockResolvedValueOnce({})
+            const historyLogic = taskHistoryLogic()
+            historyLogic.mount()
+            // Let the mount-time load land first, or it overwrites the seeded history.
+            await expectLogic(historyLogic).toDispatchActions(['loadHistorySuccess'])
+            const task = createMockTask('task-1')
+            historyLogic.actions.loadHistorySuccess([task, createMockTask('task-2')])
+
+            logic.actions.deleteTask({ taskId: task.id })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(historyLogic.values.history.map((t) => t.id)).toEqual(['task-2'])
+            historyLogic.unmount()
         })
     })
 })

@@ -45,7 +45,6 @@ export interface TaskRunSceneShellProps {
     onArchive: () => void
     taskError: string | null
     onRetry: () => void
-    /** Mobile shows the single-column layout, where the title needs a back button to return to the list. */
     isMobile: boolean
     /** The run-log slot (the streamed thread). */
     children: ReactNode
@@ -155,9 +154,9 @@ export function TaskRunSceneShell({
                             forceBackTo={
                                 isMobile
                                     ? {
-                                          key: 'tasks',
-                                          name: 'Tasks',
-                                          path: urls.taskTracker(),
+                                          key: 'posthog-ai',
+                                          name: 'PostHog AI',
+                                          path: urls.ai(),
                                       }
                                     : undefined
                             }

@@ -104,8 +104,6 @@ export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Elem
     const { startNewConversation } = useActions(maxLogic({ panelId: tabId }))
     const { isMaxAvailable, effectivePhaiView } = useValues(maxGlobalLogic)
 
-    // On `/ai` the new view is the full TaskTracker product (tasks list + composer + run detail); a thin
-    // bar keeps the toggle reachable so the user can drop back to the legacy chat.
     if (effectivePhaiView === 'new') {
         return (
             <div className="flex flex-col grow overflow-hidden h-full">
