@@ -37,8 +37,11 @@ from products.notebooks.backend.util import (
 _CELL_TAGS = {"SQLV2": "sql", "PythonV2": "python", "Query": "saved_insight"}
 
 # Prose sits outside the runnable-cell ceiling below, so this is the only bound on how many
-# cells one save can turn into. Past it a notebook stays readable through `markdown`.
-MAX_ADDRESSABLE_PROSE_BLOCKS = 2_000
+# cells one save can turn into. The reader is an agent that pays context for every block it is
+# handed, on top of the `markdown` this response already carries, so the budget is a response an
+# agent can still afford rather than the largest one a worker survives. Past the cap a notebook
+# stays readable through `markdown`; only its trailing prose loses an id to edit by.
+MAX_ADDRESSABLE_PROSE_BLOCKS = 500
 
 # The most cells one notebook may hold. A cell is the expensive unit: a SQL or Python cell is a
 # ClickHouse query or a sandbox execution, and the MCP tools let an agent add one and run it in
