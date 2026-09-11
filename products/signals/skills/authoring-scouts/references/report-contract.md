@@ -111,11 +111,9 @@ A primary affected-users metric and a supporting rate, as they arrive in `metric
         "series": [
           {
             "kind": "EventsNode",
-            "event": "$pageview",
+            "event": "shared_link_failed",
             "math": "dau",
-            "properties": [
-              { "type": "event", "key": "$pathname", "operator": "icontains", "value": "/shared/" }
-            ]
+            "properties": [{ "type": "event", "key": "reason", "operator": "exact", "value": ["not_found"] }]
           }
         ]
       }
@@ -127,7 +125,7 @@ A primary affected-users metric and a supporting rate, as they arrive in `metric
     "kind": "error_rate",
     "value_format": "percentage_scaled",
     "unit": "failure",
-    "caption": "Production only, excluding internal users.",
+    "caption": "Production traffic only.",
     "query": {
       "kind": "InsightVizNode",
       "source": {
@@ -135,8 +133,18 @@ A primary affected-users metric and a supporting rate, as they arrive in `metric
         "dateRange": { "date_from": "-13d" },
         "interval": "day",
         "series": [
-          { "kind": "EventsNode", "event": "shared_link_opened", "math": "total" },
-          { "kind": "EventsNode", "event": "shared_link_failed", "math": "total" }
+          {
+            "kind": "EventsNode",
+            "event": "shared_link_opened",
+            "math": "total",
+            "properties": [{ "type": "event", "key": "environment", "operator": "exact", "value": ["production"] }]
+          },
+          {
+            "kind": "EventsNode",
+            "event": "shared_link_failed",
+            "math": "total",
+            "properties": [{ "type": "event", "key": "environment", "operator": "exact", "value": ["production"] }]
+          }
         ],
         "trendsFilter": { "formula": "B / A", "aggregationAxisFormat": "percentage_scaled" }
       }
