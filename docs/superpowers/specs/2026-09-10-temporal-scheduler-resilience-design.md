@@ -110,6 +110,8 @@ Every recurring coordinator defines and tests these values:
 | `retry_policy`                    | Bounded retries that cannot occupy the full worker pool                |
 | `freshness_objective`             | Maximum acceptable oldest-due age                                      |
 
+`max_concurrent_pages` scopes page concurrency within a single coordinator run. It is 1 for fire-and-forget coordinators, which serialize pages through continue-as-new, and exceeds 1 only for result-aggregating coordinators that keep `execute_child_workflow`, such as the Error Tracking weekly digest. Aggregate downstream load across overlapping runs is bounded by the durable item permits (`max_in_flight_items` and `max_in_flight_per_tenant`), not by a page count.
+
 Each coordinator must also answer:
 
 1. How does it fairly select work across teams or organisations?
