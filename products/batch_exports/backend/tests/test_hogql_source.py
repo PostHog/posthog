@@ -1,9 +1,12 @@
+import typing
+
 import pytest
 
 from posthog.sync import database_sync_to_async
 
 from products.batch_exports.backend.hogql_source import (
     UnsupportedHogQLQueryError,
+    create_hogql_context_for_batch_export,
     validate_hogql_query_for_batch_export,
 )
 
@@ -74,3 +77,20 @@ async def test_accepts_valid_queries(ateam, hogql_query):
 async def test_rejects_unsupported_queries(ateam, hogql_query, expected_message):
     with pytest.raises(UnsupportedHogQLQueryError, match=expected_message):
         await _validate(hogql_query, ateam)
+
+
+@pytest.mark.parametrize("team_modifiers", [None, {"convertToProjectTimezone": False}])
+def test_create_hogql_context_for_batch_exports(team, team_modifiers: dict[str, typing.Any] | None) -> None:
+    if team_modifiers is not None:
+        team.modifiers = team_modifiers
+    else:
+        team_modifiers = {}
+
+    context = create_hogql_context_for_batch_export(team)
+
+    assert context.team == team
+
+    for key, value in team_modifiers.items():
+        assert getattr(context.modifiers, key) == value, (
+            f"Context modifier '{key}' should be set by team modifier. Expected '{value}', got '{getattr(context.modifiers, key)}'"
+        )
