@@ -6,12 +6,13 @@ import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { GroupsNewLogicProps, groupsNewLogic } from 'scenes/groups/groupsNewLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+
+import { GroupsNewLogicProps, groupsNewLogic } from 'products/groups/frontend/logics/groupsNewLogic'
 
 export const scene: SceneExport<GroupsNewLogicProps> = {
     component: GroupsNew,
