@@ -165,7 +165,9 @@ def assess_scout(name: str, runs: list[dict], interval: float | None, mem_count:
     expected = (int(span_min / interval) + 1) if interval and span_min > 0 else None
     adherence = pct(n, expected) if expected else "-"
 
-    wrote = sum(1 for r in runs if run_wrote(r))
+    # Report ids land on the row when the report tool succeeds, before the run settles, so an
+    # in-flight or cancelled writer would push the rate past 100% against a settled denominator.
+    wrote = sum(1 for r in settled if run_wrote(r))
     # Two different stalenesses — keep them apart. `last_run_at` is the coordinator's DISPATCH
     # stamp (advanced the moment a child is enqueued, before any worker runs it); the newest
     # observed run row's `started_at` is when a run actually EXECUTED. A fresh `last_run_at`

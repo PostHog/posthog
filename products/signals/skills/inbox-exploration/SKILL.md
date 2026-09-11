@@ -116,6 +116,9 @@ How the flag is produced:
    linked GitHub login is one of them, `is_suggested_reviewer` flips to `true` for that
    report. A reviewer can also be stored by PostHog `user_uuid` (a scout or a person naming
    an org member directly), which matches the viewer without any GitHub link.
+   The flag is forced to `false` on a `failed` report and on a `ready` report judged
+   `not_actionable`, whatever reviewers they carry, so read `suggested_reviewers` directly
+   when auditing routing.
 
 Practical implications for triage:
 
