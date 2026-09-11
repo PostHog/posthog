@@ -53,7 +53,7 @@ import {
 import { mergeReportRows, selectedFlatListSections } from './utils/flatReportList'
 import { isInboxRedesignEnabled } from './utils/inboxRedesign'
 import { inboxTabRedirectPath } from './utils/inboxReportUrls'
-import { mergeReportMetricSnapshots, reportNeedsMetricRefresh } from './utils/reportMetrics'
+import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from './utils/reportMetrics'
 import { decodeScoutCreateTemplate } from './utils/scoutTemplateDeepLink'
 
 // Newest-first scout runs to pull for the Runs panel. The scout-runs endpoint caps at 100 server-side.
@@ -883,6 +883,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             }
         },
         refreshSelectedReportMetrics: async ({ id }, breakpoint) => {
+            if (!isReportMetricsEnabled(values.featureFlags)) {
+                return
+            }
             let response: Awaited<ReturnType<typeof signalsReportsRefreshMetricsCreate>>
             try {
                 response = await signalsReportsRefreshMetricsCreate(String(teamLogic.values.currentTeamId), {

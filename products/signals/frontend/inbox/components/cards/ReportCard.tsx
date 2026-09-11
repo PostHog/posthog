@@ -149,6 +149,10 @@ export function ReportCard({
     const cardTitle = displayConventionalCommitTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
     const headline = deriveHeadline(report.summary)
     const redesign = useFeatureFlag('INBOX_REDESIGN')
+    const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
+    // The impact column carries its own flag on top of the redesign: its figures come from live
+    // queries, so it rolls out per team as the metric quality is verified.
+    const showImpactColumn = redesign && metricsEnabled
     // The legacy layout addresses a report through the tab that listed it, so its back control returns there.
     const detailUrl = inboxReportDetailUrl(
         report.id,
@@ -191,7 +195,7 @@ export function ReportCard({
         'flex min-w-0 flex-1 items-start gap-3 text-left text-inherit no-underline',
         // Too narrow to hold the impact column beside the content: let it drop to its own line rather
         // than squeeze the title into a column of single words.
-        redesign && 'flex-wrap @lg:flex-nowrap'
+        showImpactColumn && 'flex-wrap @lg:flex-nowrap'
     )
     const cardBody = (
         <>
@@ -201,16 +205,16 @@ export function ReportCard({
                 </div>
             )}
 
-            <div className={clsx('flex flex-col gap-2 min-w-0 flex-1', redesign && 'self-stretch')}>
-                {/* Keep the title clear of the PR badge. Under the redesign the badge sits over the
-                    right column from `@lg` up, so only the stacked width needs the reserved space. */}
+            <div className={clsx('flex flex-col gap-2 min-w-0 flex-1', showImpactColumn && 'self-stretch')}>
+                {/* Keep the title clear of the PR badge. With the impact column shown the badge sits
+                    over that column from `@lg` up, so only the stacked width needs the reserved space. */}
                 <div
                     className={clsx(
                         'min-w-0 break-words font-semibold text-sm leading-snug text-balance',
                         // A CI glyph widens the pill, so the title gives back the space it takes.
                         // A state that draws no glyph keeps the pill at its plain width.
                         hasPr && (glyphStatus ? 'pr-24' : 'pr-14'),
-                        hasPr && redesign && '@lg:pr-0'
+                        hasPr && showImpactColumn && '@lg:pr-0'
                     )}
                 >
                     {conventionalTitle && (
@@ -246,7 +250,7 @@ export function ReportCard({
                         'flex items-center flex-wrap min-w-0 gap-x-2.5 gap-y-1 text-xs text-tertiary leading-none select-none',
                         // Sit on the bottom edge of the column so the sources line up with the timestamp
                         // opposite, whichever column is taller.
-                        redesign ? 'mt-auto pt-1' : 'mt-1.5'
+                        showImpactColumn ? 'mt-auto pt-1' : 'mt-1.5'
                     )}
                 >
                     {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
@@ -277,7 +281,7 @@ export function ReportCard({
                         </Tooltip>
                     )}
                     <SignalReportBillingBadge report={report} />
-                    {!redesign && (
+                    {!showImpactColumn && (
                         <TZLabel
                             time={report.updated_at ?? report.created_at}
                             className="ml-auto shrink-0 text-xs text-tertiary tabular-nums"
@@ -289,7 +293,7 @@ export function ReportCard({
 
             {/* Reserved even with no figure to show: the fixed width keeps every row's figure and
                 timestamp on the same two vertical lines down the list. */}
-            {redesign ? (
+            {showImpactColumn ? (
                 <div className="flex w-full items-center gap-3 @lg:relative @lg:w-auto @lg:min-h-23 @lg:min-w-39 @lg:flex-none @lg:justify-end">
                     <ReportCardImpactMetric metrics={report.metrics} />
                     <TZLabel

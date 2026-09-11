@@ -1,3 +1,5 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { formatCurrency } from 'lib/utils/currency'
 import { formatDurationMilliseconds, humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, percentage, significantDecimalPlaces } from 'lib/utils/numbers'
@@ -463,6 +465,15 @@ export function reportMetricFilterCount(query: ReportMetricInsightQuery): number
         0
     )
     return seriesFilters + countPropertyFilters(query.source.properties)
+}
+
+/**
+ * Whether inbox report rows and the report detail show live impact metrics, and whether the client
+ * asks the server to refresh their snapshots. One reader for every logic, so the flag key is
+ * written once. Components read the same flag through `useFeatureFlag('SIGNALS_REPORT_METRICS')`.
+ */
+export function isReportMetricsEnabled(featureFlags: FeatureFlagsSet): boolean {
+    return !!featureFlags[FEATURE_FLAGS.SIGNALS_REPORT_METRICS]
 }
 
 /** The server serves a snapshot measured inside this window as is, so the request is not worth sending. */

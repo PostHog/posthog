@@ -245,7 +245,7 @@ const impactReports: SignalReport[] = [
 ]
 
 export const ReportCardWithImpact: Story = {
-    parameters: { featureFlags: [FEATURE_FLAGS.INBOX_REDESIGN] },
+    parameters: { featureFlags: [FEATURE_FLAGS.INBOX_REDESIGN, FEATURE_FLAGS.SIGNALS_REPORT_METRICS] },
     render: () => (
         <CardList>
             {impactReports.map((report) => (

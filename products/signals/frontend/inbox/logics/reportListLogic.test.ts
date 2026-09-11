@@ -1,6 +1,9 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -290,6 +293,10 @@ describe('reportListLogic', () => {
                 },
             })
             initKeaTests()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_METRICS], {
+                [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
+            })
             logic = reportListLogic({
                 sectionKey: 'needs-decision',
                 listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
@@ -307,6 +314,16 @@ describe('reportListLogic', () => {
             expect(byId.stale.metrics?.[0]).toMatchObject({ value: 21, series: [5, 9, 21] })
             expect(byId.stale.title).toBe('Report stale')
             expect(byId.fresh.metrics?.[0].value).toBe(17)
+        })
+
+        it('sends nothing while the metrics flag is off', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_METRICS], {
+                [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: false,
+            })
+            logic.actions.refreshReportMetrics(['stale'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requestedIds).toEqual([['stale']])
         })
     })
 })

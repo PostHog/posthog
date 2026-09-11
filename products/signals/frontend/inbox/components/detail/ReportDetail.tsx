@@ -14,6 +14,7 @@ import {
 import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
@@ -309,8 +310,11 @@ export function InboxDetailFrame({
     // The report body: title, summary, charts, and the rating. On a PR-bearing report it is the
     // "Summary" tab; otherwise it sits under the "Report summary" header.
     // The key observation leads the evidence rail; the supporting tiles belong to the body's Impact section.
-    const primaryMetric = report.metrics?.find((metric) => metric.role === 'primary')
-    const supportingMetrics = report.metrics?.filter((metric) => metric.role !== 'primary') ?? []
+    const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
+    const primaryMetric = metricsEnabled ? report.metrics?.find((metric) => metric.role === 'primary') : undefined
+    const supportingMetrics = metricsEnabled
+        ? (report.metrics?.filter((metric) => metric.role !== 'primary') ?? [])
+        : []
     const impactMetrics =
         supportingMetrics.length > 0 ? <ReportImpactMetrics reportId={report.id} metrics={supportingMetrics} /> : null
 

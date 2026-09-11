@@ -31,7 +31,7 @@ import {
 import type { SignalReportPriority } from '../types'
 import { DismissalFeedback, ResolveReasonValue, suppressDismissalPayload } from '../utils/dismissalReasons'
 import { isInboxRedesignEnabled } from '../utils/inboxRedesign'
-import { mergeReportMetricSnapshots, reportNeedsMetricRefresh } from '../utils/reportMetrics'
+import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from '../utils/reportMetrics'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { buildSignalReportListOrdering, inboxFiltersLogic } from './inboxFiltersLogic'
 import type { InboxFilterState, InboxSortDirection, InboxSortField } from './inboxFiltersLogic'
@@ -638,6 +638,9 @@ export const reportListLogic = kea<reportListLogicType>([
         // One page of ids per request, sent one after the other so a page open never fans out into
         // parallel query bursts. A newer page load supersedes an in-flight refresh at the breakpoint.
         refreshReportMetrics: async ({ reportIds }, breakpoint) => {
+            if (!isReportMetricsEnabled(values.featureFlags)) {
+                return
+            }
             for (let offset = 0; offset < reportIds.length; offset += METRIC_REFRESH_PAGE_SIZE) {
                 const page = reportIds.slice(offset, offset + METRIC_REFRESH_PAGE_SIZE)
                 let response: Awaited<ReturnType<typeof signalsReportsRefreshMetricsCreate>>

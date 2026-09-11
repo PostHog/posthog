@@ -51,8 +51,9 @@ function makeMetric(overrides: Partial<ReportMetricApi> = {}): ReportMetricApi {
 }
 
 function enableRedesign(enabled = true): void {
-    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
+    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN, FEATURE_FLAGS.SIGNALS_REPORT_METRICS], {
         [FEATURE_FLAGS.INBOX_REDESIGN]: enabled,
+        [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: enabled,
     })
 }
 
@@ -223,7 +224,7 @@ describe('ReportCard', () => {
         expect(container.querySelector('[data-attr="report-card-impact-metric"]')).not.toBeNull()
     })
 
-    it('does not show a list metric without a stored snapshot or under the legacy design', () => {
+    it('does not show a list metric without a stored snapshot, under the legacy design, or with the metrics flag off', () => {
         const report = makeReport({ metrics: [makeMetric({ value: null, value_at: null })] })
 
         enableRedesign()
@@ -231,6 +232,19 @@ describe('ReportCard', () => {
         expect(container.querySelector('[data-attr="report-card-impact-metric"]')).toBeNull()
 
         enableRedesign(false)
+        rerender(
+            <ReportCard
+                report={makeReport({
+                    metrics: [{ ...report.metrics![0], value: 42 }],
+                })}
+            />
+        )
+        expect(container.querySelector('[data-attr="report-card-impact-metric"]')).toBeNull()
+
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN, FEATURE_FLAGS.SIGNALS_REPORT_METRICS], {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: false,
+        })
         rerender(
             <ReportCard
                 report={makeReport({
