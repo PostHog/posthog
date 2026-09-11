@@ -10,7 +10,6 @@ import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/ses
 import { urls } from 'scenes/urls'
 
 import { SubHeader } from '../SubHeader'
-import { ScanWithVisionButton } from './ScanWithVisionButton'
 import { sessionTabLogic } from './sessionTabLogic'
 
 export function SessionRecordingTab(): JSX.Element {
@@ -32,7 +31,6 @@ export function SessionRecordingContent(): JSX.Element {
     return (
         <div className="flex h-full min-w-0 flex-col overflow-hidden">
             <SubHeader className="shrink-0 justify-end">
-                <ScanWithVisionButton />
                 <Button variant="default" size="sm" render={<LinkPrimitive to={replayUrl} target="_blank" />}>
                     Open in session replay
                     <IconExternal />
