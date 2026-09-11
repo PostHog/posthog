@@ -691,6 +691,38 @@ class TestSavedQuery(APIBaseTest):
         assert json["count"] == 150
         assert len(json["results"]) == 150
 
+    def test_list_page_select_reads_neither_the_sql_body_nor_the_activity_log(self):
+        # The list page returns column metadata, never the SQL body, so reading the body of every
+        # view costs a detoast per row. The query-edit activity subquery is dead weight too: only
+        # the detail serializer returns `latest_history_id`.
+        for name in ("view_a", "view_b"):
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=name,
+                query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+                columns={"event": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
+            )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/")
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(
+            [[column["key"] for column in row["columns"]] for row in response.json()["results"]],
+            [["event"], ["event"]],
+        )
+        # The page select is the one carrying the list ordering. Other selects on the table, such
+        # as the HogQL database build, do read the SQL body and are not what this test covers.
+        table = DataWarehouseSavedQuery._meta.db_table
+        page_selects = [
+            q["sql"]
+            for q in queries.captured_queries
+            if f'FROM "{table}"' in q["sql"] and f'ORDER BY "{table}"."created_at" DESC' in q["sql"]
+        ]
+        self.assertEqual(len(page_selects), 1, page_selects)
+        self.assertNotIn(f'"{table}"."query"', page_selects[0])
+        self.assertNotIn(ActivityLog._meta.db_table, page_selects[0])
+
     def test_get_deleted_query(self):
         query = DataWarehouseSavedQuery.objects.create(
             team=self.team,

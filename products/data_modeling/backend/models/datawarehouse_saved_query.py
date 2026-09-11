@@ -533,6 +533,22 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         if not isinstance(query, dict) or "query" not in query:
             raise Exception("Saved query is missing a query definition")
 
+        return SavedQuery(
+            id=str(self.id),
+            name=self.name,
+            query=query["query"],
+            fields=self.hogql_fields(),
+            # Currently only storing metadata related to the managed viewset, but we can expand this in the future
+            # This is basically just a bag of props that can be used by other methods to properly identify this query
+            metadata=self.managed_viewset.to_saved_query_metadata(self.name) if self.managed_viewset else {},
+        )
+
+    def hogql_fields(self) -> dict[str, FieldOrTable]:
+        """The HogQL fields this view exposes, built from the stored column types.
+
+        Split out of `hogql_definition` so a caller that needs the fields alone, such as the views
+        list page, reads neither the stored SQL body nor the materialized table row.
+        """
         columns = self.columns or {}
         fields: dict[str, FieldOrTable] = {}
 
@@ -561,15 +577,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             else:
                 raise Exception(f"Unknown column type: {type}")  # Never reached
 
-        return SavedQuery(
-            id=str(self.id),
-            name=self.name,
-            query=query["query"],
-            fields=fields,
-            # Currently only storing metadata related to the managed viewset, but we can expand this in the future
-            # This is basically just a bag of props that can be used by other methods to properly identify this query
-            metadata=self.managed_viewset.to_saved_query_metadata(self.name) if self.managed_viewset else {},
-        )
+        return fields
 
 
 @database_sync_to_async
