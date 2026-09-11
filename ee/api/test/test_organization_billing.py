@@ -180,6 +180,13 @@ class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         # The subject names the user by uuid, which never changes, and the analytics id rides beside it.
         self.assertEqual(claims["sub"], f"user:{self.user.uuid}")
         self.assertEqual(claims["distinct_id"], self.user.distinct_id)
+        # And the token proves the license it names, not just that PostHog signed it.
+        secret = self.license.key.partition("::")[2]
+        assertion = jwt.decode(claims["license_assertion"], secret, algorithms=["HS256"], audience=claims["aud"])
+        self.assertEqual(
+            (assertion["sub"], assertion["org_id"], assertion["jti"], assertion["exp"]),
+            (claims["license_id"], claims["org_id"], claims["jti"], claims["exp"]),
+        )
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_a_user_without_a_distinct_id_keeps_a_subject_of_their_own(self, mock_get):

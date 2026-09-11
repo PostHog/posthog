@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 from django.conf import settings
 
+import jwt
 from rest_framework.exceptions import NotAuthenticated
 
 from posthog.api.id_jag import sign_access_token
@@ -23,6 +24,9 @@ from ee.billing.grants import EffectiveBillingGrants
 from ee.models import License
 
 BILLING_TOKEN_CLIENT_ID = "posthog"
+
+
+LICENSE_ASSERTION_ALGORITHM = "HS256"
 
 
 def billing_audience() -> str:
@@ -40,10 +44,16 @@ def build_billing_access_token_payload(
         raise NotAuthenticated()
     now = datetime.now(tz=UTC)
     ttl = timedelta(seconds=settings.BILLING_ACCESS_TOKEN_TTL_SECONDS)
+    issuer = (settings.SITE_URL or "").rstrip("/")
+    audience = billing_audience()
+    license_id, _, license_secret = license.key.partition("::")
+    jti = str(uuid.uuid4())
+    issued_at = int(now.timestamp())
+    expires_at = int((now + ttl).timestamp())
     payload: dict[str, Any] = {
-        "iss": (settings.SITE_URL or "").rstrip("/"),
+        "iss": issuer,
         "sub": grants.sub,
-        "aud": billing_audience(),
+        "aud": audience,
         "client_id": BILLING_TOKEN_CLIENT_ID,
         "scope": " ".join(grants.scope),
         "roles": list(grants.roles),
@@ -51,10 +61,26 @@ def build_billing_access_token_payload(
         "org_id": str(organization.id),
         "organization_name": organization.name,
         "projects": list(grants.projects) if grants.projects is not None else None,
-        "license_id": license.key.split("::")[0],
-        "jti": str(uuid.uuid4()),
-        "iat": int(now.timestamp()),
-        "exp": int((now + ttl).timestamp()),
+        "license_id": license_id,
+        "jti": jti,
+        "iat": issued_at,
+        "exp": expires_at,
+        # Proof that whoever minted this holds the license's secret, not merely that they are an
+        # allowed issuer. Billing verifies it against the license it resolves, and the jti ties it
+        # to this token so it cannot be lifted onto another one.
+        "license_assertion": jwt.encode(
+            {
+                "iss": issuer,
+                "sub": license_id,
+                "aud": audience,
+                "org_id": str(organization.id),
+                "jti": jti,
+                "iat": issued_at,
+                "exp": expires_at,
+            },
+            license_secret,
+            algorithm=LICENSE_ASSERTION_ALGORITHM,
+        ),
     }
     if grants.distinct_id:
         # The analytics identity, for attributing what billing captures back to the acting user.
