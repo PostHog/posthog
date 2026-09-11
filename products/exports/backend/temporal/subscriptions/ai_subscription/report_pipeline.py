@@ -334,6 +334,7 @@ async def generate_ai_report(
     trace_correlation_id: Optional[Union[int, str]] = None,
     include_charts: bool = True,
     include_manage_link: bool = True,
+    charts_enabled_override: bool | None = None,
 ) -> AiReportResult:
     if user is None:
         raise PromptRejectedError("AI report must have a user to run.")
@@ -357,9 +358,11 @@ async def generate_ai_report(
         properties={"window_start": window.start_literal, "window_end": window.end_literal},
     ) as slo:
         try:
-            charts_enabled_for_team = include_charts and await database_sync_to_async(
-                charts_enabled, thread_sensitive=False
-            )(team, user)
+            charts_enabled_for_team = include_charts and (
+                charts_enabled_override
+                if charts_enabled_override is not None
+                else await database_sync_to_async(charts_enabled, thread_sensitive=False)(team, user)
+            )
             context_visual_candidates = (
                 report_context.visual_candidates if charts_enabled_for_team and report_context is not None else ()
             )
@@ -428,17 +431,22 @@ async def generate_ai_report(
             synthesis_task = asyncio.ensure_future(
                 _synthesize(spec, execution.rendered, team, user, trace_correlation_id)
             )
-            render_task = asyncio.ensure_future(
-                render_charts(selected, context_visuals=selected_context_visuals, team=team, user=user)
+            render_task = (
+                asyncio.ensure_future(
+                    render_charts(selected, context_visuals=selected_context_visuals, team=team, user=user)
+                )
+                if charts_enabled_for_team
+                else None
             )
             try:
                 report = await synthesis_task
             except BaseException:
-                render_task.cancel()
-                with contextlib.suppress(BaseException):
-                    await render_task
+                if render_task is not None:
+                    render_task.cancel()
+                    with contextlib.suppress(BaseException):
+                        await render_task
                 raise
-            rendered_charts, chart_failures = await render_task
+            rendered_charts, chart_failures = await render_task if render_task is not None else ([], [])
         except PromptRejectedError:
             # A rejected prompt is the input guard doing its job, not a service failure — keep it out of
             # the error budget so user-supplied bad input doesn't burn the SLO.

@@ -1247,7 +1247,9 @@ async def test_charts_render_only_for_a_flagged_team_that_includes_them(
     assert mock_run.call_args.kwargs["charts_enabled_for_team"] is expected
     expected_context = (saved,) if expected else ()
     assert mock_bep.call_args.kwargs["context_visual_candidates"] == expected_context
-    assert mock_render.call_args.kwargs["context_visuals"] == expected_context
+    assert mock_render.await_count == int(expected)
+    if expected:
+        assert mock_render.call_args.kwargs["context_visuals"] == expected_context
 
 
 def _candidate(step_index: int, importance: int) -> ValidatedChart:
@@ -1283,36 +1285,11 @@ def _context_candidate(insight_id: int = 7) -> ContextVisualCandidate:
 @patch(f"{_RP}.render_charts", new_callable=AsyncMock)
 @patch(f"{_RP}._run_steps", new_callable=AsyncMock)
 @patch(f"{_RP}.build_enriched_prompt")
-async def test_only_the_most_important_charts_are_rendered(
-    mock_bep: MagicMock, mock_run: AsyncMock, mock_render: AsyncMock, mock_chat: MagicMock, _capture: MagicMock
-) -> None:
-    candidates = [_candidate(0, 1), _candidate(1, 5), _candidate(2, 3)]
-    mock_bep.return_value = _spec_with_window_placeholder()
-    mock_run.return_value = PlanExecution(
-        rendered=["### s0\n\nok"],
-        failed_count=0,
-        diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", True, None)],
-        charts=candidates,
-    )
-    mock_render.return_value = ([], [])
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
-
-    with patch(f"{_RP}.MAX_CHARTS_PER_REPORT", 2):
-        await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
-
-    rendered_arg = mock_render.call_args.args[0]
-    assert [chart.step_index for chart in rendered_arg] == [1, 2]
-
-
-@patch(_SLO_CAPTURE)
-@patch(f"{_RP}.MaxChatOpenAI")
-@patch(f"{_RP}.render_charts", new_callable=AsyncMock)
-@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
-@patch(f"{_RP}.build_enriched_prompt")
-async def test_saved_visuals_take_slots_before_generated_charts(
+async def test_saved_visuals_take_slots_before_the_most_important_generated_charts(
     mock_bep: MagicMock, mock_run: AsyncMock, mock_render: AsyncMock, mock_chat: MagicMock, _capture: MagicMock
 ) -> None:
     saved = _context_candidate()
+    candidates = [_candidate(0, 1), _candidate(1, 5), _candidate(2, 3)]
     spec = _spec_with_window_placeholder()
     spec.plan.context_visual_refs = [saved.ref]
     mock_bep.return_value = spec
@@ -1320,7 +1297,7 @@ async def test_saved_visuals_take_slots_before_generated_charts(
         rendered=["### s0\n\nok"],
         failed_count=0,
         diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", True, None)],
-        charts=[_candidate(0, 1), _candidate(1, 5), _candidate(2, 3)],
+        charts=candidates,
     )
     mock_render.return_value = ([], [])
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")

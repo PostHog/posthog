@@ -37,7 +37,9 @@ from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.models.subscription_context import SubscriptionContext
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import MAX_CHARTS_PER_REPORT
 from products.product_analytics.backend.facade.api import (
+    insight_variables_for_team,
     insights_including_soft_deleted_for_team,
+    map_stale_to_latest,
     recent_unique_viewer_counts_by_insight_for_project,
 )
 from products.product_analytics.backend.facade.models import Insight
@@ -89,8 +91,6 @@ class ContextVisualCandidate:
         )
         if self.ref != expected_ref:
             raise ValueError("Context visual ref does not match its identifiers")
-        if len(self.title) > CONTEXT_NAME_MAX_LENGTH:
-            raise ValueError("Context visual title exceeds its bound")
 
 
 @frozen
@@ -430,6 +430,7 @@ def _load_saved_insight(
     insight: Insight,
     *,
     team: Team,
+    include_visual_candidate: bool,
     dashboard_filters: JsonObject | None = None,
     filters_override: JsonObject | None = None,
     variables_override: JsonObject | None = None,
@@ -437,7 +438,7 @@ def _load_saved_insight(
     dashboard_tile_id: int | None = None,
 ) -> _SavedInsight:
     visualization = _validated_saved_visualization(insight)
-    if visualization is not None:
+    if include_visual_candidate and visualization is not None:
         try:
             visualization = _apply_dashboard_context_to_visualization(
                 visualization,
@@ -455,12 +456,12 @@ def _load_saved_insight(
         name=_safe_text(insight.name or insight.derived_name, CONTEXT_NAME_MAX_LENGTH, "Unnamed insight"),
         description=_safe_text(insight.description, CONTEXT_DESCRIPTION_MAX_LENGTH, ""),
         query=visualization.source if visualization is not None else None,
-        filters_override=None,
-        variables_override=None,
+        filters_override=None if include_visual_candidate else filters_override,
+        variables_override=None if include_visual_candidate else variables_override,
         available=True,
-        visualization=visualization,
-        dashboard_id=dashboard_id,
-        dashboard_tile_id=dashboard_tile_id,
+        visualization=visualization if include_visual_candidate else None,
+        dashboard_id=dashboard_id if include_visual_candidate else None,
+        dashboard_tile_id=dashboard_tile_id if include_visual_candidate else None,
         relevant_events=_saved_query_events(insight),
     )
 
@@ -495,6 +496,7 @@ def _load_dashboard(
     team: Team,
     access_control: UserAccessControl,
     popularity_since: datetime,
+    include_visual_candidates: bool,
 ) -> _SavedDashboard:
     context_team_id = team.parent_team_id or team.id
     if dashboard.team_id != context_team_id or dashboard.deleted or not _can_view(access_control, dashboard):
@@ -510,6 +512,11 @@ def _load_dashboard(
     )
     candidates: list[_DashboardTile] = []
     dashboard_filters = cast(JsonObject, dashboard.filters) if isinstance(dashboard.filters, dict) else None
+    dashboard_variables = (
+        cast(JsonObject, map_stale_to_latest(dashboard.variables, insight_variables_for_team(context_team_id)))
+        if isinstance(dashboard.variables, dict) and dashboard.variables
+        else None
+    )
     for tile in tile_rows:
         insight = tile.insight
         if insight is None or insight.team_id != context_team_id or not _can_view(access_control, insight):
@@ -517,13 +524,12 @@ def _load_dashboard(
         saved_insight = _load_saved_insight(
             insight,
             team=team,
+            include_visual_candidate=include_visual_candidates,
             dashboard_filters=dashboard_filters,
             filters_override=(
                 cast(JsonObject, tile.filters_overrides) if isinstance(tile.filters_overrides, dict) else None
             ),
-            variables_override=(
-                cast(JsonObject, dashboard.variables) if isinstance(dashboard.variables, dict) else None
-            ),
+            variables_override=dashboard_variables,
             dashboard_id=dashboard.id,
             dashboard_tile_id=tile.id,
         )
@@ -560,7 +566,11 @@ def _load_dashboard(
 
 
 def _load_report_context(
-    subscription_id: int, team_id: int, selection: ReportContextSelection | None = None
+    subscription_id: int,
+    team_id: int,
+    selection: ReportContextSelection | None = None,
+    *,
+    include_visual_candidates: bool = True,
 ) -> _LoadedReportContext:
     subscription = Subscription.objects.select_related("team", "created_by").get(id=subscription_id, team_id=team_id)
     if selection is None:
@@ -635,6 +645,7 @@ def _load_report_context(
                     team=subscription.team,
                     access_control=access_control,
                     popularity_since=popularity_since,
+                    include_visual_candidates=include_visual_candidates,
                 )
             )
     for insight_id in insight_ids:
@@ -648,7 +659,13 @@ def _load_report_context(
         ):
             insights.append(_unavailable_insight(insight_id))
         else:
-            insights.append(_load_saved_insight(insight, team=subscription.team))
+            insights.append(
+                _load_saved_insight(
+                    insight,
+                    team=subscription.team,
+                    include_visual_candidate=include_visual_candidates,
+                )
+            )
 
     loaded = _LoadedReportContext(
         team=subscription.team,
@@ -851,14 +868,20 @@ def _bound_evidence(
 
 
 async def resolve_report_context(
-    subscription: Subscription, selection: ReportContextSelection | None = None
+    subscription: Subscription,
+    selection: ReportContextSelection | None = None,
+    *,
+    include_visual_candidates: bool = True,
 ) -> ReportContextEvidence:
     """Execute a bounded snapshot of the subscription's durable contexts as report evidence."""
     if selection is not None and not selection.over_limit and not selection.dashboard_ids and not selection.insight_ids:
         return ReportContextEvidence(dashboards=(), insights=())
 
     loaded = await database_sync_to_async(_load_report_context, thread_sensitive=False)(
-        subscription.id, subscription.team_id, selection
+        subscription.id,
+        subscription.team_id,
+        selection,
+        include_visual_candidates=include_visual_candidates,
     )
     if loaded.over_limit:
         return ReportContextEvidence(
@@ -899,7 +922,7 @@ async def resolve_report_context(
             name=dashboard.name,
             description=dashboard.description,
             dashboard_id=str(dashboard.id),
-            dashboard_filters={},
+            dashboard_filters={} if include_visual_candidates else dashboard.filters,
             query_semaphore=semaphore,
             event_source=EventSource.SUBSCRIPTION,
             insights_data=[
@@ -1026,5 +1049,7 @@ async def resolve_report_context(
         insights=bounded_insights,
         authorized_context_refs=authorized_context_refs,
         relevant_events=relevant_events,
-        visual_candidates=_context_visual_candidates(dashboard_evidence, standalone_evidence),
+        visual_candidates=(
+            _context_visual_candidates(dashboard_evidence, standalone_evidence) if include_visual_candidates else ()
+        ),
     )

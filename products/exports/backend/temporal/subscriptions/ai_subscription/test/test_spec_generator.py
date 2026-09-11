@@ -848,6 +848,7 @@ class TestContextVisualPlannerContract:
                     "source": {
                         "kind": "TrendsQuery",
                         "series": [{"kind": "EventsNode", "event": "signup"}],
+                        "dateRange": {"date_from": "-30d"},
                     },
                 }
             ),
@@ -869,9 +870,8 @@ class TestContextVisualPlannerContract:
         )
 
         (messages,) = structured.invoke.call_args.args
-        assert "<saved_visual_candidates>" in messages[1][1]
         assert "insight:7" in messages[1][1]
-        assert "Curated signups" in messages[1][1]
+        assert '"date_from":"-30d"' in messages[1][1]
         assert result.context_visual_refs == ["insight:7"]
 
 

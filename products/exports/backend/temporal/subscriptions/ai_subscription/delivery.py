@@ -32,6 +32,7 @@ from products.exports.backend.models.subscription import (
     get_unsubscribe_token,
 )
 from products.exports.backend.models.subscription_context import SubscriptionContext
+from products.exports.backend.temporal.subscriptions.ai_subscription.charts import charts_enabled
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_context import (
     MAX_REPORT_CONTEXTS,
     ReportContextSelection,
@@ -190,6 +191,8 @@ class SubscriptionReportContext:
     ai_query_plan: dict | None
     context_selection: ReportContextSelection
     creator_can_query: bool
+    include_images: bool
+    include_manage_link: bool
 
 
 class QueryAccessRevokedError(PromptRejectedError):
@@ -252,6 +255,8 @@ def _resolve_subscription_context(subscription: Subscription) -> SubscriptionRep
                     "query", "viewer"
                 )
             ),
+            include_images=current.includes_delivery_part("include_images"),
+            include_manage_link=current.includes_delivery_part("include_manage_link"),
         )
 
 
@@ -285,9 +290,14 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
     if not context.creator_can_query:
         raise QueryAccessRevokedError("AI subscription creator no longer has query access; cannot deliver.")
 
-    report_context = await resolve_report_context(subscription, context.context_selection)
-
-    include_images = subscription.includes_delivery_part("include_images")
+    charts_enabled_for_team = context.include_images and await database_sync_to_async(
+        charts_enabled, thread_sensitive=False
+    )(context.team, context.user)
+    report_context = await resolve_report_context(
+        subscription,
+        context.context_selection,
+        include_visual_candidates=charts_enabled_for_team,
+    )
     result = await generate_ai_report(
         team=context.team,
         user=context.user,
@@ -296,8 +306,9 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
         ai_query_plan=context.ai_query_plan,
         report_context=report_context,
         trace_correlation_id=subscription.id,
-        include_charts=include_images,
-        include_manage_link=subscription.includes_delivery_part("include_manage_link"),
+        include_charts=context.include_images,
+        include_manage_link=context.include_manage_link,
+        charts_enabled_override=charts_enabled_for_team,
     )
 
     if result.plan_to_persist is not None:
@@ -308,7 +319,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
                 subscription.team_id,
                 context.prompt,
                 result.plan_to_persist,
-                expected_include_images=include_images,
+                expected_include_images=context.include_images,
             )
         except Exception as exc:
             # The frozen plan is an optimization — losing this write must not abort the delivery (the

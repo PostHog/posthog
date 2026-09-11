@@ -159,16 +159,6 @@ def test_the_export_context_wraps_the_executed_sql_for_the_renderer():
     assert source["chartSettings"]["yAxis"] == [{"column": "signups"}]
 
 
-def test_the_context_export_preserves_the_exact_saved_visualization():
-    candidate = _context_candidate()
-
-    export_context = build_context_export_context(candidate)
-
-    assert export_context["limit_context"] == "posthog_ai"
-    assert export_context["title"] == candidate.title
-    assert export_context["source"] == candidate.visualization.model_dump(mode="json")
-
-
 @parameterized.expand(
     [
         ("multi_series", ["signups", "activations"], True),

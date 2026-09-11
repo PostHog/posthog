@@ -94,10 +94,6 @@ class RenderedContextChart:
     dashboard_tile_id: int | None = None
     source: Literal["context"] = "context"
 
-    def __post_init__(self) -> None:
-        if (self.dashboard_id is None) != (self.dashboard_tile_id is None):
-            raise ValueError("Dashboard and tile identifiers must be paired")
-
 
 type RenderedChartResult = RenderedChart | RenderedContextChart
 

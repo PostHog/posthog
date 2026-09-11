@@ -1,7 +1,5 @@
-from __future__ import annotations
-
 import asyncio
-from typing import Any
+from typing import Any, cast
 
 from posthog.schema import InsightVizNode
 
@@ -30,96 +28,64 @@ class ContextVisualSelection(Scorer):
         wanted = (expected or {}).get(SCORE_KEY, {})
         if not output or output.get("error"):
             return Score(name=self._name(), score=0, metadata={"reason": (output or {}).get("error", "no output")})
-        actual_refs = output.get("context_visual_refs")
-        refs_match = actual_refs == wanted.get("context_visual_refs")
         generated = wanted.get("generated_chart")
-        generated_match = generated is None or output.get("generated_chart") is generated
-        return Score(name=self._name(), score=1 if refs_match and generated_match else 0, metadata={"actual": output})
+        passed = output.get("context_visual_refs") == wanted.get("context_visual_refs") and (
+            generated is None or output.get("generated_chart") is generated
+        )
+        return Score(name=self._name(), score=int(passed), metadata={"actual": output})
 
 
-def _candidate(title: str) -> ContextVisualCandidate:
-    return ContextVisualCandidate(
-        ref=CONTEXT_REF,
-        insight_id=701,
-        title=title,
-        visualization=InsightVizNode.model_validate(
-            {
-                "kind": "InsightVizNode",
-                "source": {
-                    "kind": "TrendsQuery",
-                    "series": [{"kind": "EventsNode", "event": "signed_up"}],
-                    "dateRange": {"date_from": "-30d"},
-                },
-            }
-        ),
-    )
-
-
-def _case(name: str, prompt: str, title: str, refs: list[str], generated: bool | None = None) -> BaseEvalCase:
-    expected: dict[str, Any] = {"context_visual_refs": refs}
-    if generated is not None:
-        expected["generated_chart"] = generated
-    return BaseEvalCase(
+_CANDIDATE = ContextVisualCandidate(
+    ref=CONTEXT_REF,
+    insight_id=701,
+    title="Daily signups",
+    visualization=InsightVizNode.model_validate(
+        {
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "signed_up"}],
+                "dateRange": {"date_from": "-30d"},
+            },
+        }
+    ),
+)
+_CASE_DATA: tuple[tuple[str, str, list[str], bool | None], ...] = (
+    ("directly_useful_saved_visual", "Summarize 30-day signups.", [CONTEXT_REF], None),
+    ("saved_visual_has_wrong_range", "Chart 7-day signups.", [], True),
+    ("linked_visual_is_irrelevant", "Chart 30-day paid_bill revenue.", [], True),
+    ("saved_visual_replaces_generated_duplicate", "Chart 30-day signups.", [CONTEXT_REF], False),
+)
+CASES = [
+    BaseEvalCase(
         name=name,
         prompt=prompt,
-        metadata={"title": title},
-        expected={SCORE_KEY: expected},
+        expected={SCORE_KEY: {"context_visual_refs": refs, "generated_chart": generated}},
     )
-
-
-CASES = [
-    _case(
-        "directly_useful_saved_visual",
-        "Summarize signups over the last 30 days.",
-        "Daily signups — last 30 days",
-        [CONTEXT_REF],
-    ),
-    _case(
-        "saved_visual_has_wrong_range",
-        "Chart daily signups for the last 7 days.",
-        "Daily signups — prior 30 days",
-        [],
-        True,
-    ),
-    _case(
-        "linked_visual_is_irrelevant",
-        "Chart daily revenue from paid_bill over the last 30 days.",
-        "Daily signups",
-        [],
-        True,
-    ),
-    _case(
-        "saved_visual_replaces_generated_duplicate",
-        "Show weekly signups for the last 8 weeks as a chart.",
-        "Weekly signups — last 8 weeks",
-        [CONTEXT_REF],
-        False,
-    ),
+    for name, prompt, refs, generated in _CASE_DATA
 ]
 
 
 async def eval_ai_subscription_context_visuals(ctx: EvalContext) -> None:
     async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict[str, Any]:
         def generate() -> dict[str, Any]:
-            if task_ctx.demo_data is None:
-                raise RuntimeError("One-shot demo data is unavailable")
+            assert task_ctx.demo_data is not None
             team = Team.objects.get(id=task_ctx.demo_data.master_team_id)
-            user = User.objects.filter(organization_memberships__organization_id=team.organization_id).first()
-            if user is None:
-                raise RuntimeError("Demo user is unavailable")
-            candidate = _candidate(str(case.metadata["title"]))
+            user = cast(
+                User,
+                User.objects.filter(organization_memberships__organization_id=team.organization_id).first(),
+            )
             plan = generate_query_plan(
                 cleaned_prompt=case.prompt,
-                context_blob="Known events: signed_up, paid_bill. Use the report window requested by the user.",
-                formatted_context=f"Computed results for {case.metadata['title']}.",
-                context_visual_candidates=(candidate,),
+                context_blob="Known events: signed_up, paid_bill.",
+                formatted_context="The saved insight computed 42 signups.",
+                context_visual_candidates=(_CANDIDATE,),
                 team=team,
                 user=user,
             )
             return {
                 "context_visual_refs": plan.context_visual_refs,
-                "generated_chart": any(step.chart is not None for step in plan.steps),
-                "last_message": plan.overall_intent,
+                "generated_chart": any(step.chart for step in plan.steps),
             }
 
         return await asyncio.to_thread(generate)

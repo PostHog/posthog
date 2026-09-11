@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -899,6 +900,11 @@ class TestFreezePlanPersistence:
     These guard the freeze contract without touching the DB — the conditional persist write itself is
     exercised by the integration/activity suites."""
 
+    @pytest.fixture(autouse=True)
+    def _charts_on(self) -> Iterator[None]:
+        with patch(f"{_DELIVERY}.charts_enabled", return_value=True):
+            yield
+
     def _subscription(self, ai_query_plan: dict | None) -> Subscription:
         return Subscription(
             id=42,
@@ -924,6 +930,8 @@ class TestFreezePlanPersistence:
             ai_query_plan=sub.ai_query_plan,
             context_selection=ReportContextSelection(),
             creator_can_query=creator_can_query,
+            include_images=sub.includes_delivery_part("include_images"),
+            include_manage_link=sub.includes_delivery_part("include_manage_link"),
         )
 
     @staticmethod
@@ -1091,4 +1099,5 @@ class TestFreezePlanPersistence:
 
         assert mock_gen.await_args is not None
         assert mock_gen.await_args.kwargs["include_charts"] is expected_charts
+        assert mock_gen.await_args.kwargs["charts_enabled_override"] is expected_charts
         assert mock_gen.await_args.kwargs["include_manage_link"] is expected_manage_link

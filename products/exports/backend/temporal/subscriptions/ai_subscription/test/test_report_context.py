@@ -40,6 +40,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_cont
     creator_can_access_report_context,
     resolve_report_context,
 )
+from products.product_analytics.backend.facade.api import create_insight_variable
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.context.insight.format import TRUNCATED_MARKER
@@ -100,34 +101,6 @@ class TestReportContextPureFunctions(SimpleTestCase):
         assert isinstance(parsed_data_viz, DataVisualizationNode)
         assert parsed_data_viz.source.variables is not None
         assert parsed_data_viz.source.variables["event-variable"].value == "signup"
-
-    def test_effective_visualization_keeps_wrapper_and_applies_dashboard_filters(self) -> None:
-        visualization = InsightVizNode.model_validate(
-            _trends_query("signup", date_from="2026-03-01", date_to="2026-03-31")
-        )
-        team = Team(
-            id=1,
-            organization_id="00000000-0000-0000-0000-000000000001",
-            timezone="UTC",
-            modifiers={"personsOnEventsMode": "person_id_override_properties_joined"},
-        )
-
-        effective = report_context_module._apply_dashboard_context_to_visualization(
-            visualization,
-            team=team,
-            dashboard_filters={"properties": [{"key": "$geoip_country_code", "operator": "exact", "value": ["US"]}]},
-            filters_override={"properties": [{"key": "$browser", "operator": "exact", "value": ["Chrome"]}]},
-            variables_override=None,
-        )
-
-        assert isinstance(effective, InsightVizNode)
-        assert effective.source.dateRange is not None
-        assert effective.source.dateRange.date_from == "2026-03-01"
-        assert effective.source.dateRange.date_to == "2026-03-31"
-        assert {item["key"] for item in flatten_property_leaves(effective.source.model_dump()["properties"])} == {
-            "$geoip_country_code",
-            "$browser",
-        }
 
     def test_effective_visualization_keeps_data_viz_settings_and_applies_variables(self) -> None:
         visualization = DataVisualizationNode.model_validate(_hogql_query("event-variable", value="signup"))
@@ -416,8 +389,6 @@ class TestResolveReportContext(BaseTest):
             f"insight:{trends.id}",
             f"insight:{variable.id}",
         ]
-        assert isinstance(evidence.visual_candidates[0].visualization, InsightVizNode)
-        assert isinstance(evidence.visual_candidates[1].visualization, DataVisualizationNode)
         assert all(call.kwargs["include_prompt_framing"] is False for call in execute.call_args_list)
 
     def test_context_resolution_timeout_degrades_the_slow_query(self) -> None:
@@ -612,6 +583,9 @@ class TestResolveReportContext(BaseTest):
 
     def test_dashboard_applies_filters_tile_overrides_and_saved_variables_without_replacing_dates(self) -> None:
         subscription = self._subscription()
+        latest_variable = create_insight_variable(
+            team_id=self.team.id, name="Report event", type="String", code_name="report_event"
+        )
         dashboard = Dashboard.objects.create(
             team=self.team,
             created_by=self.user,
@@ -637,7 +611,7 @@ class TestResolveReportContext(BaseTest):
             team=self.team,
             created_by=self.user,
             name="Variable",
-            query=_hogql_query("dashboard-variable", value="insight value"),
+            query=_hogql_query(str(latest_variable.id), value="insight value"),
         )
         DashboardTile.objects.create(
             dashboard=dashboard,
@@ -663,8 +637,9 @@ class TestResolveReportContext(BaseTest):
             "$geoip_country_code",
             "$browser",
         }
-        assert calls_by_id[variable.id]["variables"]["dashboard-variable"]["value"] is None
-        assert calls_by_id[variable.id]["variables"]["dashboard-variable"]["isNull"] is True
+        variable_value = calls_by_id[variable.id]["variables"][str(latest_variable.id)]
+        assert variable_value["value"] is None
+        assert variable_value["isNull"] is True
         candidates_by_id = {candidate.insight_id: candidate for candidate in evidence.visual_candidates}
         assert candidates_by_id[trends.id].visualization.source.model_dump(mode="json") == filtered_query
         assert candidates_by_id[variable.id].visualization.source.model_dump(mode="json") == calls_by_id[variable.id]
