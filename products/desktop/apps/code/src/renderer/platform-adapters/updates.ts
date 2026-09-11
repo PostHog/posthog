@@ -7,6 +7,7 @@ import {
 } from "@posthog/core/updates/updateStore";
 import { resolveService } from "@posthog/di/container";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { useUpdateModalStore } from "@posthog/ui/features/updates/updateModalStore";
 import {
   UPDATES_CLIENT,
   type UpdatesClient,
@@ -71,6 +72,9 @@ client.onStatus({
       }
       if (outcome.toast) {
         showToast(outcome.toast);
+      }
+      if (outcome.openUpdateModal) {
+        useUpdateModalStore.getState().open();
       }
     }
   },
