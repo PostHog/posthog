@@ -2,7 +2,7 @@ import json
 import uuid
 from datetime import datetime, timedelta
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
@@ -17,6 +17,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import exceptions, status
+from rest_framework.request import Request
 from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
@@ -113,12 +114,15 @@ class TestReportMetricRefreshThrottle(SimpleTestCase):
     def test_uses_one_team_bucket_for_every_auth_method(self) -> None:
         throttle = ReportMetricRefreshThrottle()
         view = SimpleNamespace(team_id=42)
-        requests = [SimpleNamespace(user=SimpleNamespace(is_authenticated=True, pk=user_id)) for user_id in (1, 2)]
+        requests = [
+            cast(Request, SimpleNamespace(user=SimpleNamespace(is_authenticated=True, pk=user_id)))
+            for user_id in (1, 2)
+        ]
 
-        keys = [throttle.get_cache_key(request, view) for request in requests]
+        first_key, second_key = (throttle.get_cache_key(request, view) for request in requests)
 
-        assert keys[0] == keys[1]
-        assert "team_42" in keys[0]
+        assert first_key == second_key
+        assert first_key is not None and "team_42" in first_key
 
     def test_refresh_action_uses_the_user_aware_throttle(self) -> None:
         assert SignalReportViewSet.refresh_metrics.kwargs["throttle_classes"] == [

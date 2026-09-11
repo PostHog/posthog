@@ -1,7 +1,10 @@
 from types import SimpleNamespace
+from typing import cast
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
+
+from rest_framework.request import Request
 
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 
@@ -14,7 +17,7 @@ class TestReportMetricAccessPolicy(APIBaseTest):
         allowed: dict[str, set[int]] | None = None,
         blocked: dict[str, set[int]] | None = None,
     ) -> ReportMetricAccessPolicy:
-        request = SimpleNamespace(user=self.user, successful_authenticator=object())
+        request = cast(Request, SimpleNamespace(user=self.user, successful_authenticator=object()))
         with (
             patch("products.signals.backend.report_metric_access.get_authenticator_scopes", return_value=scopes),
             patch(

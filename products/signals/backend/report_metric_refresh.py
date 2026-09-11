@@ -278,7 +278,8 @@ def refresh_report_metric_snapshots(
         if row is None or snapshot_is_fresh(row, now) or not policy.may_read_snapshot(row):
             skipped += 1
             continue
-        source_count = _source_count(row.get("query") if isinstance(row.get("query"), dict) else {})
+        query = row.get("query")
+        source_count = _source_count(query if isinstance(query, dict) else {})
         if source_runs + source_count > MAX_REPORT_METRIC_SOURCE_RUNS_PER_REQUEST or time.monotonic() >= deadline:
             skipped += 1
             continue

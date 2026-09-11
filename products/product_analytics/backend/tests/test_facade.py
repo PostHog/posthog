@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -111,11 +111,11 @@ class TestRunCachedTrendsQuery(BaseTest):
             "products.product_analytics.backend.hogql_queries.trends.trends_query_runner.TrendsQueryRunner.calculate",
             return_value=TrendsQueryResponse(results=[{"aggregated_value": 12}]),
         ) as calculate:
-            with freeze_time(start):
+            with time_machine.travel(start, tick=False):
                 run_cached_trends_query(
                     query=query, team=self.team, max_execution_time_seconds=20, cache_age_seconds=6 * 60 * 60
                 )
-            with freeze_time(start + timedelta(minutes=16)):
+            with time_machine.travel(start + timedelta(minutes=16), tick=False):
                 cached = run_cached_trends_query(
                     query=query, team=self.team, max_execution_time_seconds=20, cache_age_seconds=6 * 60 * 60
                 )
@@ -144,8 +144,10 @@ class TestRunCachedTrendsQuery(BaseTest):
         ):
             tag_queries(access_method="personal_api_key")
             run_cached_trends_query(query=query, team=self.team, max_execution_time_seconds=20, cache_age_seconds=900)
-            assert api_limiter.return_value.run.call_args.kwargs["is_api"] is True
-            assert org_limiter.return_value.run.call_args.kwargs["is_api"] is True
+            api_key_team_kwargs = api_limiter.return_value.run.call_args.kwargs
+            api_key_org_kwargs = org_limiter.return_value.run.call_args.kwargs
+            assert api_key_team_kwargs["is_api"] is True
+            assert api_key_org_kwargs["is_api"] is True
             enforce_budget.assert_called_once()
 
             reset_query_tags()
@@ -155,5 +157,7 @@ class TestRunCachedTrendsQuery(BaseTest):
                 max_execution_time_seconds=20,
                 cache_age_seconds=900,
             )
-            assert api_limiter.return_value.run.call_args.kwargs["is_api"] is False
-            assert org_limiter.return_value.run.call_args.kwargs["is_api"] is False
+            session_team_kwargs = api_limiter.return_value.run.call_args.kwargs
+            session_org_kwargs = org_limiter.return_value.run.call_args.kwargs
+            assert session_team_kwargs["is_api"] is False
+            assert session_org_kwargs["is_api"] is False

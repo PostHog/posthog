@@ -39,6 +39,7 @@ from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_metrics import (
+    DEFAULT_LIVE_METRIC_DATE_FROM,
     MAX_LIVE_METRIC_QUERY_POINTS,
     MAX_LIVE_METRIC_QUERY_SERIES,
     MAX_REPORT_METRICS,
@@ -1047,7 +1048,10 @@ class TestPromptBuilder(BaseTest):
         assert "as `ActionsBar` for the longitudinal buckets" in prompt
         assert "bar or line response does not supply the whole-window total" in prompt
         assert "Never sum distinct-user buckets" in prompt
-        assert 'Default the query to `dateRange.date_from: "-14d"` with `interval: "day"`' in prompt
+        assert (
+            f'Default the query to `dateRange.date_from: "{DEFAULT_LIVE_METRIC_DATE_FROM}"` with `interval: "day"`'
+            in prompt
+        )
         assert f"at most {MAX_LIVE_METRIC_QUERY_POINTS} estimated interval points" in prompt
         assert "Every source series must be an `EventsNode` or `ActionsNode`" in prompt
         assert "Do not use a breakdown or compare mode on any report metric" in prompt
