@@ -187,11 +187,6 @@ export class PiSessionController {
   private readonly cancelAuthRestoration = new Map<string, () => void>();
   private readonly taskRunIds = new Map<string, string>();
   private readonly activeTaskIds = new Set<string>();
-  private readonly notificationContexts = new Map<
-    string,
-    PiSessionNotificationContext
-  >();
-  private readonly turnStates = new Map<string, PiTurnState>();
   private readonly pendingText = new Map<
     string,
     {
@@ -210,6 +205,12 @@ export class PiSessionController {
       ids: Set<string>;
     }
   >();
+
+  private readonly notificationContexts = new Map<
+    string,
+    PiSessionNotificationContext
+  >();
+  private readonly turnStates = new Map<string, PiTurnState>();
 
   constructor(
     @inject(PI_SESSION_PROVIDER) private readonly provider: PiSessionProvider,
@@ -808,9 +809,9 @@ export class PiSessionController {
       this.setSession(taskId, {
         connectionState: "connected",
         events: reconciledEvents,
-        historyVersion: currentSession.historyVersion + 1,
         status: resolvedStatus,
         stats,
+        historyVersion: currentSession.historyVersion + 1,
         models: currentSession.models,
         modelsLoaded: currentSession.modelsLoaded,
         thinkingLevels: currentSession.thinkingLevels,
