@@ -373,13 +373,21 @@ function getTestOnlyProducts(changedFiles, dependentsOf) {
     return [...products].sort()
 }
 
-function changedFilesSinceBase() {
+// Rename detection stays off, the same way deletedProductPythonFiles turns it
+// off. Git reports a pure move as its new path alone, so a production module
+// moved into a test directory would read as a test-only change while the module
+// it removed is still imported from elsewhere. The old path has to stay in the
+// list for that move to take the full fallback.
+function changedFilesSinceBase(repoRoot = process.cwd()) {
     const { TURBO_SCM_BASE: base, TURBO_SCM_HEAD: head } = process.env
     if (!base || !head) {
         return null
     }
     try {
-        return execFileSync('git', ['diff', '--name-only', `${base}...${head}`], TURBO_EXEC_OPTS)
+        return execFileSync('git', ['diff', '--name-only', '--no-renames', `${base}...${head}`], {
+            ...TURBO_EXEC_OPTS,
+            cwd: repoRoot,
+        })
             .split('\n')
             .filter(Boolean)
     } catch (error) {
@@ -1328,6 +1336,7 @@ module.exports = {
     loadTachModuleGraph,
     tachDependents,
     getTestOnlyProducts,
+    changedFilesSinceBase,
 }
 
 // --- Main ---

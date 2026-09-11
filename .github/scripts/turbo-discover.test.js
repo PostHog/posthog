@@ -11,11 +11,17 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const { execFileSync } = require('node:child_process')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
-const { DJANGO_SEGMENTS, getIsolatedProducts, getTestOnlyProducts } = require('./turbo-discover')
+const {
+    DJANGO_SEGMENTS,
+    getIsolatedProducts,
+    getTestOnlyProducts,
+    changedFilesSinceBase,
+} = require('./turbo-discover')
 
 const REPO_ROOT = path.join(__dirname, '..', '..')
 const WORKFLOWS = ['.github/workflows/ci-backend.yml', '.depot/workflows/ci-backend.yml']
@@ -196,4 +202,58 @@ test('test-only product changes select only their product suites', () => {
     )
     // No tach map, or a file the head tree no longer has: importers unknown.
     assert.equal(getTestOnlyProducts([base], () => null), null)
+})
+
+// Git reports a pure move as its new path alone, which reads as a test-only
+// change while the production module the move removed is still imported from
+// elsewhere. The pure-function cases above cannot see this: the hole is in the
+// diff that feeds them, so this one runs the real diff over a real move.
+test('a production module moved into a test directory is not a test-only change', () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'moved-into-test-'))
+    const git = (...args) => execFileSync('git', args, { cwd: repoRoot, encoding: 'utf-8' }).trim()
+    const write = (file) => {
+        fs.mkdirSync(path.join(repoRoot, path.dirname(file)), { recursive: true })
+        fs.writeFileSync(path.join(repoRoot, file), 'X = 1\n')
+    }
+    // commit-tree rather than commit, so the commits need no identity beyond the
+    // local config and no hook can refuse them.
+    const commit = (message, parent) => {
+        const parentArgs = parent ? ['-p', parent] : []
+        return git('commit-tree', git('write-tree'), ...parentArgs, '-m', message)
+    }
+
+    git('init', '-q', '.')
+    git('config', 'user.email', 'ci@example.com')
+    git('config', 'user.name', 'ci')
+    write('products/foo/backend/models/helper.py')
+    git('add', '-A')
+    const base = commit('add the helper')
+    fs.rmSync(path.join(repoRoot, 'products/foo/backend/models/helper.py'))
+    write('products/foo/backend/tests/helper.py')
+    git('add', '-A')
+    const head = commit('move the helper under tests', base)
+
+    const scm = { base: process.env.TURBO_SCM_BASE, head: process.env.TURBO_SCM_HEAD }
+    try {
+        process.env.TURBO_SCM_BASE = base
+        process.env.TURBO_SCM_HEAD = head
+        const changed = changedFilesSinceBase(repoRoot)
+        assert.deepEqual(changed.sort(), [
+            'products/foo/backend/models/helper.py',
+            'products/foo/backend/tests/helper.py',
+        ])
+        assert.equal(
+            getTestOnlyProducts(changed, () => []),
+            null
+        )
+    } finally {
+        for (const [name, value] of [['TURBO_SCM_BASE', scm.base], ['TURBO_SCM_HEAD', scm.head]]) {
+            if (value === undefined) {
+                delete process.env[name]
+            } else {
+                process.env[name] = value
+            }
+        }
+        fs.rmSync(repoRoot, { recursive: true, force: true })
+    }
 })
