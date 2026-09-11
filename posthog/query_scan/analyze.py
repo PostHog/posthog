@@ -181,10 +181,8 @@ def _findings_for_plan(
 
 
 def _no_event_filter(read: PlanTableRead, event_filter: EventFilterOutcome | None) -> tuple[bool, FindingReason | None]:
-    """Whether the read has no usable event filter, and the reason for the copy.
-
-    The combined outcome, when the job shipped one, carries the tree's reason for why the filter
-    could not prune. Without one the plan's keys decide alone, so there is no reason to name.
+    """Whether the read has no usable event filter, and the reason for the copy. The tree's verdict
+    carries the reason when the job shipped one; the plan's keys alone name none.
     """
     if event_filter is not None:
         reason = FindingReason(event_filter.reason) if event_filter.reason is not None else None

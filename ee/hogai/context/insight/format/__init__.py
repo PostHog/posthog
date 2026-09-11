@@ -53,17 +53,14 @@ def get_boxplot_results(response: dict[str, Any]) -> list[Any]:
     return results if results else response.get("boxplot_data", [])
 
 
-# A warning message can carry names the project's own event data supplies, and anyone capturing
-# events controls those. The message goes verbatim into agent context, so strip control characters
-# and newlines, and cap length. This can't stop plain-text influence (no escaping can), but it keeps
-# the names contained as data inside the labeled block.
+# A message can carry event names that anyone capturing events controls, and it goes verbatim
+# into agent context. Strip control characters and cap the length to keep them contained as data.
 _UNSAFE_WARNING_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 # Dropping every angle bracket stops a crafted name (for example one containing
 # `</taxonomy_warnings>`) from closing the wrapper early and breaking out of the delimited block.
 _ANGLE_BRACKETS = re.compile(r"[<>]")
-# A line PostHog composes itself carries no project data but does carry comparison operators, so
-# take out only the shapes that could close a wrapper. Repeat until nothing changes, so a nested
-# `<</tag>/tag>` cannot reassemble into a tag after one pass.
+# A line PostHog composes carries operators but no project data, so only the shapes that could
+# close a wrapper go, repeated so a nested tag cannot reassemble.
 _WRAPPER_TAG = re.compile(r"<\s*/?\s*[A-Za-z][\w.:-]*\s*/?\s*>")
 _MAX_WARNING_CHARS = 300
 
@@ -93,10 +90,9 @@ def sanitize_warning_line(message: str) -> str:
 
 
 def sanitize_composed_warning_line(message: str, max_chars: int | None = _MAX_WARNING_CHARS) -> str:
-    """For a line PostHog composes itself, where `timestamp >= now() - interval 30 day` has to reach
-    the agent as written. Stripping the bracket would turn that advice into an equality test, so the
-    agent would propose a predicate matching almost nothing. `max_chars=None` keeps a long build-time
-    line (a finding's guidance) whole; the cap is for lines that embed project-supplied names."""
+    """For a line PostHog composes itself, where `>=` in advice has to reach the agent as written.
+    `max_chars=None` keeps a long build-time line whole.
+    """
     cleaned = _UNSAFE_WARNING_CHARS.sub(" ", message)
     while (without_tags := _WRAPPER_TAG.sub(" ", cleaned)) != cleaned:
         cleaned = without_tags
@@ -139,15 +135,9 @@ def format_access_control_warnings(response: dict[str, Any]) -> str:
 
 
 def format_query_scan_warnings(response: dict[str, Any], team: "Team | None" = None, *, compact: bool = False) -> str:
-    """Ask the agent to find what this slow query is trying to find, as fast as possible.
-
-    The block is the only channel to an outside MCP agent, so it carries the whole prompt: the goal,
-    the run's context, one entry per finding (its kind and reason, the plan evidence, and the
-    per-reason guidance from the finding's `fix`), and the standing rules. The frontend "Fix with
-    AI" message builds the same structure, so the two cannot drift. `log_only` teams get nothing:
-    the flag mode says what a client may show.
-
-    `compact` caps the findings, for the killed-run block that has to share a capped error message.
+    """The prompt for a slow query, for the assistant and an outside MCP agent alike: the goal, the run,
+    one entry per finding, and the rules. The frontend "Fix with AI" message builds the same structure.
+    Nothing for `log_only`. `compact` caps the findings, for the killed-run block.
     """
     scan = response.get("query_scan")
     if not isinstance(scan, dict) or scan.get("mode") != "show":
@@ -194,11 +184,8 @@ def _query_scan_share_lines(scan: dict[str, Any]) -> list[str]:
 
 
 def _format_query_scan_finding(finding: dict[str, Any]) -> str:
-    """One finding as a bullet: its kind and reason, the plan evidence, then the per-reason guidance.
-
-    Every part comes from the finding, which can carry project-supplied names, so each is sanitized.
-    The guidance is our own long build-time text, so it is kept whole; the shorter evidence line,
-    which names index keys, keeps the length cap.
+    """One finding as a bullet: kind and reason, evidence, then guidance. Each part is sanitized, since a
+    finding can carry project-supplied names; the guidance is our own text and stays whole.
     """
     head = sanitize_warning_line(str(finding.get("kind") or ""))
     reason = finding.get("reason")
@@ -215,10 +202,8 @@ def _format_query_scan_finding(finding: dict[str, Any]) -> str:
 def _format_pending_query_scan(
     scan: dict[str, Any], numbers: dict[str, str], duration_ms: int, team: "Team | None"
 ) -> str:
-    """The short form, for a run whose analysis has not landed yet.
-
-    A finished analysis that found nothing is silence: the query was slow for a reason we have no
-    advice about. A pending one still means the person waited, which is worth saying on its own.
+    """The short form, for a run whose analysis has not landed yet. Silence would read as nothing to say,
+    but the person did wait.
     """
     if scan.get("status") != "pending" or duration_ms < _query_scan_floor_ms(team):
         return ""

@@ -79,11 +79,8 @@ class PlanTableRead:
         return self._first(_PRIMARY_KEY_TYPE)
 
     def uses_event_key(self) -> bool:
-        """Whether the primary key lists `event`, from the plan's keys alone.
-
-        Why the key could not prune, a negation or a wrapping function that lists `event` yet
-        skips almost nothing, comes from the query tree, which `combine_event_filter` folds in.
-        This is the plan side of that combination, and the fallback when no tree verdict shipped.
+        """Whether the primary key lists `event`. The plan side of the event-filter verdict, and the fallback
+        when no tree verdict shipped.
         """
         primary_key = self.primary_key()
         return primary_key is not None and "event" in primary_key.keys

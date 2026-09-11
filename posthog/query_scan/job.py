@@ -46,10 +46,8 @@ _EVENT_FILTER_REASONS = ("in_or", "wrapped", "negated", "dynamic", "not_pruned")
 
 @frozen
 class Execution:
-    """One printed execution of the run, as the trigger enqueued it.
-
-    ``event_filter`` is the tree verdict the trigger classified, ``{"classification", "reason"}``
-    or None when the classifier failed or an older trigger shipped nothing.
+    """One printed execution of the run, as the trigger enqueued it. ``event_filter`` is the tree
+    verdict the trigger classified, or None when it shipped nothing.
     """
 
     sql: str
@@ -178,9 +176,9 @@ def _run(job: QueryScanJob, started: float) -> None:
 
 
 def _outer_plan(execution: Execution, team_id: int) -> QueryPlan | None:
-    """The plan for the run's outer query, from the stubbed SQL: `EXPLAIN` executes every `IN
-    (subquery)` to build its set before planning, and a rows cap cannot guard that because ClickHouse
-    checks it against the planned read's own estimate. None when EXPLAIN failed."""
+    """The plan for the run's outer query, from the stubbed SQL. A rows cap cannot guard the exact SQL,
+    because ClickHouse checks it against the planned read's own estimate. None when EXPLAIN failed.
+    """
     rows, _ = _explain(execution.stubbed_sql, execution.values, team_id)
     if rows is None:
         return None
@@ -196,9 +194,8 @@ def _subquery_plan(sql: str, values: dict[str, Any], team_id: int) -> QueryPlan 
 
 
 def _combined_event_filter(execution: Execution, outer: QueryPlan | None) -> EventFilterOutcome | None:
-    """The tree verdict the trigger shipped, folded together with the outer plan's key use.
-
-    None when the trigger shipped no verdict, so the analysis falls back to the plan alone.
+    """The tree verdict the trigger shipped, folded with the outer plan's key use. None when it shipped
+    none, so the plan alone decides.
     """
     payload = execution.event_filter
     if not payload:
@@ -256,9 +253,9 @@ def _denominator_granules(explained: tuple[list[Any] | None, bool]) -> int | Non
 
 
 def _table_row_averages(team_id: int) -> dict[str, float]:
-    """Average rows per granule per table, from `system.parts`. This is a metadata read, not a scan.
-    A failure yields an empty map and is never raised, because a missing average must fall the
-    persons gate back to raw granules, not fail the analysis."""
+    """Average rows per granule per table, from `system.parts` metadata. A failure yields an empty map
+    rather than failing the analysis: the persons gate then falls back to raw granules.
+    """
     try:
         with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.QUERY_SCAN):
             rows = sync_execute(
@@ -278,8 +275,9 @@ def _table_row_averages(team_id: int) -> dict[str, float]:
 
 
 def _explain(sql: str, values: dict[str, Any], team_id: int) -> tuple[list[Any] | None, bool]:
-    """EXPLAIN on the offline pool. Returns the rows and False; rows is None on any failure, which
-    fails the analysis closed."""
+    """EXPLAIN on the offline pool. Returns the rows, None on any failure, which fails the analysis
+    closed, and False.
+    """
     try:
         with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.QUERY_SCAN):
             # nosemgrep: clickhouse-fstring-param-audit - sql is compiled from the HogQL AST by the printer, and its values stay parameterized

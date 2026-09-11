@@ -213,9 +213,8 @@ class AssistantQueryExecutor:
                 if debug_timing:
                     logger.warning(f"{TIMING_LOG_PREFIX} aexecute_query completed in {execute_elapsed:.3f}s")
 
-            # The wait belongs to the path that renders the findings. A caller that takes the raw
-            # response reads neither `query_scan` nor `warnings`, so waiting there would hold back
-            # the reply for output that cannot change.
+            # A caller that takes the raw response never renders the findings, so waiting there would only
+            # delay the reply.
             if isinstance(response_dict, dict):
                 await self._await_query_scan(response_dict)
 
@@ -513,12 +512,9 @@ class AssistantQueryExecutor:
         return response_dict
 
     def _query_scan_poll_flag(self, scan: dict[str, Any]) -> QueryScanFlag | None:
-        """The flag to poll this run's analysis under, or None when there is nothing to wait for.
-
-        Waiting costs up to five seconds of the person's reply, so it only happens when the wait
-        can change what they read: an analysis is on its way, and the team's mode lets a client
-        show it. The thresholds go with the read because a slot analyzed under other ratios holds
-        findings this configuration would not give.
+        """The flag to poll this run's analysis under, or None when waiting cannot change the reply: no
+        analysis is coming, or the mode hides it. The thresholds go with the read so a slot from other
+        ratios is not served.
         """
         if scan.get("status") != QueryScanStatus.PENDING:
             return None
@@ -528,10 +524,8 @@ class AssistantQueryExecutor:
         return flag
 
     async def _await_query_scan(self, response: dict) -> None:
-        """Wait for the analysis of a slow run to land, so its findings reach the same reply as the
-        results.
-
-        A failure here costs the advice, never the results.
+        """Wait for a slow run's analysis so its findings reach the same reply as the results. A failure
+        costs the advice, never the results.
         """
         try:
             scan = response.get("query_scan")
@@ -570,11 +564,8 @@ class AssistantQueryExecutor:
         return None
 
     async def _query_scan_block_for_error(self, error: Exception) -> str:
-        """The scan block for a run ClickHouse stopped, built from the scan the runner put on the
-        exception.
-
-        Every retry of such a query dies the same way, so this reply is the only place the person
-        can be told what to change.
+        """The scan block for a run ClickHouse stopped, from the scan the runner put on the exception. Every
+        retry dies the same way, so this reply is the only place to say what to change.
         """
         try:
             scan = getattr(error, "query_scan", None)
@@ -596,10 +587,8 @@ class AssistantQueryExecutor:
             return ""
 
     def _warning_prefix(self, response: dict) -> str:
-        """The blocks that go above the results, whichever way the results are rendered.
-
-        A failure here costs the warnings, never the results, so the raw-JSON fallback still gets
-        whatever this can build.
+        """The blocks that go above the results, however the results are rendered. A failure costs the
+        warnings, never the results.
         """
         try:
             return (

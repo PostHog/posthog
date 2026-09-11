@@ -2658,9 +2658,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if scan.triggered:
                 query_scan["status"] = "pending"
             elif scan.skipped_reason == "slot_exists":
-                # An earlier run of the same query is already analyzed, or is being analyzed now.
-                # Reporting that status is what lets the assistant and the frontend fetch those
-                # findings by cache key, instead of treating the kill as unexplained.
+                # An earlier run of the same query owns the slot; reporting its status lets clients fetch those
+                # findings by cache key.
                 slot = get_query_scan_slot(self.team.pk, cache_key, thresholds=flag.thresholds_fingerprint)
                 if slot is not None:
                     query_scan["status"] = str(slot.status)

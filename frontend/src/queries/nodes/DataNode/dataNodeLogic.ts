@@ -152,9 +152,8 @@ export interface DataNodeLogicProps {
 export const AUTOLOAD_INTERVAL = 30000
 const LOAD_MORE_ROWS_LIMIT = 10000
 
-// Backoff before each ask for a slow run's scan: 2, 4, 8, 15, then 30 s, holding at the last
-// value so the endpoint is asked every 30 s after that. The job starts with the run, so the first
-// asks are close together to catch a fast analysis, then spread out.
+// Backoff before each ask for a slow run's scan, holding at 30 s: the job starts with the run, so
+// the early asks are close together.
 export const QUERY_SCAN_POLL_DELAYS_MS = [2000, 4000, 8000, 15000, 30000]
 // Stop asking this long after the run: a job that has not finished by then is not coming back, and
 // its pending slot expires into a 404 around the same time.
@@ -2097,9 +2096,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.pollQueryScan()
         },
         pollQueryScan: async (_, breakpoint) => {
-            // The scan is written by a job that starts with the run, so a response can arrive
-            // before the findings exist. Ask on a backoff until the analysis is done, the run is
-            // too old to wait for, or a request fails (a dead job's slot expires into a 404).
+            // The findings can land after the response. Ask on a backoff until they are done, the run
+            // is too old to wait for, or a request fails.
             const cacheKey = values.queryScan?.cacheKey
             if (!cacheKey || values.queryScan?.summary.status !== 'pending') {
                 return

@@ -128,9 +128,8 @@ export function fixableQueryScanFindings(findings: QueryScanWarning[]): QuerySca
     return findings.filter((finding) => finding.reason !== 'filters')
 }
 
-// The goal and standing rules the assistant reads. These mirror `ASSISTANT_GOAL` and
-// `ASSISTANT_RULES` in `posthog/query_scan/findings.py` word for word, so the "Fix with AI" message
-// and the server-side `<query_scan_warning>` block read the same.
+// Mirrors `ASSISTANT_GOAL` and `ASSISTANT_RULES` in `posthog/query_scan/findings.py` word for word,
+// so the "Fix with AI" message and the server-side block read the same.
 const ASSISTANT_GOAL =
     'Help me get what this query is trying to find, as fast as possible. Start by saying in one sentence what ' +
     'you think the query is trying to find. If you cannot tell, or if a faster version would answer a different ' +

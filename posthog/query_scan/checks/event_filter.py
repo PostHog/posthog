@@ -1,14 +1,9 @@
-"""Decide whether a query's event filter can prune the events table by its sort key.
+"""Decide whether a query's event filter lets ClickHouse prune the events table.
 
-The events table is sorted by ``(team_id, toDate(timestamp), event, …)``, so only a condition
-that compares ``event`` to fixed names lets ClickHouse skip granules. A query can look filtered
-and still read every event.
-
-The verdict comes from two sources. ``classify_event_filter`` reads the query tree, which is why
-the filter could not prune: a negation, a wrapping function, an OR branch, a comparison to a
-column. ``combine_event_filter`` folds in the plan, which says whether ClickHouse pruned on
-``event`` at all. The trigger holds the tree and runs the first; the job holds the plan and runs
-the second.
+The table is sorted by ``(team_id, toDate(timestamp), event, …)``, so only a comparison of ``event``
+to fixed names skips granules; a query can look filtered and still read every event.
+``classify_event_filter`` reads the tree and says why a filter could not prune.
+``combine_event_filter`` folds in the plan, which says whether ClickHouse pruned on ``event`` at all.
 """
 
 from typing import Literal
@@ -62,10 +57,7 @@ class EventFilterOutcome:
 
 
 def classify_event_filter(tree: ast.AST) -> EventFilterOutcome:
-    """The verdict the tree alone supports, worst across every events read.
-
-    No events read means nothing to prune, so the classification is ``usable``.
-    """
+    """The verdict the tree alone supports, worst across every events read; ``usable`` when there is none."""
     reads = find_events_reads(tree)
     if not reads:
         return EventFilterOutcome(classification="usable")
@@ -75,13 +67,9 @@ def classify_event_filter(tree: ast.AST) -> EventFilterOutcome:
 
 
 def combine_event_filter(outcome: EventFilterOutcome, plan: QueryPlan | None) -> EventFilterOutcome:
-    """Fold the plan's key use into the tree's verdict, the way the old combined check did.
-
-    ClickHouse reports what it really used, so it overrules the tree, with one exception. A
-    negation enters the key condition as ``event`` yet excludes only a value, so it prunes almost
-    nothing; the tree's ``negated`` verdict stands over a used key. When the plan says the key was
-    not used while the tree read as usable, the filter did not prune for a reason the tree cannot
-    see, so the reason is ``not_pruned``.
+    """Fold the plan's key use into the tree's verdict. The plan overrules the tree, except that a
+    negation enters the key condition yet prunes almost nothing, so ``negated`` stands. A key the plan
+    did not use with a tree verdict of usable is ``not_pruned``.
     """
     key_used = plan.event_key_used() if plan is not None else None
     if key_used is True and outcome.reason != "negated":
@@ -97,10 +85,8 @@ def _classify_read(read: EventsRead, conditions: list[ast.Expr]) -> EventFilterO
 
 
 def _classify_from_tree(read: EventsRead, conditions: list[ast.Expr]) -> EventFilterOutcome | None:
-    """``None`` when nothing in ``conditions`` says anything about this read's ``event`` column.
-
-    A conjunction is classified the same way as the whole condition list, so a branch of an OR
-    that never names the column stays unrelated instead of counting as a filter inside an OR.
+    """``None`` when nothing in ``conditions`` names this read's ``event`` column. A conjunction is
+    classified like the whole list, so an OR branch that never names the column stays unrelated.
     """
     best: EventFilterOutcome | None = None
     for term in conditions:
