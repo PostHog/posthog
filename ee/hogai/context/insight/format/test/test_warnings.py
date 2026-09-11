@@ -115,7 +115,7 @@ def test_query_scan_block_leads_with_the_run_and_ends_with_the_standing_instruct
     finding_lines = [line for line in lines[3 : closing - 1] if line.startswith("- ")]
     assert len(finding_lines) == 1
     assert finding_lines[0].startswith(f"- {_SCAN_FINDING['kind']}")
-    assert _SCAN_FINDING["fix"].split(".")[0] in finding_lines[0]
+    assert str(_SCAN_FINDING["fix"]).split(".")[0] in finding_lines[0]
 
 
 def test_compact_query_scan_block_carries_two_findings():
