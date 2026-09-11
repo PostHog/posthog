@@ -69,7 +69,7 @@ const meta: Meta<ThreadFixtureProps> = {
             return unmount
         }, [streamKey, toolName, title, toolInput, rawOutput])
         return (
-            <div className="w-full max-w-180 h-160 border rounded">
+            <div className="w-180 max-w-full h-160 border rounded">
                 <BindLogic logic={runStreamLogic} props={{ streamKey }}>
                     <ThreadView />
                 </BindLogic>
