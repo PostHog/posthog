@@ -1168,8 +1168,9 @@ const scoutRecordOutput = (): ToolBase<
 })
 
 const ScoutRunNowSchema = () => {
+    const SignalsScoutConfigRunBody = orvalSchemas.SignalsScoutConfigRunBody()
     const SignalsScoutConfigRunParams = orvalSchemas.SignalsScoutConfigRunParams()
-    return SignalsScoutConfigRunParams.omit({ project_id: true })
+    return SignalsScoutConfigRunParams.omit({ project_id: true }).extend(SignalsScoutConfigRunBody.shape)
 }
 
 const scoutRunNow = (): ToolBase<ReturnType<typeof ScoutRunNowSchema>, unknown> => ({
@@ -1177,9 +1178,14 @@ const scoutRunNow = (): ToolBase<ReturnType<typeof ScoutRunNowSchema>, unknown> 
     schema: ScoutRunNowSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutRunNowSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.note !== undefined) {
+            body['note'] = params.note
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/run/`,
+            body,
         })
         return result
     },
@@ -1796,8 +1802,9 @@ const signalsScoutProjectProfileGet = (): ToolBase<
 })
 
 const SignalsScoutRunNowSchema = () => {
+    const SignalsScoutConfigRunBody = orvalSchemas.SignalsScoutConfigRunBody()
     const SignalsScoutConfigRunParams = orvalSchemas.SignalsScoutConfigRunParams()
-    return SignalsScoutConfigRunParams.omit({ project_id: true })
+    return SignalsScoutConfigRunParams.omit({ project_id: true }).extend(SignalsScoutConfigRunBody.shape)
 }
 
 const signalsScoutRunNow = (): ToolBase<ReturnType<typeof SignalsScoutRunNowSchema>, unknown> => ({
@@ -1805,9 +1812,14 @@ const signalsScoutRunNow = (): ToolBase<ReturnType<typeof SignalsScoutRunNowSche
     schema: SignalsScoutRunNowSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof SignalsScoutRunNowSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.note !== undefined) {
+            body['note'] = params.note
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/run/`,
+            body,
         })
         return result
     },

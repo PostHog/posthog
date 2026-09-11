@@ -415,6 +415,9 @@ class TestPromptCrossReferences(SimpleTestCase):
             team_id=1,
             started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
             github_read_access=github_read_access,
+            # Carried on every case so the one-off note section's own cross-references are held to
+            # the same rule; it points at sections each tail assembles for itself.
+            run_note="Focus on the checkout regression.",
         )
         headings = {line.removeprefix("# ") for line in prompt.splitlines() if line.startswith("# ")}
         # `*Emphasized*` spans naming another section, e.g. "see *Ground rules*". Single asterisks
@@ -472,6 +475,54 @@ class TestStructuredOutputPromptSection(SimpleTestCase):
         without_schema = _prompt(None)
         assert "# Structured output" not in without_schema
         assert "scout-record-output" not in without_schema
+
+
+class TestRunNotePromptSection(SimpleTestCase):
+    def _prompt(self, run_note: str | None) -> str:
+        return build_run_prompt(
+            LoadedSkill(
+                name="signals-scout-errors",
+                version=1,
+                body="watch",
+                description="d",
+                allowed_tools=[],
+                files=[],
+                skill_id="skill-1",
+                origin="canonical",
+                authors=[],
+            ),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=1,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            run_note=run_note,
+        )
+
+    @parameterized.expand([("absent", None), ("blank", "   \n  ")])
+    def test_no_section_without_a_note(self, _name: str, run_note: str | None) -> None:
+        # Every scheduled run takes this path, so a section that rendered anyway would tell each of
+        # them to weigh a note nobody left.
+        prompt = self._prompt(run_note)
+        assert "# A note for this run" not in prompt
+        assert "<run_note>" not in prompt
+
+    @parameterized.expand(
+        [
+            ("plain", "Focus on the checkout regression."),
+            # A note is free prose someone typed, and the tail renderer formats any section holding
+            # a `{schema_json}` placeholder — through that path a note like this one took the whole
+            # run down before the prompt was built.
+            ("braces", "Compare {schema_json} against the {} payload."),
+        ]
+    )
+    def test_note_renders_verbatim_in_its_own_section(self, _name: str, run_note: str) -> None:
+        prompt = self._prompt(run_note)
+        assert f"<run_note>\n{run_note}\n</run_note>" in prompt
+        # The section has to say the note is bound to this run: read as fleet steering, a scout
+        # would be right to fold a one-off nudge into the scratchpad and re-apply it forever.
+        assert "# A note for this run" in prompt
+        assert "do not record it in the scratchpad as a durable memory" in prompt
+        # The durable-notes section stays, and stays separate.
+        assert "# Notes left for you" in prompt
 
 
 class TestExternalMcpServersPromptSection(SimpleTestCase):
@@ -2691,6 +2742,31 @@ class TestRunRowProvenanceStamps(BaseTest):
             business_knowledge_maintained=True,
         )
         assert (run.metadata or {})["business_knowledge_maintained"] is True
+
+    def test_stamps_the_one_off_note_a_manual_run_carried(self) -> None:
+        # A one-off note is deliberately not stored as a scout note, so the run row is the only
+        # record of what a hand-triggered run was asked to do. Absent on the scheduled path, which
+        # is what keeps the key meaningful.
+        config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name="signals-scout-general")
+        skill = self._skill(allowed_tools=["emit_report"], origin="custom")
+        steered = _create_run_row(
+            run_id=uuid7(),
+            task_run=_make_task_run(self.team),
+            team=self.team,
+            config=config,
+            skill=skill,
+            run_note="Focus on the checkout regression.",
+        )
+        assert (steered.metadata or {})["run_note"] == "Focus on the checkout regression."
+
+        scheduled = _create_run_row(
+            run_id=uuid7(),
+            task_run=_make_task_run(self.team),
+            team=self.team,
+            config=config,
+            skill=skill,
+        )
+        assert "run_note" not in (scheduled.metadata or {})
 
 
 @pytest.mark.asyncio

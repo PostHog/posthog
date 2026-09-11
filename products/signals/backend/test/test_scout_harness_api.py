@@ -52,7 +52,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     canonical_skill_names,
     discover_canonical_skills,
 )
-from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH as PIPELINE_AUDIENCE
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.serializers import (
@@ -3763,7 +3763,106 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_202_ACCEPTED
         assert response.json() == {"skill_name": "signals-scout-foo", "workflow_id": "wf-123", "started": True}
-        start.assert_called_once_with(connect.return_value, team_id=self.team.id, skill_name="signals-scout-foo")
+        start.assert_called_once_with(
+            connect.return_value, team_id=self.team.id, skill_name="signals-scout-foo", run_note=None
+        )
+
+    @parameterized.expand(
+        [
+            ("note", "Focus on the checkout regression.", "Focus on the checkout regression."),
+            ("padded", "  Focus on the checkout regression.  ", "Focus on the checkout regression."),
+            # Whitespace is nothing to steer with, and it must not reach the prompt as a section
+            # telling the scout someone left it a note.
+            ("blank", "   ", None),
+        ]
+    )
+    def test_run_carries_a_one_off_note_to_the_dispatch(self, _name: str, note: str, expected: str | None) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        with (
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
+            patch(_CONNECT) as connect,
+            patch(_START, return_value="wf-123") as start,
+        ):
+            response = self.client.post(self._run_url(str(config.id)), data={"note": note}, format="json")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        start.assert_called_once_with(
+            connect.return_value, team_id=self.team.id, skill_name="signals-scout-foo", run_note=expected
+        )
+
+    def test_run_with_oversized_note_returns_400_without_dispatching(self) -> None:
+        # The note renders verbatim into the run's prompt, so an unbounded one would crowd out the
+        # instructions it is meant to steer.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        with patch(_QUOTA, return_value=_UNDER_QUOTA), patch(_CONNECT), patch(_START) as start:
+            response = self.client.post(
+                self._run_url(str(config.id)), data={"note": "x" * (MAX_RUN_NOTE_CHARS + 1)}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        start.assert_not_called()
+
+    def test_run_with_a_note_requires_skill_editor_access(self) -> None:
+        # A note is read verbatim by an agent holding privileged tools, so it clears the same RBAC
+        # bar as leaving a scout note. Triggering a run without one stays on the config write.
+        from posthog.scopes import APIScopeObject
+
+        from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_llm_skill(
+            self_: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel
+        ) -> bool:
+            return False if resource == "llm_skill" else real_check(self_, resource, required_level)
+
+        with (
+            patch.object(UserAccessControl, "check_access_level_for_resource", autospec=True) as mock_check,
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
+            patch(_CONNECT),
+            patch(_START, return_value="wf-123") as start,
+        ):
+            mock_check.side_effect = deny_llm_skill
+            with_note = self.client.post(
+                self._run_url(str(config.id)), data={"note": "focus on checkout"}, format="json"
+            )
+            assert with_note.status_code == status.HTTP_403_FORBIDDEN
+            start.assert_not_called()
+
+            plain = self.client.post(self._run_url(str(config.id)))
+            assert plain.status_code == status.HTTP_202_ACCEPTED, plain.json()
+            start.assert_called_once()
+
+    @parameterized.expand(
+        [
+            # `signal_scout:write` alone triggers a run, but steering one with prose an agent reads
+            # verbatim is the skill-authoring capability, so a note needs `llm_skill:write` too.
+            ("scout_scope_only", ["signal_scout:write"], status.HTTP_403_FORBIDDEN),
+            ("both_scopes", ["signal_scout:write", "llm_skill:write"], status.HTTP_202_ACCEPTED),
+        ]
+    )
+    def test_note_scope_requirements_for_api_keys(self, _name: str, scopes: list[str], expected: int) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+        with (
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
+            patch(_CONNECT),
+            patch(_START, return_value="wf-123"),
+        ):
+            response = self.client.post(
+                self._run_url(str(config.id)),
+                data={"note": "focus on checkout"},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {raw}",
+            )
+
+        assert response.status_code == expected, response.content
 
     @parameterized.expand(
         [
