@@ -189,7 +189,9 @@ tools:
             reports for one source record — e.g. what the inbox already investigated for a specific support ticket —
             pass that record's id as `source_id` together with exactly one `source_product` (for a support ticket:
             `source_product=conversations` and the ticket's UUID as `source_id`); add `include_all_statuses=true` to
-            include dismissed ones.
+            include dismissed ones. Each row includes typed impact metric metadata and any accessible cached snapshot,
+            but omits live query definitions and comparisons. Queryless legacy or malformed metrics are always redacted.
+            Listing reports does not execute metric queries.
         agent_note: >
             You may inspect reports without claiming them. A claim indicates active work that should not be duplicated.
             Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues
@@ -205,6 +207,7 @@ tools:
                 - id
                 - title
                 - summary
+                - metrics
                 - status
                 - priority
                 - actionability
@@ -239,10 +242,15 @@ tools:
         title: Get signal report
         description: >
             Get a single signal report by ID. Returns the full report, including work_state, current assignee, and the
-            attached pull request and its latest known state. The report's full work log is readable via
-            inbox-report-artefacts-list; read it before acting. The raw underlying signals require a HogQL query (see
-            the 'signals' skill). Claim the report before doing work. A report may be claimed in potential, candidate,
-            in_progress, pending_input, ready, or failed state.
+            attached pull request and its latest known state, plus typed impact metrics. Every metric includes a bounded
+            live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources and may include an
+            optional cached snapshot fallback. This call returns that stored content without executing the query.
+            Consumers derive a BoldNumber whole-window headline and an ActionsBar longitudinal response, capped at 1,000
+            estimated points, through the normal analytics query path and cache. Queryless legacy or malformed metrics
+            are always redacted. The report's full work log is readable via inbox-report-artefacts-list; read it before
+            acting. The raw underlying signals require a HogQL query (see the 'signals' skill). Claim the report before
+            doing work. A report may be claimed in potential, candidate, in_progress, pending_input, ready, or failed
+            state.
         agent_note: >
             You may inspect reports without claiming them. A claim indicates active work that should not be duplicated.
             Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues
@@ -538,7 +546,13 @@ tools:
             signal that moves the report's signal count and weight — use it for a new observation a reader should be
             able to check, and `append_note` for commentary. Optional `charts` is the full set of queries the inbox
             renders on the report — it replaces the report's charts rather than adding to them (omit it to leave them
-            alone), so read the report first when you mean to add one. NOT idempotent — a retried `append_note` appends
+            alone), so read the report first when you mean to add one. Optional `metrics` is the report's complete typed
+            impact-metric set: omit it or send null to preserve the set, send an empty list to clear it, or send the
+            complete replacement. Every submitted metric requires a bounded live InsightVizNode/TrendsQuery built only
+            from EventsNode or ActionsNode sources, with no more than 1,000 estimated longitudinal points; its snapshot
+            is only an optional cached fallback. An affected-users metric uses one series with `math: dau`. Consumers
+            derive a `BoldNumber` query for each metric's whole-window `aggregated_value` and an `ActionsBar` query for
+            its longitudinal buckets; never sum affected-user buckets. NOT idempotent - a retried `append_note` appends
             a second note. Opt-in: only available to scouts that list `edit_report` in their skill's `allowed_tools`.
     scout-emit-report:
         operation: signals_scout_emit_report
@@ -565,8 +579,14 @@ tools:
             `repository` + `priority` + `suggested_reviewers` also opens a draft PR automatically (autostart,
             custom_agent parity); omit them to just surface the report. Optional `charts` attach queries the inbox
             renders inline — reference one from `summary` as `[label](chart:<chart_id>)` to place it in the body, or
-            leave it unreferenced and it renders below. Opt-in: only available to scouts that list `emit_report` in
-            their skill's `allowed_tools`.
+            leave it unreferenced and it renders below. Optional `metrics` adds at most six typed impact measurements:
+            one primary metric for the key observation and supporting facts around it. Every metric requires a bounded
+            live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources, with no more than 1,000
+            estimated longitudinal points; its snapshot is only an optional cached fallback. An affected-users metric
+            counts distinct people through one series with `math: dau`. Consumers derive a `BoldNumber` query for each
+            metric's whole-window `aggregated_value` and an `ActionsBar` query for its longitudinal buckets; never sum
+            affected-user buckets. Opt-in: only available to scouts that list `emit_report` in their skill's
+            `allowed_tools`.
     scout-emit-signal:
         operation: signals_scout_emit_signal
         enabled: true
@@ -944,6 +964,9 @@ tools:
         enabled: false
     signals-reports-pr-ci-statuses:
         operation: signals_reports_pr_ci_statuses
+        enabled: false
+    signals-reports-refresh-metrics-create:
+        operation: signals_reports_refresh_metrics_create
         enabled: false
     signals-reports-refund-create:
         operation: signals_reports_refund_create
