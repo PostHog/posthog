@@ -76,10 +76,9 @@ def main() -> int:
 
     # This script runs inside the sandbox and only predict.py, in the same sandbox, reads the
     # pickle back; the framework treats model.pkl as opaque bytes and never unpickles it.
+    artifact = {"model": model, "feature_cols": feature_cols}
     with open(args.model_out, "wb") as f:
-        pickle.dump(
-            {"model": model, "feature_cols": feature_cols}, f
-        )  # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle
+        pickle.dump(artifact, f)  # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle
 
     holdout_auc: float | None = None
     if args.holdout_features and args.holdout_labels:
