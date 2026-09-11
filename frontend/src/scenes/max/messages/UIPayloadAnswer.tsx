@@ -4,11 +4,8 @@ import { MaxErrorTrackingSearchResponse } from '~/queries/schema/schema-assistan
 import { AssistantTool } from '~/queries/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
-import {
-    ErrorTrackingFiltersWidget,
-    MessageTemplate,
-    RecordingsWidget,
-} from 'products/posthog_ai/frontend/api/primitives'
+import { ErrorTrackingFiltersWidget } from 'products/error_tracking/frontend/posthogAi/ErrorTrackingFiltersWidget'
+import { MessageTemplate, RecordingsWidget } from 'products/posthog_ai/frontend/api/primitives'
 
 import { isDangerousOperationResponse, normalizeDangerousOperationResponse } from '../approvalOperationUtils'
 import { DangerousOperationApprovalCard } from '../DangerousOperationApprovalCard'

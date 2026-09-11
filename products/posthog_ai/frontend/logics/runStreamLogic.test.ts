@@ -12,10 +12,14 @@ import { initKeaTests } from '~/test/init'
 import { tasksRunsCommandCreate, tasksRunsStreamTokenRetrieve } from 'products/tasks/frontend/generated/api'
 import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import { lookupToolRenderer, toolRegistry } from '../components/tool/toolRegistry'
+import { extractQueryResult } from '../components/tool/widgets/extractors'
+import { defaultPermissionDecision } from '../policy/toolPolicy'
 import type { AttachedContextItem } from '../types/contextTypes'
 import { TaskRunEnvironment, TaskRunStatus } from '../types/taskTypes'
 import type { PermissionRequestFrame, StoredLogEntry } from '../types/wireTypes'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
+import { resolveToolCall } from '../utils/toolResolver'
 import { computeTurnTrailers } from '../utils/turnTrailers'
 import { attachedContextLogic } from './attachedContextLogic'
 import {
@@ -244,7 +248,66 @@ describe('runStreamLogic', () => {
             })
             expect(result.threadItems.find((item) => item.id === 'missing-start')?.startedAt).toBeUndefined()
         })
+        it.each([
+            ['Claude', 'live'],
+            ['Claude', 'history'],
+            ['Codex', 'live'],
+            ['Codex', 'history'],
+        ])('routes %s %s ACP results to the query widget', async (agent, source) => {
+            const query = { kind: 'TrendsQuery', series: [] }
+            const rawOutput = {
+                content: [{ type: 'text', text: 'No matching events' }],
+                _meta: { 'com.posthog.mcp/app_data': { query, results: [] } },
+            }
+            const toolCall = {
+                sessionUpdate: 'tool_call',
+                toolCallId: 'query-1',
+                rawInput: { command: 'call query-trends {}' },
+                _meta:
+                    agent === 'Claude'
+                        ? { claudeCode: { toolName: 'mcp__posthog__exec' } }
+                        : { posthog: { toolName: 'mcp__posthog__exec', mcp: { server: 'posthog', tool: 'exec' } } },
+            }
+            const frames =
+                source === 'history'
+                    ? [sessionUpdate({ ...toolCall, status: 'completed', rawOutput })]
+                    : [
+                          sessionUpdate({ ...toolCall, status: 'in_progress' }),
+                          sessionUpdate({
+                              sessionUpdate: 'tool_call_update',
+                              toolCallId: 'query-1',
+                              status: 'completed',
+                              rawOutput,
+                          }),
+                      ]
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            const invocation = logic.values.toolInvocations.get('query-1')!
+            const resolved = resolveToolCall(invocation)
+            expect(lookupToolRenderer(resolved.resolvedKey, resolved.innerToolName != null).Renderer).toBe(
+                toolRegistry.lookup('query-trends')?.Renderer
+            )
+            expect(
+                extractQueryResult({
+                    ...resolved,
+                    id: invocation.toolCallId,
+                    rawServerName: invocation.rawServerName,
+                    rawToolName: invocation.rawToolName,
+                    rawInput: invocation.input,
+                    rawOutput: invocation.output,
+                    content: invocation.contentBlocks,
+                    status: invocation.status,
+                })?.content.query
+            ).toEqual(query)
+        })
+
         it('folds a stream of StoredLogEntry frames into thread items', async () => {
+            const rawOutput = {
+                content: [{ type: 'text', text: '1 row' }],
+                _meta: { 'com.posthog.mcp/app_data': { query: { kind: 'HogQLQuery', query: 'select 1' }, rows: 1 } },
+            }
             const frames: StoredLogEntry[] = [
                 notification('_posthog/run_started', {}),
                 sessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { text: 'Hel' } }),
@@ -262,7 +325,7 @@ describe('runStreamLogic', () => {
                     sessionUpdate: 'tool_call_update',
                     toolCallId: 't1',
                     status: 'completed',
-                    rawOutput: { rows: 1 },
+                    rawOutput,
                     content: [{ type: 'text', text: 'done' }],
                 }),
                 notification('_posthog/turn_complete', {}),
@@ -292,7 +355,7 @@ describe('runStreamLogic', () => {
             expect(invocation?.rawToolName).toEqual('exec')
             expect(invocation?.input).toEqual({ command: 'call execute-sql {"query":"select 1"}' })
             expect(invocation?.status).toEqual('completed')
-            expect(invocation?.output).toEqual({ rows: 1 })
+            expect(invocation?.output).toEqual(rawOutput)
             expect(invocation?.contentBlocks).toEqual([{ type: 'text', text: 'done' }])
 
             expect(logic.values.threadItems.some((item) => item.type === 'turn_separator')).toEqual(true)
@@ -3723,6 +3786,26 @@ describe('runStreamLogic', () => {
             expect(record?.rawToolCall.rawToolName).toEqual('write')
             expect(record?.rawToolCall.input).toEqual({ value: 'new' })
             expect(record?.rawToolCall.meta).toEqual({ claudeCode: { toolName: 'mcp__other__write' } })
+        })
+
+        it.each([
+            ['posthog', 'call query-trends {}', 'auto_allow'],
+            ['posthog', 'call posthog-connection-call {"connection_id":"1","tool":"execute-sql"}', 'prompt'],
+            ['posthog', 'call posthog-connection-forward {"connection_id":"1","method":"GET"}', 'prompt'],
+            ['other', 'call query-trends {}', 'prompt'],
+        ])('preserves permission policy for a native %s exec: %s', (server, command, decision) => {
+            const record = parsePermissionRequestFrame({
+                type: 'permission_request',
+                requestId: 'native-request',
+                toolCall: {
+                    toolCallId: 'native-tool',
+                    rawInput: { command },
+                    _meta: { posthog: { toolName: `mcp__${server}__exec`, mcp: { server, tool: 'exec' } } },
+                },
+                options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+            })!
+            expect(record.toolName).toEqual(`mcp__${server}__exec`)
+            expect(defaultPermissionDecision(record)).toEqual(decision)
         })
 
         it('returns null for a frame with no usable options', () => {
