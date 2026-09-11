@@ -139,6 +139,14 @@ def _build_outcome_assets(
     return outcome_assets, successful_asset_ids
 
 
+def _subscription_child_workflow(
+    subscription: DueSubscription,
+) -> tuple[Callable[..., Coroutine[Any, Any, None]], str]:
+    if subscription.resource_type == AI_PROMPT_RESOURCE_TYPE:
+        return ProcessAISubscriptionWorkflow.run, f"process-ai-subscription-{subscription.subscription_id}"
+    return ProcessSubscriptionWorkflow.run, f"process-subscription-{subscription.subscription_id}"
+
+
 def _summarize_export_failure_details(errors: list[ExportError]) -> dict[str, str | int | list[str]]:
     """Summarize per-asset failure dimensions onto one subscription SLO event."""
 
@@ -199,7 +207,10 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: ScheduleAllSubscriptionsWorkflowInputs) -> None:
-        fetch_inputs = FetchDueSubscriptionsActivityInputs(buffer_minutes=inputs.buffer_minutes)
+        fetch_inputs = FetchDueSubscriptionsActivityInputs(
+            buffer_minutes=inputs.buffer_minutes,
+            max_subscriptions_per_run=inputs.max_subscriptions_per_run,
+        )
         subscription_infos: list[DueSubscription] = await temporalio.workflow.execute_activity(
             fetch_due_subscriptions_activity,
             fetch_inputs,
@@ -216,7 +227,11 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
         # Deterministic ID (no run_id suffix) prevents duplicate deliveries when
         # schedule runs overlap: Temporal guarantees no two open workflows can
         # share the same ID, so a still-running child rejects the duplicate start.
-        tasks = []
+        # Existing executions must keep their original wait-for-results command history.
+        # New executions only wait for Temporal to accept each child start.
+        fire_and_forget = temporalio.workflow.patched("subscription-scheduler-fire-and-forget-2026-09")
+        failed_ids: list[int] = []
+        legacy_tasks = []
         for sub in subscription_infos:
             tracked = TrackedSubscriptionInputs(
                 subscription_id=sub.subscription_id,
@@ -243,48 +258,62 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             )
             # AI-prompt subs run a dedicated workflow; distinct child-ID prefixes keep the
             # overlapping-duplicate guarantee per type.
-            workflow: Callable[..., Coroutine[Any, Any, None]]
-            if sub.resource_type == AI_PROMPT_RESOURCE_TYPE:
-                workflow = ProcessAISubscriptionWorkflow.run
-                child_id = f"process-ai-subscription-{sub.subscription_id}"
-            else:
-                workflow = ProcessSubscriptionWorkflow.run
-                child_id = f"process-subscription-{sub.subscription_id}"
-            task = temporalio.workflow.execute_child_workflow(
-                workflow,
-                tracked,
-                id=child_id,
-                parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
-                execution_timeout=dt.timedelta(hours=2),
-            )
-            tasks.append(task)
-
-        if tasks:
-            # return_exceptions=True: individual subscription failures are isolated —
-            # one failing subscription should not prevent others from being delivered.
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            failed_ids = []
-            for sub, result in zip(subscription_infos, results):
-                if isinstance(result, BaseException):
-                    if isinstance(result, WorkflowAlreadyStartedError):
-                        # A previous schedule run's child is still processing this
-                        # subscription — not a failure, just skip it.
-                        temporalio.workflow.logger.info(
-                            "process_subscription.already_running",
-                            extra={"subscription_id": sub.subscription_id},
-                        )
-                    else:
-                        failed_ids.append(sub.subscription_id)
-                        temporalio.workflow.logger.warning(
-                            "process_subscription.child_workflow_error",
-                            extra={"subscription_id": sub.subscription_id, "error": str(result)},
-                        )
-
-            if failed_ids:
-                raise ApplicationError(
-                    f"Subscription deliveries failed for IDs: {failed_ids}",
-                    non_retryable=True,
+            workflow, child_id = _subscription_child_workflow(sub)
+            if not fire_and_forget:
+                legacy_tasks.append(
+                    temporalio.workflow.execute_child_workflow(
+                        workflow,
+                        tracked,
+                        id=child_id,
+                        parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                        execution_timeout=dt.timedelta(hours=2),
+                    )
                 )
+                continue
+
+            try:
+                await temporalio.workflow.start_child_workflow(
+                    workflow,
+                    tracked,
+                    id=child_id,
+                    parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                    execution_timeout=dt.timedelta(hours=2),
+                )
+            except WorkflowAlreadyStartedError:
+                # A previous schedule run's child is still processing this
+                # subscription — not a failure, just skip it.
+                temporalio.workflow.logger.info(
+                    "process_subscription.already_running",
+                    extra={"subscription_id": sub.subscription_id},
+                )
+            except Exception as error:
+                failed_ids.append(sub.subscription_id)
+                temporalio.workflow.logger.warning(
+                    "process_subscription.child_workflow_start_error",
+                    extra={"subscription_id": sub.subscription_id, "error": str(error)},
+                )
+
+        if not fire_and_forget and legacy_tasks:
+            results = await asyncio.gather(*legacy_tasks, return_exceptions=True)
+            for sub, result in zip(subscription_infos, results):
+                if isinstance(result, WorkflowAlreadyStartedError):
+                    temporalio.workflow.logger.info(
+                        "process_subscription.already_running",
+                        extra={"subscription_id": sub.subscription_id},
+                    )
+                elif isinstance(result, BaseException):
+                    failed_ids.append(sub.subscription_id)
+                    temporalio.workflow.logger.warning(
+                        "process_subscription.child_workflow_error",
+                        extra={"subscription_id": sub.subscription_id, "error": str(result)},
+                    )
+
+        if failed_ids:
+            failure_action = "failed to start" if fire_and_forget else "failed"
+            raise ApplicationError(
+                f"Subscription deliveries {failure_action} for IDs: {failed_ids}",
+                non_retryable=True,
+            )
 
 
 @temporalio.workflow.defn(name="process-subscription")
