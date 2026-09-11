@@ -61,6 +61,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "ListCohortMemberIds",
     "ListGroups",
     "ReleaseFence",
+    "ReleaseFences",
     "SetPersonDistinctIdVersionFloor",
     "SetPersonVersionFloor",
     "SplitPerson",
@@ -171,6 +172,10 @@ impl RawProxyInner {
             }
             "ReleaseFence" => {
                 let (resp, call_ms) = self.raw_proxy_to_leader(req, "ReleaseFence").await;
+                (resp, "leader", call_ms)
+            }
+            "ReleaseFences" => {
+                let (resp, call_ms) = self.raw_proxy_to_leader(req, "ReleaseFences").await;
                 (resp, "leader", call_ms)
             }
             // The merge saga's document write: leader-routed like every

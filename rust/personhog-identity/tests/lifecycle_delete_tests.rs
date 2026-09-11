@@ -3,6 +3,7 @@
 
 mod common;
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -627,6 +628,90 @@ async fn fenced_delete_seals_the_exact_version_and_produces_the_death_document()
     assert!(fence_at < release_at);
 
     h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// Completion releases the victims in one call per partition, so each
+/// leader verifies its share of the marks in a single query instead of
+/// one lookup per victim.
+#[tokio::test]
+async fn a_fenced_delete_releases_its_victims_in_one_batch_per_partition() {
+    let h = FencedHarness::new().await;
+    let mut person_ids = Vec::new();
+    for i in 0..6 {
+        let distinct_id = format!("batched-victim-{i}-{}", Uuid::now_v7());
+        person_ids.push(h.ctx.create_person_via_stub(&distinct_id).await);
+    }
+
+    let row = h
+        .execute(Uuid::now_v7(), &person_ids)
+        .await
+        .expect("fenced delete completes");
+    let outcome = FencedHarness::outcome(&row);
+    assert!(outcome.results.iter().all(|r| r.outcome == "deleted"));
+    assert_eq!(h.leader.death_documents().len(), person_ids.len());
+
+    let batches: Vec<(u32, Vec<i64>)> = h
+        .leader
+        .calls()
+        .into_iter()
+        .filter_map(|call| match call {
+            LeaderCall::ReleaseBatch {
+                partition,
+                person_ids,
+            } => Some((partition, person_ids)),
+            _ => None,
+        })
+        .collect();
+    let partitions: HashSet<u32> = batches.iter().map(|(partition, _)| *partition).collect();
+    assert_eq!(batches.len(), partitions.len(), "one batch per partition");
+    assert!(batches.len() < person_ids.len(), "fewer calls than victims");
+    let mut released: Vec<i64> = batches.into_iter().flat_map(|(_, ids)| ids).collect();
+    released.sort_unstable();
+    let mut expected = person_ids.clone();
+    expected.sort_unstable();
+    assert_eq!(released, expected);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+/// A router or leader that predates `ReleaseFences` answers UNIMPLEMENTED,
+/// and a leader that predates the partition hint seals without one. Either
+/// way the saga must still complete, releasing one person at a time.
+#[tokio::test]
+async fn a_fleet_without_batch_release_falls_back_to_single_releases() {
+    let degradations: [fn(&SimLeader); 2] = [
+        SimLeader::disable_release_fences,
+        SimLeader::disable_partition_hints,
+    ];
+    for degrade in degradations {
+        let h = FencedHarness::new().await;
+        degrade(&h.leader);
+        let mut person_ids = Vec::new();
+        for i in 0..2 {
+            let distinct_id = format!("single-release-{i}-{}", Uuid::now_v7());
+            person_ids.push(h.ctx.create_person_via_stub(&distinct_id).await);
+        }
+
+        let row = h
+            .execute(Uuid::now_v7(), &person_ids)
+            .await
+            .expect("delete completes without batch release");
+        let outcome = FencedHarness::outcome(&row);
+        assert!(outcome.results.iter().all(|r| r.outcome == "deleted"));
+        assert_eq!(h.leader.death_documents().len(), person_ids.len());
+
+        let calls = h.leader.calls();
+        assert!(!calls
+            .iter()
+            .any(|c| matches!(c, LeaderCall::ReleaseBatch { .. })));
+        let releases = calls
+            .iter()
+            .filter(|c| matches!(c, LeaderCall::ReleaseCommitted { .. }))
+            .count();
+        assert_eq!(releases, person_ids.len());
+
+        h.ctx.cleanup().await.expect("cleanup");
+    }
 }
 
 #[tokio::test]

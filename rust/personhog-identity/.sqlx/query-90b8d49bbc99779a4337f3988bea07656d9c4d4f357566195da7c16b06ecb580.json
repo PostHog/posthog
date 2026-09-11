@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE lifecycle_op_person lop\n        SET status = $2,\n            sealed = jsonb_strip_nulls(jsonb_build_object(\n                'version', u.version,\n                'created_at', u.created_at,\n                'partition', NULLIF(u.partition, $6)\n            ))\n        FROM unnest($3::bigint[], $4::bigint[], $5::bigint[], $7::int[])\n             AS u(person_id, version, created_at, partition)\n        WHERE lop.op_id = $1 AND lop.person_id = u.person_id\n          AND lop.status IN ('marked', 'sealed')\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8Array",
+        "Int8Array",
+        "Int8Array",
+        "Int4",
+        "Int4Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "90b8d49bbc99779a4337f3988bea07656d9c4d4f357566195da7c16b06ecb580"
+}

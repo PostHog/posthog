@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT person_id, person_uuid,\n               (sealed->>'version')::bigint AS \"sealed_version!\",\n               (sealed->>'created_at')::bigint AS \"sealed_created_at!\"\n        FROM lifecycle_op_person\n        WHERE op_id = $1 AND status = 'sealed' AND sealed ? 'created_at'\n        ORDER BY person_id\n        ",
+  "query": "\n        SELECT person_id, person_uuid,\n               (sealed->>'version')::bigint AS \"sealed_version!\",\n               (sealed->>'created_at')::bigint AS \"sealed_created_at!\",\n               (sealed->>'partition')::int AS \"partition?\"\n        FROM lifecycle_op_person\n        WHERE op_id = $1 AND status = 'sealed' AND sealed ? 'created_at'\n        ORDER BY person_id\n        ",
   "describe": {
     "columns": [
       {
@@ -22,6 +22,11 @@
         "ordinal": 3,
         "name": "sealed_created_at!",
         "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "partition?",
+        "type_info": "Int4"
       }
     ],
     "parameters": {
@@ -33,8 +38,9 @@
       false,
       false,
       null,
+      null,
       null
     ]
   },
-  "hash": "f986c4fea2c4b8a56c903568483947304cb503d897e25b635135c83f8201d707"
+  "hash": "f8d000ebfede96d9dba2005ee3c092885794c0d6014467dd08548baf433e8a1a"
 }

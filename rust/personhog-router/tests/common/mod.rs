@@ -715,6 +715,15 @@ impl PersonHogLeader for TestLeaderService {
         Err(Status::unimplemented("not exercised by router tests"))
     }
 
+    async fn release_fences(
+        &self,
+        request: Request<personhog_proto::personhog::types::v1::ReleaseFencesRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::ReleaseFencesResponse>, Status>
+    {
+        require_partition_metadata(&request)?;
+        Err(Status::unimplemented("not exercised by router tests"))
+    }
+
     async fn fold_person_document(
         &self,
         request: Request<personhog_proto::personhog::types::v1::FoldPersonDocumentRequest>,

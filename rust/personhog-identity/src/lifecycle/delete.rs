@@ -5,9 +5,10 @@
 //!
 //! Sealing fences each victim on its owning leader — `FencePerson` rejects
 //! writes while the op lives and returns the exact sealed version, so no
-//! margin is needed — and completion calls `ReleaseFence(committed)` per
-//! victim, which makes the leader produce the death document into the
-//! changelog and evict its cache entry. The unmapped transaction still
+//! margin is needed — and completion releases the victims with the
+//! committed outcome, one `ReleaseFences` per partition, which makes each
+//! leader produce the death documents into the changelog and evict its
+//! cache entries. The unmapped transaction still
 //! writes the person tombstone directly: it is the durable revival floor
 //! the sync plane reads (sanctioned by the RFC); the death document
 //! confirms it downstream (writer, ClickHouse) at the same version,
@@ -20,6 +21,7 @@
 //! leader was never fenced for them, and their tombstone version already
 //! carries the old margin.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -27,11 +29,12 @@ use futures::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::postgres::PgPool;
-use tonic::Code;
+use tonic::{Code, Status};
 use uuid::Uuid;
 
 use personhog_proto::personhog::types::v1::{
-    FencePersonRequest, LifecycleOpType, ReleaseFenceRequest, ReleaseOutcome,
+    FencePersonRequest, LifecycleOpType, ReleaseFenceItem, ReleaseFenceRequest,
+    ReleaseFencesRequest, ReleaseOutcome,
 };
 
 use crate::config::IdentityTables;
@@ -44,6 +47,10 @@ use crate::storage::postgres::begin_timed;
 
 /// Bound on concurrent leader calls per step, matching the merge driver.
 const LEADER_CALL_CONCURRENCY: usize = 8;
+
+/// Stands in for "the fence reported no partition" inside the seal
+/// update's int array, since a nullable array cannot be bound there.
+const NO_PARTITION: i32 = -1;
 
 // Derived from the shared enum so the op-type string cannot drift from
 // the leader's fence records or the lifecycle_op CHECK constraint.
@@ -363,7 +370,9 @@ async fn mark(pool: &PgPool, person_table: &str, op: &OpRow) -> Result<(), SagaE
 /// state, so the fan-out is safe to repeat; the sealed values and the step
 /// CAS commit together afterwards. The sealed jsonb records `created_at`
 /// (epoch milliseconds, as the leader seals it) alongside `version`; its
-/// presence is what marks a victim as fenced when the release runs.
+/// presence is what marks a victim as fenced when the release runs. It
+/// also records the `partition` the fencing leader reported, when it did,
+/// so the release can group victims per leader.
 ///
 /// A victim the leader reports NOT_FOUND vanished between the claim
 /// recheck and its fence (destroyed by another actor) — its mark row is
@@ -405,10 +414,15 @@ async fn seal(pool: &PgPool, leader: &dyn LifecycleLeader, op: &OpRow) -> Result
     let mut sealed_ids: Vec<i64> = Vec::with_capacity(fence_results.len());
     let mut sealed_versions: Vec<i64> = Vec::with_capacity(fence_results.len());
     let mut sealed_created_ats: Vec<i64> = Vec::with_capacity(fence_results.len());
+    let mut sealed_partitions: Vec<i32> = Vec::with_capacity(fence_results.len());
     let mut vanished: Vec<i64> = Vec::new();
     for (person_id, result) in fence_results {
         match result {
             Ok(response) => {
+                let partition = response
+                    .partition
+                    .and_then(|p| i32::try_from(p).ok())
+                    .unwrap_or(NO_PARTITION);
                 let sealed = response.sealed.ok_or_else(|| {
                     SagaError::CorruptState(format!(
                         "fence response for person {person_id} carries no sealed state"
@@ -417,6 +431,7 @@ async fn seal(pool: &PgPool, leader: &dyn LifecycleLeader, op: &OpRow) -> Result
                 sealed_ids.push(person_id);
                 sealed_versions.push(sealed.version);
                 sealed_created_ats.push(sealed.created_at);
+                sealed_partitions.push(partition);
             }
             Err(status) if status.code() == Code::NotFound => {
                 tracing::error!(
@@ -436,8 +451,14 @@ async fn seal(pool: &PgPool, leader: &dyn LifecycleLeader, op: &OpRow) -> Result
     sqlx::query!(
         r#"
         UPDATE lifecycle_op_person lop
-        SET status = $2, sealed = jsonb_build_object('version', u.version, 'created_at', u.created_at)
-        FROM unnest($3::bigint[], $4::bigint[], $5::bigint[]) AS u(person_id, version, created_at)
+        SET status = $2,
+            sealed = jsonb_strip_nulls(jsonb_build_object(
+                'version', u.version,
+                'created_at', u.created_at,
+                'partition', NULLIF(u.partition, $6)
+            ))
+        FROM unnest($3::bigint[], $4::bigint[], $5::bigint[], $7::int[])
+             AS u(person_id, version, created_at, partition)
         WHERE lop.op_id = $1 AND lop.person_id = u.person_id
           AND lop.status IN ('marked', 'sealed')
         "#,
@@ -446,6 +467,8 @@ async fn seal(pool: &PgPool, leader: &dyn LifecycleLeader, op: &OpRow) -> Result
         &sealed_ids,
         &sealed_versions,
         &sealed_created_ats,
+        NO_PARTITION,
+        &sealed_partitions,
     )
     .execute(&mut *tx)
     .await?;
@@ -634,10 +657,11 @@ async fn unmap(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(),
     Ok(())
 }
 
-/// `unmapped → completed`: release each fenced victim with the committed
-/// outcome — the leader produces the death document into the changelog and
-/// evicts its cache entry — then settle the per-person rows to `deleted`
-/// (which releases their marks), record the outcome, and stamp completion.
+/// `unmapped → completed`: release the fenced victims with the committed
+/// outcome — each leader produces the death documents into the changelog
+/// and evicts its cache entries — then settle the per-person rows to
+/// `deleted` (which releases their marks), record the outcome, and stamp
+/// completion.
 ///
 /// The releases run before the settle transaction because the leader
 /// verifies a committed release against a live mark (`marked`/`sealed`)
@@ -657,7 +681,8 @@ async fn complete(
         r#"
         SELECT person_id, person_uuid,
                (sealed->>'version')::bigint AS "sealed_version!",
-               (sealed->>'created_at')::bigint AS "sealed_created_at!"
+               (sealed->>'created_at')::bigint AS "sealed_created_at!",
+               (sealed->>'partition')::int AS "partition?"
         FROM lifecycle_op_person
         WHERE op_id = $1 AND status = 'sealed' AND sealed ? 'created_at'
         ORDER BY person_id
@@ -666,28 +691,17 @@ async fn complete(
     )
     .fetch_all(pool)
     .await?;
-    let release_calls: Vec<_> = fenced
-        .iter()
-        .map(|victim| {
-            let request = ReleaseFenceRequest {
-                team_id: op.team_id,
-                person_id: victim.person_id,
-                person_uuid: victim.person_uuid.to_string(),
-                op_id: op.op_id.to_string(),
-                outcome: ReleaseOutcome::Committed.into(),
-                sealed_version: Some(victim.sealed_version),
-                created_at: victim.sealed_created_at,
-            };
-            async move { leader.release_fence(request).await }
+    let victims: Vec<FencedVictim> = fenced
+        .into_iter()
+        .map(|row| FencedVictim {
+            person_id: row.person_id,
+            person_uuid: row.person_uuid,
+            sealed_version: row.sealed_version,
+            sealed_created_at: row.sealed_created_at,
+            partition: row.partition.and_then(|p| u32::try_from(p).ok()),
         })
         .collect();
-    let release_results: Vec<_> = stream::iter(release_calls)
-        .buffer_unordered(LEADER_CALL_CONCURRENCY)
-        .collect()
-        .await;
-    for result in release_results {
-        result.map_err(SagaError::leader)?;
-    }
+    release_fenced(leader, op, &victims).await?;
 
     let mut tx = begin_timed(pool).await?;
 
@@ -715,6 +729,100 @@ async fn complete(
     tx.commit().await?;
     record_transition(DeleteStep::Unmapped.as_str(), STEP_COMPLETED);
     record_outcomes(&outcome);
+    Ok(())
+}
+
+/// A victim whose fence must be released at completion. `partition` is
+/// absent when the fencing leader predates the hint.
+struct FencedVictim {
+    person_id: i64,
+    person_uuid: Uuid,
+    sealed_version: i64,
+    sealed_created_at: i64,
+    partition: Option<u32>,
+}
+
+impl FencedVictim {
+    fn release_item(&self) -> ReleaseFenceItem {
+        ReleaseFenceItem {
+            person_id: self.person_id,
+            person_uuid: self.person_uuid.to_string(),
+            sealed_version: Some(self.sealed_version),
+            created_at: self.sealed_created_at,
+        }
+    }
+
+    fn release_request(&self, op: &OpRow) -> ReleaseFenceRequest {
+        ReleaseFenceRequest {
+            team_id: op.team_id,
+            person_id: self.person_id,
+            person_uuid: self.person_uuid.to_string(),
+            op_id: op.op_id.to_string(),
+            outcome: ReleaseOutcome::Committed.into(),
+            sealed_version: Some(self.sealed_version),
+            created_at: self.sealed_created_at,
+        }
+    }
+}
+
+/// Release the fenced victims with the committed outcome: one
+/// `ReleaseFences` per partition, so each leader verifies its share of the
+/// marks in a single query, and one `ReleaseFence` for every victim whose
+/// fence reported no partition. A router or leader that predates the batch
+/// RPC answers UNIMPLEMENTED; that partition's victims are then released
+/// one call each, so a mixed fleet mid-roll still completes its deletes.
+async fn release_fenced(
+    leader: &dyn LifecycleLeader,
+    op: &OpRow,
+    victims: &[FencedVictim],
+) -> Result<(), SagaError> {
+    let mut by_partition: BTreeMap<u32, Vec<&FencedVictim>> = BTreeMap::new();
+    let mut singles: Vec<&FencedVictim> = Vec::new();
+    for victim in victims {
+        match victim.partition {
+            Some(partition) => by_partition.entry(partition).or_default().push(victim),
+            None => singles.push(victim),
+        }
+    }
+
+    let batch_calls: Vec<_> = by_partition
+        .into_values()
+        .map(|group| async move {
+            let request = ReleaseFencesRequest {
+                team_id: op.team_id,
+                op_id: op.op_id.to_string(),
+                outcome: ReleaseOutcome::Committed.into(),
+                persons: group.iter().map(|victim| victim.release_item()).collect(),
+            };
+            match leader.release_fences(request).await {
+                Ok(_) => Ok(Vec::new()),
+                Err(status) if status.code() == Code::Unimplemented => Ok(group),
+                Err(status) => Err(status),
+            }
+        })
+        .collect();
+    let batch_results: Vec<Result<Vec<&FencedVictim>, Status>> = stream::iter(batch_calls)
+        .buffer_unordered(LEADER_CALL_CONCURRENCY)
+        .collect()
+        .await;
+    for result in batch_results {
+        singles.extend(result.map_err(SagaError::leader)?);
+    }
+
+    let single_calls: Vec<_> = singles
+        .into_iter()
+        .map(|victim| {
+            let request = victim.release_request(op);
+            async move { leader.release_fence(request).await }
+        })
+        .collect();
+    let single_results: Vec<_> = stream::iter(single_calls)
+        .buffer_unordered(LEADER_CALL_CONCURRENCY)
+        .collect()
+        .await;
+    for result in single_results {
+        result.map_err(SagaError::leader)?;
+    }
     Ok(())
 }
 

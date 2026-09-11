@@ -8759,6 +8759,7 @@ dependencies = [
  "dashmap 6.1.0",
  "envconfig",
  "foyer",
+ "futures",
  "health",
  "k8s-awareness",
  "kube",

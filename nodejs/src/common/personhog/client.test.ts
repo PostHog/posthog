@@ -138,6 +138,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     setPersonVersionFloor: () => ({ updated: false }),
     fencePerson: () => ({}),
     releaseFence: () => ({}),
+    releaseFences: () => ({}),
     foldPersonDocument: () => ({}),
 }
 
@@ -269,6 +270,7 @@ describe('resolvePersonRoutingKey', () => {
         ['UpdatePersonProperties', ConsistencyLevel.UNSPECIFIED],
         ['FencePerson', ConsistencyLevel.UNSPECIFIED],
         ['ReleaseFence', ConsistencyLevel.UNSPECIFIED],
+        ['ReleaseFences', ConsistencyLevel.UNSPECIFIED],
         ['FoldPersonDocument', ConsistencyLevel.UNSPECIFIED],
         ['GetPerson', ConsistencyLevel.STRONG],
     ])('returns the key for leader-bound %s', (method, consistency) => {

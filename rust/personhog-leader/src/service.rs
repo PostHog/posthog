@@ -3,13 +3,14 @@ use std::time::Instant;
 
 use common_kafka::kafka_producer::KafkaContext;
 use dashmap::DashMap;
+use futures::stream::{self, StreamExt};
 use metrics::{counter, histogram};
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeader;
 use personhog_proto::personhog::types::v1::{
     FencePersonRequest, FencePersonResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse,
     GetPersonRequest, GetPersonResponse, LifecycleOpType, Person, ReleaseFenceRequest,
-    ReleaseFenceResponse, ReleaseOutcome, SealedSourceSnapshot, UpdatePersonPropertiesRequest,
-    UpdatePersonPropertiesResponse,
+    ReleaseFenceResponse, ReleaseFencesRequest, ReleaseFencesResponse, ReleaseOutcome,
+    SealedSourceSnapshot, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 use rdkafka::producer::FutureProducer;
 use tokio::sync::Mutex;
@@ -26,8 +27,8 @@ use crate::cache::{
 };
 use crate::emitted::{EmittedVersionGuard, EmittedVersions};
 use crate::fence::{
-    fenced_status, mark_status, semantic_refusal, target_mark_status, FenceHealer, FenceMap,
-    FenceState,
+    fenced_status, mark_status, mark_statuses, semantic_refusal, target_mark_status, FenceHealer,
+    FenceMap, FenceState,
 };
 use crate::fencing::{FencedChangelogProducers, FencedProduceError};
 use crate::inflight::InflightTracker;
@@ -44,6 +45,70 @@ use personhog_common::properties::{
 /// Mirrors the config's `fence_map_max_entries` default; production
 /// overrides via [`PersonHogLeaderService::with_fence_capacity`].
 const DEFAULT_FENCE_MAP_MAX_ENTRIES: usize = 250_000;
+
+/// The ceiling on persons per `ReleaseFences` call. The lifecycle service
+/// caps an op at this many, so a larger batch is a caller bug, not load.
+const MAX_RELEASE_BATCH_SIZE: usize = 250;
+
+/// Bound on concurrent per-person releases inside one batch. Each person
+/// still takes its own lock; the bound keeps one batch from crowding the
+/// partition's other writers out of the changelog producer's window.
+const RELEASE_BATCH_CONCURRENCY: usize = 8;
+
+/// The per-person inputs of a committed release, validated the same way
+/// whether they arrive alone or in a batch.
+struct CommittedRelease {
+    person_id: i64,
+    person_uuid: String,
+    sealed_version: i64,
+    created_at: i64,
+}
+
+impl CommittedRelease {
+    #[allow(clippy::result_large_err)]
+    fn validate(
+        person_id: i64,
+        person_uuid: String,
+        sealed_version: Option<i64>,
+        created_at: i64,
+    ) -> Result<Self, Status> {
+        // 0 is a legitimate sealed version (a fresh stub's), which is why
+        // the field is explicitly optional in the proto.
+        let Some(sealed_version) = sealed_version else {
+            return Err(Status::invalid_argument(
+                "sealed_version is required for a committed release",
+            ));
+        };
+        if sealed_version < 0 {
+            return Err(Status::invalid_argument(
+                "sealed_version must not be negative",
+            ));
+        }
+        if created_at <= 0 {
+            return Err(Status::invalid_argument(
+                "created_at is required for a committed release",
+            ));
+        }
+        if Uuid::parse_str(&person_uuid).is_err() {
+            return Err(Status::invalid_argument(
+                "person_uuid must be a valid UUID for a committed release",
+            ));
+        }
+        Ok(Self {
+            person_id,
+            person_uuid,
+            sealed_version,
+            created_at,
+        })
+    }
+}
+
+/// A mark lookup that failed is rejected retriably: the op may well hold
+/// the person, but the leader could not prove it — fail closed.
+fn mark_lookup_failed(e: sqlx::Error) -> Status {
+    tracing::warn!(error = %e, "mark verification failed; rejecting (fail closed)");
+    Status::unavailable("could not verify the lifecycle op against its mark; retry")
+}
 
 /// Admission-time property size limits, in `pg_column_size` (JSONB
 /// binary) terms — the same units as the `check_properties_size`
@@ -172,14 +237,214 @@ impl PersonHogLeaderService {
         )))
     }
 
+    /// The gate every ack passes: a valid lease and in-process ownership.
+    #[allow(clippy::result_large_err)]
+    fn assert_authoritative(&self, partition: u32) -> Result<(), Status> {
+        self.check_authority(partition)?;
+        self.validate_ownership(partition)
+    }
+
     /// The fence RPCs' exit gate: a success answer re-proves authority at
     /// the moment it is given. Only a stale Ok can wrongly settle a saga;
     /// errors bounce and retry.
     #[allow(clippy::result_large_err)]
     fn authoritative_ok<T>(&self, partition: u32, resp: T) -> Result<Response<T>, Status> {
-        self.check_authority(partition)?;
-        self.validate_ownership(partition)?;
+        self.assert_authoritative(partition)?;
         Ok(Response::new(resp))
+    }
+
+    #[allow(clippy::result_large_err)]
+    fn lifecycle_db(&self) -> Result<&PgFallback, Status> {
+        self.fallback.as_ref().ok_or_else(|| {
+            semantic_refusal(
+                "no lifecycle database configured; refusing to produce a death document",
+                "no-lifecycle-db",
+            )
+        })
+    }
+
+    /// The committed half of a release for one person, given its mark
+    /// row's status. Shared by `ReleaseFence` and `ReleaseFences` so what
+    /// destroys a person is decided in one place.
+    async fn release_committed(
+        &self,
+        partition: u32,
+        team_id: i64,
+        op_id: Uuid,
+        release: &CommittedRelease,
+        mark: Option<&str>,
+    ) -> Result<(), Status> {
+        let cache_key = PersonCacheKey {
+            team_id,
+            person_id: release.person_id,
+        };
+        let mutex = self
+            .locks
+            .entry(cache_key.clone())
+            .or_default()
+            .value()
+            .clone();
+        let lock_started = Instant::now();
+        let _guard = mutex.lock().await;
+        record_release_phase("lock_wait", lock_started);
+
+        // Releasing another op's fence would break that op's seal.
+        if let Some(entry) = self.fences.get(&cache_key) {
+            if entry.op_id != op_id {
+                return Err(fenced_status(entry.value()));
+            }
+        }
+
+        // Release must stay idempotent for the saga's retry and the
+        // sweeper, so a person the leader cannot load anymore is
+        // tolerated.
+        let load_started = Instant::now();
+        let loaded = self.lookup_or_load_locked(partition, &cache_key).await;
+        record_release_phase("load", load_started);
+        let current = match loaded {
+            Ok(person) => Some(person),
+            Err(status) if status.code() == tonic::Code::NotFound => None,
+            Err(status) => return Err(status),
+        };
+
+        // Duplicate release: the death document already exists;
+        // producing another would only bump the version. Gate
+        // first — a refused release must leave the fence.
+        if current.as_ref().is_some_and(|p| p.is_deleted) {
+            self.assert_authoritative(partition)?;
+            self.fences.remove(&cache_key);
+            return Ok(());
+        }
+
+        // The death document's identity comes from the request (a
+        // cold leader has nothing else), so when the leader DOES
+        // hold the person, the request must agree with it — the
+        // writer upserts uuid verbatim, and a mismatched request
+        // would rewrite the row's identity on its way out.
+        if let Some(person) = &current {
+            if person.uuid != release.person_uuid {
+                return Err(semantic_refusal(
+                    "person_uuid does not match the person being released",
+                    "uuid-mismatch",
+                ));
+            }
+        }
+
+        // The mark row — the fence's source of truth — must vouch
+        // for the op before anything is destroyed. The in-memory
+        // fence is not enough: FencePerson never verified the op
+        // either, so the request (plus a fence it installed
+        // itself) must never be sufficient to produce a death
+        // document. Unverifiable requests are refused — fail
+        // closed.
+        match mark {
+            // A live mark: the op holds the person; proceed.
+            Some("marked") | Some("sealed") => {}
+            // The mark already settled as deleted: this release
+            // already happened and the tombstone is durable;
+            // absorb the retry.
+            Some("deleted") => {
+                self.assert_authoritative(partition)?;
+                self.fences.remove(&cache_key);
+                return Ok(());
+            }
+            _ => {
+                counter!("personhog_leader_fences_total", "action" => "release_unverified")
+                    .increment(1);
+                return Err(semantic_refusal(
+                    "op holds no live mark for this person; \
+                     refusing to produce a death document",
+                    "release-unverified",
+                ));
+            }
+        }
+
+        if !self.dirty_index.can_admit(&cache_key) {
+            counter!("personhog_leader_writes_shed_total", "reason" => "dirty_index_full")
+                .increment(1);
+            return Err(Status::resource_exhausted(
+                "dirty index at capacity: the writer is behind and this death document \
+                 cannot be tracked; retry later",
+            ));
+        }
+        // The death version: sealed + 1 per the RFC — the fence
+        // makes the sealed version final. The max over the current
+        // version and the emitted floor is defense in depth until
+        // broker producer fencing lands (a deposed leader's
+        // produce could otherwise still advance the version, and
+        // an indeterminate one leaves a version spent that the
+        // cache never learned of); a cold leader with no state
+        // falls back to the sealed version carried by the
+        // request, reproducing the death document
+        // deterministically.
+        let base_version = self.emitted_versions.floor_for(
+            partition,
+            &cache_key,
+            current
+                .as_ref()
+                .map(|p| p.version)
+                .unwrap_or(0)
+                .max(release.sealed_version),
+        );
+        let death_version = base_version.checked_add(1).ok_or_else(|| {
+            Status::invalid_argument("sealed_version leaves no room for the death version")
+        })?;
+        let death = CachedPerson {
+            id: release.person_id,
+            uuid: release.person_uuid.clone(),
+            team_id,
+            properties: b"{}".to_vec(),
+            // The sealed value, not the cached one: cold and warm
+            // leaders must produce the same document.
+            created_at: release.created_at,
+            version: death_version,
+            is_identified: false,
+            is_deleted: true,
+            last_seen_at: None,
+            approx_bytes: approx_person_bytes(2),
+        };
+        let produce_started = Instant::now();
+        let committed = self.commit_document(partition, &cache_key, death).await;
+        record_release_phase("produce", produce_started);
+        committed?;
+        // The death document stays cached while its mark stands,
+        // answering an authoritative not-found from memory; the
+        // prune-time settle drops it once the writer confirms,
+        // and PG answers from then on — revival included.
+        self.fences.remove(&cache_key);
+        counter!("personhog_leader_fences_total", "action" => "released_committed").increment(1);
+        Ok(())
+    }
+
+    /// The aborted half of a release for one person: drop the fence, keep
+    /// the entry, produce nothing. Gated first — a refused release must
+    /// leave the fence (pinned).
+    async fn release_aborted(
+        &self,
+        partition: u32,
+        team_id: i64,
+        person_id: i64,
+        op_id: Uuid,
+    ) -> Result<(), Status> {
+        let cache_key = PersonCacheKey { team_id, person_id };
+        let mutex = self
+            .locks
+            .entry(cache_key.clone())
+            .or_default()
+            .value()
+            .clone();
+        let _guard = mutex.lock().await;
+
+        // Releasing another op's fence would break that op's seal.
+        if let Some(entry) = self.fences.get(&cache_key) {
+            if entry.op_id != op_id {
+                return Err(fenced_status(entry.value()));
+            }
+        }
+        self.assert_authoritative(partition)?;
+        self.fences.remove(&cache_key);
+        counter!("personhog_leader_fences_total", "action" => "released_aborted").increment(1);
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1728,6 +1993,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             partition,
             FencePersonResponse {
                 sealed: Some(sealed),
+                partition: Some(partition),
             },
         )
     }
@@ -1744,53 +2010,15 @@ impl PersonHogLeader for PersonHogLeaderService {
         self.check_authority(partition)?;
         let op_id = Uuid::parse_str(&req.op_id)
             .map_err(|_| Status::invalid_argument("op_id must be a valid UUID"))?;
-        let outcome = req.outcome();
 
-        let cache_key = PersonCacheKey {
-            team_id: req.team_id,
-            person_id: req.person_id,
-        };
-        let mutex = self
-            .locks
-            .entry(cache_key.clone())
-            .or_default()
-            .value()
-            .clone();
-        let lock_started = Instant::now();
-        let _guard = mutex.lock().await;
-
-        // Releasing another op's fence would break that op's seal.
-        if let Some(entry) = self.fences.get(&cache_key) {
-            if entry.op_id != op_id {
-                return Err(fenced_status(entry.value()));
-            }
-        }
-
-        match outcome {
+        match req.outcome() {
             ReleaseOutcome::Committed => {
-                record_release_phase("lock_wait", lock_started);
-                // 0 is a legitimate sealed version (a fresh stub's),
-                // which is why the field is explicitly optional in the proto.
-                let Some(sealed_version) = req.sealed_version else {
-                    return Err(Status::invalid_argument(
-                        "sealed_version is required for a committed release",
-                    ));
-                };
-                if sealed_version < 0 {
-                    return Err(Status::invalid_argument(
-                        "sealed_version must not be negative",
-                    ));
-                }
-                if req.created_at <= 0 {
-                    return Err(Status::invalid_argument(
-                        "created_at is required for a committed release",
-                    ));
-                }
-                if Uuid::parse_str(&req.person_uuid).is_err() {
-                    return Err(Status::invalid_argument(
-                        "person_uuid must be a valid UUID for a committed release",
-                    ));
-                }
+                let release = CommittedRelease::validate(
+                    req.person_id,
+                    req.person_uuid,
+                    req.sealed_version,
+                    req.created_at,
+                )?;
                 // Producing to the changelog must respect the handoff
                 // write freeze like any write.
                 let Some(_inflight_guard) = self.inflight.try_begin(partition) else {
@@ -1798,151 +2026,17 @@ impl PersonHogLeader for PersonHogLeaderService {
                         "partition {partition} is fenced for handoff; writes are rejected"
                     )));
                 };
-
-                // Release must stay idempotent for the saga's retry and the
-                // sweeper, so a person the leader cannot load anymore is
-                // tolerated.
-                let load_started = Instant::now();
-                let loaded = self.lookup_or_load_locked(partition, &cache_key).await;
-                record_release_phase("load", load_started);
-                let current = match loaded {
-                    Ok(person) => Some(person),
-                    Err(status) if status.code() == tonic::Code::NotFound => None,
-                    Err(status) => return Err(status),
-                };
-
-                // Duplicate release: the death document already exists;
-                // producing another would only bump the version. Gate
-                // first — a refused release must leave the fence.
-                if current.as_ref().is_some_and(|p| p.is_deleted) {
-                    let resp = self.authoritative_ok(partition, ReleaseFenceResponse {})?;
-                    self.fences.remove(&cache_key);
-                    return Ok(resp);
-                }
-
-                // The death document's identity comes from the request (a
-                // cold leader has nothing else), so when the leader DOES
-                // hold the person, the request must agree with it — the
-                // writer upserts uuid verbatim, and a mismatched request
-                // would rewrite the row's identity on its way out.
-                if let Some(person) = &current {
-                    if person.uuid != req.person_uuid {
-                        return Err(semantic_refusal(
-                            "person_uuid does not match the person being released",
-                            "uuid-mismatch",
-                        ));
-                    }
-                }
-
-                // The mark row — the fence's source of truth — must vouch
-                // for the op before anything is destroyed. The in-memory
-                // fence is not enough: FencePerson never verified the op
-                // either, so the request (plus a fence it installed
-                // itself) must never be sufficient to produce a death
-                // document. Unverifiable requests are refused — fail
-                // closed.
-                let Some(fallback) = &self.fallback else {
-                    return Err(semantic_refusal(
-                        "no lifecycle database configured; refusing to produce a death document",
-                        "no-lifecycle-db",
-                    ));
-                };
+                let lifecycle_db = self.lifecycle_db()?;
                 let verify_started = Instant::now();
-                let mark = mark_status(&fallback.pool, op_id, req.team_id, req.person_id).await;
+                let mark = mark_status(&lifecycle_db.pool, op_id, req.team_id, req.person_id).await;
                 record_release_phase("verify_mark", verify_started);
-                match mark {
-                    // A live mark: the op holds the person; proceed.
-                    Ok(Some(status)) if status == "marked" || status == "sealed" => {}
-                    // The mark already settled as deleted: this release
-                    // already happened and the tombstone is durable;
-                    // absorb the retry.
-                    Ok(Some(status)) if status == "deleted" => {
-                        let resp = self.authoritative_ok(partition, ReleaseFenceResponse {})?;
-                        self.fences.remove(&cache_key);
-                        return Ok(resp);
-                    }
-                    Ok(_) => {
-                        counter!("personhog_leader_fences_total", "action" => "release_unverified")
-                            .increment(1);
-                        return Err(semantic_refusal(
-                            "op holds no live mark for this person; \
-                             refusing to produce a death document",
-                            "release-unverified",
-                        ));
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "mark verification failed; rejecting (fail closed)");
-                        return Err(Status::unavailable(
-                            "could not verify the lifecycle op against its mark; retry",
-                        ));
-                    }
-                }
-
-                if !self.dirty_index.can_admit(&cache_key) {
-                    counter!("personhog_leader_writes_shed_total", "reason" => "dirty_index_full")
-                        .increment(1);
-                    return Err(Status::resource_exhausted(
-                        "dirty index at capacity: the writer is behind and this death document \
-                         cannot be tracked; retry later",
-                    ));
-                }
-                // The death version: sealed + 1 per the RFC — the fence
-                // makes the sealed version final. The max over the current
-                // version and the emitted floor is defense in depth until
-                // broker producer fencing lands (a deposed leader's
-                // produce could otherwise still advance the version, and
-                // an indeterminate one leaves a version spent that the
-                // cache never learned of); a cold leader with no state
-                // falls back to the sealed version carried by the
-                // request, reproducing the death document
-                // deterministically.
-                let base_version = self.emitted_versions.floor_for(
-                    partition,
-                    &cache_key,
-                    current
-                        .as_ref()
-                        .map(|p| p.version)
-                        .unwrap_or(0)
-                        .max(sealed_version),
-                );
-                let death_version = base_version.checked_add(1).ok_or_else(|| {
-                    Status::invalid_argument("sealed_version leaves no room for the death version")
-                })?;
-                let death = CachedPerson {
-                    id: req.person_id,
-                    uuid: req.person_uuid.clone(),
-                    team_id: req.team_id,
-                    properties: b"{}".to_vec(),
-                    // The sealed value, not the cached one: cold and warm
-                    // leaders must produce the same document.
-                    created_at: req.created_at,
-                    version: death_version,
-                    is_identified: false,
-                    is_deleted: true,
-                    last_seen_at: None,
-                    approx_bytes: approx_person_bytes(2),
-                };
-                let produce_started = Instant::now();
-                let committed = self.commit_document(partition, &cache_key, death).await;
-                record_release_phase("produce", produce_started);
-                committed?;
-                // The death document stays cached while its mark stands,
-                // answering an authoritative not-found from memory; the
-                // prune-time settle drops it once the writer confirms,
-                // and PG answers from then on — revival included.
-                self.fences.remove(&cache_key);
-                counter!("personhog_leader_fences_total", "action" => "released_committed")
-                    .increment(1);
+                let mark = mark.map_err(mark_lookup_failed)?;
+                self.release_committed(partition, req.team_id, op_id, &release, mark.as_deref())
+                    .await?;
             }
             ReleaseOutcome::Aborted => {
-                // The op backed out: drop the fence, keep the entry,
-                // produce nothing. Gate first — a refused release must
-                // leave the fence (pinned).
-                let resp = self.authoritative_ok(partition, ReleaseFenceResponse {})?;
-                self.fences.remove(&cache_key);
-                counter!("personhog_leader_fences_total", "action" => "released_aborted")
-                    .increment(1);
-                return Ok(resp);
+                self.release_aborted(partition, req.team_id, req.person_id, op_id)
+                    .await?;
             }
             ReleaseOutcome::Unspecified => {
                 return Err(Status::invalid_argument("outcome must be specified"));
@@ -1950,6 +2044,90 @@ impl PersonHogLeader for PersonHogLeaderService {
         }
 
         self.authoritative_ok(partition, ReleaseFenceResponse {})
+    }
+
+    async fn release_fences(
+        &self,
+        request: Request<ReleaseFencesRequest>,
+    ) -> Result<Response<ReleaseFencesResponse>, Status> {
+        let partition = partition_from_metadata(&request)?;
+        let req = request.into_inner();
+        if req.persons.len() > MAX_RELEASE_BATCH_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "ReleaseFences carries {} persons; the cap is {MAX_RELEASE_BATCH_SIZE}",
+                req.persons.len()
+            )));
+        }
+        // The saga grouped its victims by the partition each fence
+        // reported; a person that hashes elsewhere means that grouping is
+        // stale, and nothing here may act on any of the batch.
+        for person in &req.persons {
+            self.validate_partition(partition, req.team_id, person.person_id)?;
+        }
+        self.check_authority(partition)?;
+        let op_id = Uuid::parse_str(&req.op_id)
+            .map_err(|_| Status::invalid_argument("op_id must be a valid UUID"))?;
+        histogram!("personhog_leader_release_batch_size").record(req.persons.len() as f64);
+        let team_id = req.team_id;
+
+        match req.outcome() {
+            ReleaseOutcome::Committed => {
+                let releases = req
+                    .persons
+                    .into_iter()
+                    .map(|person| {
+                        CommittedRelease::validate(
+                            person.person_id,
+                            person.person_uuid,
+                            person.sealed_version,
+                            person.created_at,
+                        )
+                    })
+                    .collect::<Result<Vec<_>, Status>>()?;
+                if releases.is_empty() {
+                    return self.authoritative_ok(partition, ReleaseFencesResponse {});
+                }
+                let Some(_inflight_guard) = self.inflight.try_begin(partition) else {
+                    return Err(Status::failed_precondition(format!(
+                        "partition {partition} is fenced for handoff; writes are rejected"
+                    )));
+                };
+                let lifecycle_db = self.lifecycle_db()?;
+                let person_ids: Vec<i64> = releases.iter().map(|r| r.person_id).collect();
+                let verify_started = Instant::now();
+                let marks = mark_statuses(&lifecycle_db.pool, op_id, team_id, &person_ids).await;
+                record_release_phase("verify_mark", verify_started);
+                let marks = marks.map_err(mark_lookup_failed)?;
+                // Every release runs to completion before the batch
+                // answers: a sibling's failure must not cancel a produce
+                // in flight.
+                let release_futures: Vec<_> = releases
+                    .iter()
+                    .map(|release| {
+                        let mark = marks.get(&release.person_id).map(String::as_str);
+                        self.release_committed(partition, team_id, op_id, release, mark)
+                    })
+                    .collect();
+                let results: Vec<Result<(), Status>> = stream::iter(release_futures)
+                    .buffer_unordered(RELEASE_BATCH_CONCURRENCY)
+                    .collect()
+                    .await;
+                if let Some(status) = results.into_iter().find_map(Result::err) {
+                    return Err(status);
+                }
+            }
+            ReleaseOutcome::Aborted => {
+                for person in &req.persons {
+                    self.release_aborted(partition, team_id, person.person_id, op_id)
+                        .await?;
+                }
+            }
+            ReleaseOutcome::Unspecified => {
+                return Err(Status::invalid_argument("outcome must be specified"));
+            }
+        }
+
+        self.authoritative_ok(partition, ReleaseFencesResponse {})
     }
 }
 
