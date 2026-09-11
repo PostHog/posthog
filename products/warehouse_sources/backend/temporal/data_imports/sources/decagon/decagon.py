@@ -236,6 +236,12 @@ def get_rows(
                 # refresh trues the table up.
                 window_value += 1
 
+    # True when a real watermark bounds the request. A windowed walk can legitimately keep no
+    # rows, so the contract guard at the end of the walk must not fire for it. Read before the
+    # mandatory-bound fallback below, because an epoch bound includes every row: a walk under it
+    # that keeps nothing carries the same mismatch signal as a walk with no bound at all.
+    windowed_by_watermark = window_value is not None
+
     if window_value is None and config.incremental_param and config.incremental_param_required:
         # No prior state and no watermark left the window unset, but this endpoint 400s
         # on a request that omits the bound entirely. The epoch keeps a full walk honest
@@ -426,7 +432,7 @@ def get_rows(
     if (
         not saw_rows
         and resume_config is None
-        and window_value is None
+        and not windowed_by_watermark
         and isinstance(reported_total, int | float)
         and reported_total > 0
     ):

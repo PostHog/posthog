@@ -723,6 +723,44 @@ class TestAdminLogs:
         ]
         assert [len(b) for b in batches] == [2, 1]
 
+    @parameterized.expand(
+        [
+            ("full_refresh", {}),
+            (
+                "first_incremental_run_without_watermark",
+                {"should_use_incremental_field": True, "incremental_field": "created_at"},
+            ),
+        ]
+    )
+    def test_no_rows_against_a_nonzero_total_fails_the_sync(
+        self, _name: str, incremental_kwargs: dict[str, Any]
+    ) -> None:
+        # The mandatory `start` bound is the epoch in both modes, so the request covered every
+        # row and keeping none against a positive total means the envelope no longer matches.
+        # The bound must not read as a server-side window and excuse the empty walk.
+        manager = _fresh_manager()
+        responses = [_make_response({"unexpected": {"id": "a1"}, "total": 12})]
+
+        with pytest.raises(DecagonContractError):
+            _drive_rows(manager, responses, endpoint="admin_logs", **incremental_kwargs)
+
+    def test_a_watermarked_walk_that_finds_nothing_new_still_completes(self) -> None:
+        # `total` counts the whole table, not the window, so an incremental run with nothing
+        # new past the watermark keeps no rows against a positive total. That is the ordinary
+        # result and must stay a success.
+        manager = _fresh_manager()
+        responses = [_make_response({"admin_logs": [], "total": 12})]
+        _, batches = _drive_rows(
+            manager,
+            responses,
+            endpoint="admin_logs",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 15, 12, 0, 5, tzinfo=UTC),
+            incremental_field="created_at",
+        )
+
+        assert batches == []
+
     def test_response_merges_on_id_partitioned_by_created_at(self) -> None:
         response = decagon_source(
             api_key="key",
