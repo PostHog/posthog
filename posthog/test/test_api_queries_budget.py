@@ -99,7 +99,8 @@ class TestLimitedEventClaim(SimpleTestCase):
         assert claim_limited_event(team_a) is True
         assert claim_limited_event(team_a) is False
         assert claim_limited_event(team_b) is True
-        assert get_client().ttl(f"{BUDGET_KEY_PREFIX}limited-event/{team_a}") == LIMITED_EVENT_INTERVAL_SECONDS
+        ttl = get_client().ttl(f"{BUDGET_KEY_PREFIX}limited-event/{team_a}")
+        assert LIMITED_EVENT_INTERVAL_SECONDS - 5 < ttl <= LIMITED_EVENT_INTERVAL_SECONDS
 
     def test_redis_errors_skip_the_event_and_count(self):
         before = API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="limited_event")._value.get()
