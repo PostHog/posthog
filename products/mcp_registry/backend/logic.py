@@ -121,7 +121,11 @@ def measured_visibility(server: MCPRegistryServer, team_id: int | None, is_staff
         return MeasuredVisibility(rows=rows, sees_every_row=True)
     # No row carries a null team_id, so a caller without a project matches nothing.
     visible = [row for row in rows if row.team_id == team_id]
-    return MeasuredVisibility(rows=visible, sees_every_row=len(visible) == len(rows))
+    # A server with no rows at all must not count as seeing all of them. Equal lengths are
+    # both zero there, which would hand every caller the analytics-derived tool names,
+    # and those outlive the rows that produced them: re-keying a standalone row onto its
+    # owning project leaves the old server holding tools and no stats.
+    return MeasuredVisibility(rows=visible, sees_every_row=bool(visible) and len(visible) == len(rows))
 
 
 def measured_summary(stats: list[MCPMeasuredStats]) -> dict[str, Any] | None:

@@ -396,6 +396,34 @@ class TestMCPRegistryAPI(APIBaseTest):
         assert [row["calls"] for row in detail["measured_stats"]] == [50_000]
         assert [tool["name"] for tool in detail["tools"]] == ["probed_tool"]
 
+    def test_analytics_tools_stay_hidden_on_a_server_with_no_measurements(self) -> None:
+        # On a server nobody has measured, both row counts are zero, which used to read as
+        # "sees every row" and hand out the analytics-derived tool names. Those names
+        # outlive the rows that produced them: re-keying a standalone row onto its owning
+        # project leaves the old server holding tools and no stats.
+        servers = self._seed_index()
+        MCPRegistryTool.objects.create(
+            server=servers["unmeasured"],
+            name="learned_from_traffic",
+            description="",
+            source="analytics",
+            last_seen_at=timezone.now(),
+        )
+
+        detail = self.client.get(self._url(f"{servers['unmeasured'].id}/")).json()
+
+        assert [tool["name"] for tool in detail["tools"]] == ["query_analytics"]
+
+        # Staff keep the fleet view, which is the point of that tier.
+        self.user.is_staff = True
+        self.user.save()
+        staff_detail = self.client.get(self._url(f"{servers['unmeasured'].id}/")).json()
+
+        assert sorted(tool["name"] for tool in staff_detail["tools"]) == [
+            "learned_from_traffic",
+            "query_analytics",
+        ]
+
     def test_measured_only_rows_from_another_project_stay_hidden(self) -> None:
         # A row absent from the official registry exists only because another project's
         # events named a server we could not match, and that name is unvalidated text
