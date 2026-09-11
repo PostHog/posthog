@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 
 import { GENERATED_TOOLS } from '@/tools/generated/query-wrappers'
 
@@ -60,5 +61,28 @@ describe('generated query wrappers', () => {
                 ],
             }).success
         ).toBe(false)
+    })
+
+    it('does not advertise group aggregation for stickiness queries', () => {
+        const querySchema = z.toJSONSchema(GENERATED_TOOLS['query-stickiness']!().schema, {
+            io: 'input',
+            reused: 'inline',
+        })
+        const actorsSchema = z.toJSONSchema(GENERATED_TOOLS['query-stickiness-actors']!().schema, {
+            io: 'input',
+            reused: 'inline',
+        })
+
+        expect(querySchema.properties).not.toHaveProperty('aggregation_group_type_index')
+        expect(actorsSchema.properties?.source).not.toHaveProperty('properties.aggregation_group_type_index')
+    })
+
+    it.each([
+        ['zero interval count', 0, false],
+        ['one interval', 1, true],
+    ])('validates stickiness %s', (_case, intervalCount, expected) => {
+        const tool = GENERATED_TOOLS['query-stickiness']!()
+
+        expect(tool.schema.safeParse({ ...insightQueries[3][1], intervalCount }).success).toBe(expected)
     })
 })

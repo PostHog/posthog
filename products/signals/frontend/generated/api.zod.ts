@@ -391,7 +391,7 @@ export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersIt
 )
 export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersMax = 5
 
-export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = false
+export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = true
 export const signalsScoutCreateBodyConfigOneRunCronScheduleMax = 100
 
 export const signalsScoutCreateBodyConfigOneModelMax = 200
@@ -499,7 +499,7 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                                             signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault
                                         )
                                         .describe(
-                                            "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                            "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post."
                                         ),
                                 }),
                                 zod.null(),
@@ -636,7 +636,7 @@ export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersItemR
 )
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersMax = 5
 
-export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault = false
+export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault = true
 export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
 
 export const signalsScoutConfigCreateBodyModelMax = 200
@@ -699,7 +699,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
                                 .boolean()
                                 .default(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault)
                                 .describe(
-                                    "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                    "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post."
                                 ),
                         }),
                         zod.null(),
@@ -811,7 +811,6 @@ export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersItemR
 )
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersMax = 5
 
-export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneThreadReportsDefault = false
 export const signalsScoutConfigUpdateBodyModelMax = 200
 
 export const signalsScoutConfigUpdateBodyTagsMax = 10
@@ -885,9 +884,9 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
                                 ),
                             thread_reports: zod
                                 .boolean()
-                                .default(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneThreadReportsDefault)
+                                .optional()
                                 .describe(
-                                    "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                    "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post."
                                 ),
                         }),
                         zod.null(),
@@ -965,6 +964,26 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Editable display name, schedule, enablement, and emit posture for one scout config.')
+
+/**
+ * Dispatch one on-demand run of this scout immediately, regardless of its schedule. Useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously on the worker and inherits every guard the scheduled path has: it is forbidden if scouts are not enabled for the project (403), and skipped if self-driving is paused at the project's pull request limit, or the project is over its daily report limit or daily run budget (429), or a run for this scout is already in progress (409). A manual run counts against the same daily run budget as scheduled runs, so repeated manual runs of the same scout can exhaust the project's daily allowance. A manual run does not change the scout's schedule or `last_run_at`. A disabled scout can still be run this way (to test before enabling). Pass an optional `note` to steer this one run without leaving a scout note that would steer every later run too. Returns immediately with the workflow id: poll the scout's runs for the result.
+ * @summary Run a scout now
+ */
+export const signalsScoutConfigRunBodyNoteMax = 1000
+
+export const SignalsScoutConfigRunBody = /* @__PURE__ */ zod
+    .object({
+        note: zod
+            .string()
+            .max(signalsScoutConfigRunBodyNoteMax)
+            .optional()
+            .describe(
+                "Optional steering for this run only, such as 'focus on the checkout regression' or 'skip the staging traffic today'. The agent reads it alongside the scout's durable notes and weighs it the same way: it directs attention, it never forces a finding. Use it instead of leaving a scout note that would also steer every later scheduled run. The note is kept on the run for history and is never read by another run. Because the agent reads it verbatim while holding privileged tools, a run that carries one needs `llm_skill:write` on top of `signal_scout:write`, plus editor access to skills, the same bar as leaving a note."
+            ),
+    })
+    .describe(
+        'Request body for an on-demand (`run now`) scout dispatch.\n\nEvery field is optional: a plain trigger sends no body at all.'
+    )
 
 /**
  * Leave a steering note the scout fleet reads on its next runs. Address it to one scout via `skill_name` (a configured scout), to one stage of the report pipeline via a reserved audience (`pipeline:report-research`), or omit it for a general note every scout sees. Each call creates a new note (no upsert); delete retires one. Attributed to the authenticated user.
@@ -1167,7 +1186,7 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
     )
 
 /**
- * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `reports` to find a prior report and `edit-report` to update it instead.
+ * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. Safe to retry: resending an emission returns the report the first call authored (`idempotent_replay` true) rather than a second one, keyed on `idempotency_key` or, without one, on the report's content. Use `reports` to find a report from an earlier run and `edit-report` to update it instead of authoring a near-duplicate.
  * @summary Author a full report for a run
  */
 export const signalsScoutEmitReportBodyTitleMax = 300
@@ -1192,6 +1211,8 @@ export const signalsScoutEmitReportBodyChartsMax = 20
 export const signalsScoutEmitReportBodySuggestedPromptsItemMax = 200
 
 export const signalsScoutEmitReportBodySuggestedPromptsMax = 3
+
+export const signalsScoutEmitReportBodyIdempotencyKeyMax = 200
 
 export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
     .object({
@@ -1349,6 +1370,13 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them."
+            ),
+        idempotency_key: zod
+            .string()
+            .max(signalsScoutEmitReportBodyIdempotencyKeyMax)
+            .nullish()
+            .describe(
+                "Optional name for this emission, unique within the run. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report."
             ),
     })
     .describe('Request body for `emit-report`. Run attribution is taken from the URL path.')
@@ -1915,5 +1943,11 @@ export const UsersSignalAutonomyCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Add this user as a GitHub assignee on implementation pull requests for reports that suggest them as reviewer. Off by default. Turning it off stops future assignment and never removes an existing assignee.'
+        ),
+    github_open_pull_request_ready: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Open implementation pull requests for reports that suggest this user as reviewer ready for review instead of draft, so the full CI matrix runs without anybody clicking Ready. Null follows the project default. A ready pull request runs the full matrix on every push.'
         ),
 })

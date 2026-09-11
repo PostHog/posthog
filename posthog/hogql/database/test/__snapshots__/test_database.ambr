@@ -7471,6 +7471,145 @@
           "row_count": null,
           "type": "system"
       },
+      "system.customer_tasks": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "account_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "account_id",
+                  "id": null,
+                  "name": "account_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "assigned_to_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "assigned_to_id",
+                  "id": null,
+                  "name": "assigned_to_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "due_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "due_at",
+                  "id": null,
+                  "name": "due_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "completed_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "completed_at",
+                  "id": null,
+                  "name": "completed_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "completed_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "completed_by_id",
+                  "id": null,
+                  "name": "completed_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "archived_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "archived_at",
+                  "id": null,
+                  "name": "archived_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.customer_tasks",
+          "name": "system.customer_tasks",
+          "row_count": null,
+          "type": "system"
+      },
       "system.file_system": {
           "certification": null,
           "fields": {
@@ -19047,6 +19186,145 @@
           },
           "id": "system.feature_requests",
           "name": "system.feature_requests",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.customer_tasks": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "account_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "account_id",
+                  "id": null,
+                  "name": "account_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "status": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "assigned_to_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "assigned_to_id",
+                  "id": null,
+                  "name": "assigned_to_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "due_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "due_at",
+                  "id": null,
+                  "name": "due_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "completed_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "completed_at",
+                  "id": null,
+                  "name": "completed_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "completed_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "completed_by_id",
+                  "id": null,
+                  "name": "completed_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "archived_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "archived_at",
+                  "id": null,
+                  "name": "archived_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.customer_tasks",
+          "name": "system.customer_tasks",
           "row_count": null,
           "type": "system"
       },

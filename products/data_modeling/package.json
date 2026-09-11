@@ -11,13 +11,15 @@
         "kea-router": "catalog:"
     },
     "devDependencies": {
-        "@storybook/react": "catalog:"
+        "@storybook/react": "catalog:",
+        "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
         "@posthog/icons": "catalog:",
         "@types/react": "*",
         "@xyflow/react": "*",
         "clsx": "*",
+        "elkjs": "*",
         "react": "*",
         "react-dom": "*"
     }
