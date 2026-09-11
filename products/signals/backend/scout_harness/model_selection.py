@@ -37,10 +37,17 @@ distinct_id) is the single source of truth; a team with no entry runs entirely o
   `{"fraction": 0.2, "runtime_adapter": "codex", "reasoning_effort": "high", "service_tier": "flex"}`
   to pin its runtime (and optionally the reasoning effort and the OpenAI service tier) explicitly;
   with the bare-number form the runtime is inferred from the id (`claude-*` → `claude`, everything
-  else → `codex`) and the effort and tier are left unset (agent-server default). A tier on a slice
-  is what makes a same-model A/B on queueing possible: one explicit `gpt-5.6-terra` slice pinned to
-  `flex` against the unallocated remainder falling through to the `signals-pipeline-models` pin for
-  the same model on the standard queue.
+  else → `codex`) and the effort and tier are left unset (agent-server default). The object form may
+  also name its `model`, and then the key is a label for the arm instead of the model id. That is
+  how one model carries several arms, since duplicate JSON keys collapse into one entry:
+
+        "sol-flex": {"model": "gpt-5.6-sol", "fraction": 0.05, "service_tier": "flex"},
+        "sol":      {"model": "gpt-5.6-sol", "fraction": 0.05}
+
+  A tier on a slice is what makes a same-model A/B on queueing possible: two labelled slices of one
+  model on different queues, as above, or a single `gpt-5.6-terra` slice pinned to `flex` against the
+  unallocated remainder falling through to the `signals-pipeline-models` pin for the same model on
+  the standard queue.
 - The reserved `"default"` key inside a scout's map names the model the *remaining* (unallocated)
   runs use instead of the agent-server default — its value is a model-id string, not a fraction.
 
@@ -105,8 +112,11 @@ WILDCARD = "*"
 DEFAULT_MODEL_KEY = "default"
 
 # Keys recognized in the object form of a model entry (the alternative to a bare fraction):
-# `{"fraction": <0..1>, "runtime_adapter": "claude"|"codex", "reasoning_effort": "high",
-# "service_tier": "flex"}`.
+# `{"model": "gpt-5.6-sol", "fraction": <0..1>, "runtime_adapter": "claude"|"codex",
+# "reasoning_effort": "high", "service_tier": "flex"}`. `model` is what lets a map hold several
+# entries for one model: with it the entry's key is only a label for the arm, so two arms of the
+# same model get a key each, which duplicate JSON keys cannot express.
+MODEL_KEY = "model"
 FRACTION_KEY = "fraction"
 RUNTIME_ADAPTER_KEY = "runtime_adapter"
 REASONING_EFFORT_KEY = "reasoning_effort"
@@ -139,7 +149,8 @@ _KNOWN_SERVICE_TIERS = KNOWN_SERVICE_TIERS
 class ScoutModel:
     """The agent-model override resolved for one scout run.
 
-    `model` is the model id; `None` keeps the agent-server default (and `runtime_adapter` /
+    `model` is the model id: the entry's own `model` when it named one, else its key, and never the
+    label. `None` keeps the agent-server default (and `runtime_adapter` /
     `reasoning_effort` are then also `None`). When a model is chosen, `runtime_adapter` names the
     agent runtime that can serve it — it must travel with the model because the agent server derives
     the LLM provider from the runtime, and a model id handed over with no runtime can't be routed
@@ -275,11 +286,13 @@ def _team_scouts(payload: object, team_id: int, canonical_team_id: int) -> dict:
 class _ModelSpec:
     """One parsed model entry: its fraction plus whichever pins the object form carried.
 
-    `fraction` is `None` for a malformed weight so the caller drops the entry. The pins are `None`
-    when absent or unrecognized, never a value the agent server can't honor.
+    `fraction` is `None` for a malformed weight so the caller drops the entry. `model` is the model
+    the entry named, which makes its key a label; `None` means the key is itself the model id. The
+    pins are `None` when absent or unrecognized, never a value the agent server can't honor.
     """
 
     fraction: float | None
+    model: str | None = None
     runtime_adapter: str | None = None
     reasoning_effort: str | None = None
     service_tier: str | None = None
@@ -295,17 +308,26 @@ def _parse_model_spec(spec: object) -> _ModelSpec:
     """The fraction and pins from one model entry's value.
 
     A model entry's value is either a bare number (its fraction; runtime inferred from the id,
-    effort and tier unset) or an object `{"fraction": <0..1>, "runtime_adapter": "claude"|"codex",
-    "reasoning_effort": "high", "service_tier": "flex"}` that pins the runtime (and optionally the
-    effort and the OpenAI queue) explicitly. A malformed fraction (not a positive number, or a bool)
-    yields `fraction=None` so the caller drops the entry rather than failing the run. A pin that
-    isn't one of the known values (non-string, typo, unsupported) is ignored (treated as unset), so
-    a payload typo can't route the run onto a runtime, effort, or queue the agent server can't honor.
+    effort and tier unset) or an object `{"model": "gpt-5.6-sol", "fraction": <0..1>,
+    "runtime_adapter": "claude"|"codex", "reasoning_effort": "high", "service_tier": "flex"}` that
+    names the model (making the key a label) and pins the runtime (and optionally the effort and the
+    OpenAI queue) explicitly. A malformed fraction (not a positive number, or a bool) yields
+    `fraction=None` so the caller drops the entry rather than failing the run. A pin that isn't one
+    of the known values (non-string, typo, unsupported) is ignored (treated as unset), so a payload
+    typo can't route the run onto a runtime, effort, or queue the agent server can't honor.
+
+    A malformed `model` drops the entry instead of being ignored, because an entry that names its
+    model is read as a label: nothing in the key can stand in for the missing id, and routing the run
+    onto the label would hand the agent server a model that doesn't exist.
     """
     if not isinstance(spec, dict):
         return _ModelSpec(fraction=_parse_fraction(spec))
+    model = spec.get(MODEL_KEY)
+    if MODEL_KEY in spec and not (isinstance(model, str) and model):
+        return _ModelSpec(fraction=None)
     return _ModelSpec(
         fraction=_parse_fraction(spec.get(FRACTION_KEY)),
+        model=model if isinstance(model, str) else None,
         runtime_adapter=_known_str(spec.get(RUNTIME_ADAPTER_KEY), _KNOWN_RUNTIME_ADAPTERS),
         reasoning_effort=_known_str(spec.get(REASONING_EFFORT_KEY), _KNOWN_REASONING_EFFORTS),
         service_tier=_known_str(spec.get(SERVICE_TIER_KEY), _KNOWN_SERVICE_TIERS),
@@ -323,11 +345,14 @@ def _scout_config(scouts: dict, skill_name: str) -> tuple[dict[str, _ModelSpec],
 
     Looks up `scouts[skill_name]`, falling back to the `"*"` scout wildcard. The reserved `"default"`
     string key is pulled out as `default_model` (the model for the unallocated remainder; `None` =
-    agent-server default); every other entry is a `model_id -> fraction | {fraction, runtime_adapter,
-    reasoning_effort, service_tier}` weight, parsed into a `_ModelSpec`. Unpinned runtimes are
-    inferred from the id at resolve time; unpinned efforts and tiers stay unset. Defensive — a
-    missing/non-object scout entry, or a malformed weight (not a positive number, or a bool) is
-    dropped rather than failing the run, so a typo can't crash a scout or route it unintended.
+    agent-server default); every other entry is a `model_id -> fraction | {model, fraction,
+    runtime_adapter, reasoning_effort, service_tier}` weight, parsed into a `_ModelSpec`. The specs
+    stay keyed by the payload's own key, which is the model id unless the entry named a `model` and
+    the key is therefore a label, and that key is what keeps two arms of one model apart. Unpinned
+    runtimes are inferred from the resolved model id at resolve time; unpinned efforts and tiers stay
+    unset. Defensive — a missing/non-object scout entry, or a malformed weight (not a positive
+    number, or a bool) is dropped rather than failing the run, so a typo can't crash a scout or route
+    it unintended.
     """
     raw = scouts.get(skill_name)
     if not isinstance(raw, dict):
@@ -339,15 +364,15 @@ def _scout_config(scouts: dict, skill_name: str) -> tuple[dict[str, _ModelSpec],
     default_model = default_value if isinstance(default_value, str) and default_value else None
 
     specs: dict[str, _ModelSpec] = {}
-    for model_id, spec in raw.items():
-        if model_id == DEFAULT_MODEL_KEY:
+    for key, spec in raw.items():
+        if key == DEFAULT_MODEL_KEY:
             continue
-        if not isinstance(model_id, str) or not model_id:
+        if not isinstance(key, str) or not key:
             continue
         parsed = _parse_model_spec(spec)
         if parsed.fraction is None:
             continue
-        specs[model_id] = parsed
+        specs[key] = parsed
     return specs, default_model
 
 
@@ -367,21 +392,23 @@ def _select_model(
 ) -> tuple[str | None, _ModelSpec | None]:
     """Pick a model for this run from the scout's distribution, deterministically on `run_id`.
 
-    Walks the models in sorted-id order accumulating their fractions; the run's bucket falls into
-    exactly one model's slice, or past them all into the remainder → `default_model`. Sorted order
+    Walks the entries in sorted-key order accumulating their fractions; the run's bucket falls into
+    exactly one entry's slice, or past them all into the remainder → `default_model`. Sorted order
     makes the assignment stable across runs/processes. If the fractions sum to ≥ 1 the remainder is
-    empty and `default_model` simply never runs. Returns the selected slice's spec alongside the
-    model, and `None` for the remainder: which branch picked the model is decided here, not
-    recovered from the model id, so a remainder that names the same model as a weighted slice
+    empty and `default_model` simply never runs. Each entry resolves to the model it named, falling
+    back to its key, so two labelled entries for one model are two slices that both land on it.
+    Returns the selected slice's spec alongside the model, and `None` for the remainder: which branch
+    picked the model is decided here, not recovered from the model id, so a remainder that names the
+    same model as a weighted slice
     (`{"gpt-5.6-terra": {"fraction": 0.05, "service_tier": "flex"}, "default": "gpt-5.6-terra"}`)
     stays the pin-free control instead of inheriting the slice's tier.
     """
     cumulative = 0.0
-    for model_id in sorted(specs):
-        spec = specs[model_id]
+    for key in sorted(specs):
+        spec = specs[key]
         cumulative += spec.fraction if spec.fraction is not None else 0.0
         if _bucket(run_id) < cumulative:
-            return model_id, spec
+            return spec.model or key, spec
     return default_model, None
 
 
