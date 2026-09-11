@@ -158,6 +158,10 @@ def discover_servers(
                 title=server.display_name,
                 description=server.description,
                 score=getattr(server, "rank_score", None) or 0.0,
+                relevance=round(float(getattr(server, "relevance", 0.0) or 0.0), 6),
+                combined_score=(
+                    round(float(server.combined_score), 6) if getattr(server, "combined_score", None) is not None else None
+                ),
                 why=logic.visible_components(score.components, visibility.sees_every_row) if score else {},
                 liveness=server.liveness,
                 auth_method=server.auth_method,
