@@ -86,7 +86,14 @@ export function ScoutHealthStrip({
                     <>
                         <ScoutRunBoxes runs={runs} costs={scoutRunCosts} costThreshold={expensiveRunCostThreshold} />
                         <span className="whitespace-nowrap tabular-nums">{pluralize(runs.length, 'run')}</span>
-                        {failed > 0 && <span className="whitespace-nowrap text-danger">· {failed} failed</span>}
+                        {/* The counts here and below change while the page is open, so each number
+                            gets its own element — see "Rule 7" in frontend/src/AGENTS.md for what a
+                            translated page does to a bare text node that has siblings. */}
+                        {failed > 0 && (
+                            <span className="whitespace-nowrap text-danger">
+                                · <span translate="no">{failed}</span> failed
+                            </span>
+                        )}
                     </>
                 ) : (
                     // Until the runs request has landed once, an empty rollup means "not loaded",
@@ -113,7 +120,7 @@ export function ScoutHealthStrip({
 
             <Segment tooltip="Notes the team has left this scout, and entries it has written for itself.">
                 <span className="whitespace-nowrap tabular-nums">
-                    {noteCount} told · {learnedCount} learned
+                    <span translate="no">{noteCount}</span> told · <span translate="no">{learnedCount}</span> learned
                 </span>
             </Segment>
         </div>
