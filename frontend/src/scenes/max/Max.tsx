@@ -246,7 +246,9 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                 {/* The new view is the runner (always sandbox); legacy view only shows debug rows on a
                     sandbox conversation, so the menu stays hidden on LangGraph threads. */}
                 {(isTaskView || conversation?.agent_runtime === 'sandbox') && <DebugLogsMenu variant="primitive" />}
-                <PhaiViewToggle variant="primitive" />
+                {/* Report mode renders the runner whichever view is selected, so in it the toggle would
+                    only flip the persisted default for the user's next PostHog AI session. */}
+                {!isReportChat && <PhaiViewToggle variant="primitive" />}
                 <Link
                     buttonProps={{
                         iconOnly: true,
