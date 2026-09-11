@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const prime = vi.hoisted(() => vi.fn());
 const record = vi.hoisted(() => ({
   current: {
     dashboard: undefined as unknown,
@@ -14,6 +15,7 @@ const record = vi.hoisted(() => ({
 
 vi.mock("@posthog/ui/features/canvas/hooks/useDashboards", () => ({
   useDashboard: () => record.current,
+  usePrimeCanvasView: () => prime,
 }));
 vi.mock("@posthog/ui/features/canvas/freeform/FreeformCanvasView", () => ({
   FreeformCanvasView: () => <div data-testid="freeform-view" />,
@@ -39,6 +41,7 @@ import { WebsiteDashboard } from "@posthog/ui/features/canvas/components/Website
 
 describe("WebsiteDashboard", () => {
   beforeEach(() => {
+    prime.mockClear();
     record.current = {
       dashboard: undefined,
       isLoading: false,
@@ -73,5 +76,11 @@ describe("WebsiteDashboard", () => {
     render(<WebsiteDashboard dashboardId="dash-1" channelId="chan-1" />);
 
     expect(screen.getByTestId(expectedTestId)).toBeInTheDocument();
+  });
+
+  it("warms the open path while the record is still unresolved", () => {
+    render(<WebsiteDashboard dashboardId="dash-1" channelId="chan-1" />);
+
+    expect(prime).toHaveBeenCalledWith("dash-1");
   });
 });

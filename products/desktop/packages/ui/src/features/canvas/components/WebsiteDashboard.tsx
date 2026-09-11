@@ -3,7 +3,10 @@ import { CanvasLoadFailed } from "@posthog/ui/features/canvas/components/CanvasL
 import { CanvasNotFound } from "@posthog/ui/features/canvas/components/CanvasNotFound";
 import { FreeformCanvasView } from "@posthog/ui/features/canvas/freeform/FreeformCanvasView";
 import { GridCanvasView } from "@posthog/ui/features/canvas/grid/GridCanvasView";
-import { useDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import {
+  useDashboard,
+  usePrimeCanvasView,
+} from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useIsDashboardEditing } from "@posthog/ui/features/canvas/stores/dashboardEditStore";
 import { CanvasSkeleton } from "@posthog/ui/router/routeSkeletons";
 import { track } from "@posthog/ui/shell/analytics";
@@ -27,6 +30,15 @@ export function WebsiteDashboard({
   const { dashboard, isError, isFetching, error, refetch } =
     useDashboard(dashboardId);
   const viewedDashboardIdRef = useRef<string | undefined>(undefined);
+
+  // Above the record gate below: the gate holds both views unmounted until the
+  // record resolves, and the freeform view's own prime is what used to start
+  // the rest of the open alongside it. A cold open — a share link, a deep
+  // link, a reload — has no hover prime to fall back on.
+  const primeCanvasView = usePrimeCanvasView();
+  useEffect(() => {
+    primeCanvasView(dashboardId);
+  }, [dashboardId, primeCanvasView]);
 
   useEffect(() => {
     if (!dashboard || viewedDashboardIdRef.current === dashboard.id) return;
