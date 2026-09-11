@@ -500,7 +500,9 @@ Each response reconciles only its own submission's warm-up, including one whose 
 Once submission returns, the composer keeps the activated run and releases an unused warm-up if no later submission could have activated it.
 Overlapping submissions leave earlier warm-ups to the server reaper because either request might deliver to the same run.
 If the response is lost, the server reaper handles unused warm-ups because the composer cannot tell whether the message reached the run.
-Releases use `only_if_awaiting_first_message` so another composer's activated run is protected.
+Releases use `only_if_awaiting_first_message` and claim the run under the same row lock as activation.
+Activation claims the run before delivering its first message, so another composer or browser tab cannot cancel delivery in progress.
+A release that claims the run first prevents subsequent activation.
 
 ## Continuing after sandbox inactivity
 

@@ -6655,6 +6655,8 @@ def _find_idling_warm_run(
     )
     for run in candidates:
         state = run.state or {}
+        if state.get("cancel_requested_at"):
+            continue
         have_repositories = [
             repo.lower() for repo in (run.task.repositories or ([run.task.repository] if run.task.repository else []))
         ]
@@ -6780,9 +6782,17 @@ def _deliver_warm_run_message(
     ).exclude(status__in=_TERMINAL_TASK_RUN_STATUSES)
 
     try:
-        current_run = eligible_runs.first()
-        if current_run is None or current_run.workflow_id != workflow_id:
-            raise WarmRunActivationUnavailable("target_unavailable")
+        with transaction.atomic():
+            current_run = eligible_runs.select_for_update(of=("self",)).first()
+            if (
+                current_run is None
+                or current_run.workflow_id != workflow_id
+                or (current_run.state or {}).get("cancel_requested_at")
+            ):
+                raise WarmRunActivationUnavailable("target_unavailable")
+            # Claim before signaling so a different composer's release cannot cancel delivery in flight.
+            current_run.state["warm_activation_started"] = True
+            current_run.save(update_fields=["state", "updated_at"])
         try:
             delivered = signal_task_run_user_message(
                 run.id,
