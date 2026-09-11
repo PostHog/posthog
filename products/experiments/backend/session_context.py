@@ -28,7 +28,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from functools import partial
-from typing import Optional
+from typing import Optional, cast
 
 from django.conf import settings
 from django.db.models import Q, QuerySet
@@ -664,9 +664,11 @@ def _query_chunk_variant_evidence(
             flag_evaluations_future = executor.submit(contextvars.copy_context().run, query_flag_evaluations)
             branch_exposures_future = executor.submit(contextvars.copy_context().run, query_exposure_branches)
             stamped_future = executor.submit(contextvars.copy_context().run, query_stamped)
-            flag_evaluations = flag_evaluations_future.result()
-            branch_exposures = branch_exposures_future.result()
-            stamped = stamped_future.result()
+            flag_evaluations = cast(
+                dict[str, dict[tuple[str, _ScanWindow], list[tuple[str, datetime]]]], flag_evaluations_future.result()
+            )
+            branch_exposures = cast(dict[str, dict[int, list[tuple[str, datetime]]]], branch_exposures_future.result())
+            stamped = cast(dict[str, dict[tuple[str, _ScanWindow], list[str]]], stamped_future.result())
 
     return flag_evaluations, branch_exposures, stamped
 
