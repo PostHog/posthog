@@ -828,7 +828,7 @@ quality:
         description: Format JavaScript/TypeScript files (frontend)
     format:nodejs:
         cmd: pnpm --dir nodejs exec eslint --fix "$@" && pnpm --dir nodejs exec oxlint -c .oxlintrc.nodejs.json
-            --fix "$@" && pnpm --dir nodejs exec prettier --write "$@"
+            --fix --no-error-on-unmatched-pattern "$@" && pnpm --dir nodejs exec prettier --write "$@"
         description: Format nodejs JavaScript files
     format:rust:
         cmd: rustfmt
