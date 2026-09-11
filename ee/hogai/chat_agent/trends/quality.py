@@ -107,16 +107,24 @@ def _check_axis_format(query: AssistantTrendsQuery) -> list[str]:
                 f"Drop the postfix and use the `duration` format instead."
             )
 
-    # A formula reads the same series, so it cannot turn a set of counts into a length of time either.
-    if (
-        axis_format in DURATION_AXIS_FORMATS
-        and query.series
-        and all(_never_produces_a_duration(series) for series in query.series)
-    ):
-        issues.append(
-            f"No series produces a length of time, but the value axis uses `{axis_format}`, which renders the "
-            f"value as a duration. Use the `numeric` format, or aggregate a property measured in seconds."
-        )
+    if axis_format in DURATION_AXIS_FORMATS and query.series:
+        counting_series = [
+            _series_label(index) for index, series in enumerate(query.series) if _never_produces_a_duration(series)
+        ]
+        if len(counting_series) == len(query.series):
+            # A formula reads the same series, so it cannot turn a set of counts into a length of time either.
+            issues.append(
+                f"No series produces a length of time, but the value axis uses `{axis_format}`, which renders the "
+                f"value as a duration. Use the `numeric` format, or aggregate a property measured in seconds."
+            )
+        elif counting_series and not trends_filter.formulaNodes:
+            # A formula replaces the series it reads, so only a chart that renders the series themselves is wrong here.
+            counting_labels = ", ".join(counting_series)
+            issues.append(
+                f"Series {counting_labels} counts rather than measuring a length of time, but the value "
+                f"axis uses `{axis_format}`, which renders every series as a duration. Drop the counting series, "
+                f"or use the `numeric` format."
+            )
 
     return issues
 
