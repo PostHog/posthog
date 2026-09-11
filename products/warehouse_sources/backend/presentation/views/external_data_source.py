@@ -10,7 +10,11 @@ from urllib.parse import quote
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import connection, transaction
+from django.db import (
+    OperationalError as DjangoOperationalError,
+    connection,
+    transaction,
+)
 from django.db.models import Prefetch, Q, QuerySet
 from django.utils import timezone
 from django.utils.cache import patch_cache_control
@@ -21,7 +25,10 @@ from dateutil import parser
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
 from openai import APIConnectionError
 from opentelemetry import trace
-from psycopg import OperationalError
+from psycopg import (
+    OperationalError,
+    errors as psycopg_errors,
+)
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -47,6 +54,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource, get_event_source, is_wizard_self_driving_program, report_user_action
+from posthog.exceptions import Conflict
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.models.user import User
@@ -698,6 +706,50 @@ def _refresh_name_substitutions(
     if source_namespace_is_blank(source) and is_multi_schema_capable_sql_source(source.source_type):
         return apply_sql_warehouse_refresh_migration(source=source, team_id=team_id)
     return {}
+
+
+SOURCE_LOCK_TIMEOUT_MS = 3000
+
+
+def _set_lock_timeout(value: str) -> None:
+    # set_config(..., is_local=True) is SET LOCAL, but takes the value as a bind parameter, so a
+    # restored value ("0", "30s", ...) does not have to be quoted by hand.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT set_config('lock_timeout', %s, true)", [value])
+
+
+def lock_source_for_schema_sync(source_pk: uuid.UUID) -> None:
+    """Serialize schema reconciliation on one source. Call inside `transaction.atomic()`.
+
+    `ExternalDataSchema.source` and `ExternalDataJob.pipeline` reference this row, so a sync's
+    child-row writes take FOR KEY SHARE on it while their deferred foreign keys are checked at commit.
+    FOR KEY SHARE conflicts with FOR UPDATE but not with FOR NO KEY UPDATE, hence `no_key=True`.
+    A writer of the source row itself, such as a competing refresh, an update or a delete, still
+    conflicts. The transaction-local `lock_timeout` bounds that wait, so the caller answers 409 rather
+    than sitting until the statement timeout kills the request.
+
+    SET LOCAL lasts for the whole transaction, so the cap goes back to its previous value once the
+    lock is held. The caller then reconciles schema and table rows under the lock behavior it would
+    have had anyway: a wait on one of those rows raises a bare OperationalError, not the 409 this
+    bound is for.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW lock_timeout")
+        row = cursor.fetchone()
+    previous_lock_timeout = row[0] if row else None
+    _set_lock_timeout(f"{SOURCE_LOCK_TIMEOUT_MS}ms")
+    try:
+        ExternalDataSource._base_manager.filter(pk=source_pk).select_for_update(no_key=True).get()
+    except DjangoOperationalError as e:
+        if not isinstance(e.__cause__, psycopg_errors.LockNotAvailable):
+            raise
+        raise Conflict(
+            "Another operation is already changing this source's schemas. Wait for it to finish, then try again."
+        ) from e
+    # Only reached with the lock held. A lock error leaves the transaction aborted, where restore SQL
+    # would fail anyway, and the rollback undoes SET LOCAL with it.
+    if previous_lock_timeout:
+        _set_lock_timeout(previous_lock_timeout)
 
 
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
@@ -1575,7 +1627,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             descriptions = {schema.name: schema.description for schema in discovered_schemas}
 
             with transaction.atomic():
-                ExternalDataSource._base_manager.filter(pk=updated_source.pk).select_for_update().get()
+                lock_source_for_schema_sync(updated_source.pk)
                 engine = get_direct_query_engine(updated_source.direct_engine)
                 name_substitutions = _refresh_name_substitutions(
                     engine, source=updated_source, source_schemas=discovered_schemas, team_id=instance.team_id
@@ -3299,7 +3351,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     "auto_enabled": {"type": "integer"},
                     "total_tables_seen": {"type": "integer"},
                 },
-            }
+            },
+            409: OpenApiResponse(description="Another operation is already changing this source's schemas."),
         }
     )
     def refresh_schemas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -3372,7 +3425,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         descriptions = {s.name: s.description for s in schemas}
         with transaction.atomic():
-            ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
+            lock_source_for_schema_sync(instance.pk)
             if instance.is_direct_query and connection_metadata != instance.connection_metadata:
                 instance.connection_metadata = connection_metadata
                 instance.save(update_fields=["connection_metadata", "updated_at"])
