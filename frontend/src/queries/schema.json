@@ -57529,6 +57529,7 @@
                 "FirstPageviewUTMContent",
                 "FirstPageviewUTMSourceMediumCampaign",
                 "Browser",
+                "InAppBrowser",
                 "OS",
                 "Viewport",
                 "DeviceType",

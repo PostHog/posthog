@@ -338,6 +338,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>UTM Content</>
         case WebStatsBreakdown.Browser:
             return <>Browser</>
+        case WebStatsBreakdown.InAppBrowser:
+            return <>In-app browser</>
         case WebStatsBreakdown.OS:
             return <>OS</>
         case WebStatsBreakdown.Viewport:
@@ -490,6 +492,11 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
         case WebStatsBreakdown.Browser:
             if (typeof value === 'string') {
                 return <PropertyIcon.WithLabel property="$browser" value={value} />
+            }
+            return <NotSetBreakdownLabel />
+        case WebStatsBreakdown.InAppBrowser:
+            if (typeof value === 'string') {
+                return <>{value}</>
             }
             return <NotSetBreakdownLabel />
         case WebStatsBreakdown.OS:

@@ -4359,6 +4359,7 @@ class WebStatsBreakdown(StrEnum):
     FIRST_PAGEVIEW_UTM_CONTENT = "FirstPageviewUTMContent"
     FIRST_PAGEVIEW_UTM_SOURCE_MEDIUM_CAMPAIGN = "FirstPageviewUTMSourceMediumCampaign"
     BROWSER = "Browser"
+    IN_APP_BROWSER = "InAppBrowser"
     OS = "OS"
     VIEWPORT = "Viewport"
     DEVICE_TYPE = "DeviceType"
