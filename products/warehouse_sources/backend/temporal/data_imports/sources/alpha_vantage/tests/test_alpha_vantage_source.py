@@ -40,13 +40,20 @@ class TestAlphaVantageSource:
         # get_schemas is a static endpoint catalog with no I/O, so the public docs can render tables.
         assert AlphaVantageSource.lists_tables_without_credentials is True
 
-    def test_get_schemas_returns_every_endpoint_as_full_refresh(self) -> None:
-        schemas = AlphaVantageSource().get_schemas(_make_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # Alpha Vantage has no server-side updated-at cursor, so nothing supports incremental.
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
+    def test_get_schemas_marks_only_the_server_filtered_endpoints_incremental(self) -> None:
+        schemas = {s.name: s for s in AlphaVantageSource().get_schemas(_make_config(), team_id=1)}
+        assert set(schemas) == set(ENDPOINTS)
+        # Only NEWS_SENTIMENT (`time_from`) and INSIDER_TRANSACTIONS (`from`) filter server-side. A
+        # table that lost its cursor here would silently re-pull its whole history every sync; one that
+        # gained a bogus cursor would checkpoint a watermark the API never honoured.
+        incremental = {name for name, schema in schemas.items() if schema.supports_incremental}
+        assert incremental == {"news_sentiment", "insider_transactions"}
+        assert [f["field"] for f in schemas["news_sentiment"].incremental_fields] == ["time_published"]
+        assert [f["field"] for f in schemas["insider_transactions"].incremental_fields] == ["transaction_date"]
+        assert all(not schemas[name].incremental_fields for name in set(ENDPOINTS) - incremental)
+        # Both filters are coarser than the stored cursor, so every run re-delivers the boundary rows
+        # and only a merge can dedupe them — append would duplicate.
+        assert all(schema.supports_append is False for schema in schemas.values())
 
     def test_get_schemas_exposes_primary_keys(self) -> None:
         schemas = {s.name: s for s in AlphaVantageSource().get_schemas(_make_config(), team_id=1)}
@@ -94,10 +101,21 @@ class TestAlphaVantageSource:
         assert ok is False
         probe.assert_not_called()
 
-    def test_source_for_pipeline_plumbs_symbols_and_key(self) -> None:
+    @parameterized.expand(
+        [
+            ("incremental", True, "2026-08-01", "2026-08-01"),
+            # A full refresh must not carry the stored watermark, or it would filter the API call.
+            ("full_refresh", False, "2026-08-01", None),
+        ]
+    )
+    def test_source_for_pipeline_plumbs_symbols_key_and_watermark(
+        self, _name: str, should_use_incremental_field: bool, last_value: str, expected_watermark: str | None
+    ) -> None:
         inputs = MagicMock()
-        inputs.schema_name = "time_series_daily"
+        inputs.schema_name = "insider_transactions"
         inputs.logger = MagicMock()
+        inputs.should_use_incremental_field = should_use_incremental_field
+        inputs.db_incremental_field_last_value = last_value
         with patch(f"{MODULE}.alpha_vantage_source") as source_fn:
             AlphaVantageSource().source_for_pipeline(_make_config("abc", "ibm, aapl"), inputs)
         source_fn.assert_called_once()
@@ -105,7 +123,8 @@ class TestAlphaVantageSource:
         assert kwargs["api_key"] == "abc"
         # Symbols are parsed (upper-cased, de-duplicated) before handing off to the transport.
         assert kwargs["symbols"] == ["IBM", "AAPL"]
-        assert kwargs["endpoint"] == "time_series_daily"
+        assert kwargs["endpoint"] == "insider_transactions"
+        assert kwargs["db_incremental_field_last_value"] == expected_watermark
 
     def test_source_for_pipeline_rejects_oversized_symbol_list(self) -> None:
         # A previously-saved oversized config must fail the run instead of fanning out into a runaway sync.
