@@ -292,10 +292,18 @@ export function mapHttpStatusToStreamError(status: number | undefined): StreamEr
  * prepend context blocks when attachments are present — `<posthog_trusted_context>` and/or
  * `<posthog_untrusted_context>` from the frontend builder (`utils/posthogContextBlock.ts`), or the
  * legacy `<posthog_context>` wrapper from the deprecated backend `context_wrapper.py` path and old
- * persisted history. Stripping every leading block keeps a replayed prompt identical to the one the
- * live send path echoed via `pushHumanMessage`.
+ * persisted history. A task started from Slack carries the thread as `<slack_thread_context>`, and
+ * each Slack follow-up as `<slack_thread_context_update>` (products/slack_app). Stripping every
+ * leading block keeps a replayed prompt identical to the one the live send path echoed via
+ * `pushHumanMessage`.
  */
-const CONTEXT_BLOCK_TAGS = ['posthog_trusted_context', 'posthog_untrusted_context', 'posthog_context']
+const CONTEXT_BLOCK_TAGS = [
+    'posthog_trusted_context',
+    'posthog_untrusted_context',
+    'posthog_context',
+    'slack_thread_context',
+    'slack_thread_context_update',
+]
 
 export interface SplitUserMessageContent {
     /** The user's own text, with every leading context block removed. */
