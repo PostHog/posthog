@@ -54,7 +54,7 @@ class NotifiedAlert:
     result_count: int | None
     consecutive_failures: int
     filters: dict
-    # Stable for one evaluated transition so retrying the emit activity cannot
+    # Stable for one persisted transition so retrying the emit activity cannot
     # start duplicate signal workflows. None keeps old workflow histories valid.
     idempotency_key: str | None = None
 

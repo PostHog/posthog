@@ -5,7 +5,7 @@ import datetime as dt
 import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
-from uuid import uuid4, uuid5
+from uuid import uuid4
 
 import pytest
 import unittest
@@ -124,7 +124,11 @@ class TestNotifiedAlertCollection(APIBaseTest):
             date_to=datetime(2025, 1, 1, tzinfo=UTC),
             state_before="not_firing",
         )
-        return _DispatchedAlert(evaluation=evaluation, notification_failed=notification_failed)
+        return _DispatchedAlert(
+            evaluation=evaluation,
+            notification_failed=notification_failed,
+            persisted_event_id=str(uuid4()),
+        )
 
     def _make_alert(self) -> LogsAlertConfiguration:
         return LogsAlertConfiguration.objects.create(
@@ -138,7 +142,8 @@ class TestNotifiedAlertCollection(APIBaseTest):
     def test_build_notified_from_saved_includes_fired_notification(self):
         alert = self._make_alert()
 
-        notified = _build_notified_from_saved([self._dispatched(alert, NotificationAction.FIRE, False)])
+        dispatched = self._dispatched(alert, NotificationAction.FIRE, False)
+        notified = _build_notified_from_saved([dispatched])
 
         assert len(notified) == 1
         assert notified[0].action == "firing"
@@ -150,18 +155,12 @@ class TestNotifiedAlertCollection(APIBaseTest):
         assert notified[0].threshold_operator == "above"
         assert notified[0].window_minutes == 5
         assert notified[0].filters == {}
-        assert notified[0].idempotency_key == str(uuid5(alert.id, "firing:2025-01-01T00:00:00+00:00"))
+        assert notified[0].idempotency_key == dispatched.persisted_event_id
 
-    def test_signal_idempotency_key_is_stable_for_retries_and_unique_per_evaluation(self):
+    def test_signal_idempotency_key_is_stable_for_retries_and_unique_per_persisted_transition(self):
         alert = self._make_alert()
         dispatched = self._dispatched(alert, NotificationAction.FIRE, False)
-        later = dataclasses.replace(
-            dispatched,
-            evaluation=dataclasses.replace(
-                dispatched.evaluation,
-                date_to=dispatched.evaluation.date_to + timedelta(minutes=5),
-            ),
-        )
+        later = dataclasses.replace(dispatched, persisted_event_id=str(uuid4()))
 
         first = _build_notified_from_saved([dispatched])[0]
         retried = _build_notified_from_saved([dispatched])[0]
@@ -169,6 +168,16 @@ class TestNotifiedAlertCollection(APIBaseTest):
 
         assert first.idempotency_key == retried.idempotency_key
         assert first.idempotency_key != next_evaluation.idempotency_key
+
+    def test_build_notified_from_saved_skips_a_signal_without_a_persisted_transition(self):
+        alert = self._make_alert()
+        dispatched = self._dispatched(alert, NotificationAction.FIRE, False)
+
+        with patch("products.logs.backend.temporal.activities.logger.error") as mock_log:
+            notified = _build_notified_from_saved([dataclasses.replace(dispatched, persisted_event_id=None)])
+
+        assert notified == []
+        mock_log.assert_called_once()
 
     def test_build_notified_from_saved_keeps_a_bounded_rolling_deploy_fallback(self):
         alert = self._make_alert()
@@ -225,6 +234,24 @@ class TestNotifiedAlertCollection(APIBaseTest):
         notified = _build_notified_from_saved([self._dispatched(alert, notification, notification_failed)])
 
         assert notified == []
+
+
+class TestOldestDueAlertAt(unittest.TestCase):
+    def test_filters_on_the_same_expression_as_the_backlog_index(self):
+        from products.logs.backend.temporal.activities import _oldest_due_alert_at
+
+        now = datetime(2026, 5, 5, 10, 0, tzinfo=UTC)
+        cursor = MagicMock()
+        cursor.fetchone.return_value = None
+        cursor_context = MagicMock()
+        cursor_context.__enter__.return_value = cursor
+
+        with patch("products.logs.backend.temporal.activities.connection.cursor", return_value=cursor_context):
+            assert _oldest_due_alert_at(now) is None
+
+        sql = " ".join(cursor.execute.call_args.args[0].split())
+        assert "COALESCE(next_check_at, updated_at, created_at) <= %s" in sql
+        assert "next_check_at <= %s OR next_check_at IS NULL" not in sql
 
 
 class TestEmitAlertSignalsActivity(NonAtomicBaseTest):
@@ -378,6 +405,27 @@ class TestSaveCohortOutcomesFallback(APIBaseTest):
         for alert in alerts:
             alert.refresh_from_db()
             assert alert.last_checked_at == now
+
+    def test_successful_transition_returns_its_persisted_event_id(self):
+        alert = self._make_alert()
+        dispatched = self._make_dispatched(alert)
+        firing_outcome = dataclasses.replace(
+            dispatched.evaluation.outcome,
+            new_state=AlertState.FIRING,
+            notification=NotificationAction.FIRE,
+            update_last_notified_at=True,
+        )
+        dispatched = dataclasses.replace(
+            dispatched,
+            evaluation=dataclasses.replace(dispatched.evaluation, outcome=firing_outcome),
+        )
+
+        saved, failed = _save_cohort_outcomes([dispatched], datetime(2025, 1, 1, 0, 1, tzinfo=UTC))
+
+        event = LogsAlertEvent.objects.get(alert=alert)
+        assert failed == []
+        assert saved[0].persisted_event_id == str(event.id)
+        assert _build_notified_from_saved(saved)[0].idempotency_key == str(event.id)
 
     @patch("products.logs.backend.temporal.activities.LogsAlertConfiguration.objects.bulk_update")
     def test_operational_error_propagates(self, mock_bulk_update):
