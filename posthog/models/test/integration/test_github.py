@@ -2444,7 +2444,13 @@ class TestGitHubIntegrationMarkPullRequestReadyForReview(BaseTest):
         return GitHubIntegration(_create_github_integration(self.team))
 
     @staticmethod
-    def _state(*, is_draft: bool = True, state: str = "OPEN", labels: list[str] | None = None) -> dict:
+    def _state(
+        *,
+        is_draft: bool = True,
+        state: str = "OPEN",
+        labels: list[str] | None = None,
+        draft_transitions: int = 0,
+    ) -> dict:
         return {
             "repository": {
                 "pullRequest": {
@@ -2452,6 +2458,7 @@ class TestGitHubIntegrationMarkPullRequestReadyForReview(BaseTest):
                     "isDraft": is_draft,
                     "state": state,
                     "labels": {"nodes": [{"name": name} for name in labels or []]},
+                    "timelineItems": {"nodes": [{"__typename": "ReadyForReviewEvent"}] * draft_transitions},
                 }
             }
         }
@@ -2475,6 +2482,9 @@ class TestGitHubIntegrationMarkPullRequestReadyForReview(BaseTest):
             ("closed", {"state": "CLOSED"}, (), "closed"),
             ("merged", {"state": "MERGED"}, (), "closed"),
             ("skip_label", {"labels": ["No-CI"]}, ("no-ci",), "label"),
+            # A pull request somebody already moved between draft and ready keeps what they chose,
+            # however long a queued caller took to arrive.
+            ("draft_state_decided", {"draft_transitions": 1}, (), "draft_state_decided"),
         ]
     )
     def test_nothing_is_mutated_when_a_guard_stops_it(self, _name, overrides, skip_labels, reason):

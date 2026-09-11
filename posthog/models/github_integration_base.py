@@ -1699,6 +1699,9 @@ class GitHubIntegrationBase:
           isDraft
           state
           labels(first: 100) { nodes { name } }
+          timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT], first: 1) {
+            nodes { __typename }
+          }
         }
       }
     }
@@ -1720,10 +1723,15 @@ class GitHubIntegrationBase:
         GraphQL rather than REST because REST cannot do it: ``PATCH /repos/{owner}/{repo}/pulls/{n}``
         ignores ``draft``, and ``markPullRequestReadyForReview`` is the only endpoint that undrafts.
 
+        Only ever moves a pull request that has never left the draft state it opened in. A pull
+        request somebody already marked ready, or put back into draft, keeps whatever they chose,
+        however long the caller took to get here.
+
         Returns ``{"success": True, "changed": ...}``. ``changed`` is False when there was nothing
         to do, with ``reason`` naming which of the guards stopped it: ``not_draft`` for a pull
-        request already ready, ``closed`` for one that is closed or merged, or ``label`` when it
-        carries one of ``skip_labels`` (matched case-insensitively). A pull request GitHub would not
+        request already ready, ``closed`` for one that is closed or merged, ``draft_state_decided``
+        for one whose draft state a person has already moved, or ``label`` when it carries one of
+        ``skip_labels`` (matched case-insensitively). A pull request GitHub would not
         return, and a mutation it rejected, come back as ``{"success": False, "error": ...}``;
         transport failures raise :class:`GitHubIntegrationError`, and rate limits and a denied egress
         budget raise, as everywhere else on this client.
@@ -1743,6 +1751,14 @@ class GitHubIntegrationBase:
             return {"success": True, "changed": False, "reason": "closed"}
         if not pr.get("isDraft"):
             return {"success": True, "changed": False, "reason": "not_draft"}
+        # Somebody already moved this pull request between draft and ready, so its current draft
+        # state is a decision rather than the state it opened in. Reading the timeline is what makes
+        # that durable: a caller that queues this work cannot otherwise tell a pull request that was
+        # always a draft from one a person put back into draft while the call waited.
+        # Count the returned nodes, never `totalCount`: GitHub ignores the `itemTypes` filter when it
+        # computes that field, so it reports every timeline item and would match any busy pull request.
+        if (pr.get("timelineItems") or {}).get("nodes") or []:
+            return {"success": True, "changed": False, "reason": "draft_state_decided"}
 
         unwanted = {label.casefold() for label in skip_labels}
         if unwanted:

@@ -52,6 +52,26 @@ def _make_reviewer(org: Organization, login: str, *, wants_ready: bool | None) -
     return user
 
 
+def _make_member_without_github(org: Organization, *, wants_ready: bool | None) -> User:
+    user = User.objects.create(email="no-github@example.com", first_name="Reviewer")
+    OrganizationMembership.objects.create(user=user, organization=org)
+    SignalUserAutonomyConfig.objects.create(user=user, github_open_pull_request_ready=wants_ready)
+    return user
+
+
+def _make_report_with_payloads(team: Team, payloads: list[dict]) -> SignalReport:
+    report = SignalReport.objects.create(
+        team=team, status=SignalReport.Status.READY, title="Report", summary="Summary", signal_count=1, total_weight=1.0
+    )
+    SignalReportArtefact.objects.create(
+        team=team,
+        report=report,
+        type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+        content=json.dumps(payloads),
+    )
+    return report
+
+
 def _make_report(team: Team, *reviewer_rows: list[str]) -> SignalReport:
     report = SignalReport.objects.create(
         team=team, status=SignalReport.Status.READY, title="Report", summary="Summary", signal_count=1, total_weight=1.0
@@ -141,6 +161,29 @@ class TestShouldOpenPullRequestReady:
         org, team = org_and_team
         _make_reviewer(org, "inheriting", wants_ready=None)
         report = _make_report(team, ["inheriting"])
+
+        assert should_open_pull_request_ready(team_id=team.id, report_id=str(report.id)) is False
+
+
+class TestReviewersWithoutAGithubAccount:
+    @pytest.mark.django_db
+    def test_a_reviewer_stored_by_uuid_still_decides(self, org_and_team):
+        # An org member who never connected GitHub is stored by uuid with a null login, so resolving
+        # logins alone would drop them and silently fall back to the team default.
+        org, team = org_and_team
+        user = _make_member_without_github(org, wants_ready=True)
+        report = _make_report_with_payloads(team, [{"user_uuid": str(user.uuid), "github_login": None}])
+
+        assert should_open_pull_request_ready(team_id=team.id, report_id=str(report.id)) is True
+
+    @pytest.mark.django_db
+    def test_a_uuid_entry_does_not_pick_up_the_preference_behind_its_stale_login(self, org_and_team):
+        # Reviewer identity gives the uuid precedence, so a login that has since been reassigned to
+        # somebody else must not lend that person's preference to this entry.
+        org, team = org_and_team
+        opted_out = _make_member_without_github(org, wants_ready=False)
+        _make_reviewer(org, "reassigned", wants_ready=True)
+        report = _make_report_with_payloads(team, [{"user_uuid": str(opted_out.uuid), "github_login": "reassigned"}])
 
         assert should_open_pull_request_ready(team_id=team.id, report_id=str(report.id)) is False
 

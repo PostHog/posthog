@@ -30,6 +30,7 @@ from products.signals.backend.models import (
 from products.signals.backend.report_generation.resolve_reviewers import (
     normalized_github_logins_from_reviewer_payloads,
     resolve_org_github_login_to_users,
+    resolve_org_users_by_uuid,
 )
 
 logger = structlog.get_logger(__name__)
@@ -59,9 +60,9 @@ def schedule_open_pull_request_ready(
 ) -> None:
     """Queue the ready-for-review transition for a report's pull request, after the current commit.
 
-    Only the paths where a pull request first reaches a report call this, which is what keeps the
-    transition to once per pull request: by the time anybody can convert it back to draft, no
-    trigger is left to fight them over it.
+    Only the paths where a pull request first reaches a report call this, so no later event re-queues
+    it. The worker guards the rest: a pull request whose draft state a person has already moved is
+    left alone, which is what holds even when this job sits in a backlog behind them.
 
     Enqueued on commit so nothing is marked ready if the write rolls back, and so the GitHub calls
     run on a worker instead of holding up a claim or a webhook. `robust=True` keeps a broker outage
@@ -106,11 +107,24 @@ def _resolved_reviewer_users(*, team_id: int, report_id: str) -> list[User]:
         return []
     if not isinstance(payloads, list):
         return []
+    reviewer_rows = [row for row in payloads if isinstance(row, dict)]
 
-    logins = normalized_github_logins_from_reviewer_payloads(payloads)
-    if not logins:
-        return []
-    return list(resolve_org_github_login_to_users(team_id, logins).values())
+    # A reviewer is a PostHog user, not a GitHub account: an org member who never connected GitHub is
+    # stored by uuid with a null login, and reviewer identity gives the uuid precedence over a login
+    # that could since have been reassigned. Resolving logins alone would drop the first group and
+    # silently fall back to the team default for them.
+    uuid_to_user = resolve_org_users_by_uuid(
+        team_id, (str(row["user_uuid"]) for row in reviewer_rows if row.get("user_uuid"))
+    )
+    login_to_user = resolve_org_github_login_to_users(
+        team_id,
+        normalized_github_logins_from_reviewer_payloads(row for row in reviewer_rows if not row.get("user_uuid")),
+    )
+
+    # A union rather than a per-row walk: this answers one yes/no question over the whole reviewer
+    # set, so reviewer order carries nothing, and taking the resolvers' own output avoids matching a
+    # stored uuid against a live one by hand.
+    return list({user.id: user for user in (*uuid_to_user.values(), *login_to_user.values())}.values())
 
 
 def should_open_pull_request_ready(*, team_id: int, report_id: str) -> bool:
