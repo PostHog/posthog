@@ -6,7 +6,9 @@ export const COHORT_BEHAVIORAL_LIMITATIONS_URL =
 export const EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON =
     'This flag is linked to an early access feature, so it can only target users. Remove the early access feature to target groups.'
 
-export const MATCHING_ESTIMATE_TOOLTIP = (
+// The activity window is switched on per project, so the copy follows the basis the response
+// reports. A null window means the estimate is all-time.
+export const matchingEstimateTooltip = (activityWindowDays: number | null): JSX.Element => (
     <>
         <div>
             A user may have{' '}
@@ -18,8 +20,8 @@ export const MATCHING_ESTIMATE_TOOLTIP = (
             Estimated from{' '}
             <Link to="https://posthog.com/docs/data/anonymous-vs-identified-events" target="_blank">
                 identified users
-            </Link>{' '}
-            active in the last 60 days.
+            </Link>
+            {activityWindowDays === null ? '.' : ` active in the last ${activityWindowDays} days.`}
         </div>
         <div className="mt-1">Anonymous visitors can still match this flag, so the actual number may be higher.</div>
     </>

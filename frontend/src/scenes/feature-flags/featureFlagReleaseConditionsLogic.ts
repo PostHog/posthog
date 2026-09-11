@@ -34,8 +34,9 @@ import {
     MultivariateFlagVariant,
     PropertyFilterType,
     PropertyOperator,
-    UserBlastRadiusType,
 } from '~/types'
+
+import { featureFlagsUserBlastRadiusCreate } from 'products/feature_flags/frontend/generated/api'
 
 import type { SimpleOption } from '../../lib/components/TaxonomicFilter/types'
 import type { Noun } from '../../models/groupsModel'
@@ -162,6 +163,7 @@ export interface featureFlagReleaseConditionsLogicValues {
         rollout_percentage: string | undefined
         variant: null
     }[]
+    activityWindowDays: number | null
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicGroupTypesForCondition: (conditionGroupTypeIndex: number | null | undefined) => TaxonomicFilterGroupType[]
     totalCounts: Record<string, number | undefined>
@@ -218,6 +220,9 @@ export interface featureFlagReleaseConditionsLogicActions {
     ) => {
         count: number | undefined
         sortKey: string
+    }
+    setActivityWindowDays: (activityWindowDays: number | null) => {
+        activityWindowDays: number | null
     }
     setAggregationGroupTypeIndex: (value: number | null) => {
         value: number | null
@@ -386,6 +391,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             count,
         }),
         setBlastRadiusError: (sortKey: string) => ({ sortKey }),
+        setActivityWindowDays: (activityWindowDays: number | null) => ({ activityWindowDays }),
         calculateBlastRadius: true,
         calculateBlastRadiusForCondition: (
             sortKey: string,
@@ -615,6 +621,14 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 }),
             },
         ],
+        // The basis depends on the project, not the condition, so every response carries the same
+        // value and one reducer covers all of them.
+        activityWindowDays: [
+            null as number | null,
+            {
+                setActivityWindowDays: (_, { activityWindowDays }) => activityWindowDays,
+            },
+        ],
         // Tracks conditions whose blast-radius estimate failed, so the UI can distinguish a
         // genuine error from the still-loading (undefined) state instead of spinning forever.
         blastRadiusErrors: [
@@ -810,15 +824,13 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             actions.setTotalCount(sortKey, undefined)
 
             try {
-                const response: UserBlastRadiusType = await api.create(
-                    `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
-                    {
-                        condition: { properties },
-                        group_type_index: groupTypeIndex,
-                    }
-                )
+                const response = await featureFlagsUserBlastRadiusCreate(String(values.currentProjectId), {
+                    condition: { properties },
+                    group_type_index: groupTypeIndex,
+                })
                 actions.setAffectedCount(sortKey, response.affected)
                 actions.setTotalCount(sortKey, response.total)
+                actions.setActivityWindowDays(response.activity_window_days ?? null)
             } catch {
                 // Surface the failure to the UI rather than masking it as -1, which the
                 // render path can't tell apart from "still loading".

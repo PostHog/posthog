@@ -43,6 +43,10 @@ logger = structlog.get_logger(__name__)
 class BlastRadiusResult:
     affected: int
     total: int
+    # Days of activity both counts are drawn from, or None when they are all-time. The kill switch
+    # decides which basis ran, so the copy shown beside the number has to follow this rather than
+    # assume a window.
+    activity_window_days: Optional[int] = None
 
 
 # Window for the blast-radius denominator. An all-time person count is inflated by anonymous,
@@ -213,6 +217,19 @@ def _recently_active_window() -> tuple[datetime, datetime]:
     return now - timedelta(days=RECENTLY_ACTIVE_DAYS), now + timedelta(days=1)
 
 
+def _recently_active_events_where() -> tuple[str, dict[str, ast.Expr]]:
+    """The events predicate both activity-window queries select on, with its placeholders.
+
+    Both can answer the same panel in one request cycle, so two copies could drift into reporting
+    two different totals for one team.
+    """
+    cutoff, upper = _recently_active_window()
+    return (
+        f"timestamp >= {{cutoff}} AND timestamp < {{upper}} AND {_IDENTIFIED_PERSONS_ONLY}",
+        {"cutoff": ast.Constant(value=cutoff), "upper": ast.Constant(value=upper)},
+    )
+
+
 def _recently_active_persons_count(team: Team) -> int:
     """Count distinct persons active in the last RECENTLY_ACTIVE_DAYS days.
 
@@ -225,12 +242,8 @@ def _recently_active_persons_count(team: Team) -> int:
     if cached is not None:
         return cached
 
-    cutoff, upper = _recently_active_window()
-    query = parse_select(
-        "SELECT uniq(person_id) FROM events "
-        f"WHERE timestamp >= {{cutoff}} AND timestamp < {{upper}} AND {_IDENTIFIED_PERSONS_ONLY}",
-        placeholders={"cutoff": ast.Constant(value=cutoff), "upper": ast.Constant(value=upper)},
-    )
+    where, placeholders = _recently_active_events_where()
+    query = parse_select(f"SELECT uniq(person_id) FROM events WHERE {where}", placeholders=placeholders)
 
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
     response = execute_hogql_query(
@@ -245,22 +258,29 @@ def _recently_active_persons_count(team: Team) -> int:
     return count
 
 
+def _matching_persons_exprs(team: Team, filter: Filter) -> list[ast.Expr]:
+    """Team scope plus the condition's property filters, in person scope.
+
+    Sizing and the workflows preview both decide who matches a condition from this predicate, so a
+    change to one copy alone would make the previewed audience differ from the sized one.
+    property_to_expr resolves cohorts, static cohorts, and group properties.
+    """
+    return [
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["persons", "team_id"]),
+            right=ast.Constant(value=team.pk),
+        ),
+        property_to_expr(filter.property_groups, team, scope="person"),
+    ]
+
+
 def _matched_persons_query(team: Team, filter: Filter) -> ast.SelectQuery:
-    """Subquery of the person ids matching the condition. Reuses property_to_expr in person scope,
-    so it resolves cohorts, static cohorts, and group properties exactly like _build_person_query."""
+    """Subquery of the person ids matching the condition."""
     return ast.SelectQuery(
         select=[ast.Field(chain=["persons", "id"])],
         select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
-        where=ast.And(
-            exprs=[
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["persons", "team_id"]),
-                    right=ast.Constant(value=team.pk),
-                ),
-                property_to_expr(filter.property_groups, team, scope="person"),
-            ]
-        ),
+        where=ast.And(exprs=_matching_persons_exprs(team, filter)),
     )
 
 
@@ -275,19 +295,14 @@ def _get_person_blast_radius_recently_active(team: Team, filter: Filter) -> Blas
     if len(properties) == 0:
         # No filters means every recently active person is affected.
         total_users = _recently_active_persons_count(team)
-        return BlastRadiusResult(affected=total_users, total=total_users)
+        return BlastRadiusResult(affected=total_users, total=total_users, activity_window_days=RECENTLY_ACTIVE_DAYS)
 
-    cutoff, upper = _recently_active_window()
+    where, placeholders = _recently_active_events_where()
     # One pass over the recent event window yields both the active total and the matched subset, so
     # the denominator is never a second scan and both numbers come from the same rows.
     query = parse_select(
-        "SELECT uniq(person_id), uniqIf(person_id, person_id IN {matched}) "
-        f"FROM events WHERE timestamp >= {{cutoff}} AND timestamp < {{upper}} AND {_IDENTIFIED_PERSONS_ONLY}",
-        placeholders={
-            "matched": _matched_persons_query(team, filter),
-            "cutoff": ast.Constant(value=cutoff),
-            "upper": ast.Constant(value=upper),
-        },
+        f"SELECT uniq(person_id), uniqIf(person_id, person_id IN {{matched}}) FROM events WHERE {where}",
+        placeholders={"matched": _matched_persons_query(team, filter), **placeholders},
     )
 
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
@@ -304,7 +319,9 @@ def _get_person_blast_radius_recently_active(team: Team, filter: Filter) -> Blas
     total_users, affected = (response.results[0][0], response.results[0][1]) if response.results else (0, 0)
     # affected is a strict subset of total_users, but both are uniq() estimates, so clamp to keep
     # the frontend percentage coherent.
-    return BlastRadiusResult(affected=min(affected, total_users), total=total_users)
+    return BlastRadiusResult(
+        affected=min(affected, total_users), total=total_users, activity_window_days=RECENTLY_ACTIVE_DAYS
+    )
 
 
 def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
@@ -355,19 +372,7 @@ def _build_person_query(team: Team, filter: Filter, return_count: bool = True, c
             distinct=True,
         )
 
-    # Build WHERE clause with team_id and property filters
-    # property_to_expr handles all property types including cohorts
-    where_exprs: list[ast.Expr] = [
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["persons", "team_id"]),
-            right=ast.Constant(value=team.pk),
-        )
-    ]
-
-    # Add all property filters (including cohorts) via property_to_expr
-    property_expr = property_to_expr(filter.property_groups, team, scope="person")
-    where_exprs.append(property_expr)
+    where_exprs: list[ast.Expr] = _matching_persons_exprs(team, filter)
 
     # Add cursor-based pagination when returning IDs
     if not return_count and cursor is not None:

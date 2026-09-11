@@ -75,7 +75,12 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
 from products.feature_flags.backend.flag_status import FeatureFlagStatus
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
-from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, get_user_blast_radius_persons
+from products.feature_flags.backend.user_blast_radius import (
+    RECENTLY_ACTIVE_DAYS,
+    get_user_blast_radius,
+    get_user_blast_radius_persons,
+    recently_active_sizing_enabled,
+)
 from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
@@ -9552,25 +9557,61 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     def test_user_blast_radius_caches_the_unfiltered_active_count(self):
         # The flag editor sizes one condition group per mount, so repeat requests inside the TTL
-        # must not re-scan events each time.
+        # must not re-scan events each time. A second project asserts the key is scoped per team:
+        # an unscoped key would serve this project's count as the other one's.
+        other_team = Team.objects.create(organization=self.organization)
         _create_active_person(team_id=self.team.pk, distinct_ids=["active"], properties={"group": "match"})
+        for i in range(2):
+            _create_active_person(team_id=other_team.pk, distinct_ids=[f"other-active-{i}"])
         flush_persons_and_events()
 
+        condition = {"properties": [], "rollout_percentage": 50}
         with self.capture_select_queries() as queries:
             responses = [
                 self.client.post(
                     f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
-                    {"condition": {"properties": [], "rollout_percentage": 50}},
+                    {"condition": condition},
                 )
                 for _ in range(2)
             ]
+            other_response = self.client.post(
+                f"/api/projects/{other_team.id}/feature_flags/user_blast_radius",
+                {"condition": condition},
+            )
 
         for response in responses:
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertLessEqual({"affected": 1, "total": 1}.items(), response.json().items())
 
+        self.assertEqual(other_response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": 2, "total": 2}.items(), other_response.json().items())
+
         events_scans = [query for query in queries if "uniq(" in query]
-        self.assertEqual(len(events_scans), 1)
+        self.assertEqual(len(events_scans), 2)
+
+    def test_user_blast_radius_reports_the_basis_that_produced_the_counts(self):
+        # The window is gated per project, so the response has to say which basis ran: the tooltip
+        # beside the number reads from this field rather than asserting the window unconditionally.
+        _create_active_person(team_id=self.team.pk, distinct_ids=["active"], properties={"group": "match"})
+        flush_persons_and_events()
+
+        condition = {
+            "properties": [{"key": "group", "type": "person", "value": ["match"], "operator": "exact"}],
+            "rollout_percentage": 100,
+        }
+        windowed = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius", {"condition": condition}
+        )
+        with patch(
+            "products.feature_flags.backend.api.feature_flag.recently_active_sizing_enabled",
+            return_value=False,
+        ):
+            all_time = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/user_blast_radius", {"condition": condition}
+            )
+
+        self.assertEqual(windowed.json()["activity_window_days"], RECENTLY_ACTIVE_DAYS)
+        self.assertIsNone(all_time.json()["activity_window_days"])
 
     @parameterized.expand(
         [
@@ -14876,3 +14917,19 @@ class TestFeatureFlagReplayLinkFollowsRename(APIBaseTest):
         assert old_flag.key == f"replay-gate:deleted:{old_flag.id}"
         self.team.refresh_from_db()
         assert self.team.session_recording_linked_flag == {"id": old_flag.id, "key": old_flag.key}
+
+
+class TestRecentlyActiveSizingFlag(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("enabled", True, True),
+            ("disabled", False, False),
+            ("client_raises", Exception("flag client down"), False),
+        ]
+    )
+    def test_kill_switch_never_propagates_a_flag_client_failure(self, _name, flag_result, expected):
+        # A broken flag client must read as "window off", not as a 500 on the sizing panel. Both
+        # sides of the endpoint patch this symbol, so nothing else runs its body.
+        kwargs = {"side_effect": flag_result} if isinstance(flag_result, Exception) else {"return_value": flag_result}
+        with patch("products.feature_flags.backend.user_blast_radius.feature_enabled_or_false", **kwargs):
+            self.assertEqual(recently_active_sizing_enabled(self.team), expected)

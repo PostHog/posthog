@@ -491,12 +491,14 @@ describe('the feature flag release conditions logic', () => {
                 // Condition A has its own aggregation_group_type_index=1, should override flag-level 0
                 expect(createSpy).toHaveBeenCalledWith(
                     expect.stringContaining('user_blast_radius'),
-                    expect.objectContaining({ group_type_index: 1 })
+                    expect.objectContaining({ group_type_index: 1 }),
+                    expect.anything()
                 )
                 // Condition B has no condition-level override, should fall back to flag-level 0
                 expect(createSpy).toHaveBeenCalledWith(
                     expect.stringContaining('user_blast_radius'),
-                    expect.objectContaining({ group_type_index: 0 })
+                    expect.objectContaining({ group_type_index: 0 }),
+                    expect.anything()
                 )
             } finally {
                 createSpy.mockRestore()
@@ -539,7 +541,8 @@ describe('the feature flag release conditions logic', () => {
 
                 expect(createSpy).toHaveBeenCalledWith(
                     expect.stringContaining('user_blast_radius'),
-                    expect.objectContaining({ group_type_index: null })
+                    expect.objectContaining({ group_type_index: null }),
+                    expect.anything()
                 )
                 expect(createSpy).not.toHaveBeenCalledWith(
                     expect.stringContaining('user_blast_radius'),

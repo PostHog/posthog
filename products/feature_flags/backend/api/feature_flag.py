@@ -76,6 +76,8 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
+    FlagSizingBurstRateThrottle,
+    FlagSizingSustainedRateThrottle,
     PersonalOrProjectSecretApiKeyRateThrottle,
     ProjectSecretApiKeyTeamRateThrottle,
 )
@@ -2894,16 +2896,22 @@ class UserBlastRadiusRequestSerializer(serializers.Serializer):
 class UserBlastRadiusResponseSerializer(serializers.Serializer):
     affected = serializers.IntegerField(
         help_text=(
-            "Number of entities matching the condition. For person-based flags this counts persons active in the "
-            "last 60 days; for group-based flags it counts all groups of this type."
+            "Number of entities matching the condition. Bounded by activity_window_days when that field is set, "
+            "and all-time otherwise."
         )
     )
     total = serializers.IntegerField(
         help_text=(
-            "Denominator the affected count is shown against. For person-based flags this is the number of persons "
-            "active in the last 60 days; for group-based flags it is the all-time number of groups of this type in "
-            "the project."
+            "Denominator the affected count is shown against: persons for person-based flags, groups of this type "
+            "for group-based ones. Bounded by activity_window_days when that field is set, and all-time otherwise."
         )
+    )
+    activity_window_days = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Number of days of recent activity both counts are drawn from. Null means they are all-time, which is "
+            "the case for group-based flags and for projects where the recent-activity basis is switched off."
+        ),
     )
 
 
@@ -4556,7 +4564,7 @@ class FeatureFlagViewSet(
         methods=["POST"],
         detail=False,
         required_scopes=["feature_flag:read"],
-        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+        throttle_classes=[FlagSizingBurstRateThrottle, FlagSizingSustainedRateThrottle],
     )
     def user_blast_radius(self, request: request.Request, **kwargs):
         if "condition" not in request.data:
@@ -4572,7 +4580,13 @@ class FeatureFlagViewSet(
             recently_active_only=recently_active_sizing_enabled(self.team),
         )
 
-        return Response({"affected": result.affected, "total": result.total})
+        return Response(
+            {
+                "affected": result.affected,
+                "total": result.total,
+                "activity_window_days": result.activity_window_days,
+            }
+        )
 
     @action(methods=["POST"], detail=True)
     def create_static_cohort_for_flag(self, request: request.Request, **kwargs):

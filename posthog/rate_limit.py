@@ -625,6 +625,23 @@ class SessionContextsSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "600/hour"
 
 
+# Flag sizing scans a 60-day events window once per condition group, and the release-conditions
+# editor fans one request out per group on every mount with no dedup. That editor is the only real
+# caller, and the ClickHouse*RateThrottle pair does not cover it: those derive from
+# PersonalApiKeyRateThrottle, which lets an authenticated request carrying no personal API key
+# through before counting it. A team bucket caps the project's scan spend whatever the auth method.
+# Repeat empty-properties requests are served from a 5-minute cache, so a legitimate session needs
+# one cold scan per distinct condition group.
+class FlagSizingBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "flag_sizing_burst"
+    rate = "60/minute"
+
+
+class FlagSizingSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "flag_sizing_sustained"
+    rate = "600/hour"
+
+
 # Fingerprint projection runs t-SNE synchronously over up to 250 high-dimensional embeddings.
 # Query endpoint defaults only cover personal API keys, so use a team-wide bucket to include
 # session callers and prevent forced refreshes from consuming application workers without bound.
