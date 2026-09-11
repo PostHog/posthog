@@ -10,6 +10,7 @@ import type {
     MCPServiceAccountServerApi,
     MCPToolApprovalStateEnumApi,
     ResolvedToolPolicyApi,
+    UserBasicApi,
 } from 'products/mcp_store/frontend/generated/api.schemas'
 
 import CyclotronJobInputTaskConnectors from './CyclotronJobInputTaskConnectors'
@@ -17,16 +18,32 @@ import CyclotronJobInputTaskConnectors from './CyclotronJobInputTaskConnectors'
 // The "Connectors" input of a workflow's "Create AI task" step: one switch per MCP server shared
 // with everyone in the project.
 
-const SHARED_BY = { id: 2, uuid: 'teammate-uuid', email: 'teammate@posthog.com', hedgehog_config: null }
+const SHARED_BY: UserBasicApi = {
+    id: 2,
+    uuid: 'teammate-uuid',
+    first_name: 'Ada',
+    last_name: 'Lovelace',
+    email: 'ada@posthog.com',
+    hedgehog_config: null,
+}
+const ALSO_SHARED_BY: UserBasicApi = {
+    id: 3,
+    uuid: 'other-teammate-uuid',
+    first_name: 'Grace',
+    last_name: 'Hopper',
+    email: 'grace@posthog.com',
+    hedgehog_config: null,
+}
 
 function server(
     id: string,
     name: string,
-    connectionState: MCPServiceAccountServerApi['connection_state'] = 'ready'
+    connectionState: MCPServiceAccountServerApi['connection_state'] = 'ready',
+    sharedBy: UserBasicApi = SHARED_BY
 ): MCPServiceAccountServerApi {
     return {
         id,
-        shared_by: SHARED_BY,
+        shared_by: sharedBy,
         scope: 'team',
         name,
         description: `${name} workspace`,
@@ -55,8 +72,10 @@ function workflowAccount(servers: MCPServiceAccountServerApi[]): MCPServiceAccou
     }
 }
 
+// Two members team-share Incident.io, so a run gets both connections and the row names both.
 const SERVERS = [
     server('incident-id', 'Incident.io'),
+    server('incident-id', 'Incident.io', 'ready', ALSO_SHARED_BY),
     server('datadog-id', 'Datadog', 'needs_reauth'),
     server('linear-id', 'Linear'),
 ]
@@ -132,6 +151,11 @@ export const Selection: Story = {
 // An enabled server with nothing approved warns that task runs can't use it yet.
 export const NoApprovedTools: Story = {
     render: () => <Picker initialValue={['linear-id']} />,
+}
+
+// The only share needs reconnecting, so a run mounts nothing for the server.
+export const NoReadyConnection: Story = {
+    render: () => <Picker initialValue={['datadog-id']} />,
 }
 
 // A saved id that no team share backs anymore keeps a row, so it can be switched off.

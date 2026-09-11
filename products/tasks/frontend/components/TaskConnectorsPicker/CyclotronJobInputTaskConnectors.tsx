@@ -10,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { agentServerConnectionIssue } from 'products/mcp_store/frontend/gateway/agentServerUtils'
+import type { MountedConnectionsNote } from 'products/mcp_store/frontend/gateway/agentServerUtils'
 
 import { ServerToolPolicyCounts, taskConnectorsPickerLogic } from './taskConnectorsPickerLogic'
 
@@ -42,6 +43,7 @@ function TaskConnectorsPicker({ value, onChange }: CustomInputRendererProps): JS
         serviceAccountsLoading,
         serviceAccountsFailed,
         toolPolicyCountsByServer,
+        mountedConnectionsByServer,
     } = useValues(taskConnectorsPickerLogic)
 
     const selectedIds: string[] = Array.isArray(value) ? value : []
@@ -98,6 +100,7 @@ function TaskConnectorsPicker({ value, onChange }: CustomInputRendererProps): JS
                                     {selected && workflowAccount && (
                                         <ServerToolPolicyNote
                                             counts={toolPolicyCountsByServer[server.id]}
+                                            connections={mountedConnectionsByServer[server.id]}
                                             serverId={server.id}
                                             accountId={workflowAccount.id}
                                         />
@@ -156,13 +159,18 @@ function TaskConnectorsPicker({ value, onChange }: CustomInputRendererProps): JS
     return <div data-attr="task-connectors-picker">{body}</div>
 }
 
-/** Per-state tool counts under an enabled server, so a selection with no approved tools is visible here. */
+/**
+ * Per-state tool counts and the connections a run mounts, under an enabled server, so a selection
+ * with no approved tools or no ready connection is visible here.
+ */
 function ServerToolPolicyNote({
     counts,
+    connections,
     serverId,
     accountId,
 }: {
     counts: ServerToolPolicyCounts | 'error' | undefined
+    connections: MountedConnectionsNote | undefined
     serverId: string
     accountId: string
 }): JSX.Element | null {
@@ -193,6 +201,14 @@ function ServerToolPolicyNote({
                     Tool policies
                 </Link>
             </div>
+            {connections && (
+                <div
+                    className={`mt-0.5 text-xs ${connections.ready ? 'text-secondary' : 'text-warning'}`}
+                    data-attr="task-connectors-picker-shared-by"
+                >
+                    {connections.text}
+                </div>
+            )}
             {counts !== 'error' && counts.approved === 0 && (
                 <div className="mt-0.5 text-xs text-warning">
                     No tools approved yet, so task runs can't use this server.
