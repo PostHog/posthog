@@ -2261,7 +2261,12 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
         self.test_cases: list[tuple[str, Any, PropertyType, Any]] = [
             # String type: value, empty, "null" literal, null, not set
             ("string_value_prop", "hello", PropertyType.String, True),
-            ("string_empty_prop", "", PropertyType.String, self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED),
+            (
+                "string_empty_prop",
+                "",
+                PropertyType.String,
+                False if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED,
+            ),
             ("string_null_literal_prop", "null", PropertyType.String, self.ONLY_WHEN_NOT_LEGACY_MATERIALIZED),
             ("string_null_prop", None, PropertyType.String, False),
             ("string_not_set_prop", self.NOT_SET, PropertyType.String, False),

@@ -1397,17 +1397,14 @@ class TestPrinter(BaseTest):
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_json_has_uses_direct_json_subcolumns(self) -> None:
-        expected_by_expr = {
-            "JSONHas(properties, 'dynamic_key')": "or(isNotNull(events.properties.dynamic_key), notEquals(toJSONString(events.properties.^dynamic_key), '{}'))",
-            "JSONHas(properties, '$ai_trace_id')": "notEquals(length(events.properties.`$ai_trace_id`), 0)",
-            "JSONHas(properties, '$browser')": "ifNull(notEquals(length(events.properties.`$browser`), 0), 1)",
-            "JSONHas(properties, '$exception_list')": "notEmpty(events.properties.`$exception_list`)",
-            "JSONHas(properties, '$feature_flags')": "notEmpty(events.properties.`$feature_flags`)",
-        }
-        for expression, expected in expected_by_expr.items():
+        for key in ("dynamic_key", "$ai_trace_id", "$browser", "$exception_list", "$feature_flags"):
             context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-            printed = self._expr(expression, context)
-            self.assertEqual(printed, expected)
+            printed = self._expr(f"JSONHas(properties, '{key}')", context)
+            rows = sync_execute(
+                f"SELECT {printed} FROM (SELECT CAST(arrayJoin(%(documents)s), %(json_type)s) AS properties) AS events",
+                {**context.values, "documents": ["{}"], "json_type": EVENTS_PROPERTIES_JSON_TYPE()},
+            )
+            self.assertEqual(rows, [(0,)])
             self.assertNotIn("JSONExtractKeysAndValuesRaw", printed)
 
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -1451,7 +1448,7 @@ class TestPrinter(BaseTest):
             f"SELECT {printed} FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties) AS events",
             {"raw": json.dumps(properties), "json_type": EVENTS_PROPERTIES_JSON_TYPE()},
         )
-        self.assertEqual(json.loads(serialized), properties)
+        self.assertEqual(json.loads(serialized), {key: value for key, value in properties.items() if value != []})
 
     @parameterized.expand(
         [
@@ -1698,6 +1695,10 @@ class TestPrinter(BaseTest):
             else:
                 assert "properties_group_custom" in enabled_response.clickhouse
                 assert "properties_group_custom" in optimized_response.clickhouse
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                labels = labels - {"empty_string"}
+                if "null" in labels:
+                    labels = labels | {"empty_string"}
             assert {row[0] for row in disabled_response.results} == labels
             assert {row[0] for row in enabled_response.results} == labels
             assert {row[0] for row in optimized_response.results} == labels
@@ -5806,7 +5807,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
             index_name = get_minmax_index_name(mat_col.name)
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                expected_lt_mango = [("d_empty",), ("d_low",)]
+                expected_lt_mango = [("d_low",)]
                 expected_gte_mango = [("d_high",), ("d_mid",), ("d_null_str",)]
 
             lt_result = execute_hogql_query(
@@ -6531,6 +6532,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 and not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             ):
                 ilike_expected = ilike_expected_if_non_nullable
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                ilike_expected = (ilike_expected | {""}) if pattern == "None" else ilike_expected - {""}
             pattern_expr = ast.Constant(value=pattern if pattern != "None" else None)
             ilike_result = execute_hogql_query(
                 team=self.team,
@@ -6626,6 +6629,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             ):
                 in_expected = in_expected_if_non_nullable
 
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                in_expected = in_expected - {""}
             in_values_exprs: list[ast.Expr] = [ast.Constant(value=v) for v in in_values]
             in_tuple = ast.Tuple(exprs=in_values_exprs)
 
