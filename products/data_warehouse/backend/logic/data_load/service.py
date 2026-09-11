@@ -54,6 +54,10 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+# Matches the `ExternalDataSchema.sync_frequency_interval` column default. Rows written before
+# the column existed, or explicitly cleared, carry null and fall back to this.
+DEFAULT_SYNC_FREQUENCY_INTERVAL = timedelta(hours=6)
+
 
 def _jitter_timedelta(max_jitter: timedelta, rng: random.Random) -> tuple[int, int]:
     total_seconds = max_jitter.total_seconds()
@@ -69,6 +73,9 @@ def get_sync_schedule(external_data_schema: ExternalDataSchema, should_sync: boo
         external_data_source_id=external_data_schema.source_id,
     )
 
+    # The column is nullable, but a Temporal schedule needs a real interval to repeat on.
+    interval = external_data_schema.sync_frequency_interval or DEFAULT_SYNC_FREQUENCY_INTERVAL
+
     hour = 0
     minute = 0
     sync_time_of_day: time | str | None = external_data_schema.sync_time_of_day
@@ -80,29 +87,27 @@ def get_sync_schedule(external_data_schema: ExternalDataSchema, should_sync: boo
         minute = t.minute
     else:
         # Apply a one-time jitter based on the sync frequency to avoid all jobs syncing at the same time
-        interval: timedelta | None = external_data_schema.sync_frequency_interval
-        if interval is not None:
-            rng = random.Random(str(external_data_schema.id))
+        rng = random.Random(str(external_data_schema.id))
 
-            if interval <= timedelta(minutes=5):
-                hour, minute = _jitter_timedelta(timedelta(minutes=5), rng)
-            elif interval <= timedelta(minutes=30):
-                hour, minute = _jitter_timedelta(timedelta(minutes=30), rng)
-            elif interval <= timedelta(hours=1):
-                hour, minute = _jitter_timedelta(timedelta(hours=1), rng)
-            elif interval <= timedelta(hours=6):
-                hour, minute = _jitter_timedelta(timedelta(hours=6), rng)
-            elif interval <= timedelta(hours=12):
-                hour, minute = _jitter_timedelta(timedelta(hours=12), rng)
-            elif interval <= timedelta(days=1):
-                hour, minute = _jitter_timedelta(timedelta(days=1), rng)
+        if interval <= timedelta(minutes=5):
+            hour, minute = _jitter_timedelta(timedelta(minutes=5), rng)
+        elif interval <= timedelta(minutes=30):
+            hour, minute = _jitter_timedelta(timedelta(minutes=30), rng)
+        elif interval <= timedelta(hours=1):
+            hour, minute = _jitter_timedelta(timedelta(hours=1), rng)
+        elif interval <= timedelta(hours=6):
+            hour, minute = _jitter_timedelta(timedelta(hours=6), rng)
+        elif interval <= timedelta(hours=12):
+            hour, minute = _jitter_timedelta(timedelta(hours=12), rng)
+        elif interval <= timedelta(days=1):
+            hour, minute = _jitter_timedelta(timedelta(days=1), rng)
 
     return to_temporal_schedule(
         external_data_schema,
         inputs,
         hour_of_day=hour,
         minute_of_hour=minute,
-        sync_frequency=external_data_schema.sync_frequency_interval,
+        sync_frequency=interval,
         should_sync=should_sync,
     )
 
@@ -112,7 +117,7 @@ def to_temporal_schedule(
     inputs,
     hour_of_day=0,
     minute_of_hour=0,
-    sync_frequency=timedelta(hours=6),
+    sync_frequency=DEFAULT_SYNC_FREQUENCY_INTERVAL,
     should_sync=True,
 ):
     action = ScheduleActionStartWorkflow(

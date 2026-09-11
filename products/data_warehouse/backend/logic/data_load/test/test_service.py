@@ -24,6 +24,7 @@ from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.logic.data_load.service import (
     CDC_DEFAULT_INTERVAL,
+    DEFAULT_SYNC_FREQUENCY_INTERVAL,
     DISCOVER_SCHEMAS_INTERVAL,
     _get_cdc_extraction_schedule_id,
     _get_discover_schemas_schedule_id,
@@ -318,7 +319,14 @@ def _make_source(team, source_type="Postgres"):
     )
 
 
-def _make_schema(team, source, sync_type=ExternalDataSchema.SyncType.FULL_REFRESH, should_sync=True):
+def _make_schema(
+    team,
+    source,
+    sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+    should_sync=True,
+    sync_frequency_interval=dt.timedelta(hours=6),
+    sync_time_of_day="00:00:00",
+):
     return ExternalDataSchema.objects.create(
         name="TestSchema",
         team_id=team.pk,
@@ -326,9 +334,19 @@ def _make_schema(team, source, sync_type=ExternalDataSchema.SyncType.FULL_REFRES
         sync_type=sync_type,
         sync_type_config={},
         should_sync=should_sync,
-        sync_frequency_interval=dt.timedelta(hours=6),
-        sync_time_of_day="00:00:00",
+        sync_frequency_interval=sync_frequency_interval,
+        sync_time_of_day=sync_time_of_day,
     )
+
+
+@pytest.mark.parametrize("sync_time_of_day", [None, "07:11:00"])
+def test_get_sync_schedule_falls_back_when_the_sync_frequency_is_null(sync_time_of_day):
+    team = _sync_team()
+    schema = _make_schema(team, _make_source(team), sync_frequency_interval=None, sync_time_of_day=sync_time_of_day)
+
+    schedule = get_sync_schedule(schema)
+
+    assert schedule.spec.intervals[0].every == DEFAULT_SYNC_FREQUENCY_INTERVAL
 
 
 def _not_found() -> RPCError:
