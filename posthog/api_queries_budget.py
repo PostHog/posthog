@@ -162,9 +162,6 @@ LIMITED_EVENT_INTERVAL_SECONDS = 3600
 
 
 def claim_limited_event(team_id: str) -> bool:
-    """True for the first limited request of a team in an hour, so the analytics event fires once
-    per team-hour over budget rather than once per refused request. False after that, and on a
-    Redis failure, since the log line and counter already record every refusal."""
     try:
         return bool(
             get_client().set(
