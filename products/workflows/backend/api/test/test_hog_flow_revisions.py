@@ -1,6 +1,9 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
@@ -229,6 +232,19 @@ class TestHogFlowRevisions(APIBaseTest):
             if a["type"] == "function"
         ]
         assert urls == ["https://example.com"]
+
+    def test_list_does_not_read_snapshot_content(self):
+        # Guards the defer: a plain read detoasts a page of snapshot JSONB the list discards.
+        flow_id = self._create_active_flow()
+        self._live_edit(flow_id)
+
+        with CaptureQueriesContext(connection) as captured:
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions")
+        assert response.status_code == 200, response.json()
+
+        selects = [q["sql"] for q in captured.captured_queries if "workflows_hogflowrevision" in q["sql"]]
+        assert selects
+        assert not any('"workflows_hogflowrevision"."content"' in sql for sql in selects)
 
     def test_retrieve_missing_revision_404s(self):
         flow_id = self._create_active_flow()
