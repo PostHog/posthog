@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_USER, api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -58,6 +60,9 @@ describe('tasksLogic', () => {
     })
 
     afterEach(() => {
+        // `featureFlags` is a persisted reducer, so a flag set in one test survives the next
+        // `initKeaTests` and would make its mount fire an unexpected list load.
+        featureFlagLogic.findMounted()?.actions.setFeatureFlags([], {})
         logic.unmount()
     })
 
@@ -134,6 +139,24 @@ describe('tasksLogic', () => {
             expect(listRequestUrls).toHaveLength(1)
             expect(listRequestUrls[0].searchParams.get('exclude_origin_product')).toBe(OriginProduct.SIGNALS_SCOUT)
             expect(listRequestUrls[0].searchParams.get('created_by')).toBe(String(MOCK_DEFAULT_USER.id))
+        })
+
+        // Regression coverage: the app renders once the feature-flag request times out, so this
+        // singleton can mount with the flag still off and `afterMount` never runs again. Without a
+        // load on the late flag the nav sits on an empty list and reports "no tasks".
+        it('loads once when the task flag arrives after mount', async () => {
+            expect(listRequestUrls).toHaveLength(0)
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TASKS], { [FEATURE_FLAGS.TASKS]: true })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(listRequestUrls).toHaveLength(1)
+
+            // `onFeatureFlags` fires again on any later flag refresh; that must not re-request.
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TASKS], { [FEATURE_FLAGS.TASKS]: true })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(listRequestUrls).toHaveLength(1)
         })
     })
 
