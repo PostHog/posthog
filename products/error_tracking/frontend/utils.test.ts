@@ -7,6 +7,7 @@ import {
     generateDateRangeLabel,
     getIssueReplayDateRange,
     getIssueReplayFilterGroup,
+    issueVisionScannerHandoff,
     mergeIssues,
     sourceDisplay,
 } from './utils'
@@ -258,6 +259,36 @@ describe('getIssueReplayFilterGroup', () => {
                         },
                     ],
                 },
+            ],
+        })
+    })
+})
+
+describe('issueVisionScannerHandoff', () => {
+    it('builds a summarizer whose query keeps the issue scoping', () => {
+        const handoff = issueVisionScannerHandoff('issue-uuid', 'TypeError: x is not a function', {
+            date_from: '2024-01-01T00:00:00.000Z',
+            date_to: '2024-01-02T00:00:00.000Z',
+        })
+
+        expect(handoff.source).toEqual('error_tracking')
+        expect(handoff.scanner).toMatchObject({
+            name: 'Error tracking: TypeError: x is not a function',
+            scanner_type: 'summarizer',
+            sampling_rate: 1.0,
+            credit_limit: 5000,
+            credit_limit_enabled: true,
+        })
+        expect(handoff.scanner.scanner_config?.prompt).toContain('"TypeError: x is not a function"')
+        // Without the issue_id filter on $exception events the scanner silently watches every session.
+        expect(handoff.scanner.query).toMatchObject({
+            kind: 'RecordingsQuery',
+            date_from: '2024-01-01T00:00:00.000Z',
+            events: [
+                expect.objectContaining({
+                    id: '$exception',
+                    properties: [{ key: "issue_id = 'issue-uuid'", type: PropertyFilterType.HogQL }],
+                }),
             ],
         })
     })
