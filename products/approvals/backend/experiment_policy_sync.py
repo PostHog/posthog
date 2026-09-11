@@ -83,11 +83,12 @@ def sync_experiment_policies() -> None:
                 updated += 1
 
         orphans = [
-            mirror.id
+            mirror
             for mirror in ApprovalPolicy.objects.filter(action_key__in=SYNCED_ACTION_KEYS)
             if (mirror.organization_id, mirror.team_id, mirror.action_key) not in live
         ]
-        ApprovalPolicy.objects.filter(id__in=orphans).delete()
+        for orphan in orphans:
+            orphan.delete()
 
     logger.info("sync_experiment_policies.complete", created=created, updated=updated, deleted=len(orphans))
 
