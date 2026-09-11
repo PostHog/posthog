@@ -1555,6 +1555,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                     to_attr="jobs",
                 ),
             )
+            # Both serializers read `folder.id` and `folder.name`, so without the join Django
+            # fetches the folder once per foldered view.
+            .select_related("folder")
             .exclude(deleted=True)
             .order_by(self.ordering)
         )
