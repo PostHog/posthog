@@ -87,12 +87,24 @@ CHECK_RE='[A-Za-z0-9 ()._/&,+-]{1,120}'
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-# The newest trunk-io[bot] comment that reports merge state. Test Analytics comments share the
-# author but report flake counts, not queue state. Trunk also answers `/trunk merge` commands
-# with a short reply comment ("This PR is already queued as a stacked merge"), and that reply
-# outranks the sticky comment by update time until the sticky is next rewritten. Every queue
-# state wording carries a merge-queue dashboard link or the sticky's own HTML marker, and the
-# replies carry neither, so prefer the comments that do.
+# Picks the newest comment that reports merge state, from `<updated_at>\t<body>` lines.
+#
+# Trunk answers a `/trunk merge` command with a short reply comment ("This PR is already queued as
+# a stacked merge"), and that reply outranks the sticky comment by update time until the sticky is
+# next rewritten. Every queue state wording carries a merge-queue dashboard link or the sticky's
+# own HTML marker, and the replies carry neither, so prefer the comments that do. Falling back to
+# the newest line matters: a PR whose sticky has not been written yet has only replies to read.
+prefer_queue_comment() {
+    local bodies=$1
+    if grep -qE 'app\.trunk\.io/|<!-- Trunk Merge -->' "$bodies"; then
+        grep -E 'app\.trunk\.io/|<!-- Trunk Merge -->' "$bodies" | sort -r | head -1 | cut -f2-
+    else
+        sort -r "$bodies" | head -1 | cut -f2-
+    fi
+}
+
+# Every trunk-io[bot] comment on the PR, newest last. Test Analytics comments share the author
+# but report flake counts, not queue state, so they are dropped before the preference runs.
 sticky_body() {
     local pr=$1 pg=1 out
     : >"$TMP/bodies"
@@ -109,32 +121,52 @@ sticky_body() {
         pg=$((pg + 1))
         [ "$pg" -gt 5 ] && break
     done
-    if grep -qE 'app\.trunk\.io/|<!-- Trunk Merge -->' "$TMP/bodies"; then
-        grep -E 'app\.trunk\.io/|<!-- Trunk Merge -->' "$TMP/bodies" | sort -r | head -1 | cut -f2-
-    else
-        sort -r "$TMP/bodies" | head -1 | cut -f2-
-    fi
+    prefer_queue_comment "$TMP/bodies"
 }
 
-# What reaches the agent on an unrecognized wording. The sticky comment is rewritten in place,
-# so without this the wording that produced `unknown` is gone by the time anyone looks.
-#
-# The output is base64 because the wording is not trusted prose. Trunk quotes repo-controlled
-# text into its comments, including check names and the titles of the PRs in a batch, and anyone
-# can open a PR on this public repo. A sweep that holds requeue credentials must never read that
-# text as an instruction, so it never sees the characters. Base64 still carries the whole wording
-# to whoever writes the next classify() pattern, who decodes it with `base64 -d`.
-#
-# Links, HTML, numbers and SHAs are dropped before encoding so the diagnostic cannot carry a job
-# URL or a SHA either, and so the same wording fingerprints identically across attempts.
-fingerprint() {
+# Links, HTML, numbers and SHAs are dropped so that no diagnostic built from the wording can
+# carry a job URL or a SHA, and so that the same wording always reduces to the same text.
+normalize_wording() {
     printf '%s' "$1" |
         sed -E 's#https?://[^ )]+##g; s/<[^>]*>//g; s/\[[^]]*\]\(\)//g; s/[0-9a-f]{40}//g; s/#?[0-9]+//g' |
         tr -c 'A-Za-z .,:;!?()-' ' ' |
         tr -s ' ' |
-        cut -c1-160 |
-        base64 |
-        tr -d '\n'
+        cut -c1-160
+}
+
+sha256_hex() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256
+    else
+        openssl dgst -sha256
+    fi | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^[0-9a-f]{64}$/) { print $i; exit } }'
+}
+
+# What reaches the agent on an unrecognized wording, and what deliberately does not.
+#
+# The wording is untrusted input. Trunk quotes repo-controlled text into its comments, including
+# check names and the titles of the PRs in a batch, and anyone can open a PR on this public repo.
+# A sweep that holds requeue credentials must never receive that text, and an encoding is not a
+# control, because a model can decode one. So the agent gets a one-way digest and nothing else.
+#
+# The digest is a real diagnostic on its own. It is stable for a given wording, so it says whether
+# the same unrecognized wording is recurring across PRs and sweeps, and it lets whoever adds the
+# next classify() pattern confirm they wrote it against the wording that produced this `unknown`.
+fingerprint() {
+    normalize_wording "$1" | sha256_hex | cut -c1-16
+}
+
+# The wording itself is kept only when the caller opts in by setting MQ_FINGERPRINT_DIR, which the
+# unattended sweep leaves unset. An operator reading the file is a person who can judge the text;
+# the sweep is not, which is the whole reason the digest exists.
+retain_wording() {
+    local digest=$1 body=$2 dir=${MQ_FINGERPRINT_DIR:-}
+    [ -n "$dir" ] || return 1
+    mkdir -p "$dir" || return 1
+    normalize_wording "$body" >"$dir/$digest.txt" || return 1
+    printf '%s/%s.txt' "$dir" "$digest"
 }
 
 # Order matters: every "removed from the merge queue" wording shares a prefix, and the reason
@@ -195,16 +227,20 @@ pulls_pages() {
 # the attempt covered it (`ahead` or `identical`), and not when the branch was pushed to after
 # the attempt started (`diverged`). Nothing on the shadow PR itself carries this, and the uuid
 # in its ref is random.
+compare_verdict() {
+    case "$1" in
+        ahead | identical) echo yes ;;
+        behind | diverged) echo no ;;
+        *) echo unknown ;;
+    esac
+}
+
 covers_head() {
     local sha=$1 head=$2 out status
     out=$(api_json "repos/$repo/compare/$head...$sha?per_page=1") ||
         fail "GitHub read failed: compare $head...$sha"
     status=$(printf '%s' "$out" | jq -r '.status // empty' 2>/dev/null) || fail "unreadable compare $head...$sha"
-    case "$status" in
-        ahead | identical) echo yes ;;
-        behind | diverged) echo no ;;
-        *) echo unknown ;;
-    esac
+    compare_verdict "$status"
 }
 
 current_head_of() {
@@ -251,7 +287,7 @@ attempts_for() {
 # here so that the file can be sourced with no arguments, which is how the tests reach classify(),
 # fingerprint() and the attempt selection without a GitHub read.
 main() {
-    local cmd pr head_oid pages body state check job_url testing_pr
+    local cmd pr head_oid pages body state digest retained check job_url testing_pr
     cmd=${1:-}
     repo=${2:-}
     [ -n "$cmd" ] && [ -n "$repo" ] || usage
@@ -271,7 +307,11 @@ main() {
             fi
             state=$(classify "$body")
             echo "state=$state"
-            if [ "$state" = unknown ]; then echo "fingerprint_b64=$(fingerprint "$body")"; fi
+            if [ "$state" = unknown ]; then
+                digest=$(fingerprint "$body")
+                echo "fingerprint_sha=$digest"
+                retained=$(retain_wording "$digest" "$body") && echo "fingerprint_file=$retained"
+            fi
             if printf '%s' "$body" | grep -qiE '\bstack(ed)?\b'; then echo "stacked=yes"; fi
             # shellcheck disable=SC2016 # the backticks are literal Markdown, not expansion
             check=$(printf '%s' "$body" | grep -oE '\[`'"$CHECK_RE"'`\]' | head -1 | sed -E 's/^\[`//; s/`\]$//' || true)
