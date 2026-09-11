@@ -140,7 +140,7 @@ export const MCPDiscoverCandidateApi = zod
             .number()
             .nullable()
             .describe(
-                'The value candidates are ordered by: relevance and score combined, weighted toward relevance. Null when the intent held no words worth matching on, in which case order falls back to `score`.'
+                'The value candidates are ordered by: relevance and score combined, weighted toward relevance. Null in two cases. When the intent held no words worth matching on, ordering falls back to `score`. When the ranking version has no completed run, `score` is 0 for every candidate and ordering falls back to `relevance`.'
             ),
         why: zod
             .record(zod.string(), zod.unknown())
@@ -207,7 +207,7 @@ export const MCPDiscoverResponseApi = zod
                             .number()
                             .nullable()
                             .describe(
-                                'The value candidates are ordered by: relevance and score combined, weighted toward relevance. Null when the intent held no words worth matching on, in which case order falls back to `score`.'
+                                'The value candidates are ordered by: relevance and score combined, weighted toward relevance. Null in two cases. When the intent held no words worth matching on, ordering falls back to `score`. When the ranking version has no completed run, `score` is 0 for every candidate and ordering falls back to `relevance`.'
                             ),
                         why: zod
                             .record(zod.string(), zod.unknown())
