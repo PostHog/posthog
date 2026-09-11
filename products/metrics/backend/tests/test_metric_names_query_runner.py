@@ -104,12 +104,9 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = MetricNamesQueryRunner(team=self.team, search=search)
         self.assertEqual([row["name"] for row in runner.run()], expected)
 
-    def test_reads_series_written_without_a_raw_datapoint_row(self):
-        # seed_metric_event writes metric_series1 + metric_samples1 and no metrics1
-        # row, so this is the one test that fails if the runner goes back to
-        # aggregating posthog.metrics. Seeding twice lands two unmerged
-        # ReplacingMergeTree parts for one fingerprint, which must still collapse
-        # to a single picker row without FINAL.
+    def test_collapses_unmerged_series_parts_without_final(self):
+        # Seeding twice lands two unmerged ReplacingMergeTree parts for one
+        # fingerprint, which must still collapse to a single picker row.
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
         for offset in (10, 1):
             seed_metric_event(
