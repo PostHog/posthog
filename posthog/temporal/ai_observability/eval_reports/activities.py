@@ -234,6 +234,7 @@ async def fetch_due_eval_reports_activity(
         candidates.rows,
         build_payload=lambda rows: FetchDueEvalReportsOutput(
             report_ids=[report_id for report_id, _team_id in rows],
+            team_by_report_id=dict(rows),
             report_occurrence_keys={
                 report_id: candidates.occurrence_keys[report_id]
                 for report_id, _team_id in rows
@@ -280,6 +281,7 @@ async def fetch_due_eval_reports_activity(
     record_coordinator_reports_found(len(report_ids), "scheduled")
     return FetchDueEvalReportsOutput(
         report_ids=report_ids,
+        team_by_report_id=dict(selection.items),
         report_occurrence_keys={
             report_id: candidates.occurrence_keys[report_id]
             for report_id in report_ids

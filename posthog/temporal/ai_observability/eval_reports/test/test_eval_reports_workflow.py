@@ -222,6 +222,55 @@ async def test_scheduled_coordinator_acknowledges_cursor_after_child_starts() ->
 
 
 @pytest.mark.asyncio
+async def test_scheduled_coordinator_acknowledges_the_discovery_snapshot() -> None:
+    events: list[str] = []
+    acknowledged_inputs: list[AckEvalReportCursorRowsInput] = []
+
+    async def fake_execute_activity(activity, inputs, **_kwargs):
+        if activity is fetch_due_eval_reports_activity:
+            return FetchDueEvalReportsOutput(
+                report_ids=["report-a"],
+                team_by_report_id={"report-a": 42},
+                cursor_before="41",
+                region="eu",
+            )
+        if activity is ack_eval_report_cursor_rows_activity:
+            events.append("ack")
+            acknowledged_inputs.append(inputs)
+            return True
+        raise AssertionError(f"unexpected activity: {activity}")
+
+    async def fake_start_child_workflow(*_args, **_kwargs):
+        events.append("start")
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
+            new=fake_execute_activity,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.start_child_workflow",
+            side_effect=fake_start_child_workflow,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.patched",
+            return_value=True,
+        ),
+    ):
+        await ScheduleAllEvalReportsWorkflow().run(ScheduleAllEvalReportsWorkflowInputs())
+
+    assert events == ["start", "ack"]
+    assert acknowledged_inputs == [
+        AckEvalReportCursorRowsInput(
+            trigger_type="scheduled",
+            region="eu",
+            cursor_before="41",
+            report_rows=[("report-a", 42)],
+        )
+    ]
+
+
+@pytest.mark.asyncio
 async def test_count_coordinator_acknowledges_cursor_after_due_child_starts() -> None:
     events: list[str] = []
 

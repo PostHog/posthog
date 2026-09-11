@@ -569,6 +569,8 @@ async def _ack_eval_report_cursors(
         trigger_type,
         region,
         result.cursor_before,
+        team_by_report_id=result.team_by_report_id if trigger_type == "scheduled" else None,
+        use_snapshot_activity=trigger_type == "scheduled" and result.team_by_report_id is not None,
         activity_schedule_to_close_timeout=activity_schedule_to_close_timeout,
     )
 

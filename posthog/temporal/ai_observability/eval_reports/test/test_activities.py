@@ -697,6 +697,30 @@ class TestCountTriggeredReportChecks(BaseTest):
         assert advanced is True
         assert TemporalSchedulerState.objects.get(scheduler=scheduler, region="test").discovery_cursor == str(team_id)
 
+    def test_scheduled_cursor_acknowledgement_uses_the_snapshot_after_a_report_is_deleted(self):
+        report = self._create_report(
+            frequency=EvaluationReport.Frequency.SCHEDULED,
+            rrule="FREQ=HOURLY",
+            starts_at=timezone.now() - dt.timedelta(hours=5),
+        )
+        scheduler = "eval_reports_scheduled"
+        TemporalSchedulerState.objects.create(scheduler=scheduler, region="test", discovery_cursor="41")
+        report_id = str(report.id)
+        team_id = report.team_id
+        report.delete()
+
+        advanced = _ack_eval_report_cursor_rows(
+            AckEvalReportCursorRowsInput(
+                trigger_type="scheduled",
+                region="test",
+                cursor_before="41",
+                report_rows=[(report_id, team_id)],
+            )
+        )
+
+        assert advanced is True
+        assert TemporalSchedulerState.objects.get(scheduler=scheduler, region="test").discovery_cursor == str(team_id)
+
     def test_fetch_candidates_groups_by_team_and_chunks_by_width(self):
         # One check activity handles one group, so a group must never span teams (its counts
         # would run against the wrong team's data) nor exceed the per-query width cap. The
