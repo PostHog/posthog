@@ -5361,6 +5361,10 @@ importers:
         version: 4.98.0(@cloudflare/workers-types@4.20260608.1)
 
   services/oauth-proxy:
+    dependencies:
+      jose:
+        specifier: ^6.2.3
+        version: 6.2.3
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20260120.0

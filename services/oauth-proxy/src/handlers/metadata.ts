@@ -1,56 +1,77 @@
+import { POSTHOG_US_BASE_URL, proxyOrigin } from '@/lib/constants'
+
 /**
- * OAuth 2.0 Authorization Server Metadata (RFC 8414)
- *
- * Returns metadata pointing to oauth.posthog.com endpoints.
- * MCP clients and other OAuth integrations use this to discover where to register,
- * authorize, and exchange tokens.
- *
- * We always cache the information exposed by the authoritative source - us.posthog.com
- * and simply alter the endpoint-related fields to point to oauth.posthog.com.
- *
- * The actual underlying metadata is defined in posthog/api/oauth/views.py#OAuthAuthorizationServerMetadataView.get()
+ * Discovery documents, fetched from the authoritative source (us.posthog.com) and rewritten so
+ * every endpoint they name points at this proxy. Both are built in posthog/api/oauth/metadata.py.
  */
 
-interface WellKnownOAuthAuthorizationServerMetadata {
-    issuer: string
-    authorization_endpoint: string
-    token_endpoint: string
-    revocation_endpoint: string
-    introspection_endpoint: string
-    userinfo_endpoint: string
-    jwks_uri: string
-    registration_endpoint: string
-    scopes_supported: string[]
-    response_types_supported: string[]
-    response_modes_supported: string[]
-    grant_types_supported: string[]
-    authorization_grant_profiles_supported: string[]
-    token_endpoint_auth_methods_supported: string[]
-    code_challenge_methods_supported: string[]
-    service_documentation: string
-    client_id_metadata_document_supported: boolean
+const CACHE_TTL_MS = 600 * 1000
+
+// `posthog_base_url` names the region a token came from rather than an endpoint to call, so it
+// keeps its regional value while every other regional URL is rewritten.
+const REGIONAL_VALUE_FIELDS = ['posthog_base_url']
+
+type Metadata = Record<string, unknown>
+
+interface CachedDocument {
+    body: string
+    cachedUntil: number
 }
 
-let authoritativeMetadataCache: WellKnownOAuthAuthorizationServerMetadata | null = null
-let cachedUntil: Date | null = null
+const cache = new Map<string, CachedDocument>()
 
-// We do not have to worry about local development since the proxy is not used when developing the MCP locally.
-async function fetchAuthoritativeMetadata(): Promise<WellKnownOAuthAuthorizationServerMetadata> {
-    const response = await fetch('https://us.posthog.com/.well-known/oauth-authorization-server')
+async function fetchAuthoritativeMetadata(path: string): Promise<Metadata> {
+    const response = await fetch(`${POSTHOG_US_BASE_URL}${path}`)
     if (!response.ok) {
-        throw new Error(`Failed to fetch authoritative metadata: ${response.statusText}`)
+        throw new Error(`Failed to fetch ${path}: ${response.statusText}`)
     }
 
-    return response.json() as Promise<WellKnownOAuthAuthorizationServerMetadata>
+    return response.json() as Promise<Metadata>
 }
 
-export async function handleMetadata(request: Request): Promise<Response> {
-    if (!authoritativeMetadataCache || !cachedUntil || cachedUntil < new Date()) {
+/**
+ * A rule rather than a field list, so an endpoint added to posthog/api/oauth/metadata.py is
+ * rewritten here without a matching change.
+ */
+function rewriteEndpoints(value: unknown, origin: string): unknown {
+    if (typeof value === 'string') {
+        return value.startsWith(POSTHOG_US_BASE_URL) ? `${origin}${value.slice(POSTHOG_US_BASE_URL.length)}` : value
+    }
+
+    if (Array.isArray(value)) {
+        return value.map((item) => rewriteEndpoints(item, origin))
+    }
+
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(
+            Object.entries(value as Metadata).map(([field, nested]) => [
+                field,
+                REGIONAL_VALUE_FIELDS.includes(field) ? nested : rewriteEndpoints(nested, origin),
+            ])
+        )
+    }
+
+    return value
+}
+
+async function serveDocument(request: Request, path: string): Promise<Response> {
+    const origin = proxyOrigin(request)
+    const cacheKey = `${path}|${origin}`
+    const cached = cache.get(cacheKey)
+
+    if (!cached || cached.cachedUntil <= Date.now()) {
         try {
-            authoritativeMetadataCache = await fetchAuthoritativeMetadata()
-            cachedUntil = new Date(Date.now() + 600 * 1000) // cache for 10 minutes (600 seconds)
+            const metadata = await fetchAuthoritativeMetadata(path)
+            const body = JSON.stringify(rewriteEndpoints(metadata, origin))
+            cache.set(cacheKey, { body, cachedUntil: Date.now() + CACHE_TTL_MS })
         } catch (error) {
-            console.error('Failed to fetch metadata:', error)
+            console.error(
+                JSON.stringify({
+                    handler: 'metadata',
+                    path,
+                    error: error instanceof Error ? error.message : 'unknown error',
+                })
+            )
             return new Response(
                 JSON.stringify({
                     error: 'server_error',
@@ -61,26 +82,19 @@ export async function handleMetadata(request: Request): Promise<Response> {
         }
     }
 
-    const url = new URL(request.url)
-    const baseUrl = `${url.protocol}//${url.host}`
-
-    // Alter the endpoint-related fields to point to the oauth.posthog.com base domain.
-    const metadata: WellKnownOAuthAuthorizationServerMetadata = {
-        ...authoritativeMetadataCache,
-        issuer: baseUrl,
-        authorization_endpoint: `${baseUrl}/oauth/authorize/`,
-        token_endpoint: `${baseUrl}/oauth/token/`,
-        revocation_endpoint: `${baseUrl}/oauth/revoke/`,
-        introspection_endpoint: `${baseUrl}/oauth/introspect/`,
-        userinfo_endpoint: `${baseUrl}/oauth/userinfo/`,
-        jwks_uri: `${baseUrl}/.well-known/jwks.json`,
-        registration_endpoint: `${baseUrl}/oauth/register/`,
-    }
-
-    return new Response(JSON.stringify(metadata), {
+    return new Response(cache.get(cacheKey)!.body, {
         headers: {
             'Content-Type': 'application/json',
             'Cache-Control': 'public, max-age=3600',
+            'Access-Control-Allow-Origin': '*',
         },
     })
+}
+
+export async function handleMetadata(request: Request): Promise<Response> {
+    return serveDocument(request, '/.well-known/oauth-authorization-server')
+}
+
+export async function handleOpenIdConfiguration(request: Request): Promise<Response> {
+    return serveDocument(request, '/.well-known/openid-configuration')
 }

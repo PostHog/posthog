@@ -27,7 +27,6 @@ from oauth2_provider.oauth2_validators import OAuth2Validator
 from oauth2_provider.settings import oauth2_settings
 from oauth2_provider.views import (
     ClientProtectedScopedResourceView,
-    ConnectDiscoveryInfoView,
     JwksInfoView,
     RevokeTokenView,
     TokenView,
@@ -39,6 +38,7 @@ from oauthlib.oauth2 import InvalidClientIdError, InvalidGrantError
 from redis.exceptions import RedisError
 from rest_framework import serializers, status
 from rest_framework.authentication import SessionAuthentication
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -52,6 +52,7 @@ from posthog.api.oauth.cimd import (
     get_or_create_cimd_application,
     is_cimd_client_id,
 )
+from posthog.api.oauth.claims import OIDC_CLAIMS
 from posthog.api.oauth.client_assertion import (
     ClientAssertionError,
     ResolvedClientAssertion,
@@ -61,6 +62,12 @@ from posthog.api.oauth.client_assertion import (
 )
 from posthog.api.oauth.client_auth import verify_client_secret
 from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context
+from posthog.api.oauth.metadata import (
+    authorization_server_metadata,
+    client_manifest_scopes,
+    openid_provider_metadata,
+    protected_resource_metadata,
+)
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.helpers.oauth_pending_connection import (
     PendingOAuthConnection,
@@ -74,7 +81,6 @@ from posthog.models.oauth import (
     OAuthApplicationAccessLevel,
     OAuthGrant,
     OAuthRefreshToken,
-    TokenEndpointAuthMethod,
     lock_oauth_connection,
     revoke_oauth_session,
     revoke_oauth_token_family,
@@ -84,8 +90,6 @@ from posthog.scopes import (
     clamp_scopes_to_ceiling,
     downgrade_scopes_to_read_only,
     effective_ceiling,
-    get_oauth_scopes_supported,
-    get_scope_descriptions,
     grantable_ceiling,
     narrow_scopes_to_ceiling,
     resolve_ceiling,
@@ -1024,14 +1028,11 @@ class OAuthValidator(OAuth2Validator):
             return
         return super().revoke_token(token, token_type_hint, request, *args, **kwargs)
 
-    def get_additional_claims(self, request):
-        return {
-            "given_name": request.user.first_name,
-            "family_name": request.user.last_name,
-            "email": request.user.email,
-            "email_verified": request.user.is_email_verified or False,
-            "sub": str(request.user.uuid),
-        }
+    def get_additional_claims(self):
+        """Takes no request argument because django-oauth-toolkit derives `claims_supported`
+        only from a request-agnostic override (`_get_additional_claims_is_request_agnostic`).
+        """
+        return dict(OIDC_CLAIMS)
 
     def _sessions_revoked_at(self, application_id: uuid.UUID) -> datetime | None:
         return OAuthApplication.objects.filter(pk=application_id).values_list("sessions_revoked_at", flat=True).first()
@@ -2408,10 +2409,6 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         return self.get_token_response(request, token)
 
 
-class OAuthConnectDiscoveryInfoView(ConnectDiscoveryInfoView):
-    pass
-
-
 class OAuthJwksInfoView(JwksInfoView):
     pass
 
@@ -2434,6 +2431,24 @@ class _PublicMetadataView(APIView):
     def base_url(self) -> str:
         return absolute_uri().rstrip("/")
 
+    def document(self, metadata: dict) -> JsonResponse:
+        response = JsonResponse(metadata)
+        # A browser-based client reads discovery cross-origin before it holds any credential.
+        response["Access-Control-Allow-Origin"] = "*"
+        return response
+
+
+class OAuthConnectDiscoveryInfoView(_PublicMetadataView):
+    """
+    OpenID Provider Metadata (OpenID Connect Discovery 1.0).
+    """
+
+    def get(self, request, *args, **kwargs):
+        if not oauth2_settings.OIDC_ENABLED:
+            raise NotFound()
+
+        return self.document(openid_provider_metadata(self.base_url()))
+
 
 class OAuthAuthorizationServerMetadataView(_PublicMetadataView):
     """
@@ -2447,103 +2462,14 @@ class OAuthAuthorizationServerMetadataView(_PublicMetadataView):
     """
 
     def get(self, request, *args, **kwargs):
-        base_url = self.base_url()
-
-        all_scopes = get_oauth_scopes_supported()
-
-        metadata = {
-            # Required by RFC 8414
-            "issuer": base_url,
-            "authorization_endpoint": f"{base_url}/oauth/authorize/",
-            "token_endpoint": f"{base_url}/oauth/token/",
-            # Other endpoints
-            "revocation_endpoint": f"{base_url}/oauth/revoke/",
-            "introspection_endpoint": f"{base_url}/oauth/introspect/",
-            "userinfo_endpoint": f"{base_url}/oauth/userinfo/",
-            "jwks_uri": f"{base_url}/.well-known/jwks.json",
-            # Dynamic Client Registration (RFC 7591)
-            "registration_endpoint": f"{base_url}/oauth/register/",
-            # Supported features
-            "scopes_supported": all_scopes,
-            "response_types_supported": ["code"],
-            "response_modes_supported": ["query"],
-            "grant_types_supported": [
-                "authorization_code",
-                "refresh_token",
-                id_jag.JWT_BEARER_GRANT_TYPE,
-            ],
-            "authorization_grant_profiles_supported": [id_jag.ID_JAG_GRANT_PROFILE],
-            # Every method a client can register under (including CIMD's private_key_jwt) must
-            # appear here, or a client reads this document, picks a method we do not accept, and
-            # fails the token exchange.
-            "token_endpoint_auth_methods_supported": [
-                TokenEndpointAuthMethod.NONE.value,
-                TokenEndpointAuthMethod.CLIENT_SECRET_POST.value,
-                TokenEndpointAuthMethod.PRIVATE_KEY_JWT.value,
-            ],
-            "code_challenge_methods_supported": ["S256"],
-            # Service documentation
-            "service_documentation": "https://posthog.com/docs/api",
-            # Client ID Metadata Document (draft-ietf-oauth-client-id-metadata-document-00)
-            "client_id_metadata_document_supported": True,
-            # auth.md agent registration profile (https://workos.com/auth-md).
-            # Only flows that actually exist are advertised: ID-JAG identity
-            # assertions at the identity endpoint. The user-claimed device flow
-            # (claim_endpoint) and revocation receiver (events_endpoint) are not
-            # built yet, so they are deliberately omitted rather than advertised.
-            "agent_auth": {
-                "skill": f"{base_url}/auth.md",
-                "identity_endpoint": f"{base_url}/oauth/token/",
-                "identity_types_supported": ["identity_assertion"],
-                "identity_assertion": {
-                    "assertion_types_supported": ["urn:ietf:params:oauth:token-type:id-jag"],
-                },
-            },
-        }
-
-        if region_info := get_region_info():
-            metadata.update(region_info)
-
-        return JsonResponse(metadata)
+        return self.document(authorization_server_metadata(self.base_url(), get_region_info()))
 
 
 class OAuthProtectedResourceMetadataView(_PublicMetadataView):
-    """
-    OAuth 2.0 Protected Resource Metadata (RFC 9728).
-
-    PostHog already points agents at this document via the
-    `WWW-Authenticate: Bearer resource_metadata=...` header on 401 responses
-    (see posthog/exceptions.py). This serves the document it promises, letting
-    a client that hit a 401 discover which authorization server issues tokens
-    for this API, which scopes exist, and how to present the token.
-    """
+    """OAuth 2.0 Protected Resource Metadata (RFC 9728)."""
 
     def get(self, request, *args, **kwargs):
-        base_url = self.base_url()
-
-        metadata = {
-            # Required by RFC 9728
-            "resource": base_url,
-            # The same PostHog instance is its own authorization server
-            "authorization_servers": [base_url],
-            "scopes_supported": get_oauth_scopes_supported(),
-            "bearer_methods_supported": ["header"],
-            "resource_documentation": "https://posthog.com/docs/api",
-        }
-
-        return JsonResponse(metadata)
-
-
-# Identity and token-management scopes have no entry in get_scope_descriptions(),
-# which only covers obj:action scopes. Every bare scope in
-# `get_oauth_scopes_supported()` needs a line here, or the manifest prints the
-# scope name where its description belongs.
-_IDENTITY_SCOPE_DESCRIPTIONS = {
-    "openid": "Sign in and read your user identifier",
-    "profile": "Read your basic profile",
-    "email": "Read your email address",
-    "introspection": "Check whether a token you hold is still valid",
-}
+        return self.document(protected_resource_metadata(self.base_url()))
 
 
 class OAuthClientManifestView(_PublicMetadataView):
@@ -2556,17 +2482,9 @@ class OAuthClientManifestView(_PublicMetadataView):
     """
 
     def get(self, request, *args, **kwargs):
-        base_url = self.base_url()
-
-        descriptions = get_scope_descriptions()
-        scopes = [
-            (scope, descriptions[scope] if scope in descriptions else _IDENTITY_SCOPE_DESCRIPTIONS.get(scope, scope))
-            for scope in get_oauth_scopes_supported()
-        ]
-
         return render(
             request,
             "auth_md.md",
-            {"base_url": base_url, "scopes": scopes},
+            {"base_url": self.base_url(), "scopes": client_manifest_scopes()},
             content_type="text/markdown; charset=utf-8",
         )

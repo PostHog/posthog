@@ -1,4 +1,5 @@
-import { POSTHOG_EU_BASE_URL, POSTHOG_US_BASE_URL } from '@/lib/constants'
+import { POSTHOG_EU_BASE_URL, POSTHOG_US_BASE_URL, type Region } from '@/lib/constants'
+import { type SigningKeyEnv, proxyJwks } from '@/lib/idtoken'
 import { getClientMapping, getRegionSelection } from '@/lib/kv'
 import { proxyPostWithClientId, proxyToRegion, tryBothRegions } from '@/lib/proxy'
 import { errorResponse } from '@/lib/validation'
@@ -6,6 +7,11 @@ import { errorResponse } from '@/lib/validation'
 /**
  * Passthrough handlers for OAuth endpoints that simply need to reach the correct region.
  */
+
+// Every relying party fetches this on its first ID token verification. Signing keys rotate in months.
+const JWKS_CACHE_TTL_MS = 600 * 1000
+
+let cachedJwks: { body: string; cachedUntil: number } | null = null
 
 /**
  * Revoke token — route to the correct region based on client_id, fallback to try-both.
@@ -63,10 +69,72 @@ export async function handleUserInfo(request: Request): Promise<Response> {
 }
 
 /**
- * JWKS — proxy to US (keys should be the same across regions).
+ * JWKS — this proxy's signing keys, plus the regional ones.
+ *
+ * The regional keys stay published because the regional servers also sign the ID-JAG access
+ * tokens (`at+jwt`) clients receive through this proxy. Key ids differ, so a verifier selects
+ * the right key on its own.
  */
-export async function handleJwks(request: Request): Promise<Response> {
-    return proxyToRegion(request, 'us', '/.well-known/jwks.json')
+export async function handleJwks(request: Request, _kv: KVNamespace, env: SigningKeyEnv): Promise<Response> {
+    const cached = cachedJwks && cachedJwks.cachedUntil > Date.now() ? cachedJwks.body : null
+    if (cached) {
+        return jwksResponse(cached)
+    }
+
+    const [proxyKeys, ...regional] = await Promise.all([
+        proxyJwks(env),
+        regionalKeys(request, 'us'),
+        regionalKeys(request, 'eu'),
+    ])
+
+    const keys = [...proxyKeys, ...regional.flat()]
+    if (keys.length === proxyKeys.length) {
+        return new Response(JSON.stringify({ error: 'server_error' }), {
+            status: 502,
+            headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+        })
+    }
+
+    const body = JSON.stringify({ keys: dedupeByKid(keys) })
+    cachedJwks = { body, cachedUntil: Date.now() + JWKS_CACHE_TTL_MS }
+
+    return jwksResponse(body)
+}
+
+/** A region that is unreachable contributes nothing rather than failing the whole document. */
+async function regionalKeys(request: Request, region: Region): Promise<unknown[]> {
+    try {
+        const response = await proxyToRegion(request, region, '/.well-known/jwks.json')
+        if (!response.ok) {
+            return []
+        }
+        const body = (await response.json()) as { keys?: unknown[] }
+        return body.keys ?? []
+    } catch {
+        return []
+    }
+}
+
+function dedupeByKid(keys: unknown[]): unknown[] {
+    const seen = new Set<string>()
+    return keys.filter((key) => {
+        const kid = (key as { kid?: string }).kid
+        if (!kid || seen.has(kid)) {
+            return !kid
+        }
+        seen.add(kid)
+        return true
+    })
+}
+
+function jwksResponse(body: string): Response {
+    return new Response(body, {
+        headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': `public, max-age=${JWKS_CACHE_TTL_MS / 1000}`,
+            'Access-Control-Allow-Origin': '*',
+        },
+    })
 }
 
 async function routeByClientId(request: Request, kv: KVNamespace, path: string): Promise<Response> {
