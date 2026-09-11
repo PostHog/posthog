@@ -1159,10 +1159,17 @@ class TestScoutReportAPI(APIBaseTest):
         judge_mock.assert_not_awaited()
         assert SignalReport.objects.get(id=report_id).title == original_title
 
-    def test_emit_report_skips_autostart_and_artefacts_when_suppressed(self) -> None:
-        # An unsafe report is suppressed — it must not write autostart inputs or try to open a PR.
+    def test_emit_report_keeps_autostart_inputs_when_suppressed(self) -> None:
+        # A suppressed report opens no PR, but it keeps the inputs one needs: restoring it out of
+        # the archive must hand the reviewer a report with a repo, a priority and its reviewers,
+        # not one stripped of everything that makes it actionable.
         run = _make_run(self.team)
-        payload = self._payload(repository="PostHog/PostHog", priority="P1", priority_explanation="x")
+        payload = self._payload(
+            repository="PostHog/PostHog",
+            priority="P1",
+            priority_explanation="x",
+            suggested_reviewers=[{"github_login": "octocat"}],
+        )
         with (
             _safe_judge(choice=False, explanation="unsafe"),
             patch(EMBED_PATH),
@@ -1171,10 +1178,38 @@ class TestScoutReportAPI(APIBaseTest):
             response = self.client.post(self._emit_url(str(run.id)), data=payload, format="json")
         assert response.json()["emitted"] is False
         autostart.assert_not_awaited()
-        assert (
-            self._latest_artefact(response.json()["report_id"], SignalReportArtefact.ArtefactType.REPO_SELECTION)
-            is None
+        report_id = response.json()["report_id"]
+        repo = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.REPO_SELECTION)
+        assert repo is not None and '"posthog/posthog"' in repo.content
+        assert self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT) is not None
+        reviewers = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS)
+        assert reviewers is not None and "octocat" in reviewers.content
+
+    def test_emit_report_never_spends_the_selection_sandbox_on_a_suppressed_report(self) -> None:
+        # The free-form selector reasons over the very prose the judge rejected, so a suppressed
+        # report must not reach it, even carrying the priority + reviewers that signal PR intent.
+        run = _make_run(self.team)
+        payload = self._payload(
+            priority="P1",
+            priority_explanation="x",
+            suggested_reviewers=[{"github_login": "octocat"}],
         )
+        with (
+            _safe_judge(choice=False, explanation="unsafe"),
+            patch(EMBED_PATH),
+            patch(AUTOSTART_PATH, new=AsyncMock()),
+            patch(
+                "products.signals.backend.scout_harness.tools.report._connected_repositories",
+                return_value=[],
+            ),
+            patch(
+                "products.signals.backend.report_generation.select_repo.select_repository_for_team",
+                new=AsyncMock(),
+            ) as select_repo,
+        ):
+            response = self.client.post(self._emit_url(str(run.id)), data=payload, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        select_repo.assert_not_awaited()
 
     @parameterized.expand(
         [

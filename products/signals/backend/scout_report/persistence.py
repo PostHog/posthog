@@ -174,9 +174,8 @@ def create_scout_report(
     in-txn, since it spawns a Task), so the `suggested_reviewers` append opts out of the model's
     autostart re-evaluation hook, mirroring `create_custom_agent_ready_report`.
 
-    `charts`, when supplied, become the report's `charts` — the queries the inbox renders on it.
-    Unlike the autostart inputs they're written whatever the judged status, so a suppressed report
-    keeps the exhibits behind it for whoever reviews the suppression.
+    `charts`, when supplied, become the report's `charts` — the queries the inbox renders on it, so
+    a suppressed report keeps the exhibits behind it for whoever reviews the suppression.
 
     `suggested_prompts`, when supplied, become the prompts (questions or next-step actions) the
     inbox offers above the report's "Ask AI" box. Written on the same terms as `charts`, and for

@@ -78,6 +78,7 @@ from products.signals.backend.artefact_schemas import (
     ArtefactContentValidationError,
     ChannelAssignment,
     Dismissal,
+    SafetyJudgment,
     SuggestedReviewers,
     SummaryChange,
     TitleChange,
@@ -118,6 +119,7 @@ from products.signals.backend.models import (
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
+from products.signals.backend.receivers import is_safety_suppressed
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -2591,9 +2593,15 @@ class SignalReportViewSet(
             # "potential" on a suppressed report means "restore" (un-archive): return it to the state
             # it held before suppression when that was a researched, user-visible report, instead of
             # always dropping back to potential. snooze_for is irrelevant here and ignored.
-            effective_target = target_status
-            if report.status == SignalReport.Status.SUPPRESSED and target_status == SignalReport.Status.POTENTIAL:
-                effective_target = report.restore_target_status()
+            # Read before the transition, which overwrites `report.status`.
+            is_restore = (
+                report.status == SignalReport.Status.SUPPRESSED and target_status == SignalReport.Status.POTENTIAL
+            )
+            effective_target = report.restore_target_status() if is_restore else target_status
+            restored_to_inbox = is_restore and effective_target in (
+                SignalReport.Status.READY,
+                SignalReport.Status.PENDING_INPUT,
+            )
 
             effective_snooze_for = snooze_for if target == "potential" else None
 
@@ -2683,6 +2691,25 @@ class SignalReportViewSet(
                 # just-written reason/note instead of the previous (or empty) dismissal.
                 if hasattr(report, "prefetched_dismissal_artefacts"):
                     del report.prefetched_dismissal_artefacts
+
+            if restored_to_inbox:
+                # A restore back into the inbox is a person overruling the judge that archived the
+                # report. Record that override as the report's newest safety verdict, attributed to
+                # them, so every later reader sees the verdict that now holds rather than the
+                # superseded machine one. Only written over an unsafe verdict: a report archived by
+                # a human dismissal carries no safety call to overrule, and inventing one would
+                # claim a judgment nobody made.
+                if is_safety_suppressed(str(report.id), self.team.id):
+                    SignalReportArtefact.append_status(
+                        team_id=self.team.id,
+                        report_id=str(report.id),
+                        content=SafetyJudgment(choice=True),
+                        attribution=self._request_attribution(),
+                    )
+                # The report is eligible for a draft PR again, and auto-start reads its current
+                # artefacts. Idempotent, so a report that already has an implementation task (its PR
+                # was closed by the suppression) gets no second one.
+                SignalReportArtefact.schedule_autostart_reevaluation(team_id=self.team.id, report_id=str(report.id))
 
         # A dismissal (transition into SUPPRESSED) or a resolve closes the linked implementation PR —
         # handled centrally by the post_save receiver (receivers.close_pr_when_report_dismissed), so

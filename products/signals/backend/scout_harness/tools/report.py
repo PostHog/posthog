@@ -708,12 +708,13 @@ async def _resolve_report_repository(
     `NO_REPO` / `owner/repo` cases are validated by `_normalize_repository` up front (before the judge),
     so by here an explicit repo is already well-formed; only the free-form path remains.
 
-    `wants_full_selection` is the PR-intent gate (`_wants_repo_selection`). When it is false the report
-    surfaced without the inputs the selection sandbox exists to serve, so the free-form branch scans
-    the report content for one linked connected repository instead — a cheap deterministic match that
-    seeds a `repo_selection` artefact so a person clicking Create PR has a target. That inferred
-    selection is `autostart_eligible=False`: the report never signalled PR intent, so it must not open
-    one on its own."""
+    `wants_full_selection` is the PR-intent gate (`_wants_repo_selection`), and emit additionally
+    holds it false for a report the judge did not surface, because the sandbox reasons over the very
+    prose that judge rejected, so an unsurfaced report must never pay for it or feed it. When it is false
+    the free-form branch scans the report content for one linked connected repository instead — a
+    cheap deterministic match that seeds a `repo_selection` artefact so a person clicking Create PR
+    has a target. That inferred selection is `autostart_eligible=False`: the report never signalled
+    PR intent, so it must not open one on its own."""
     repository = _normalize_repository(repository)
     if repository == NO_REPO:
         return RepoSelectionResult(repository=None, reason="Scout passed NO_REPO; report lands without a draft PR.")
@@ -1210,7 +1211,9 @@ async def emit_report(
 
     `repository` / `priority` / `priority_explanation` / `suggested_reviewers` are the optional
     autostart inputs (custom_agent parity): with them a surfaced, immediately-actionable report can
-    open a draft PR. They're only resolved/written when the report actually surfaces.
+    open a draft PR. They are written whatever the judged status, so a report the judge suppressed
+    at birth still carries them if a person restores it (see `SignalReport.restore_target_status`);
+    only the free-form repo-selection sandbox stays behind the surfacing gate.
 
     `charts` are the optional queries the inbox renders on the report, and `suggested_prompts` the
     optional prompts (questions or next-step actions) it offers above the report's "Ask AI" box.
@@ -1282,19 +1285,15 @@ async def emit_report(
         reviewer_reasons=_reviewer_reasons(reviewers),
     )
     surfaced = _surfaced(judgement.status)
-    repo_selection = (
-        await _resolve_report_repository(
-            team_id=team.id,
-            repository=repository,
-            title=title,
-            summary=summary,
-            evidence=evidence,
-            wants_full_selection=_wants_repo_selection(repository, priority_assessment, reviewers),
-        )
-        if surfaced
-        else None
+    repo_selection = await _resolve_report_repository(
+        team_id=team.id,
+        repository=repository,
+        title=title,
+        summary=summary,
+        evidence=evidence,
+        wants_full_selection=surfaced and _wants_repo_selection(repository, priority_assessment, reviewers),
     )
-    if surfaced and reviewers is not None:
+    if reviewers is not None:
         # Re-stamp owner provenance from the live owner set after the judge wait (see
         # `_stamp_owner_provenance`) — autostart trusts the stored stamp.
         reviewers = await database_sync_to_async(_stamp_owner_provenance, thread_sensitive=False)(
@@ -1311,8 +1310,8 @@ async def emit_report(
             safety=judgement.safety,
             actionability=judgement.actionability,
             repo_selection=repo_selection,
-            priority=priority_assessment if surfaced else None,
-            suggested_reviewers=reviewers if surfaced else None,
+            priority=priority_assessment,
+            suggested_reviewers=reviewers,
             charts=chart_contents,
             # A judged-unsafe report keeps its prose for audit, but not its prompts: a suppressed report
             # is still reachable from the Dismissed view, where a click would hand the judge-rejected
@@ -1421,19 +1420,15 @@ def emit_report_sync(
         reviewer_reasons=_reviewer_reasons(reviewers),
     )
     surfaced = _surfaced(judgement.status)
-    repo_selection = (
-        async_to_sync(_resolve_report_repository)(
-            team_id=team.id,
-            repository=repository,
-            title=title,
-            summary=summary,
-            evidence=evidence,
-            wants_full_selection=_wants_repo_selection(repository, priority_assessment, reviewers),
-        )
-        if surfaced
-        else None
+    repo_selection = async_to_sync(_resolve_report_repository)(
+        team_id=team.id,
+        repository=repository,
+        title=title,
+        summary=summary,
+        evidence=evidence,
+        wants_full_selection=surfaced and _wants_repo_selection(repository, priority_assessment, reviewers),
     )
-    if surfaced and reviewers is not None:
+    if reviewers is not None:
         # Re-stamp owner provenance from the live owner set after the judge wait (see
         # `_stamp_owner_provenance`) — autostart trusts the stored stamp.
         reviewers = _stamp_owner_provenance(team, reviewers, skill_name=run.skill_name)
@@ -1448,8 +1443,8 @@ def emit_report_sync(
             safety=judgement.safety,
             actionability=judgement.actionability,
             repo_selection=repo_selection,
-            priority=priority_assessment if surfaced else None,
-            suggested_reviewers=reviewers if surfaced else None,
+            priority=priority_assessment,
+            suggested_reviewers=reviewers,
             charts=chart_contents,
             # A judged-unsafe report keeps its prose for audit, but not its prompts: a suppressed report
             # is still reachable from the Dismissed view, where a click would hand the judge-rejected
