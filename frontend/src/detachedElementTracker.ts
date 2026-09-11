@@ -78,18 +78,12 @@ export interface DetachedElementRef {
 export interface DetachedPersistence {
     persistedCount: number
     persistedComponents: Map<string, number>
-    /** Feed back in as `seenPreviously` on the next scan. A WeakSet, so measuring retention cannot cause it. */
+    /** Feed back as `seenPreviously` next scan. A WeakSet, so measuring retention cannot cause it. */
     seenNow: WeakSet<Element>
 }
 
-/** Split the detached elements that outlived a scan interval from the ones that are only pending collection.
- *
- *  A scan counts every element detached from the document. Most of those are ordinary garbage the collector
- *  has not reached yet, and a page cannot force a collection. So a single count cannot tell a route that
- *  retains DOM apart from a route that merely happened to be open while another route's garbage was pending.
- *  That is why a route's total tracks how much the session navigated rather than what the route holds onto.
- *  An element still detached at the next scan has survived at least one collection opportunity, which makes
- *  it far more likely to be genuinely retained. */
+/** Count only the detached elements that outlived a scan interval. A page cannot force a collection, so a
+ *  single scan cannot tell retained DOM apart from garbage the collector has not reached yet. */
 export function measureDetachedPersistence(
     detached: readonly DetachedElementRef[],
     seenPreviously: WeakSet<Element>
@@ -106,7 +100,7 @@ export function measureDetachedPersistence(
         seenNow.add(element)
         if (seenPreviously.has(element)) {
             persistedCount++
-            // The head of the stack, which is what MemLens itself reports as an element's component name.
+            // The stack head, which is what MemLens itself reports as an element's component name.
             const component = info.componentStack?.[0]
             if (component) {
                 persistedComponents.set(component, (persistedComponents.get(component) ?? 0) + 1)
@@ -129,18 +123,12 @@ export function shouldCaptureDetachedElements(
     if (previousCount === null) {
         return true
     }
-    // A steady leak holds the total still while its elements survive scan after scan, so gating on
-    // the total alone would drop every scan that carries a persisted count.
+    // A steady leak holds the total still while its elements survive, so the total alone would gate it out.
     return currentCount !== previousCount || persistedCount !== previousPersistedCount
 }
 
-/** Drop the persistence series while keeping the whole-tab series intact.
- *
- *  MemLens's `stop()` discards its tracked element references, so a scanner restarted after the tab
- *  was hidden begins a new series from nothing. A persisted count is a comparison against the
- *  previous scan, so its baseline has to restart too, or a route delta is measured against a series
- *  that no longer exists. The detached totals are re-derived from a fresh walk on every scan, so
- *  their route baseline stays valid across the restart. */
+/** MemLens's `stop()` discards its tracked elements, so a scanner restarted after the tab was hidden begins
+ *  a new persistence series. The detached baseline survives: those totals come from a fresh walk each scan. */
 export function restartPersistenceSeries(state: DetachedElementTrackingState): DetachedElementTrackingState {
     return {
         ...state,
