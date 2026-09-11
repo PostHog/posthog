@@ -219,7 +219,7 @@ export const alertsLogic = kea<alertsLogicType>([
         alertsResponse: [
             { results: [], count: 0 } as { results: AlertType[]; count: number },
             {
-                loadAlerts: async () => {
+                loadAlerts: async (_, breakpoint) => {
                     const search = values.filters.search.trim()
 
                     const response = await api.alerts.list(undefined, {
@@ -228,6 +228,9 @@ export const alertsLogic = kea<alertsLogicType>([
                         ...(search ? { search } : {}),
                         ...(values.filters.createdBy !== 'All users' ? { created_by: values.filters.createdBy } : {}),
                     })
+                    // The user may have left the tab during the request; this aborts the stale
+                    // continuation so it does not read a store path that is already gone.
+                    breakpoint()
                     const results = response.results.filter((alert) => !values.deletedAlertIds.has(alert.id))
                     return {
                         results,
