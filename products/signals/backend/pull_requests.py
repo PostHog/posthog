@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import PullRequestLink
+from products.signals.backend.claim_display_name import claim_display_name
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 
 if TYPE_CHECKING:
@@ -139,7 +140,9 @@ def import_report_pull_requests(report: SignalReport, *, notify_reviewers: bool 
                 team_id=report.team_id,
                 report_id=report.id,
                 type="work_claim",
-                content=WorkClaim().model_dump_json(),
+                content=WorkClaim(
+                    display_name=claim_display_name(report, assignment_actor(assignment))
+                ).model_dump_json(),
                 actor_kind=assignment.actor_kind,
                 created_by_id=assignment.actor_user_id,
                 task_id=assignment_actor(assignment).task_id,

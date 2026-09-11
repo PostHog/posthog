@@ -1,3 +1,5 @@
+import json
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, call, patch
 
@@ -333,6 +335,56 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert assignment is not None
         assert assignment.actor_kind == SignalActorKind.AGENT
         assert assignment.actor_agent == "mcp"
+
+    @parameterized.expand(
+        [
+            ("codex", "Alex's Codex"),
+            ("claude-code", "Alex's Claude Code"),
+            ("mcp", "Alex's agent"),
+        ]
+    )
+    def test_external_claim_display_name_is_recorded_once(self, client_name, expected):
+        self.user.first_name = "Alex"
+        self.user.save(update_fields=["first_name"])
+        report = self._create_report()
+        response = self.client.post(
+            self._claim_url(report), data={}, format="json", headers=self._agent_headers(client_name)
+        )
+        assert response.status_code == status.HTTP_200_OK
+        claim = SignalReportArtefact.objects.get(report=report, type="work_claim")
+        assert json.loads(claim.content)["display_name"] == expected
+        self.user.first_name = "Renamed"
+        self.user.save(update_fields=["first_name"])
+        again = self.client.post(
+            self._claim_url(report), data={}, format="json", headers=self._agent_headers(client_name)
+        )
+        claim.refresh_from_db()
+        assert json.loads(claim.content)["display_name"] == expected
+        assert again.json()["assignee"]["claim_id"] == response.json()["assignee"]["claim_id"]
+
+    @parameterized.expand(
+        [
+            ("research", "Research agent"),
+            ("implementation", "Implementation agent"),
+            ("repo_selection", "Repository selection agent"),
+            ("scout:checkout", "Scout checkout"),
+            (None, "PostHog agent"),
+        ]
+    )
+    def test_internal_claim_display_name_uses_phase(self, phase, expected):
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        task = Task.objects.create(
+            team=self.team, created_by=self.user, title="Agent task", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        TaskRun.objects.create(team=self.team, task=task, state={"ai_stage": phase})
+        report = self._create_report()
+        response = self.client.post(
+            self._claim_url(report), data={}, format="json", headers={"X-PostHog-Task-Id": str(task.id)}
+        )
+        assert response.status_code == status.HTTP_200_OK
+        claim = SignalReportArtefact.objects.get(report=report, type="work_claim")
+        assert json.loads(claim.content)["display_name"] == expected
 
     def test_internal_task_claim_uses_task_attribution(self):
         Task = apps.get_model("tasks", "Task")

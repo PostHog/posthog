@@ -618,7 +618,9 @@ class CodeReview(BaseModel):
 
 
 class WorkClaim(BaseModel):
-    pass
+    display_name: str | None = Field(
+        default=None, description="Server-generated actor label at claim time. Null for older claims."
+    )
 
 
 class WorkRelease(BaseModel):

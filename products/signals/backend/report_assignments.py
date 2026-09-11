@@ -16,6 +16,7 @@ from posthog.models.user import User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import TaskRunArtefact, WorkClaim, WorkRelease
+from products.signals.backend.claim_display_name import claim_display_name
 from products.signals.backend.models import (
     InvalidStatusTransition,
     SignalReport,
@@ -119,7 +120,7 @@ def create_claim(report: SignalReport, actor: ArtefactAttribution) -> ReportClai
     claim = SignalReportArtefact.add_log(
         team_id=report.team_id,
         report_id=str(report.id),
-        content=WorkClaim(),
+        content=WorkClaim(display_name=claim_display_name(report, actor)),
         attribution=actor,
     )
     if actor.task_id:
