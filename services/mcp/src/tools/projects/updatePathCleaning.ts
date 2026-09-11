@@ -1,3 +1,4 @@
+import { RE2JS } from 're2js'
 import type { z } from 'zod'
 
 import { PathCleaningRulesUpdateSchema } from '@/schema/tool-inputs'
@@ -57,14 +58,8 @@ export function renumber(rules: PathCleaningRule[]): StoredPathCleaningRule[] {
 }
 
 function assertValidRegex(regex: string): void {
-    // The backend compiles these as re2; JS RegExp is only a best-effort typo check to fail
-    // fast on obviously-broken patterns (e.g. unbalanced parens). Strip a leading re2 inline
-    // flag group like `(?i)` first — it's valid re2 (and documented for path cleaning) but
-    // throws in JS. Patterns valid in re2 but not JS still save fine; the backend is the
-    // authority and rejects genuinely invalid ones on write.
-    const withoutLeadingInlineFlags = regex.replace(/^\(\?[imsUx]+\)/, '')
     try {
-        new RegExp(withoutLeadingInlineFlags)
+        RE2JS.compile(regex)
     } catch (error) {
         throw new Error(`Invalid regex "${regex}": ${(error as Error).message}`)
     }
@@ -177,30 +172,12 @@ export function applyOperations(
 }
 
 /**
- * Compile a re2 pattern into a JS RegExp for the approximate preview. Translates a leading
- * re2 inline-flag group (e.g. `(?i)`) into JS flags so patterns accepted by the tool don't
- * silently drop out of the preview. Returns null for patterns JS can't represent.
+ * Compile with the query engine's regex syntax, including scoped inline flags.
  */
-function compileForPreview(regex: string): RegExp | null {
-    const match = regex.match(/^\(\?([imsUx]+)\)/)
-    const inlineFlags = match ? match[1]! : ''
-    const pattern = match ? regex.slice(match[0].length) : regex
-    // Map the re2 flags JS supports; ignore U/x (no JS equivalent, and rare in path cleaning).
-    let flags = 'g'
-    if (inlineFlags.includes('i')) {
-        flags += 'i'
-    }
-    if (inlineFlags.includes('m')) {
-        flags += 'm'
-    }
-    if (inlineFlags.includes('s')) {
-        flags += 's'
-    }
+function compileForPreview(regex: string): RE2JS | null {
     try {
-        return new RegExp(pattern, flags)
+        return RE2JS.compile(regex)
     } catch {
-        // A rule using re2-only syntax may not compile under JS RegExp — skip it in the
-        // approximate preview rather than failing the whole call.
         return null
     }
 }
@@ -244,14 +221,17 @@ function applyChain(path: string, rules: PathCleaningRule[]): string {
         if (re === null) {
             continue
         }
-        out = out.replace(re, (match: string, ...rest: unknown[]): string => {
-            // Replacer arguments run (match, p1…pN, offset, whole string, named groups?). A group
-            // the pattern didn't fill arrives as undefined, so the first number is the offset and
-            // marks where the capture values stop.
-            const offsetIndex = rest.findIndex((arg) => typeof arg === 'number')
-            const captures = (offsetIndex === -1 ? [] : rest.slice(0, offsetIndex)) as (string | undefined)[]
-            return expandAlias(rule.alias, [match, ...captures])
-        })
+        const matcher = re.matcher(out)
+        let replaced = ''
+        let end = 0
+        while (matcher.find()) {
+            const start = Number(matcher.start())
+            const nextEnd = Number(matcher.end())
+            const groups = Array.from({ length: re.groupCount() + 1 }, (_, index) => matcher.group(index) ?? undefined)
+            replaced += out.slice(end, start) + expandAlias(rule.alias, groups)
+            end = nextEnd
+        }
+        out = replaced + out.slice(end)
     }
     return out
 }

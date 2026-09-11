@@ -1522,12 +1522,15 @@ describe('exec tool', () => {
             expect(result.hint).toContain('30')
         })
 
-        it('reports an invalid regex gracefully', async () => {
-            const exec = createExec([makeMockTool()])
-            await expect(exec.handler(mockContext, { command: 'search [invalid' })).rejects.toThrow(
-                /invalid regex pattern/i
-            )
-        })
+        it.each(['[invalid', '(?=query)', '(query)\\1'])(
+            'reports invalid or unsupported regex %s gracefully',
+            async (pattern) => {
+                const exec = createExec([makeMockTool()])
+                await expect(exec.handler(mockContext, { command: `search ${pattern}` })).rejects.toThrow(
+                    /invalid regex pattern/i
+                )
+            }
+        )
     })
 
     describe('flag-gated tool redirects', () => {

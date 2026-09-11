@@ -1,4 +1,3 @@
-import escapeStringRegexp from 'escape-string-regexp'
 import { deepEqual as equal } from 'fast-equals'
 import { Summary } from 'prom-client'
 
@@ -124,10 +123,34 @@ export function matchString(actual: string, expected: string, matching: StringMa
             }
         case StringMatching.Exact:
             return expected === actual
-        case StringMatching.Contains:
-            // Simulating SQL LIKE behavior (_ = any single character, % = any zero or more characters)
-            const adjustedRegExpString = escapeStringRegexp(expected).replace(/_/g, '.').replace(/%/g, '.*')
-            return new RegExp(adjustedRegExpString).test(actual)
+        case StringMatching.Contains: {
+            // Each cell is a prefix match at this UTF-16 offset: O(input × pattern) time,
+            // O(pattern) memory, with no backtracking or wildcard consumption of line terminators.
+            const matched = new Uint8Array(expected.length + 1)
+            matched[0] = 1
+            for (let j = 0; j < expected.length; j++) {
+                matched[j + 1] = expected[j] === '%' ? matched[j] : 0
+            }
+            if (matched[expected.length]) {
+                return true
+            }
+            for (let i = 0; i < actual.length; i++) {
+                const char = actual[i]
+                const wildcard = char !== '\n' && char !== '\r' && char !== '\u2028' && char !== '\u2029'
+                let previous = 1
+                for (let j = 0; j < expected.length; j++) {
+                    const saved = matched[j + 1]
+                    matched[j + 1] = expected[j] === '%'
+                        ? Number(Boolean(matched[j] || (saved && wildcard)))
+                        : Number(Boolean(previous && (expected[j] === '_' ? wildcard : expected[j] === char)))
+                    previous = saved
+                }
+                if (matched[expected.length]) {
+                    return true
+                }
+            }
+            return false
+        }
     }
 }
 

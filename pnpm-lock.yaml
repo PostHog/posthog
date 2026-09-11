@@ -5268,6 +5268,9 @@ importers:
       prosemirror-transform:
         specifier: ^1.10.4
         version: 1.10.4
+      re2js:
+        specifier: ^0.4.1
+        version: 0.4.1
       uuid:
         specifier: ^11.1.1
         version: 11.1.1

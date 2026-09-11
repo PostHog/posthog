@@ -1,4 +1,4 @@
-import { applyPathCleaning, applyPathCleaningRule, expandAlias } from './pathCleaningUtils'
+import { applyPathCleaning, applyPathCleaningRule, expandAlias, isValidPathCleaningRegex } from './pathCleaningUtils'
 
 // [name, alias, groups (index 0 is the whole match), expected]
 const EXPAND_CASES: [string, string, (string | undefined)[], string][] = [
@@ -18,6 +18,13 @@ describe('pathCleaningUtils', () => {
     })
 
     it.each([
+        ['Unicode character consumes a whole code point', '/😀/x', '/./', '/u/', '/u/x'],
+        ['empty matches advance and preserve the intervening text', 'abc', 'x*', '-', '-a-b-c-'],
+        ['scoped inline flag', '/ABC', '(?i:abc)', 'x', '/x'],
+        ['dotall inline flag', 'a\nb', '(?s)a.b', 'x', 'x'],
+        ['multiline inline flag', 'a\nb', '(?m)^b', 'x', 'a\nx'],
+        ['ungreedy inline flag', 'a1b2b', '(?U)a.*b', 'x', 'x2b'],
+        ['Unicode capture and suffix offsets', '😀/é/😀', '(é)', '[\\1]', '😀/[é]/😀'],
         // Reuses capture group 1, matching what ClickHouse replaceRegexpAll does on the backend.
         ['keeps a captured id', '/users/42/profile', '/users/(\\d+)/profile', '/users/\\1', '/users/42'],
         [
@@ -50,6 +57,8 @@ describe('pathCleaningUtils', () => {
         expect(applyPathCleaningRule('/x', { regex: '(', alias: '/y' })).toBe('/x')
         expect(applyPathCleaningRule('/x', { regex: '', alias: '/y' })).toBe('/x')
         expect(applyPathCleaningRule('/x', { regex: '(?i)', alias: '/y' })).toBe('/x')
+        expect(isValidPathCleaningRegex('(?=x)')).toBe(false)
+        expect(isValidPathCleaningRegex('(x)\\1')).toBe(false)
     })
 
     it('chains rules in order, each feeding the next', () => {

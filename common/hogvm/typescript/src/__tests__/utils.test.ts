@@ -1,9 +1,19 @@
 import { toHogDate, toHogDateTime } from '../stl/date'
-import { calculateCost, convertHogToJS, convertJSToHog, getNestedValue, unifyComparisonTypes } from '../utils'
+import { calculateCost, convertHogToJS, convertJSToHog, getNestedValue, like, unifyComparisonTypes } from '../utils'
 
 const PTR_COST = 8
 
 describe('hogvm utils', () => {
+    test.each([false, true])('LIKE preserves native UTF-16 behavior (caseInsensitive=%s)', (caseInsensitive) => {
+        const words = ['', 'a', 'A', '%', '_', '.', '\\', '\n', '\r', '\u2028', '\u2029', '😀', 'ſ', 'S', 'K', 'K', 'ß', 'σ', 'ς']
+        const samples = [...words, ...words.flatMap((a) => words.map((b) => a + b))]
+        for (const pattern of samples) {
+            const native = new RegExp(pattern.replaceAll(/[-/\\^$*+?.()|[\]{}]/g, '\\$&').replaceAll('%', '.*').replaceAll('_', '.'), caseInsensitive ? 'i' : undefined)
+            for (const input of samples) {
+                expect(like(input, pattern, caseInsensitive)).toBe(native.test(input))
+            }
+        }
+    })
     describe('unifyComparisonTypes temporal ordering', () => {
         // Regression: `is date after`/`is date before` filters compile to `toDateTime(x) > toDateTime(y)`,
         // and the VM's GT opcode does `unifyComparisonTypes(a, b)` then `a > b`. Two HogDateTime objects

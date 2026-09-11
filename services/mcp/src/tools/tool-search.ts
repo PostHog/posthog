@@ -1,10 +1,12 @@
+import { RE2JS } from 're2js'
+
 /**
  * Tool-search logic for `exec search` (src/tools/exec.ts).
  *
  * Two strategies live here:
  *
  *   - searchToolsRegex  — the original `exec search` predicate: one
- *     case-insensitive RegExp tested against name/title/description.
+ *     case-insensitive RE2 pattern tested against name/title/description.
  *   - searchToolsRanked — a forgiving, field-weighted token ranking so
  *     multi-word natural-language queries ("create dashboard insight") surface
  *     the relevant tools instead of matching nothing.
@@ -51,12 +53,18 @@ export function isRegexPattern(pattern: string): boolean {
     return REGEX_METACHARACTER.test(pattern)
 }
 
-/** The original `exec search` predicate, verbatim: a single case-insensitive
- *  RegExp tested against each tool's name, title, and description. Throws if the
- *  pattern is not a valid regex — callers surface their own error message. */
+/** A case-insensitive RE2 predicate across name, title, and description.
+ * Invalid or unsupported patterns throw so callers can surface their own error message. */
 export function searchToolsRegex<T extends SearchableTool>(tools: readonly T[], pattern: string): T[] {
-    const regex = new RegExp(pattern, 'i')
-    return tools.filter((t) => regex.test(t.name) || regex.test(t.title) || regex.test(t.description))
+    let regex: RE2JS
+    try {
+        regex = RE2JS.compile(pattern, RE2JS.CASE_INSENSITIVE)
+    } catch (error) {
+        throw new SyntaxError(`Invalid regular expression: ${(error as Error).message}`)
+    }
+    return tools.filter(
+        (t) => regex.matcher(t.name).find() || regex.matcher(t.title).find() || regex.matcher(t.description).find()
+    )
 }
 
 /** Forgiving, field-weighted token search. Splits the query on whitespace and

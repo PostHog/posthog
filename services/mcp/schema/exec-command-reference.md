@@ -7,7 +7,7 @@ In [CLI mode](/docs/model-context-protocol/faq#choosing-a-tool-mode), the defaul
 ```text
 learn <topic...> - load one or more learning topics
 tools — list available tool names
-search <regex_pattern> — search tools by JavaScript regex (matches name, title, description)
+search <regex_pattern> — search tools by RE2 regex (matches name, title, description; no lookaround or pattern backreferences)
 info [--json] <tool_name> — show tool name, description, and input schema (summarized if too large). Pass `--json` for raw JSON output.
 schema <tool_name> [field_path] — drill into a specific field schema (supports dot-notation, e.g. series, breakdownFilter.breakdowns)
 call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON input (--json returns JSON instead of optimized output in supported tools. Informational responses remain tagged and escaped in both MCP and the agent CLI. --confirm is required by the CLI for destructive tools.)

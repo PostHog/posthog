@@ -1,3 +1,5 @@
+import { RE2JS } from 're2js'
+
 import { PathCleaningFilter } from '~/types'
 
 /**
@@ -38,26 +40,18 @@ export function expandAlias(alias: string, groups: (string | undefined)[]): stri
 const RE2_INLINE_FLAGS = /^\(\?([imsUx]+)\)/
 
 /**
- * Compile a re2 pattern into a JS RegExp for the preview. re2 has no flags argument — it takes them
- * as a leading inline group like `(?i)`, which JavaScript rejects outright, so translate the ones JS
- * has an equivalent for. Everything else stays case-sensitive, matching re2's default.
+ * Compile with the query engine's regex syntax, including scoped inline flags.
  *
  * Kept in step with `compileForPreview` in the MCP `update-path-cleaning` tool, so both previews of
  * the same rule set agree with each other as well as with the query.
  */
-function compileForPreview(regex: string): RegExp | null {
-    const match = regex.match(RE2_INLINE_FLAGS)
-    const inlineFlags = match ? match[1]! : ''
-    const pattern = match ? regex.slice(match[0].length) : regex
-    if (!pattern) {
+function compileForPreview(regex: string): RE2JS | null {
+    if (!regex.replace(RE2_INLINE_FLAGS, '')) {
         return null
     }
-    // Ignore U and x — neither has a JS equivalent, and both are rare in path cleaning.
-    const flags = 'g' + ['i', 'm', 's'].filter((flag) => inlineFlags.includes(flag)).join('')
     try {
-        return new RegExp(pattern, flags)
+        return RE2JS.compile(regex)
     } catch {
-        // A rule using re2-only syntax may not compile under JS RegExp. Skip it rather than throw.
         return null
     }
 }
@@ -77,14 +71,17 @@ export function applyPathCleaningRule(path: string, filter: PathCleaningFilter):
         return path
     }
     const alias = filter.alias ?? ''
-    return path.replace(pattern, (match: string, ...rest: unknown[]): string => {
-        // Replacer arguments run (match, p1…pN, offset, whole string, named groups?). A group the
-        // pattern didn't fill arrives as undefined, so the first number is the offset and marks
-        // where the capture values stop.
-        const offsetIndex = rest.findIndex((arg) => typeof arg === 'number')
-        const captures = (offsetIndex === -1 ? [] : rest.slice(0, offsetIndex)) as (string | undefined)[]
-        return expandAlias(alias, [match, ...captures])
-    })
+    const matcher = pattern.matcher(path)
+    let out = ''
+    let end = 0
+    while (matcher.find()) {
+        const start = Number(matcher.start())
+        const nextEnd = Number(matcher.end())
+        const groups = Array.from({ length: pattern.groupCount() + 1 }, (_, index) => matcher.group(index) ?? undefined)
+        out += path.slice(end, start) + expandAlias(alias, groups)
+        end = nextEnd
+    }
+    return out + path.slice(end)
 }
 
 /**

@@ -45,14 +45,51 @@ export function like(
     caseInsensitive = false,
     match?: (regex: string, value: string) => boolean
 ): boolean {
-    pattern = String(pattern)
+    const wildcardPattern = String(pattern)
+    pattern = wildcardPattern
         .replaceAll(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
         .replaceAll('%', '.*')
         .replaceAll('_', '.')
     if (match) {
         return match((caseInsensitive ? '(?i)' : '') + pattern, string)
     }
-    return new RegExp(pattern, caseInsensitive ? 'i' : undefined).test(string)
+    string = String(string)
+    // ECMAScript's non-Unicode ignoreCase canonicalizes one UTF-16 unit at a time,
+    // excluding multi-character uppercase mappings and non-ASCII to ASCII mappings.
+    const canonicalize = (char: string): string => {
+        if (!caseInsensitive) {
+            return char
+        }
+        const upper = char.toUpperCase()
+        return upper.length !== 1 || (char.charCodeAt(0) >= 128 && upper.charCodeAt(0) < 128) ? char : upper
+    }
+    const tokens = wildcardPattern.split('').map(canonicalize)
+    const matched = new Uint8Array(tokens.length + 1)
+    matched[0] = 1
+    for (let j = 0; j < tokens.length; j++) {
+        matched[j + 1] = tokens[j] === '%' ? matched[j] : 0
+    }
+    if (matched[tokens.length]) {
+        return true
+    }
+    // Prefix states bound matching to O(input × pattern) time and O(pattern) memory.
+    for (let i = 0; i < string.length; i++) {
+        const char = canonicalize(string[i])
+        const wildcard = char !== '\n' && char !== '\r' && char !== '\u2028' && char !== '\u2029'
+        let previous = 1
+        for (let j = 0; j < tokens.length; j++) {
+            const saved = matched[j + 1]
+            matched[j + 1] =
+                tokens[j] === '%'
+                    ? Number(Boolean(matched[j] || (saved && wildcard)))
+                    : Number(Boolean(previous && (tokens[j] === '_' ? wildcard : tokens[j] === char)))
+            previous = saved
+        }
+        if (matched[tokens.length]) {
+            return true
+        }
+    }
+    return false
 }
 export function getNestedValue(obj: any, chain: any[], nullish = false): any {
     if (typeof obj === 'object' && obj !== null) {

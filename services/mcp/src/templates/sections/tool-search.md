@@ -5,7 +5,7 @@
 `search` understands two kinds of query:
 
 - **Plain words** (including multiple words / natural language) — ranked by relevance across tool name, title, and description, with name matches weighted highest. `search create dashboard insight` surfaces `dashboard-create` / `insight-create` at the top. Results are capped to the top matches; narrow the query if you see a truncation note.
-- **Regex** — a query containing regex metacharacters (`- | ( ) [ ] \ . * + ^ $ ?`) is treated as a single case-insensitive regular expression, matched against name/title/description. Use this for precise, narrow patterns.
+- **Regex** — a query containing regex metacharacters (`- | ( ) [ ] \ . * + ^ $ ?`) is treated as a single case-insensitive RE2 regular expression, matched against name/title/description. Lookaround and pattern backreferences are not supported and return an invalid-regex error. Use this for precise, narrow patterns.
 
 **Good queries:**
 

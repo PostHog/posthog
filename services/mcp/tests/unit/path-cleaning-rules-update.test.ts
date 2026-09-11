@@ -123,11 +123,12 @@ describe('applyOperations', () => {
         )
     })
 
-    it('throws on an invalid regex before anything is saved', () => {
-        expect(() => applyOperations(base, [{ action: 'append', alias: '/bad', regex: '/users/(' }])).toThrow(
-            /Invalid regex/
-        )
-    })
+    it.each(['/users/(', '(?=users)', '(users)\\1'])(
+        'rejects invalid or unsupported regex %s before saving',
+        (regex) => {
+            expect(() => applyOperations(base, [{ action: 'append', alias: '/bad', regex }])).toThrow(/Invalid regex/)
+        }
+    )
 
     it('accepts a valid re2 inline-flag regex that JS RegExp alone would reject', () => {
         // (?i) is valid re2 and documented for case-insensitive path cleaning, but throws in JS.
@@ -222,6 +223,23 @@ function createMockContext(overrides: {
 
 describe('path-cleaning-rules-update handler', () => {
     const current = [{ alias: '/signup/<id>', regex: '/signup/[0-9a-f-]+', order: 0 }]
+
+    it.each([
+        ['/😀/x', '/./', '/u/', '/u/x'],
+        ['abc', 'x*', '-', '-a-b-c-'],
+        ['/ABC', '(?i:abc)', 'x', '/x'],
+        ['a\nb', '(?s)a.b', 'x', 'x'],
+        ['a\nb', '(?m)^b', 'x', 'a\nx'],
+        ['a1b2b', '(?U)a.*b', 'x', 'x2b'],
+        ['😀/é/😀', '(é)', '[\\1]', '😀/[é]/😀'],
+    ])('previews RE2 semantics for %s and %s', async (path, regex, alias, expected) => {
+        const result = await updatePathCleaningHandler(createMockContext({ currentFilters: [] }), {
+            operations: [{ action: 'append', regex, alias }],
+            sample_paths: [path],
+            confirm: false,
+        })
+        expect(result.sample_preview?.[0]?.after).toBe(expected)
+    })
 
     it('previews without saving when confirm is not set', async () => {
         const updateMock = vi.fn()

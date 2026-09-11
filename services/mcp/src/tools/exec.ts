@@ -29,8 +29,7 @@ import {
     type ZodObjectAny,
 } from './types'
 
-/** Upper bound on a `search` regex pattern — keeps a pathological pattern from
- *  forcing catastrophic backtracking against tool metadata. */
+/** Bound compilation work in addition to non-backtracking regex execution. */
 const MAX_SEARCH_PATTERN_LENGTH = 400
 
 /** One line telling the agent third-party tools exist and how to find them, for the
@@ -1405,8 +1404,7 @@ export function createExecTool(
                     if (!rest) {
                         throw new ExecCommandError('Usage: search <words or regex_pattern>', 'usage')
                     }
-                    // Bound the user-supplied pattern length to limit the blast
-                    // radius of a pathological (catastrophic-backtracking) regex.
+                    // Bound compilation work for user-supplied patterns.
                     if (rest.length > MAX_SEARCH_PATTERN_LENGTH) {
                         throw new ExecCommandError(
                             `Search pattern too long (${rest.length} chars, max ${MAX_SEARCH_PATTERN_LENGTH}). Use a shorter, more targeted pattern.`,

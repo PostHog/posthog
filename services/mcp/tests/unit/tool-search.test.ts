@@ -35,6 +35,9 @@ describe('tool-search', () => {
     })
 
     describe('searchToolsRegex', () => {
+        it.each(['(?=dashboard)', '(dashboard)\\1'])('rejects unsupported regex %s', (pattern) => {
+            expect(() => searchToolsRegex(TOOLS, pattern)).toThrow()
+        })
         it('matches a kebab-case prefix pattern against name/title/description', () => {
             expect(searchToolsRegex(TOOLS, 'query-').map((t) => t.name)).toEqual(['query-run'])
         })
