@@ -11,7 +11,6 @@ import hashlib
 from collections import Counter
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Literal
 
@@ -19,6 +18,7 @@ from django.db import connection, transaction
 from django.db.models import Min
 from django.utils import timezone
 
+from posthog.dataclasses import frozen
 from posthog.models.temporal_scheduler import TemporalSchedulerClaim, TemporalSchedulerPermitPool
 from posthog.temporal.scheduler.metrics import (
     DEFAULT_SCHEDULER_METRICS,
@@ -46,14 +46,14 @@ class SchedulerClaimInvariantError(RuntimeError):
     pass
 
 
-@dataclass(frozen=True)
+@frozen
 class SchedulerAdmissionLimits:
     max_in_flight: int
     max_in_flight_per_tenant: int
     lease_duration: timedelta
 
 
-@dataclass(frozen=True)
+@frozen
 class SchedulerClaimRequest:
     tenant_key: str
     occurrence_key: str
@@ -61,7 +61,7 @@ class SchedulerClaimRequest:
     source_due_at: datetime
 
 
-@dataclass(frozen=True)
+@frozen
 class SchedulerClaimReservation:
     claim_id: uuid.UUID
     claim_token: uuid.UUID
@@ -70,14 +70,14 @@ class SchedulerClaimReservation:
     workflow_id: str
 
 
-@dataclass(frozen=True)
+@frozen
 class SchedulerAdmissionResult:
     reservations: tuple[SchedulerClaimReservation, ...]
     already_claimed: int
     deferred_for_capacity: int
 
 
-@dataclass(frozen=True)
+@frozen
 class _HashedRequest:
     request: SchedulerClaimRequest
     occurrence_hash: str

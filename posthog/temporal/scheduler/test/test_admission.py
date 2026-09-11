@@ -1,4 +1,5 @@
 import uuid
+import inspect
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from threading import Barrier
@@ -55,6 +56,11 @@ def _limits(global_limit: int = 3, tenant_limit: int = 2) -> SchedulerAdmissionL
 
 
 class TestReserveSchedulerClaims(TestCase):
+    def test_claim_requests_require_keyword_arguments(self) -> None:
+        parameters = inspect.signature(SchedulerClaimRequest).parameters
+
+        self.assertTrue(all(parameter.kind is inspect.Parameter.KEYWORD_ONLY for parameter in parameters.values()))
+
     def test_empty_request_refreshes_the_existing_permit_snapshot(self) -> None:
         TemporalSchedulerPermitPool.objects.create(
             scheduler=SCHEDULER,
