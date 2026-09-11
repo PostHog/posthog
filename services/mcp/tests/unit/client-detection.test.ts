@@ -4,8 +4,10 @@ import {
     ANTHROPIC_CLIENT_NAME_FRAGMENTS,
     ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS,
     ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS,
+    CODEX_MAX_RESPONSE_TOKENS,
     CODING_AGENT_CLIENT_NAME_FRAGMENTS,
     DEFAULT_CLIENT_CAPABILITIES,
+    DEFAULT_MAX_RESPONSE_TOKENS,
     MCPClientProfile,
     POSTHOG_CODE_CONSUMER,
     TOOLS_MODE_CLIENT_NAME_FRAGMENTS,
@@ -523,6 +525,24 @@ describe('MCPClientProfile', () => {
 
         it.each([[undefined], [''], ['   ']])('defaults to true for %s', (clientName) => {
             expect(new MCPClientProfile({ clientName }).capabilities.supportsInstructions).toBe(true)
+        })
+    })
+
+    describe('capabilities.maxResponseTokens', () => {
+        it.each([
+            ['codex', CODEX_MAX_RESPONSE_TOKENS],
+            ['Codex CLI', CODEX_MAX_RESPONSE_TOKENS],
+            ['claude-code', DEFAULT_MAX_RESPONSE_TOKENS],
+            ['cursor', DEFAULT_MAX_RESPONSE_TOKENS],
+            [undefined, DEFAULT_MAX_RESPONSE_TOKENS],
+        ])('resolves %j to %i tokens', (clientName, expected) => {
+            expect(new MCPClientProfile({ clientName }).capabilities.maxResponseTokens).toBe(expected)
+        })
+
+        it('resolves the tighter budget for the name-less Codex surface of openai-mcp', () => {
+            expect(new MCPClientProfile({ userAgent: 'openai-mcp/1.0.0 (Codex)' }).capabilities.maxResponseTokens).toBe(
+                CODEX_MAX_RESPONSE_TOKENS
+            )
         })
     })
 
