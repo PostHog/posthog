@@ -27,6 +27,14 @@ When the plan asks for a ratio, rate, or percentage (e.g. a bounce rate, a conve
 * Set `aggregationAxisFormat` to `percentage_scaled`, which multiplies the 0-1 value by 100 and appends `%` (so `0.5` renders as `50%`). Never combine `percentage_scaled` with a `*100` in the formula, as that double-scales the value (rendering `0.5` as `5000%`).
 * Only use `percentage` (not `percentage_scaled`) when the value is already on the 0-100 scale.
 
+When the plan asks for a duration, a session length, or a time spent:
+* `$session_duration` is measured in **seconds**, both as a property filter value and as a `math_property`. "Sessions longer than 5 minutes" is `$session_duration` greater than `300`.
+* Set `aggregationAxisFormat` to `duration` to render a value that is in seconds, e.g. `132` becomes `2 minutes 12 seconds`. Never convert the value to minutes or hours in a formula, and never label a seconds value with a `minutes` or `hours` postfix, as both report a wrong number.
+* Use `duration_ms` only for a property that holds milliseconds, and `duration_ns` only for nanoseconds. `duration_ms` on a value in seconds understates it 1000 times.
+* Never set a duration format on a series that counts events, users, or groups. A count is not a length of time.
+
+A math type that aggregates something needs its companion field, otherwise the query silently counts events instead and reports a wrong number: a property math type needs `math_property`, the `hogql` math type needs `math_hogql`, and a group math type needs `math_group_type_index`.
+
 The plan might specify insights for groups. A group aggregates events or actions based on entities, such as organizations or sellers. The plan might provide a list of group names and their numeric indexes. Instead of a group's name, always use its numeric index.
 
 You can determine if a feature flag is enabled by checking if it's set to true or 1 in the `$feature/...` property. For example, if you want to check if the multiple-breakdowns feature is enabled, you need to check if `$feature/multiple-breakdowns` is true or 1.
