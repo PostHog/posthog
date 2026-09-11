@@ -214,6 +214,7 @@ _STRING_RESULT_FUNCTIONS = frozenset(
         "unhex",
         "upper",
         "upperutf8",
+        "ipv4numtostring",
     }
 )
 
@@ -221,6 +222,7 @@ _STRING_ARRAY_RESULT_FUNCTIONS = frozenset(
     {
         "alphatokens",
         "extractall",
+        "extractipv4substrings",
         "ngrams",
         "splitbychar",
         "splitbynonalpha",
@@ -268,7 +270,7 @@ _URL_STRING_ARRAY_RESULT_FUNCTIONS = frozenset(
     }
 )
 
-_INTEGER_RESULT_FUNCTIONS = frozenset({"port"})
+_INTEGER_RESULT_FUNCTIONS = frozenset({"port", "ipv4stringtonum", "ipv4stringtonumordefault", "ipv4stringtonumornull"})
 _DATE_PART_RESULT_FUNCTIONS = frozenset(
     {
         "toyear",
@@ -1029,6 +1031,42 @@ def _infer_generic_function_type(
     dialect: HogQLDialect,
     meta: Optional[HogQLFunctionMeta] = None,
 ) -> ast.ConstantType | None:
+    if normalized_name == "roundtoexp2" and arg_types and isinstance(arg_types[0], (ast.IntegerType, ast.FloatType)):
+        return dataclasses.replace(arg_types[0])
+
+    if (
+        normalized_name in {"gcd", "lcm"}
+        and len(arg_types) == 2
+        and all(isinstance(arg_type, ast.IntegerType) for arg_type in arg_types)
+    ):
+        return ast.IntegerType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name == "arrayauc" and len(arg_types) == 2:
+        return ast.FloatType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name == "uuidv7todatetime" and arg_types:
+        return ast.DateTimeType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name == "tupletonamevaluepairs" and arg_types and isinstance(arg_types[0], ast.TupleType):
+        tuple_type = arg_types[0]
+        value_type = least_common_supertype(tuple_type.item_types, dialect=dialect)
+        return ast.ArrayType(
+            nullable=tuple_type.nullable,
+            item_type=ast.TupleType(
+                nullable=False,
+                item_types=[ast.StringType(nullable=False), value_type],
+            ),
+        )
+
+    if normalized_name == "pointinellipses":
+        return ast.BooleanType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name == "ifnotfinite" and len(arg_types) == 2:
+        return least_common_supertype(arg_types, dialect=dialect)
+
+    if normalized_name == "mappopulateseries" and arg_types and isinstance(arg_types[0], ast.MapType):
+        return dataclasses.replace(arg_types[0])
+
     if normalized_name in {
         "equals",
         "notequals",
@@ -1057,6 +1095,9 @@ def _infer_generic_function_type(
         "isnan",
     }:
         return ast.BooleanType(nullable=False)
+
+    if normalized_name in {"isipv4string", "isipv6string", "isipaddressinrange"}:
+        return ast.BooleanType(nullable=any(arg_type.nullable for arg_type in arg_types))
 
     if normalized_name in {"and", "or", "xor", "not"}:
         return ast.BooleanType(nullable=any(arg_type.nullable for arg_type in arg_types))
@@ -1116,6 +1157,9 @@ def _infer_generic_function_type(
             item_type=ast.StringType(nullable=False),
         )
 
+    if normalized_name == "ipv4stringtonumornull":
+        return ast.IntegerType(nullable=True)
+
     if normalized_name in _INTEGER_RESULT_FUNCTIONS:
         return ast.IntegerType(nullable=any(arg_type.nullable for arg_type in arg_types))
 
@@ -1125,8 +1169,14 @@ def _infer_generic_function_type(
     if normalized_name in _DATE_STRING_RESULT_FUNCTIONS or normalized_name in _READABLE_STRING_RESULT_FUNCTIONS:
         return ast.StringType(nullable=any(arg_type.nullable for arg_type in arg_types))
 
-    if normalized_name in {"fromunixtimestamp", "fromunixtimestamp64milli", "timeslot"}:
+    if normalized_name in {"fromunixtimestamp", "fromunixtimestamp64milli", "timeslot", "totime"}:
         return ast.DateTimeType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name == "timeslots":
+        return ast.ArrayType(
+            nullable=any(arg_type.nullable for arg_type in arg_types),
+            item_type=ast.DateTimeType(nullable=False),
+        )
 
     if normalized_name == "timeslots":
         return ast.ArrayType(
@@ -1183,6 +1233,12 @@ def _infer_generic_function_type(
         return ast.FloatType(nullable=any(arg_type.nullable for arg_type in arg_types))
 
     if normalized_name in _VECTOR_ARRAY_RESULT_FUNCTIONS and arg_types:
+        if isinstance(arg_types[0], ast.TupleType):
+            return dataclasses.replace(
+                arg_types[0], item_types=[ast.FloatType(nullable=item.nullable) for item in arg_types[0].item_types]
+            )
+        if isinstance(arg_types[0], ast.ArrayType):
+            return dataclasses.replace(arg_types[0], item_type=ast.FloatType(nullable=arg_types[0].item_type.nullable))
         return dataclasses.replace(arg_types[0])
 
     if normalized_name == "jsonextract":
@@ -1335,6 +1391,9 @@ def _infer_generic_function_type(
         return ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False))
 
     if normalized_name == "arraymap":
+        return _infer_higher_order_array_type(arg_types, args=args, dialect=dialect, use_lambda_return=True)
+
+    if normalized_name in {"arraycumsum", "arraycumsumnonnegative"} and args and isinstance(args[0], ast.Lambda):
         return _infer_higher_order_array_type(arg_types, args=args, dialect=dialect, use_lambda_return=True)
 
     if normalized_name == "arrayfilter":
@@ -1604,6 +1663,50 @@ def _infer_aggregate_function_type(normalized_name: str, arg_types: list[ast.Con
     # first so the base return type is computed once and each suffix transforms it, instead of
     # enumerating every base×combinator permutation. This must run before the base checks below so a
     # greedy `startswith` match (e.g. "quantiles") can't swallow a combinator such as -ForEach.
+    if normalized_name == "simplelinearregressionif":
+        return ast.TupleType(
+            nullable=False,
+            item_types=[ast.FloatType(nullable=False), ast.FloatType(nullable=False)],
+            field_names=["k", "b"],
+        )
+
+    if normalized_name in {"maxintersections", "maxintersectionsif"}:
+        value_types = arg_types[:2]
+        return ast.IntegerType(nullable=any(value_type.nullable for value_type in value_types))
+
+    if normalized_name in {"maxintersectionsposition", "maxintersectionspositionif"} and arg_types:
+        value_types = arg_types[:2]
+        return dataclasses.replace(arg_types[0], nullable=any(value_type.nullable for value_type in value_types))
+
+    median_container_suffixes = {"", "if", "ordefault", "ordefaultif", "ornull", "ornullif"}
+    if (
+        normalized_name.startswith("medianmap")
+        and normalized_name.removeprefix("medianmap") in median_container_suffixes
+        and arg_types
+        and isinstance(arg_types[0], ast.MapType)
+    ):
+        return ast.MapType(
+            nullable=False,
+            key_type=dataclasses.replace(arg_types[0].key_type),
+            value_type=ast.FloatType(nullable=False),
+        )
+
+    if (
+        normalized_name.startswith("medianforeach")
+        and normalized_name.removeprefix("medianforeach") in median_container_suffixes
+        and arg_types
+        and isinstance(arg_types[0], ast.ArrayType)
+    ):
+        return ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False))
+
+    if normalized_name in {"groupuniqarrayarray", "groupuniqarrayarrayif"} and arg_types:
+        source_type = arg_types[0]
+        if isinstance(source_type, ast.ArrayType):
+            return ast.ArrayType(
+                nullable=False,
+                item_type=dataclasses.replace(source_type.item_type, nullable=False),
+            )
+
     combinator_type = _infer_aggregate_combinator_type(normalized_name, arg_types)
     if combinator_type is not None:
         return combinator_type
@@ -1630,11 +1733,60 @@ def _infer_aggregate_function_type(normalized_name: str, arg_types: list[ast.Con
         )
 
     if (
-        normalized_name in {"avg", "stddevpop", "stddevsamp", "varpop", "varsamp"}
+        normalized_name
+        in {
+            "quantileexact",
+            "medianexact",
+            "medianexactlow",
+            "medianexacthigh",
+            "medianexactweighted",
+        }
+        and arg_types
+    ):
+        return dataclasses.replace(arg_types[0])
+
+    if (
+        normalized_name
+        in {
+            "avg",
+            "avgweighted",
+            "stddevpop",
+            "stddevsamp",
+            "varpop",
+            "varsamp",
+            "skewpop",
+            "skewsamp",
+            "kurtpop",
+            "kurtsamp",
+        }
         or normalized_name.startswith("median")
         or normalized_name.startswith("quantile")
     ) and not _is_aggregate_state_or_merge(normalized_name):
         return ast.FloatType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name == "simplelinearregression":
+        return ast.TupleType(
+            nullable=any(arg_type.nullable for arg_type in arg_types),
+            item_types=[ast.FloatType(nullable=False), ast.FloatType(nullable=False)],
+            field_names=["k", "b"],
+        )
+
+    if normalized_name == "deltasum" and arg_types:
+        return dataclasses.replace(arg_types[0], nullable=False)
+
+    if normalized_name == "grouparrayinsertat" and arg_types:
+        return ast.ArrayType(
+            nullable=False,
+            item_type=dataclasses.replace(arg_types[0], nullable=False),
+        )
+
+    if normalized_name in {"grouparraymovingavg", "grouparraymovingsum"} and arg_types:
+        item_type = (
+            ast.FloatType(nullable=False)
+            if normalized_name.endswith("avg") or isinstance(arg_types[0], ast.FloatType)
+            else ast.IntegerType(nullable=False)
+        )
+        return ast.ArrayType(nullable=False, item_type=item_type)
 
     if normalized_name in {"min", "max", "any", "anylast", "argmin", "argmax"} and arg_types:
         return dataclasses.replace(arg_types[0])

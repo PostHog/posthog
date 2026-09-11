@@ -285,8 +285,8 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "medianExactLowIf": HogQLFunctionMeta("medianExactLowIf", 2, 2, aggregate=True),
     "medianExactHigh": HogQLFunctionMeta("medianExactHigh", 1, 1, aggregate=True),
     "medianExactHighIf": HogQLFunctionMeta("medianExactHighIf", 2, 2, aggregate=True),
-    "medianExactWeighted": HogQLFunctionMeta("medianExactWeighted", 1, 1, aggregate=True),
-    "medianExactWeightedIf": HogQLFunctionMeta("medianExactWeightedIf", 2, 2, aggregate=True),
+    "medianExactWeighted": HogQLFunctionMeta("medianExactWeighted", 2, 2, aggregate=True),
+    "medianExactWeightedIf": HogQLFunctionMeta("medianExactWeightedIf", 3, 3, aggregate=True),
     "medianTiming": HogQLFunctionMeta("medianTiming", 1, 1, aggregate=True),
     "medianTimingIf": HogQLFunctionMeta("medianTimingIf", 2, 2, aggregate=True),
     "medianTimingWeighted": HogQLFunctionMeta("medianTimingWeighted", 1, 1, aggregate=True),
@@ -307,8 +307,8 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     ),
     "quantile": HogQLFunctionMeta("quantile", 1, 1, min_params=1, max_params=1, aggregate=True),
     "quantileIf": HogQLFunctionMeta("quantileIf", 2, 2, min_params=1, max_params=1, aggregate=True),
-    "quantiles": HogQLFunctionMeta("quantiles", 1, None, aggregate=True),
-    "quantilesIf": HogQLFunctionMeta("quantilesIf", 2, 2, min_params=1, max_params=1, aggregate=True),
+    "quantiles": HogQLFunctionMeta("quantiles", 1, 1, min_params=1, max_params=None, aggregate=True),
+    "quantilesIf": HogQLFunctionMeta("quantilesIf", 2, 2, min_params=1, max_params=None, aggregate=True),
     # `-State` and `-Merge*` combinators needed by lazy precompute paths that
     # store quantile reservoirs (e.g. web_vitals_paths_preaggregated). Params
     # are the percentile list; args are the value (for `-State`) or the
