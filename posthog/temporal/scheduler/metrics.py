@@ -181,6 +181,7 @@ class SchedulerMetrics:
         self._backlog_snapshot_unixtime.labels(scheduler=scheduler, region=region).set(time.time())
 
 
+# Reuse this instance process-wide: a second one on the same registry fails duplicate registration.
 DEFAULT_SCHEDULER_METRICS = SchedulerMetrics(registry=REGISTRY)
 
 
