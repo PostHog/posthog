@@ -9,8 +9,11 @@ from unittest.mock import AsyncMock, MagicMock, call
 
 import httpx
 import httpx_sse
+import redis.exceptions as redis_exceptions
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
+
+from posthog.temporal.common.posthog_client import EXPECTED_CONTROL_FLOW_ERROR_TYPES
 
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_DEFAULT_SECONDS
@@ -487,6 +490,64 @@ class TestRelaySandboxEventsMissingActor:
 
         assert exc_info.value.non_retryable is True
         redis_stream.mark_error.assert_awaited_once()
+        relay_loop_mock.assert_not_awaited()
+
+
+class TestRelaySandboxEventsStreamUnavailable:
+    async def test_unreachable_redis_fails_retryably_as_expected_control_flow(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class StubTaskRunRedisStream:
+            def __init__(
+                self,
+                stream_key: str,
+                use_dedicated: bool = False,
+                *,
+                presence_gated: bool = False,
+                origin_product: str | None = None,
+                thin_tail: bool = False,
+            ) -> None:
+                self.stream_key = stream_key
+
+            async def initialize(self) -> None:
+                raise redis_exceptions.TimeoutError("Timeout connecting to server")
+
+        class StubTaskRunQuerySet:
+            def select_related(self, *_args: str) -> "StubTaskRunQuerySet":
+                return self
+
+            async def aget(self, id: str) -> SimpleNamespace:
+                return SimpleNamespace(
+                    task=SimpleNamespace(id="task-id", created_by=None, origin_product=None),
+                    state={},
+                )
+
+        relay_loop_mock = AsyncMock()
+        monkeypatch.setattr(relay_sandbox_events_module, "TaskRunRedisStream", StubTaskRunRedisStream)
+        monkeypatch.setattr(
+            relay_sandbox_events_module,
+            "TaskRunModel",
+            SimpleNamespace(objects=StubTaskRunQuerySet()),
+        )
+        monkeypatch.setattr(relay_sandbox_events_module, "validate_sandbox_url", lambda _url: None)
+        monkeypatch.setattr(relay_sandbox_events_module, "_relay_loop", relay_loop_mock)
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await relay_sandbox_events(
+                RelaySandboxEventsInput(
+                    run_id="run-id",
+                    task_id="task-id",
+                    sandbox_url="https://sandbox.example",
+                    sandbox_connect_token=None,
+                    team_id=1,
+                    distinct_id="distinct-id",
+                )
+            )
+
+        # Retryable, so a worker that recovers reattaches the stream, and typed so the
+        # unlimited retry policy does not mint an error tracking issue per attempt.
+        assert exc_info.value.non_retryable is not True
+        assert exc_info.value.type in EXPECTED_CONTROL_FLOW_ERROR_TYPES
         relay_loop_mock.assert_not_awaited()
 
 

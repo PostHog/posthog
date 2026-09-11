@@ -33,8 +33,17 @@ logger = get_write_only_logger()
 # expected control flow, not a defect.
 # "AIFeaturesCloudOnly" is raised by the AI observability guard on non-cloud deployments (see
 # posthog/temporal/ai_observability/llm_endpoint.py). It reflects the deployment, not a defect.
+# "TransientRedisError" is raised when Redis stays unreachable past a caller's own in-place
+# retry budget. Temporal retries the activity, and the same reasoning as is_transient_db_error
+# below applies: a burst would mint a fresh issue for a condition nobody can action per-attempt.
 EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
-    {"trace_not_settled", "TransientRepartitionError", "EmbeddingServiceUnavailable", "AIFeaturesCloudOnly"}
+    {
+        "trace_not_settled",
+        "TransientRepartitionError",
+        "EmbeddingServiceUnavailable",
+        "AIFeaturesCloudOnly",
+        "TransientRedisError",
+    }
 )
 
 

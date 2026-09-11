@@ -41,10 +41,28 @@ TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS = 0.05
 TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS = 0.15
 TASK_RUN_STREAM_WAIT_MAX_DELAY_SECONDS = 2.0
 TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS = 120.0  # sandbox provisioning can be slow
+# Budget for absorbing a Redis connect blip on the stream's first command. The relay
+# activity retries forever on purpose, so letting a three-second connect timeout kill the
+# attempt instead costs a full activity prologue replay plus up to a minute of Temporal
+# backoff, and the run streams nothing for all of it.
+TASK_RUN_STREAM_CONNECT_RETRY_BUDGET_SECONDS = 30.0
+TASK_RUN_STREAM_CONNECT_RETRY_INITIAL_DELAY_SECONDS = 0.5
+TASK_RUN_STREAM_CONNECT_RETRY_MAX_DELAY_SECONDS = 5.0
 
 DATA_KEY = b"data"
 TaskRunStreamEntry = tuple[str, dict]
 TaskRunStreamEntryOrKeepalive = TaskRunStreamEntry | None
+
+
+def is_transient_redis_error(error: BaseException) -> bool:
+    """Whether a Redis failure is a connect or socket blip that clears on its own.
+
+    Authentication and authorization errors subclass ``ConnectionError`` but are config
+    defects that no amount of retrying resolves, so they are excluded.
+    """
+    if isinstance(error, redis_exceptions.AuthenticationError | redis_exceptions.AuthorizationError):
+        return False
+    return isinstance(error, redis_exceptions.ConnectionError | redis_exceptions.TimeoutError)
 
 
 def _normalize_stream_id(stream_id: str | bytes) -> str:
@@ -188,8 +206,29 @@ class TaskRunRedisStream:
         self._last_watched_refresh_at: float | None = None
 
     async def initialize(self) -> None:
-        """Set expiry on the stream key to prevent unbounded growth."""
-        await self._redis_client.expire(self._stream_key, self._timeout)
+        """Set expiry on the stream key to prevent unbounded growth.
+
+        This is the stream's first Redis command, so it also opens the connection.
+        Transient connect failures are retried in place within
+        ``TASK_RUN_STREAM_CONNECT_RETRY_BUDGET_SECONDS``.
+        """
+        deadline = asyncio.get_running_loop().time() + TASK_RUN_STREAM_CONNECT_RETRY_BUDGET_SECONDS
+        delay = TASK_RUN_STREAM_CONNECT_RETRY_INITIAL_DELAY_SECONDS
+        while True:
+            try:
+                await self._redis_client.expire(self._stream_key, self._timeout)
+                return
+            except Exception as e:
+                if not is_transient_redis_error(e) or asyncio.get_running_loop().time() >= deadline:
+                    raise
+                logger.warning(
+                    "task_run_stream_initialize_retry",
+                    stream_key=self._stream_key,
+                    error=str(e),
+                    delay=delay,
+                )
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, TASK_RUN_STREAM_CONNECT_RETRY_MAX_DELAY_SECONDS)
 
     async def exists(self) -> bool:
         """Return whether the Redis stream key already exists."""

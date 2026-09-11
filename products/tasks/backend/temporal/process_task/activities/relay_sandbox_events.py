@@ -32,7 +32,11 @@ from products.tasks.backend.logic.services.permission_broker import (
 )
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_after_final_message
 from products.tasks.backend.logic.stream.agent_events import is_agent_command_dispatched, is_agent_generation_event
-from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
+from products.tasks.backend.logic.stream.redis_stream import (
+    TaskRunRedisStream,
+    get_task_run_stream_key,
+    is_transient_redis_error,
+)
 from products.tasks.backend.models import (
     Task as TaskModel,
     TaskRun as TaskRunModel,
@@ -157,7 +161,17 @@ async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stre
         origin_product=origin_product,
         thin_tail=run_stream_thin_tail(task_run.state),
     )
-    await redis_stream.initialize()
+    try:
+        await redis_stream.initialize()
+    except Exception as e:
+        if not is_transient_redis_error(e):
+            raise
+        # Redis stayed unreachable through the in-place retry budget. Retrying the
+        # activity is still right, so the failure stays retryable. It is marked expected
+        # control flow because the relay's retry policy is unlimited, so one Redis blip
+        # would otherwise mint an error tracking occurrence per attempt.
+        logger.warning("relay_sandbox_events_stream_unavailable", run_id=input.run_id, error=str(e))
+        raise ApplicationError(f"Task run stream is unreachable: {e}", type="TransientRedisError") from e
 
     actor_user = await sync_to_async(get_task_run_credential_user)(task_run.task, task_run.state)
     if is_slack_interaction_state(task_run.state) and actor_user is None:
