@@ -974,7 +974,13 @@ def _cohort_from_manifest(
     manifest: CohortManifest,
     alerts_by_id: dict[str, LogsAlertConfiguration],
 ) -> _AlertCohort:
-    """Reconstruct an `_AlertCohort` from a manifest and a pre-loaded alerts dict."""
+    """Reconstruct an `_AlertCohort` from a manifest and a pre-loaded alerts dict.
+
+    New manifests carry the row version observed at discovery, so alerts edited
+    before this reload are left due for the next scheduler tick. Legacy Temporal
+    histories do not have those versions; for those, keep one homogeneous grid
+    so one edited alert cannot lend its grid to every alert in the batched query.
+    """
     alerts = tuple(alerts_by_id[alert_id] for alert_id in manifest.alert_ids)
     if manifest.updated_at_by_alert_id is not None:
         alerts = tuple(
@@ -983,6 +989,22 @@ def _cohort_from_manifest(
             if manifest.updated_at_by_alert_id.get(str(alert.id))
             == (alert.updated_at.isoformat() if alert.updated_at is not None else None)
         )
+
+    by_grid: defaultdict[tuple[int, int, int], list[LogsAlertConfiguration]] = defaultdict(list)
+    for alert in alerts:
+        by_grid[(alert.window_minutes, alert.evaluation_periods, alert.check_interval_minutes)].append(alert)
+    if len(by_grid) > 1:
+        # `max` returns the first largest group, so a tie falls to manifest order:
+        # arbitrary, but deterministic, and the kept alerts still share one grid.
+        kept = max(by_grid.values(), key=len)
+        kept_ids = {str(alert.id) for alert in kept}
+        logger.warning(
+            "Dropping alerts whose grid changed after cohort discovery",
+            team_id=manifest.team_id,
+            cohort_size=len(alerts),
+            dropped_alert_ids=[str(alert.id) for alert in alerts if str(alert.id) not in kept_ids],
+        )
+        alerts = tuple(kept)
     return _AlertCohort(
         alerts=alerts,
         date_to=datetime.fromisoformat(manifest.date_to_iso),
