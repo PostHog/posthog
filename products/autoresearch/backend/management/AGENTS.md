@@ -22,7 +22,8 @@ Every command calls the same functions the API and the Temporal activities call.
   `--team-id --target --horizon --user-id`
   `--user-id` is the person HogQL applies access control for; without it the counts run fail-closed. Note there is no `--mode` flag. Note also that `autoresearch_train` does **not** call this, so a target that fails here still trains.
 - `autoresearch_validate_online` — realized performance for predictions whose horizon has elapsed.
-  `--pipeline-id --dry-run`
+  `--pipeline-id --user-id --dry-run`
+  `--dry-run` lists the matured dates waiting for validation and what each inference run emitted. `--user-id` is the person HogQL applies access control for; without it the queries run as the pipeline's creator. The command exits non-zero when any date fails, and the failed date is retried on the next pass.
 
 ## Running them locally
 

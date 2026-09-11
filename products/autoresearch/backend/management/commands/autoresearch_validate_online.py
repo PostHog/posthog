@@ -1,8 +1,8 @@
 """
 Run online validation for an autoresearch pipeline.
 
-Finds all matured, unvalidated prediction dates (today >= prediction_date + horizon_days),
-joins them to realized target outcomes, and computes realized AUC / Brier / ECE / lift@k
+Finds the matured prediction dates that have no completed validation, joins their
+predictions to realized target outcomes, and computes realized AUC / Brier / ECE / lift@k
 per model. Updates AutoresearchModel.realized_score and calibration_error in Postgres.
 
 Usage:
@@ -11,23 +11,23 @@ Usage:
 
 Requires:
     - PostHog running locally (./bin/start or hogli start)
-    - autoresearch_prediction events in ClickHouse (run autoresearch_score first)
+    - completed inference runs whose predictions are in ClickHouse (run autoresearch_score first)
     - Enough time elapsed for the horizon to close (horizon_days must have passed)
 """
 
 from typing import Any
 
-from django.core.management.base import BaseCommand, CommandParser
+from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from posthog.models.scoping import team_scope
+from posthog.models.user import User
 
 from products.autoresearch.backend.evaluation.online_validation import (
-    _fetch_matured_prediction_dates,
-    _find_mature_unvalidated_dates,
+    find_pending_validation_dates,
     run_online_validation_for_pipeline,
 )
 from products.autoresearch.backend.management.scoping import resolve_pipeline
-from products.autoresearch.backend.models import AutoresearchPipeline
+from products.autoresearch.backend.models import AutoresearchPipeline, AutoresearchRun
 
 
 class Command(BaseCommand):
@@ -36,50 +36,67 @@ class Command(BaseCommand):
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--pipeline-id", type=str, required=True, help="UUID of the pipeline to validate.")
         parser.add_argument(
+            "--user-id",
+            type=int,
+            default=None,
+            help="Run the queries as this user. Defaults to the pipeline's creator.",
+        )
+        parser.add_argument(
             "--dry-run",
             action="store_true",
-            help="Show matured dates and skip DB writes.",
+            help="Show the matured dates waiting for validation and skip DB writes.",
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
         pipeline = resolve_pipeline(options["pipeline_id"])
+        user = self._resolve_user(options["user_id"])
         with team_scope(pipeline.team_id):
-            self._run(pipeline, options)
+            self._run(pipeline, user, options)
 
-    def _run(self, pipeline: AutoresearchPipeline, options: dict[str, Any]) -> None:
+    @staticmethod
+    def _resolve_user(user_id: int | None) -> User | None:
+        if user_id is None:
+            return None
+        try:
+            return User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            raise CommandError(f"User {user_id} not found.")
+
+    def _run(self, pipeline: AutoresearchPipeline, user: User | None, options: dict[str, Any]) -> None:
         self.stdout.write(f"\nPipeline  : {pipeline.name} ({pipeline.pk})")
         self.stdout.write(f"Target    : {pipeline.target_event}")
         self.stdout.write(f"Horizon   : {pipeline.horizon_days} days")
         self.stdout.write("")
 
         if options["dry_run"]:
-            self.stdout.write(self.style.WARNING("Dry-run mode: showing matured dates but not running validation.\n"))
-            all_matured = _fetch_matured_prediction_dates(team=pipeline.team, pipeline=pipeline)
-            unvalidated = _find_mature_unvalidated_dates(team=pipeline.team, pipeline=pipeline)
-            validated = [d for d in all_matured if d not in unvalidated]
-            self.stdout.write(f"Matured dates     : {len(all_matured)}")
-            self.stdout.write(f"Already validated : {len(validated)}")
-            self.stdout.write(f"Pending           : {len(unvalidated)}")
-            if unvalidated:
-                for d in sorted(unvalidated):
-                    self.stdout.write(f"  {d.isoformat()}")
+            self.stdout.write(self.style.WARNING("Dry-run mode: showing the pending dates but not validating them.\n"))
+            pending = find_pending_validation_dates(pipeline)
+            self.stdout.write(f"Pending dates : {len(pending)}")
+            for item in pending:
+                models = ", ".join(
+                    f"{model_id[:8]}… ({rows} rows)" for model_id, rows in item.expected_rows_by_model.items()
+                )
+                self.stdout.write(f"  {item.prediction_date.isoformat()}  horizon={item.horizon_days}d  {models}")
             return
 
-        runs = run_online_validation_for_pipeline(pipeline=pipeline)
+        runs = run_online_validation_for_pipeline(pipeline, user=user)
 
         if not runs:
-            self.stdout.write(self.style.WARNING("No matured, unvalidated prediction dates found."))
-            self.stdout.write("Either no predictions have been scored yet, or all mature dates are already validated.")
+            self.stdout.write(self.style.WARNING("No matured prediction dates are waiting for validation."))
+            self.stdout.write(
+                "Either no completed scoring run has passed its horizon yet, or every matured date is already validated."
+            )
             return
 
         self.stdout.write(f"Validated {len(runs)} prediction date(s):\n")
         for run in runs:
             prediction_date = run.metrics.get("prediction_date", "?")
-            status = run.status
             n_labels = run.metrics.get("realized_labels_count", "?")
             self.stdout.write(
-                f"  {prediction_date}  status={status}  rows_scored={run.rows_scored}  realized_labels={n_labels}"
+                f"  {prediction_date}  status={run.status}  rows_scored={run.rows_scored}  realized_labels={n_labels}"
             )
+            if run.error:
+                self.stdout.write(f"    error: {run.error}")
 
             per_model = run.metrics.get("per_model", {})
             for model_id, m in per_model.items():
@@ -92,9 +109,12 @@ class Command(BaseCommand):
                     f"    Model {model_id[:8]}…  role={role}  AUC={auc}  Brier={brier}  ECE={ece}  lift@10={lift10}"
                 )
 
-        completed = [r for r in runs if r.status == "completed"]
+        completed = [r for r in runs if r.status == AutoresearchRun.Status.COMPLETED]
         if completed:
             self.stdout.write(self.style.SUCCESS(f"\n✓ Completed validation for {len(completed)} date(s)."))
-        failed = [r for r in runs if r.status == "failed"]
+        failed = [r for r in runs if r.status == AutoresearchRun.Status.FAILED]
         if failed:
-            self.stdout.write(self.style.ERROR(f"✗ {len(failed)} validation run(s) failed."))
+            raise CommandError(
+                f"{len(failed)} validation run(s) failed. Each failed date is retried on the next pass; "
+                "the run's error field says why."
+            )

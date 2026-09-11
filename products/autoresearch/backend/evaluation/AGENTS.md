@@ -11,32 +11,38 @@ This package landed ahead of its callers. `../presentation/` and `../temporal/` 
 ## What lives here
 
 - `online_validation.py`
-  `run_online_validation_for_pipeline()` is the entry point, called by the Temporal validation activity and by the `autoresearch_validate_online` command.
+  `run_online_validation_for_pipeline()` is the entry point, called by the Temporal validation activity and by the `autoresearch_validate_online` command. It takes the acting `user` HogQL applies access control for, defaulting to the pipeline's creator.
 
-  Per matured prediction date, per model, it computes:
-  - **realized AUC** — ranking quality against actual outcomes
+  Per matured prediction date, per model that emitted predictions, it computes:
+  - **realized AUC** — ranking quality against actual outcomes (needs both classes; a single-class date records `single_class_no_auc` instead)
   - **Brier score** — squared error of the probabilities
   - **expected calibration error** (`_expected_calibration_error`, 10 bins) — whether "0.8" really means 80%
-  - **lift@k** (`_lift_at_k`) — how much better than random the top slice is
+  - **lift@k** (`_lift_at_k`) — how much better than random the top slice is; ties at the boundary score are split fractionally so the number does not depend on row order
 
-  Champions and challengers are both scored, which is what makes challenger promotion decidable on evidence rather than on holdout alone.
-  Results land on `AutoresearchModel.realized_score` / `.calibration_error` / `.metrics` via `_update_model_realized_metrics()`, and each validated date records an `AutoresearchRun`.
+  Every model that emitted predictions on the date is scored, whatever its role now. Inference emits the champion only today; when challenger shadow scoring ships, their realized numbers land here without a change, which is what makes challenger promotion decidable on evidence rather than on holdout alone.
+  Results land on `AutoresearchModel.realized_score` / `.calibration_error` / `.metrics["realized"]` via `_update_model_realized_metrics()`, and each validated date records an `AutoresearchRun` whose `metrics["per_model"]` keeps the emitted role next to the current one.
 
 ## Mental model
 
 ```text
-predictions emitted on day D
+completed inference run for day D  (metrics: prediction_date, horizon_days, rows_scored)
         │
         │  ... wait horizon_days ...
         │
- D + horizon <= today  →  the label is now knowable
+ D + horizon <= today (UTC)  →  the outcome window has closed
         │
- _find_mature_unvalidated_dates  →  dates with predictions but no validation run
+ find_pending_validation_dates  →  matured dates with no completed validation and no live claim
         │
- _fetch_predictions_by_model  ×  _fetch_realized_labels  →  metrics per model
+ _claim_date (RUNNING run, under the pipeline row lock)
+        │
+ _fetch_predictions  ×  _fetch_realized_labels  →  metrics per model  →  one transaction
 ```
 
-`_find_mature_unvalidated_dates()` is what keeps this idempotent: it only picks up dates whose horizon has passed _and_ which have not already been validated, so the workflow can run daily without recomputing history.
+Candidate dates come from Postgres, not from a scan of the events table: the inference runs record the prediction date and the horizon they scored against, so a daily pass costs nothing for the dates it does not validate, and the horizon used is the one the predictions were made under.
+
+`find_pending_validation_dates()` is what keeps this idempotent: it skips dates with a `COMPLETED` validation run and dates with a `RUNNING` one younger than `STALE_CLAIM_AFTER`, so the workflow can run daily without recomputing history. A `FAILED` run does not count, so its date is retried.
+
+Both ClickHouse queries are bounded by what the inference runs say was emitted. The prediction fetch must return exactly `rows_scored` persons per model; fewer means ingestion has not caught up with a backfill, more means events the run did not emit, and either fails the date so it is retried instead of completing with wrong numbers. The realized-label scan is restricted to the predicted persons, and its window is the UTC one scoring bound the run to (`[D 00:00, D + horizon 00:00)`).
 
 All the heavy work — the HogQL queries and the sklearn metrics — happens inside a single Temporal activity. Nothing large crosses a workflow boundary, which is deliberate: activity payloads are capped, and prediction sets are big.
 
@@ -44,21 +50,24 @@ All the heavy work — the HogQL queries and the sklearn metrics — happens ins
 
 - **Nothing to validate on day one.** Predictions written today mature in `horizon_days`. A fresh pipeline returns zero validated dates and that is correct, not a bug.
   To get a populated view locally, backdate: `autoresearch_score --prediction-date <past>` or `--backfill-days N` emits already-matured predictions.
-- **Backdated events are silently dropped when the team sets `drop_events_older_than_seconds`.** Ingestion discards them as too old, so validation finds nothing and nothing errors anywhere.
-- **A contiguous gap in prediction dates means the backfill lost a chunk**, not that validation skipped it — a large backfill can overwhelm the local ingestion consumer.
+- **A backfill's date fails validation until its events are all in ClickHouse.** The fetch compares against the run's `rows_scored`, so a pass that runs seconds after a backfill records a `FAILED` run and the next pass picks the date up.
+- **Backdated events are refused by scoring when the team sets `drop_events_older_than_seconds`**, so no inference run is recorded and validation has nothing to look for.
+- **A deleted model takes its evidence with it.** Its inference runs lose their model and drop out of the candidates, and its prediction events are not fetched. A model deleted mid-validation is recorded in the run's `per_model` as `deleted` and skipped for the model update.
+- **Only the AUC needs both classes.** An all-negative day still records Brier, calibration error, and lift, which is where calibration matters for a rare target.
 
 ## Where the rest of the system meets this package
 
 - **Scheduled by** — `AutoresearchValidationWorkflow` / `activity_run_validation` in `../temporal/workflows.py`.
-- **Run headlessly by** — `autoresearch_validate_online` (see `../management/AGENTS.md`), which supports `--dry-run`.
-- **Reads** — `autoresearch_prediction` events emitted by `../inference/`, and the target condition from `../dataset/labeling.py` (`build_target_condition`) so "did it happen?" is defined identically to how it was labeled at training time.
+- **Run headlessly by** — `autoresearch_validate_online` (see `../management/AGENTS.md`), which supports `--dry-run` and `--user-id`, and exits non-zero when a date fails.
+- **Reads** — `autoresearch_prediction` events emitted by `../inference/`, the `prediction_date` / `horizon_days` keys `scoring.py` records on each inference run, and the target condition from `../dataset/labeling.py` (`build_target_condition`) so "did it happen?" is defined identically to how it was labeled at training time. The product's own prediction event is excluded from the outcome scan, as it is from the labeler's.
 - **Writes** — realized metrics onto `AutoresearchModel`, plus an `AutoresearchRun` per validated date.
 - **Not to be confused with** `../dataset/validation.py`, which is pre-flight target viability. Same word, opposite ends of the lifecycle.
 
 ## When editing this flow
 
 - **Reuse `build_target_condition()` from `../dataset/labeling.py`.** If realized outcomes were defined differently from training labels, every realized metric would be measuring a different question than the model was trained on.
-- Keep `_find_mature_unvalidated_dates()` the only date selector, so validation stays idempotent and safe to run on a schedule.
+- Keep `find_pending_validation_dates()` the only date selector, and keep the claim under the pipeline row lock, so validation stays idempotent and safe to run from the schedule and the command at once.
+- Keep every query bounded by the inference runs' counts. A bare HogQL SELECT is capped at 100 rows without an error.
+- Keep the model updates and the run write in one transaction, so a failure part-way leaves no model with a score its run does not record.
 - Keep the heavy work inside one activity. Returning prediction sets through the workflow would hit the Temporal payload limit as soon as a pipeline scores a real population.
-- Score challengers as well as the champion — challenger realized performance is the evidence promotion should eventually rest on.
 - **If you add a metric or change the maturity rule, update this file to match.**

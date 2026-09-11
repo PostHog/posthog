@@ -94,6 +94,7 @@ class TestScoreRows(SimpleTestCase):
         assert _score_rows([]) == []
 
 
+@time_machine.travel("2026-09-11T12:00:00Z", tick=False)
 class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
     def _make_pipeline_and_model(self, **pipeline_kwargs) -> tuple[AutoresearchPipeline, AutoresearchModel]:
         pipeline = AutoresearchPipeline.objects.create(
@@ -131,6 +132,8 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
         assert run.status == AutoresearchRun.Status.COMPLETED
         assert run.rows_scored == 2
         assert run.metrics["holdout_auc"] == 0.7
+        assert run.metrics["prediction_date"] == "2026-09-11"
+        assert run.metrics["horizon_days"] == 7
         assert capture.call_count == 1
         kwargs = capture.call_args.kwargs
         events = kwargs["events"]

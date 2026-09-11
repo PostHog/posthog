@@ -207,6 +207,11 @@ def run_inference_for_pipeline(
             "stub": bool((model.model_recipe or {}).get("stub", False)),
             "sandbox": bool(model.artifact_prefix),
             "holdout_auc": scored.holdout_auc,
+            # Online validation discovers matured dates from these two keys instead of
+            # scanning the events table, and validates against the horizon scored here
+            # rather than the pipeline's current one.
+            "prediction_date": window.prediction_date.isoformat(),
+            "horizon_days": pipeline.horizon_days,
         }
         run.completed_at = django_timezone.now()
         run.save(update_fields=["status", "rows_scored", "metrics", "completed_at"])
