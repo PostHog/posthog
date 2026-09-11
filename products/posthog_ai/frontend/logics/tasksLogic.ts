@@ -31,6 +31,7 @@ export interface tasksLogicValues {
     assigneeFilter: TaskAssigneeFilter
     hasRequestedTasks: boolean
     isStaffUser: boolean
+    pendingSearchQuery: string | null
     repositories: string[]
     repositoriesLoading: boolean
     searchQuery: string
@@ -165,6 +166,7 @@ export interface tasksLogicMeta {
             assigneeFilter: TaskAssigneeFilter,
             user: UserType | null
         ) => TaskListParams
+        tasksSearchPending: (pendingSearchQuery: string | null) => boolean
     }
 }
 
@@ -276,15 +278,18 @@ export const tasksLogic = kea<tasksLogicType>([
                 loadTasks: () => true,
             },
         ],
-        // True from the keystroke until the matching page lands. `tasksLoading` misses the 300ms
-        // debounce in front of the request, and that gap is when a consumer filtering the cached
-        // rows would report "nothing found" for a search whose matches are still on the server.
-        tasksSearchPending: [
-            false,
+        // The search the loaded rows don't answer yet, null once they do. `tasksLoading` misses the
+        // 300ms debounce in front of the request, and that gap is when a consumer filtering the
+        // cached rows would report "nothing found" for a search whose matches are still on the
+        // server. A load that was already in flight when the user typed answers the previous query,
+        // so only a response carrying this term ends the wait. A failure carries no term, and
+        // holding the wait open on one would leave a spinner over the error instead.
+        pendingSearchQuery: [
+            null as string | null,
             {
-                setSearchQuery: () => true,
-                loadTasksSuccess: () => false,
-                loadTasksFailure: () => false,
+                setSearchQuery: (_, { search }) => search,
+                loadTasksSuccess: (state, { payload }) => ((payload?.search ?? '') === (state ?? '') ? null : state),
+                loadTasksFailure: () => null,
             },
         ],
         tasksError: [
@@ -321,6 +326,11 @@ export const tasksLogic = kea<tasksLogicType>([
     selectors({
         // The "all team" filter is staff-only; expose it so the menu can conditionally show it.
         isStaffUser: [(s) => [s.user], (user: null | import('~/types').UserType): boolean => !!user?.is_staff],
+        // Whether the visible rows still lag the typed search (see `pendingSearchQuery`).
+        tasksSearchPending: [
+            (s) => [s.pendingSearchQuery],
+            (pendingSearchQuery: string | null): boolean => pendingSearchQuery !== null,
+        ],
         // Combined list filters: search term + the assignee toggle. A scout run is created by the user
         // the scout executes as, so "for you" and "my scouts" are the two halves of that user's
         // `created_by` rows: those runs are what clutters their list, so they are what the split has to

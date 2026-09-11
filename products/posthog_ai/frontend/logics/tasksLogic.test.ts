@@ -176,6 +176,22 @@ describe('tasksLogic', () => {
 
             expect(logic.values.tasksSearchPending).toBe(false)
         })
+
+        // Regression coverage: a load already in flight when the user types answers the previous
+        // query. Ending the wait when that response lands reopens the "nothing found" flash for the
+        // rest of the debounce, which is the flash the pending flag exists to prevent.
+        it('stays pending when a load for the previous query lands during the debounce', async () => {
+            logic.actions.loadTasks(logic.values.taskListParams)
+            logic.actions.setSearchQuery('checkout bug')
+
+            await expectLogic(logic).toDispatchActions(['loadTasks', 'loadTasksSuccess'])
+
+            expect(logic.values.tasksSearchPending).toBe(true)
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.tasksSearchPending).toBe(false)
+        })
     })
 
     describe('loadMoreTasks', () => {
