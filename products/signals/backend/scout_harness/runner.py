@@ -756,8 +756,6 @@ async def _spawn_and_run(
         # Resolved through the same allowlist the token is, so the prompt can never promise write
         # access the token does not carry.
         write_scopes=scope_posture["extra_write_scopes"],
-        # Steering typed for this run alone, rendered apart from the durable notes. Empty on every
-        # scheduled run, which is what keeps a one-off nudge out of the fleet's standing steering.
         run_note=run_note,
     )
     logger.info(
@@ -1057,10 +1055,8 @@ def _create_run_row(
     # were — a scheduled patrol or a human's "Run now" must not extend it.
     if triggered_by != TRIGGERED_BY_SCHEDULE:
         metadata["triggered_by"] = triggered_by
-    # The one-off steering this run was dispatched with, kept because it is the only record of why
-    # a manual run behaved differently from the scheduled ones around it — it is deliberately never
-    # stored as a scout note. Human prose rather than a runner-resolved dimension, so read it as
-    # what someone asked for, not as something the harness settled.
+    # The only record of why a manual run behaved differently from the scheduled ones around it,
+    # because the note is deliberately never stored as a scout note.
     if run_note:
         metadata["run_note"] = run_note
     return SignalScoutRun.objects.unscoped().create(

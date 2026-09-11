@@ -3771,8 +3771,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         [
             ("note", "Focus on the checkout regression.", "Focus on the checkout regression."),
             ("padded", "  Focus on the checkout regression.  ", "Focus on the checkout regression."),
-            # Whitespace is nothing to steer with, and it must not reach the prompt as a section
-            # telling the scout someone left it a note.
+            # Whitespace must not reach the prompt as a section saying someone left a note.
             ("blank", "   ", None),
         ]
     )
@@ -3791,8 +3790,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         )
 
     def test_run_with_oversized_note_returns_400_without_dispatching(self) -> None:
-        # The note renders verbatim into the run's prompt, so an unbounded one would crowd out the
-        # instructions it is meant to steer.
+        # An unbounded note would crowd out the instructions it is meant to steer.
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         with patch(_QUOTA, return_value=_UNDER_QUOTA), patch(_CONNECT), patch(_START) as start:
             response = self.client.post(
@@ -3803,8 +3801,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         start.assert_not_called()
 
     def test_run_with_a_note_requires_skill_editor_access(self) -> None:
-        # A note is read verbatim by an agent holding privileged tools, so it clears the same RBAC
-        # bar as leaving a scout note. Triggering a run without one stays on the config write.
+        # A note clears the scout-note RBAC bar; triggering a run without one stays on the config write.
         from posthog.scopes import APIScopeObject
 
         from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
@@ -3836,8 +3833,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            # `signal_scout:write` alone triggers a run, but steering one with prose an agent reads
-            # verbatim is the skill-authoring capability, so a note needs `llm_skill:write` too.
+            # Steering a run with prose an agent reads verbatim is the skill-authoring capability.
             ("scout_scope_only", ["signal_scout:write"], status.HTTP_403_FORBIDDEN),
             ("both_scopes", ["signal_scout:write", "llm_skill:write"], status.HTTP_202_ACCEPTED),
         ]

@@ -55,8 +55,8 @@ class RunSignalsScoutInput:
     # Set by a workflow step that parks until this run wakes it.
     workflow_origin_key: str | None = None
     workflow_managed_resume: bool = False
-    # One-off steering typed alongside a manual trigger, rendered into this run's prompt and
-    # stamped on its row. Never set on a scheduled dispatch — standing steering is a scout note.
+    # One-off steering typed alongside a manual trigger. Never set on a scheduled dispatch,
+    # where standing steering is a scout note instead.
     run_note: str | None = None
 
 

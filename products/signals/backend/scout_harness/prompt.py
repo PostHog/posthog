@@ -1054,11 +1054,8 @@ def _external_mcp_servers_paragraph(mcp_server_names: Sequence[str]) -> str:
     )
 
 
-# Rendered only for an on-demand run whose dispatcher typed a note. Deliberately separate from
-# `_SCOUT_NOTES`, which covers the durable notes the scout fetches for itself: this one is bound to
-# one run, so a scout that read it as fleet steering would be right to fold it into durable memory
-# as though the team had said it for every run. The delimiters mark where the untrusted text starts
-# and stops, since a note is free prose that can carry headings of its own.
+# Kept separate from `_SCOUT_NOTES`, the durable notes a scout fetches for itself, because a scout
+# that read a one-off nudge as fleet steering would be right to remember it forever.
 _RUN_NOTE_TEMPLATE = """# A note for this run
 
 Someone started this run by hand and left a note with it. It belongs to this run alone: it is not a steering note, no later run sees it, and it says nothing about what your team wants of every run — so weigh it here, and do not record it in the scratchpad as a durable memory.
@@ -1211,8 +1208,7 @@ def build_run_prompt(
     sections = [*sections[:-1], improvement, sections[-1]]
     tail = _render_tail(sections, schema_json=schema_json)
     run_note_section = _run_note_section(run_note)
-    # Last, because it is the most per-run value in the prompt: everything above it is identical
-    # across runs of the same scout, and both runtimes cache on prefix.
+    # Last, because it is the most per-run value in the prompt and both runtimes cache on prefix.
     run_note_block = f"\n\n{run_note_section}" if run_note_section else ""
     external_mcp_paragraph = _external_mcp_servers_paragraph(mcp_server_names) if mcp_server_names else ""
     # Report-channel scouts only: the authors line exists to steer `suggested_reviewers`, and a

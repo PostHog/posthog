@@ -2081,9 +2081,8 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # `scout_harness/derived_metadata.py` and holds booleans the harness computes from the run's
     # own output, so "what kind of run was this?" is a field lookup rather than prose parsing.
     # Both regions are server-written: nothing here is scout-authored, which is what makes the
-    # column safe to query directly. `run_note` is the one exception to "resolved by the harness" —
-    # it is the note a person typed when triggering the run by hand, kept verbatim as the record of
-    # what that run was asked to do, so read it as prose rather than as a dimension.
+    # column safe to query directly. `run_note` is the exception to "resolved by the harness": it is
+    # the note a person typed when triggering the run by hand, so read it as prose, not a dimension.
     # Nullable with a `{}` db_default so the AddField stays non-blocking on the populated table.
     metadata = models.JSONField(null=True, blank=True, default=dict, db_default={})
     created_at = models.DateTimeField(auto_now_add=True)

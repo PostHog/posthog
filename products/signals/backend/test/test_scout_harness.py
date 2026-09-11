@@ -415,8 +415,7 @@ class TestPromptCrossReferences(SimpleTestCase):
             team_id=1,
             started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
             github_read_access=github_read_access,
-            # Carried on every case so the one-off note section's own cross-references are held to
-            # the same rule; it points at sections each tail assembles for itself.
+            # Carried on every case so the note section's own cross-references are held to the rule.
             run_note="Focus on the checkout regression.",
         )
         headings = {line.removeprefix("# ") for line in prompt.splitlines() if line.startswith("# ")}
@@ -499,8 +498,7 @@ class TestRunNotePromptSection(SimpleTestCase):
 
     @parameterized.expand([("absent", None), ("blank", "   \n  ")])
     def test_no_section_without_a_note(self, _name: str, run_note: str | None) -> None:
-        # Every scheduled run takes this path, so a section that rendered anyway would tell each of
-        # them to weigh a note nobody left.
+        # Every scheduled run takes this path, and would be told to weigh a note nobody left.
         prompt = self._prompt(run_note)
         assert "# A note for this run" not in prompt
         assert "<run_note>" not in prompt
@@ -508,20 +506,17 @@ class TestRunNotePromptSection(SimpleTestCase):
     @parameterized.expand(
         [
             ("plain", "Focus on the checkout regression."),
-            # A note is free prose someone typed, and the tail renderer formats any section holding
-            # a `{schema_json}` placeholder — through that path a note like this one took the whole
-            # run down before the prompt was built.
+            # The tail renderer formats any section holding a `{schema_json}` placeholder, so a
+            # note like this one took the whole run down before the prompt was built.
             ("braces", "Compare {schema_json} against the {} payload."),
         ]
     )
     def test_note_renders_verbatim_in_its_own_section(self, _name: str, run_note: str) -> None:
         prompt = self._prompt(run_note)
         assert f"<run_note>\n{run_note}\n</run_note>" in prompt
-        # The section has to say the note is bound to this run: read as fleet steering, a scout
-        # would be right to fold a one-off nudge into the scratchpad and re-apply it forever.
+        # Read as fleet steering, a scout would be right to remember the nudge forever.
         assert "# A note for this run" in prompt
         assert "do not record it in the scratchpad as a durable memory" in prompt
-        # The durable-notes section stays, and stays separate.
         assert "# Notes left for you" in prompt
 
 
@@ -2744,9 +2739,7 @@ class TestRunRowProvenanceStamps(BaseTest):
         assert (run.metadata or {})["business_knowledge_maintained"] is True
 
     def test_stamps_the_one_off_note_a_manual_run_carried(self) -> None:
-        # A one-off note is deliberately not stored as a scout note, so the run row is the only
-        # record of what a hand-triggered run was asked to do. Absent on the scheduled path, which
-        # is what keeps the key meaningful.
+        # The run row is the only record of what a hand-triggered run was asked to do.
         config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name="signals-scout-general")
         skill = self._skill(allowed_tools=["emit_report"], origin="custom")
         steered = _create_run_row(

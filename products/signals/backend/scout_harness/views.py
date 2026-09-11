@@ -2275,10 +2275,8 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if action == "partial_update" and self._sets_structured_output_schema(request):
             return ["signal_scout:write", "llm_skill:write"]
         # Running a scout drives spend, so a bare trigger is a config write. A trigger carrying a
-        # `note` also puts prose in front of a privileged agent, so it escalates to the same
-        # skill-authoring scopes leaving a scout note needs. Read off the raw body, which is all
-        # this hook has: an oversized note still escalates here and is then rejected by the
-        # serializer, which is the order that keeps the cheap scope answer independent of parsing.
+        # `note` puts prose in front of a privileged agent, so it escalates to the scopes leaving a
+        # scout note needs. An oversized note escalates here too, then the serializer rejects it.
         if action == "run":
             if _manual_run_note(request.data.get("note") if isinstance(request.data, dict) else None):
                 return ["signal_scout:write", "llm_skill:write"]
@@ -2540,14 +2538,12 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["post"],
         url_path="run",
-        # No `required_scopes` here on purpose: it would win over `dangerously_get_required_scopes`,
-        # which is where a run carrying a `note` escalates to the skill-authoring scopes.
+        # No `required_scopes` here: it would win over `dangerously_get_required_scopes`, which is
+        # where a run carrying a `note` escalates to the skill-authoring scopes.
     )
     def run(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         team_id = _canonical_team_id(self)
-        # The note is steering a privileged agent reads verbatim, so it clears the same RBAC bar as
-        # leaving a scout note. Checked before any dispatch work, and only when a note is present,
-        # so a plain "Run now" stays on the config write scope alone.
+        # A note clears the same RBAC bar as leaving a scout note. A plain trigger does not.
         note = _manual_run_note(request.validated_data.get("note"))
         if note:
             self._assert_can_author_run_note()
@@ -2611,8 +2607,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             skill_name=skill_name,
             workflow_id=workflow_id,
             user_id=request.user.pk,
-            # Whether the run was steered, never the steering itself: the note is free text a person
-            # typed, and it already has a home on the run row.
+            # Whether the run was steered, never the steering itself.
             has_note=bool(note),
         )
         return Response(
