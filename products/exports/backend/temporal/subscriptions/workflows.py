@@ -4,7 +4,7 @@ import asyncio
 import datetime as dt
 from collections.abc import Callable, Coroutine
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
 import temporalio.common
 import temporalio.workflow
@@ -207,9 +207,13 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: ScheduleAllSubscriptionsWorkflowInputs) -> None:
-        fetch_inputs = FetchDueSubscriptionsActivityInputs(
-            buffer_minutes=inputs.buffer_minutes,
-            max_subscriptions_per_run=inputs.max_subscriptions_per_run,
+        fetch_inputs = (
+            FetchDueSubscriptionsActivityInputs(
+                buffer_minutes=inputs.buffer_minutes,
+                max_subscriptions_per_run=inputs.max_subscriptions_per_run,
+            )
+            if temporalio.workflow.patched("subscription-scheduler-bounded-input-2026-09")
+            else cast(FetchDueSubscriptionsActivityInputs, {"buffer_minutes": inputs.buffer_minutes})
         )
         subscription_infos: list[DueSubscription] = await temporalio.workflow.execute_activity(
             fetch_due_subscriptions_activity,

@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from products.exports.backend.temporal.subscriptions.types import (
     DueSubscription,
@@ -59,11 +59,12 @@ async def test_scheduler_preserves_waiting_behavior_when_replaying_legacy_runs()
     )
     start_child = AsyncMock()
     execute_child = AsyncMock(return_value=None)
+    execute_activity = AsyncMock(return_value=[due_subscription])
 
     with (
         patch(
             "products.exports.backend.temporal.subscriptions.workflows.temporalio.workflow.execute_activity",
-            new=AsyncMock(return_value=[due_subscription]),
+            new=execute_activity,
         ),
         patch(
             "products.exports.backend.temporal.subscriptions.workflows.temporalio.workflow.start_child_workflow",
@@ -80,6 +81,11 @@ async def test_scheduler_preserves_waiting_behavior_when_replaying_legacy_runs()
     ):
         await ScheduleAllSubscriptionsWorkflow().run(ScheduleAllSubscriptionsWorkflowInputs())
 
-    patched.assert_called_once_with("subscription-scheduler-fire-and-forget-2026-09")
+    assert patched.call_args_list == [
+        call("subscription-scheduler-bounded-input-2026-09"),
+        call("subscription-scheduler-fire-and-forget-2026-09"),
+    ]
+    fetch_inputs = execute_activity.await_args.args[1]
+    assert fetch_inputs == {"buffer_minutes": 15}
     execute_child.assert_awaited_once()
     start_child.assert_not_awaited()
