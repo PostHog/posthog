@@ -89,11 +89,7 @@ export const INGESTION_WARNING_TYPES = {
     invalid_event_when_process_person_profile_is_false: { category: 'event', severity: 'error' },
     event_dropped_too_old: { category: 'event', severity: 'info' },
 
-    // Cookieless mode — the event arrived with the cookieless sentinel distinct id
-    // but the team has not enabled cookieless tracking, so it is dropped. This is
-    // 'error' rather than 'info' because the drop is not something the team
-    // configured: cookieless is off by default, and the SDK setting alone looks
-    // like it should be enough. The warning is the only place the drop is visible.
+    // Cookieless mode — event dropped because cookieless tracking is disabled for the team
     cookieless_team_disabled: { category: 'event', severity: 'error' },
     // Cookieless mode — events missing the data required to compute a cookieless distinct id
     cookieless_missing_timestamp: { category: 'event', severity: 'error' },
