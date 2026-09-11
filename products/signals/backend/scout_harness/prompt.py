@@ -10,6 +10,14 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, Field
 
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
+from products.signals.backend.report_metrics import (
+    DEFAULT_LIVE_METRIC_DATE_FROM,
+    MAX_LIVE_METRIC_QUERY_POINTS,
+    MAX_LIVE_METRIC_QUERY_SERIES,
+    MAX_LIVE_METRIC_WINDOW_DAYS,
+    MAX_METRIC_SERIES_POINTS,
+    MAX_REPORT_METRICS,
+)
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, SkillAuthor, skill_uses_report_channel
 
@@ -55,7 +63,13 @@ def _compute_harness_prompt_version() -> str:
 
 # Values imported from other modules that templates in this file render into the prompt.
 _RENDERED_IMPORTS: dict[str, object] = {
+    "DEFAULT_LIVE_METRIC_DATE_FROM": DEFAULT_LIVE_METRIC_DATE_FROM,
+    "MAX_LIVE_METRIC_QUERY_POINTS": MAX_LIVE_METRIC_QUERY_POINTS,
+    "MAX_LIVE_METRIC_QUERY_SERIES": MAX_LIVE_METRIC_QUERY_SERIES,
+    "MAX_LIVE_METRIC_WINDOW_DAYS": MAX_LIVE_METRIC_WINDOW_DAYS,
+    "MAX_METRIC_SERIES_POINTS": MAX_METRIC_SERIES_POINTS,
     "MAX_REPORT_CHARTS": MAX_REPORT_CHARTS,
+    "MAX_REPORT_METRICS": MAX_REPORT_METRICS,
     "MAX_SUGGESTED_PROMPTS": MAX_SUGGESTED_PROMPTS,
     "MAX_SUGGESTED_PROMPT_LENGTH": MAX_SUGGESTED_PROMPT_LENGTH,
 }
@@ -551,6 +565,29 @@ A report you author renders in the inbox like any pipeline report: `title` is th
 
 If your skill body defines its own report structure (required sections, a fixed template), follow that instead: the skill body owns the prose contract."""
 
+_REPORT_METRICS = f"""# Measuring report impact
+
+`metrics` on the report tools carries the small set of typed measurements that tell a reader what the observation changes and how many people it affects. Use one `primary` metric for the key observation and the rest as `supporting` facts. Every metric needs a bounded live query; its saved snapshot is only an optional cached fallback. Omit a metric you cannot measure honestly rather than guessing. A weak number is worse than none: a single support ticket, a one-off migration crash, a rate over a handful of attempts, or a count with no person context tells the reader nothing, so a report with no metric beats a report with a weak metric.
+
+- **Choose the kind by what the reader will ask.**
+    - `affected_users` for anything a person experiences: a captured exception with person context, a dead click, a rage click, a failed request on a surface, or a pageview matching a broken URL. One series, `math: "dau"`.
+    - `affected_sessions` when the source establishes sessions but not people. Use exactly one event or action series with `math: "unique_session"`. Do not use a formula or group math.
+    - `occurrences` for noise and for backend failures: a report that asks the team to stop reporting something as an error, a Temporal, Celery, or job exception with no person on the event, or a volume counter such as tool calls per week. Total count.
+    - `error_rate` when a flow fails, and `conversion_rate` when a flow stalls: an action event that carries an outcome property, or two events describing a step and its completion, combined with one formula such as `B / A` over two series and `percentage_scaled`.
+    - `duration`, `revenue`, and `custom` only when the source is that measurement and an event or action query produces it. A figure with no event or action query behind it, such as a database statistic, a build duration read from another tool, or a number quoted from an external source, stays in the prose; do not author a metric for it.
+    - A noise report where nobody was hurt, and a backend job with no person on the event, take `occurrences`, never `affected_users`.
+- **Title the observation, and caption only what the tile cannot show.** `title` says what was observed and for whom in one line a reader can act on, such as `Users who hit "Not found" opening a shared chat link`, not a label such as `Users affected`. The tile prints the figure with its `unit`, then the title, then the window the query covers. A reader sees them together, so never state one fact twice across them. Leave `caption` empty unless it carries something the reader needs and cannot see: a filter that narrows the count (`Production only, excluding internal users`), why a longer window was needed, or a caveat on the data (`Person context is missing on about a third of these events`). A caption that restates the title, the unit, or the window is noise.
+- **Count people only when you can establish people.** An `affected_users` metric means distinct PostHog people, not sessions, events, requests, traces, groups, or the report's signal count. Use one `InsightVizNode` wrapping one `TrendsQuery`, with exactly one `EventsNode` or `ActionsNode` series using `math: "dau"`; an event series needs a non-empty `event`, and an action series needs a positive integer `id`. Do not use group math, a breakdown, compare mode, or a formula.
+- **Keep every metric live and bounded.** Give every metric one `InsightVizNode` wrapping a `TrendsQuery` you ran successfully this session. Every source series must be an `EventsNode` or `ActionsNode`. Give it a relative `dateRange.date_from` no longer than {MAX_LIVE_METRIC_WINDOW_DAYS} days, leave `date_to` empty, and keep the filters that reproduce the observation. Default the query to `dateRange.date_from: "{DEFAULT_LIVE_METRIC_DATE_FROM}"` with `interval: "day"`. This gives 14 inclusive daily buckets, including today. The inbox strip shows at most the trailing 14 buckets. For a longer window, the strip is shorter than the whole-window figure and the caption says why the longer window is needed. Its longitudinal output may contain at most {MAX_LIVE_METRIC_QUERY_POINTS} estimated interval points, including the current partial bucket. The query remains the source of truth when the report is reopened.
+- **Keep exactly one output series per query.** Do not use a breakdown or compare mode on any report metric. Without a formula, use exactly one source series. A conversion or rate may use up to {MAX_LIVE_METRIC_QUERY_SERIES} event/action source series as formula inputs, but it must define exactly one formula output.
+- **Consumers own the display.** The stored Trends definition is executed as `BoldNumber` for the first output series' whole-window `aggregated_value` and as `ActionsBar` for the longitudinal buckets. Its authored display does not control report rendering. Run the total-value shape when you author a snapshot; a bar or line response does not supply the whole-window total. Never sum distinct-user buckets because one person can appear in several.
+- **Keep semantics separate from formatting.** `kind` says what the metric measures. `value_format` says how to print it (`count`, `percentage`, `percentage_scaled`, `duration`, `currency`, or `number`). A non-currency `unit` is one lowercase word that completes the figure, because the report prints it next to the number: `users`, `sessions`, `events`, `runs`, or `calls`. For a rate, name what the share means: `failure` for an error rate, `conversion` for a conversion rate; `%` is redundant and is dropped. A duration keeps `ms` or `s`, and revenue uses an uppercase ISO currency code such as `USD`. `affected_users` uses `count`. Use `percentage` for percentage points (`34` means 34%) and `percentage_scaled` for 0–1 ratios (`0.34` means 34%). A percentage query must set `aggregationAxisFormat` to exactly the same value as `value_format`; missing or numeric axis formatting is invalid.
+- **Snapshots are optional cached fallbacks, not estimates.** Send `value` and `value_at` together only when you measured that value in this run, and write `value_at` as an ISO-8601 timestamp with a timezone. Zero is a real measurement; null means unavailable. A snapshot never replaces the required live query. Snapshot-only or queryless rows are legacy or malformed, are always redacted, and must not be authored. When you also ran the bar shape, `series` may carry its trailing per-bucket values, oldest first, at most {MAX_METRIC_SERIES_POINTS} points; the inbox row draws them as a small trend strip.
+- **Do not author comparisons.** Leave `comparison` unset. The server does not yet keep an adjacent comparison window live.
+- **Use at most {MAX_REPORT_METRICS} metrics**, with at most one `primary` and one `affected_users` metric. Prefer the few measurements that change the decision.
+- **`metrics` on an edit is the whole set.** Omit it or send null to preserve the report's metrics, send `metrics: []` to clear them, or send the complete replacement list, including every metric that should remain.
+"""
+
 _REPORT_CHARTS = f"""# Attaching charts
 
 `charts` on the report tools carries queries the inbox draws on the report itself, so a move is visible next to the sentence describing it instead of being a number the reader has to reproduce. Optional, and worth it only when the shape of the data is the point: a trend that broke, a distribution that shifted, a funnel step that collapsed. A chart restating one number the summary already gives is noise, so write the number.
@@ -924,6 +961,7 @@ def _report_tail_sections(
             _SUGGESTED_REVIEWERS_REPORT,
             *([_github_evidence_section(can_emit=can_emit)] if github_read_access else []),
             _WRITING_REPORT,
+            _REPORT_METRICS,
             _REPORT_CHARTS,
             _REPORT_SUGGESTED_PROMPTS,
         ]
@@ -935,6 +973,7 @@ def _report_tail_sections(
             _SUGGESTED_REVIEWERS_REPORT,
             *([_github_evidence_section(can_emit=can_emit)] if github_read_access else []),
             _WRITING_REPORT,
+            _REPORT_METRICS,
             _REPORT_CHARTS,
             _REPORT_SUGGESTED_PROMPTS,
         ]
@@ -944,6 +983,7 @@ def _report_tail_sections(
             _EDITING_REPORT_EDIT_ONLY,
             _REPORT_SCRATCHPAD_POINTER,
             *([_github_evidence_section(can_emit=can_emit)] if github_read_access else []),
+            _REPORT_METRICS,
             _REPORT_CHARTS,
             _REPORT_SUGGESTED_PROMPTS,
         ]
