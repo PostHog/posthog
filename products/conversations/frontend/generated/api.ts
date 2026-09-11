@@ -16,11 +16,15 @@ import type {
     BulkUpdateTagsUUIDResponseApi,
     ComposeTicketApi,
     ComposeTicketResponseApi,
+    ConfirmPatternApi,
+    ConversationsPatternsListParams,
     ConversationsTicketsListParams,
     ConversationsTicketsMessagesListParams,
     ConversationsViewsListParams,
+    DismissPatternApi,
     PaginatedTicketListApi,
     PaginatedTicketMessageListApi,
+    PaginatedTicketPatternListApi,
     PaginatedTicketViewListApi,
     PatchedTicketNoteUpdateRequestApi,
     PatchedTicketUpdateRequestApi,
@@ -28,6 +32,7 @@ import type {
     TicketApi,
     TicketFullEmailApi,
     TicketMessageApi,
+    TicketPatternApi,
     TicketReplyRequestApi,
     TicketUpdateRequestApi,
     TicketViewApi,
@@ -51,6 +56,112 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getConversationsPatternsListUrl = (projectId: string, params?: ConversationsPatternsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/conversations/patterns/?${stringifiedParams}`
+        : `/api/projects/${projectId}/conversations/patterns/`
+}
+
+/**
+ * Clusters of tickets from distinct customers about one topic, found by the pattern detector.
+ *
+ * Read-only apart from the two state transitions, which are POST actions rather than PATCH so a
+ * client cannot set a pattern back to open, and so the baseline feedback that makes the detector
+ * learn happens in the same request.
+ */
+export const conversationsPatternsList = async (
+    projectId: string,
+    params?: ConversationsPatternsListParams,
+    options?: RequestInit
+): Promise<PaginatedTicketPatternListApi> => {
+    return apiMutator<PaginatedTicketPatternListApi>(getConversationsPatternsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsPatternsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/patterns/${id}/`
+}
+
+/**
+ * Clusters of tickets from distinct customers about one topic, found by the pattern detector.
+ *
+ * Read-only apart from the two state transitions, which are POST actions rather than PATCH so a
+ * client cannot set a pattern back to open, and so the baseline feedback that makes the detector
+ * learn happens in the same request.
+ */
+export const conversationsPatternsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TicketPatternApi> => {
+    return apiMutator<TicketPatternApi>(getConversationsPatternsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsPatternsConfirmCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/patterns/${id}/confirm/`
+}
+
+/**
+ * Clusters of tickets from distinct customers about one topic, found by the pattern detector.
+ *
+ * Read-only apart from the two state transitions, which are POST actions rather than PATCH so a
+ * client cannot set a pattern back to open, and so the baseline feedback that makes the detector
+ * learn happens in the same request.
+ */
+export const conversationsPatternsConfirmCreate = async (
+    projectId: string,
+    id: string,
+    confirmPatternApi?: ConfirmPatternApi,
+    options?: RequestInit
+): Promise<TicketPatternApi> => {
+    return apiMutator<TicketPatternApi>(getConversationsPatternsConfirmCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(confirmPatternApi),
+    })
+}
+
+export const getConversationsPatternsDismissCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/patterns/${id}/dismiss/`
+}
+
+/**
+ * Clusters of tickets from distinct customers about one topic, found by the pattern detector.
+ *
+ * Read-only apart from the two state transitions, which are POST actions rather than PATCH so a
+ * client cannot set a pattern back to open, and so the baseline feedback that makes the detector
+ * learn happens in the same request.
+ */
+export const conversationsPatternsDismissCreate = async (
+    projectId: string,
+    id: string,
+    dismissPatternApi?: DismissPatternApi,
+    options?: RequestInit
+): Promise<TicketPatternApi> => {
+    return apiMutator<TicketPatternApi>(getConversationsPatternsDismissCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dismissPatternApi),
+    })
+}
 
 export const getConversationsTicketsListUrl = (projectId: string, params?: ConversationsTicketsListParams) => {
     const normalizedParams = new URLSearchParams()

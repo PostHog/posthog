@@ -8,6 +8,193 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `terms` - Term match
+ * * `embeddings` - Embeddings
+ */
+export type TicketPatternSourceEnumApi = (typeof TicketPatternSourceEnumApi)[keyof typeof TicketPatternSourceEnumApi]
+
+export const TicketPatternSourceEnumApi = {
+    Terms: 'terms',
+    Embeddings: 'embeddings',
+} as const
+
+/**
+ * * `open` - Open
+ * * `confirmed` - Confirmed
+ * * `dismissed` - Dismissed
+ * * `resolved` - Resolved
+ */
+export type TicketPatternStatusEnumApi = (typeof TicketPatternStatusEnumApi)[keyof typeof TicketPatternStatusEnumApi]
+
+export const TicketPatternStatusEnumApi = {
+    Open: 'open',
+    Confirmed: 'confirmed',
+    Dismissed: 'dismissed',
+    Resolved: 'resolved',
+} as const
+
+/**
+ * * `low` - Low
+ * * `medium` - Medium
+ * * `high` - High
+ * * `critical` - Critical
+ */
+export type TicketPriorityEnumApi = (typeof TicketPriorityEnumApi)[keyof typeof TicketPriorityEnumApi]
+
+export const TicketPriorityEnumApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Critical: 'critical',
+} as const
+
+/**
+ * * `engineering` - Engineering
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `student` - Student
+ * * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Student: 'student',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+export type TicketPatternApiTicketsItem = { [key: string]: unknown }
+
+export interface TicketPatternApi {
+    /** Pattern UUID. */
+    readonly id: string
+    /** The normalized term or term pair the tickets share. */
+    readonly topic: string
+    /** How the tickets were grouped: term match or embeddings.
+     *
+     * * `terms` - Term match
+     * * `embeddings` - Embeddings */
+    readonly source: TicketPatternSourceEnumApi
+    /** Short human-readable name for the pattern. */
+    readonly title: string
+    /** One or two sentences on what the tickets report, when available. */
+    readonly summary: string
+    /** open until a person confirms or dismisses it; resolved when it goes quiet.
+     *
+     * * `open` - Open
+     * * `confirmed` - Confirmed
+     * * `dismissed` - Dismissed
+     * * `resolved` - Resolved */
+    readonly status: TicketPatternStatusEnumApi
+    /** Priority a person assigned on confirm, medium by default.
+     *
+     * * `low` - Low
+     * * `medium` - Medium
+     * * `high` - High
+     * * `critical` - Critical */
+    readonly severity: TicketPriorityEnumApi
+    /** Tickets matched in the most recent detection window. */
+    readonly ticket_count: number
+    /** Distinct customers among those tickets. */
+    readonly requester_count: number
+    /** Highest ticket_count seen while the pattern was open. */
+    readonly peak_ticket_count: number
+    /**
+     * When the earliest matching ticket arrived.
+     * @nullable
+     */
+    readonly first_ticket_at: string | null
+    /** When detection first opened the pattern. */
+    readonly opened_at: string
+    /** When detection last saw the topic still firing. */
+    readonly last_seen_at: string
+    /**
+     * When the pattern was confirmed, dismissed, or auto-resolved.
+     * @nullable
+     */
+    readonly resolved_at: string | null
+    /** Who confirmed or dismissed the pattern. */
+    readonly resolved_by: UserBasicApi
+    /** Who took ownership when confirming. */
+    readonly owner: UserBasicApi
+    /** Free-form context: correlation results, dismiss reason, auto_resolved flag. */
+    readonly evidence: unknown
+    /** Up to 10 of the tickets behind this pattern, newest first, limited to tickets the requesting user can open. */
+    readonly tickets: readonly TicketPatternApiTicketsItem[]
+}
+
+export interface PaginatedTicketPatternListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TicketPatternApi[]
+}
+
+export interface ConfirmPatternApi {
+    /** Priority to record on the pattern. Defaults to medium.
+     *
+     * * `low` - Low
+     * * `medium` - Medium
+     * * `high` - High
+     * * `critical` - Critical */
+    severity?: TicketPriorityEnumApi
+    /** Set the requesting user as the pattern's owner. */
+    take_ownership?: boolean
+}
+
+export interface DismissPatternApi {
+    /**
+     * Optional note on why this is not an incident. Stored on the pattern for later review.
+     * @maxLength 500
+     */
+    reason?: string
+}
+
+/**
  * * `widget` - Widget
  * * `email` - Email
  * * `slack` - Slack
@@ -62,27 +249,6 @@ export const TicketStatusEnumApi = {
     Pending: 'pending',
     OnHold: 'on_hold',
     Resolved: 'resolved',
-} as const
-
-/**
- * * `low` - Low
- * * `medium` - Medium
- * * `high` - High
- * * `critical` - Critical
- */
-export type TicketPriorityEnumApi = (typeof TicketPriorityEnumApi)[keyof typeof TicketPriorityEnumApi]
-
-export const TicketPriorityEnumApi = {
-    Low: 'low',
-    Medium: 'medium',
-    High: 'high',
-    Critical: 'critical',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
 } as const
 
 /**
@@ -725,57 +891,6 @@ export interface TicketViewFiltersApi {
     search?: string
 }
 
-/**
- * * `engineering` - Engineering
- * * `data` - Data
- * * `product` - Product Management
- * * `founder` - Founder
- * * `leadership` - Leadership
- * * `marketing` - Marketing
- * * `sales` - Sales / Success
- * * `student` - Student
- * * `other` - Other
- */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-export const RoleAtOrganizationEnumApi = {
-    Engineering: 'engineering',
-    Data: 'data',
-    Product: 'product',
-    Founder: 'founder',
-    Leadership: 'leadership',
-    Marketing: 'marketing',
-    Sales: 'sales',
-    Student: 'student',
-    Other: 'other',
-} as const
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
-}
-
 export interface TicketViewApi {
     /** Internal UUID of the view. */
     readonly id: string
@@ -912,6 +1027,25 @@ export interface ZendeskImportJobApi {
 export interface ZendeskImportErrorApi {
     /** Human-readable error message. */
     detail: string
+}
+
+export type ConversationsPatternsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Comma-separated statuses to include: open, confirmed, dismissed, resolved.
+     */
+    status?: string
+    /**
+     * Only patterns this ticket is evidence for.
+     */
+    ticket_id?: string
 }
 
 export type ConversationsTicketsListParams = {
