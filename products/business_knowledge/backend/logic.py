@@ -20,17 +20,19 @@ from django.db import (
     connection as db_connection,
     transaction,
 )
-from django.db.models import Count, Exists, F, Max, OuterRef, Q, QuerySet
-from django.db.models.functions import Substr
+from django.db.models import Count, Exists, F, IntegerField, Max, OuterRef, Q, QuerySet, Subquery, Value
+from django.db.models.functions import Coalesce, Substr
 from django.utils import timezone
 
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from posthog.api.embedding_worker import generate_embedding
+from posthog.dataclasses import frozen
 from posthog.helpers.full_text_search import process_query
 from posthog.models.organization import OrganizationMembership
-from posthog.models.scoping import with_team_scope
+from posthog.models.scoping import team_scope, with_team_scope
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
@@ -91,6 +93,12 @@ from .url_fetch import sha256_of
 
 logger = structlog.get_logger(__name__)
 
+GENERATED_SOURCE_NAME = "Learned from support"
+GENERATED_KNOWLEDGE_ORIGIN = "support_ticket"
+MAX_ANALYSIS_VERSION_LENGTH = 128
+MAX_PROVIDER_LENGTH = 64
+MAX_GENERATED_DOCUMENT_TITLE_LENGTH = 512
+
 # Deterministic namespace for chunk uuid5. Rolling this breaks id stability
 # across data — so don't. Generated once via uuid.uuid4() and frozen.
 _CHUNK_NAMESPACE = UUID("4b7b0b50-5e2f-4a9f-8a8b-8b8d5f6f4a3e")
@@ -114,6 +122,44 @@ class UrlFetchFailedError(Exception):
 
 class SourceBusyError(Exception):
     """A refresh is already running for this source."""
+
+
+class GeneratedSourceReadOnlyError(Exception):
+    """A system-managed source cannot be changed through user mutation paths."""
+
+
+class InvalidGeneratedKnowledgeDocument(ValueError):
+    """The generated document violates the internal write contract."""
+
+
+@frozen
+class CreateGeneratedKnowledgeDocument:
+    team_id: int
+    # The product that supplied the evidence, e.g. "conversations". Part of the document identity.
+    provider: str
+    ticket_id: UUID
+    ticket_number: int
+    # The environment team the ticket lives in; the document row itself is stored on the canonical team.
+    source_team_id: int
+    resolution_comment_id: UUID
+    analysis_version: str
+    title: str
+    content: str
+
+
+@frozen
+class GeneratedKnowledgeDocument:
+    id: UUID
+    source_id: UUID
+    created: bool
+
+
+@frozen
+class _ValidatedGeneratedDocumentInput:
+    provider: str
+    analysis_version: str
+    title: str
+    content: str
 
 
 class EmptyContentError(Exception):
@@ -223,7 +269,12 @@ def _bulk_create_chunks(
 
 
 def _count_sources(team_id: int) -> int:
-    return KnowledgeSource.objects.filter(team_id=team_id).count()
+    return KnowledgeSource.objects.filter(team_id=team_id, is_generated=False).count()
+
+
+def _ensure_user_managed_source(source: KnowledgeSource) -> None:
+    if source.is_generated:
+        raise GeneratedSourceReadOnlyError("Generated sources are managed by PostHog.")
 
 
 # Advisory-lock namespace so we don't collide with other lock users.
@@ -299,6 +350,34 @@ def check_text_source_quota(team_id: int, text: str) -> None:
 # --- Queries -----------------------------------------------------------------
 
 
+def _document_count_subquery() -> Coalesce:
+    count = (
+        KnowledgeDocument.objects.filter(
+            team_id=OuterRef("team_id"),
+            source_id=OuterRef("pk"),
+        )
+        .order_by()
+        .values("source_id")
+        .annotate(total=Count("id"))
+        .values("total")[:1]
+    )
+    return Coalesce(Subquery(count, output_field=IntegerField()), Value(0))
+
+
+def _chunk_count_subquery() -> Coalesce:
+    count = (
+        KnowledgeChunk.objects.filter(
+            team_id=OuterRef("team_id"),
+            source_id=OuterRef("pk"),
+        )
+        .order_by()
+        .values("source_id")
+        .annotate(total=Count("id"))
+        .values("total")[:1]
+    )
+    return Coalesce(Subquery(count, output_field=IntegerField()), Value(0))
+
+
 def _unsafe_documents_subquery() -> Exists:
     return Exists(
         KnowledgeDocument.objects.filter(
@@ -352,8 +431,8 @@ def list_for_team(team_id: int) -> list[KnowledgeSource]:
     return list(
         KnowledgeSource.objects.filter(team_id=team_id)
         .annotate(
-            _document_count=Count("documents", distinct=True),
-            _chunk_count=Count("chunks", distinct=True),
+            _document_count=_document_count_subquery(),
+            _chunk_count=_chunk_count_subquery(),
             _has_unsafe_documents=_unsafe_documents_subquery(),
             _has_pending_embeddings=_pending_embedding_documents_subquery(),
             _ai_processing_approved=F("team__organization__is_ai_data_processing_approved"),
@@ -366,8 +445,8 @@ def list_for_team(team_id: int) -> list[KnowledgeSource]:
 def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
     try:
         return KnowledgeSource.objects.annotate(
-            _document_count=Count("documents", distinct=True),
-            _chunk_count=Count("chunks", distinct=True),
+            _document_count=_document_count_subquery(),
+            _chunk_count=_chunk_count_subquery(),
             _has_unsafe_documents=_unsafe_documents_subquery(),
             _has_pending_embeddings=_pending_embedding_documents_subquery(),
             _ai_processing_approved=F("team__organization__is_ai_data_processing_approved"),
@@ -379,16 +458,213 @@ def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
 @with_team_scope(canonical=True)
 def get_source_text_for_team(source_id: UUID, team_id: int) -> str | None:
     """
-    Returns the raw text of a text-type source. Has exactly one
-    document per source, so this is a single row fetch. For future URL/file
-    sources with many documents, this concatenates in stable order — not a
-    real "view" affordance but good enough to round-trip into the edit modal.
+    Return source text for the edit modal.
+
+    Generated sources can contain many documents, so callers must use the
+    bounded document-window API to inspect them.
     """
 
-    if not KnowledgeSource.objects.filter(id=source_id, team_id=team_id).exists():
+    try:
+        source = KnowledgeSource.objects.only("is_generated").get(id=source_id, team_id=team_id)
+    except KnowledgeSource.DoesNotExist:
         return None
+    _ensure_user_managed_source(source)
     documents = KnowledgeDocument.objects.filter(team_id=team_id, source_id=source_id).order_by("created_at")
     return "\n\n".join(d.content for d in documents)
+
+
+def _validate_generated_document_input(
+    document_input: CreateGeneratedKnowledgeDocument,
+) -> _ValidatedGeneratedDocumentInput:
+    provider = document_input.provider.strip()
+    analysis_version = document_input.analysis_version.strip()
+    title = document_input.title.strip()
+    content = document_input.content
+
+    if not provider or len(provider) > MAX_PROVIDER_LENGTH:
+        raise InvalidGeneratedKnowledgeDocument("provider is invalid")
+    if re.fullmatch(r"[a-z0-9_-]+", provider) is None:
+        raise InvalidGeneratedKnowledgeDocument("provider is invalid")
+    if document_input.ticket_number <= 0:
+        raise InvalidGeneratedKnowledgeDocument("ticket_number is invalid")
+    if document_input.source_team_id <= 0:
+        raise InvalidGeneratedKnowledgeDocument("source_team_id is invalid")
+    if not analysis_version or len(analysis_version) > MAX_ANALYSIS_VERSION_LENGTH:
+        raise InvalidGeneratedKnowledgeDocument("analysis_version is invalid")
+    if re.fullmatch(r"[A-Za-z0-9._-]+", analysis_version) is None:
+        raise InvalidGeneratedKnowledgeDocument("analysis_version is invalid")
+    if not title or len(title) > MAX_GENERATED_DOCUMENT_TITLE_LENGTH:
+        raise InvalidGeneratedKnowledgeDocument("title is invalid")
+    if not content.strip():
+        raise InvalidGeneratedKnowledgeDocument("content is empty")
+    if len(content.encode("utf-8")) > MAX_TEXT_SIZE_BYTES:
+        raise InvalidGeneratedKnowledgeDocument("content is too large")
+
+    combined_content = f"{title}\n{content}".lower()
+    if any(
+        identifier in combined_content
+        for provenance_id in (document_input.ticket_id, document_input.resolution_comment_id)
+        for identifier in (str(provenance_id).lower(), provenance_id.hex.lower())
+    ):
+        raise InvalidGeneratedKnowledgeDocument("provenance identifiers cannot appear in generated content")
+
+    return _ValidatedGeneratedDocumentInput(
+        provider=provider,
+        analysis_version=analysis_version,
+        title=title,
+        content=content,
+    )
+
+
+def _generated_source_id(team_id: int) -> UUID:
+    return uuid.uuid5(uuid.NAMESPACE_DNS, f"team-{team_id}.generated.business-knowledge.posthog")
+
+
+def _generated_document_stable_id(
+    document_input: CreateGeneratedKnowledgeDocument,
+    validated_input: _ValidatedGeneratedDocumentInput,
+) -> str:
+    # stable_id is readable by anyone with business_knowledge:read (system table), so it must not
+    # carry the raw ticket or comment ids; those need ticket:read and live in metadata only.
+    identity = (
+        f"{GENERATED_KNOWLEDGE_ORIGIN}:{validated_input.provider}:"
+        f"{document_input.ticket_id}:{document_input.resolution_comment_id}:{validated_input.analysis_version}"
+    )
+    return f"{GENERATED_KNOWLEDGE_ORIGIN}:{sha256_of(identity)}"
+
+
+def _validate_existing_generated_document(
+    document: KnowledgeDocument,
+    *,
+    expected_id: UUID,
+    source: KnowledgeSource,
+    stable_id: str,
+    team_id: int,
+) -> None:
+    if (
+        document.id != expected_id
+        or document.team_id != team_id
+        or document.source_id != source.id
+        or document.stable_id != stable_id
+    ):
+        raise InvalidGeneratedKnowledgeDocument("generated document identity is already in use")
+
+
+def set_generated_knowledge_source_ready(team_id: int, *, ready: bool) -> bool:
+    canonical_team_id = resolve_effective_team_id(team_id)
+    with team_scope(canonical_team_id, canonical=True):
+        try:
+            source = KnowledgeSource.objects.get(
+                id=_generated_source_id(canonical_team_id),
+                team_id=canonical_team_id,
+                is_generated=True,
+            )
+        except KnowledgeSource.DoesNotExist:
+            return False
+        source.status = SourceStatus.READY if ready else SourceStatus.ERROR
+        source.error_message = "" if ready else "Generated source is disabled."
+        source.save(update_fields=["status", "error_message", "updated_at"])
+        return True
+
+
+@transaction.atomic
+def create_generated_knowledge_document(
+    document_input: CreateGeneratedKnowledgeDocument,
+) -> GeneratedKnowledgeDocument:
+    canonical_team_id = resolve_effective_team_id(document_input.team_id)
+    with team_scope(canonical_team_id, canonical=True):
+        document, created = _create_generated_knowledge_document(
+            document_input,
+            team_id=canonical_team_id,
+        )
+    return GeneratedKnowledgeDocument(
+        id=document.id,
+        source_id=document.source_id,
+        created=created,
+    )
+
+
+def _create_generated_knowledge_document(
+    document_input: CreateGeneratedKnowledgeDocument,
+    *,
+    team_id: int,
+) -> tuple[KnowledgeDocument, bool]:
+    validated_input = _validate_generated_document_input(document_input)
+    _acquire_source_quota_lock(team_id)
+
+    source, _ = KnowledgeSource.objects.get_or_create(
+        id=_generated_source_id(team_id),
+        team_id=team_id,
+        defaults={
+            "created_by_id": None,
+            "name": GENERATED_SOURCE_NAME,
+            "source_type": SourceType.TEXT,
+            "is_generated": True,
+            "status": SourceStatus.READY,
+        },
+    )
+    if not source.is_generated or source.source_type != SourceType.TEXT:
+        raise InvalidGeneratedKnowledgeDocument("generated source identity is already in use")
+
+    stable_id = _generated_document_stable_id(document_input, validated_input)
+    document_id = uuid.uuid5(source.id, stable_id)
+    existing = KnowledgeDocument.objects.filter(
+        team_id=team_id,
+        source=source,
+        stable_id=stable_id,
+    ).first()
+    if existing is not None:
+        _validate_existing_generated_document(
+            existing,
+            expected_id=document_id,
+            source=source,
+            stable_id=stable_id,
+            team_id=team_id,
+        )
+        return existing, False
+
+    existing = KnowledgeDocument.objects.filter(id=document_id, team_id=team_id).first()
+    if existing is not None:
+        _validate_existing_generated_document(
+            existing,
+            expected_id=document_id,
+            source=source,
+            stable_id=stable_id,
+            team_id=team_id,
+        )
+        return existing, False
+
+    document, created = KnowledgeDocument.objects.get_or_create(
+        id=document_id,
+        team_id=team_id,
+        source=source,
+        stable_id=stable_id,
+        defaults={
+            "title": validated_input.title,
+            "content": validated_input.content,
+            "metadata": {
+                "source_type": SourceType.TEXT,
+                "origin": GENERATED_KNOWLEDGE_ORIGIN,
+                "provider": validated_input.provider,
+                "ticket_id": str(document_input.ticket_id),
+                "ticket_number": document_input.ticket_number,
+                "source_team_id": document_input.source_team_id,
+                "resolution_comment_id": str(document_input.resolution_comment_id),
+                "analysis_version": validated_input.analysis_version,
+            },
+            "content_hash": sha256_of(validated_input.content),
+            "safety_verdict": SafetyVerdict.UNKNOWN,
+        },
+    )
+    if not created:
+        return document, False
+
+    chunks = chunk_text(validated_input.content)
+    if _count_chunks(team_id) + len(chunks) > MAX_CHUNKS_PER_TEAM:
+        raise QuotaExceededError("Generated content exceeds the remaining team chunk budget.")
+
+    _bulk_create_chunks(source=source, document=document, team_id=team_id, chunks=chunks)
+    return document, True
 
 
 # --- Mutations ---------------------------------------------------------------
@@ -488,6 +764,7 @@ def update_text_source(
     except KnowledgeSource.DoesNotExist:
         return None
 
+    _ensure_user_managed_source(source)
     if always_include is not None:
         source.always_include = always_include
 
@@ -567,6 +844,7 @@ def update_url_source(
         source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
     except KnowledgeSource.DoesNotExist:
         return None
+    _ensure_user_managed_source(source)
     if source.source_type != SourceType.URL:
         raise InvalidUrlError("Can only update URL sources with this endpoint.")
 
@@ -632,6 +910,7 @@ def delete_source(source_id: UUID, team_id: int) -> bool:
         source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
     except KnowledgeSource.DoesNotExist:
         return False
+    _ensure_user_managed_source(source)
     source.delete()
     return True
 
@@ -1022,12 +1301,19 @@ def claim_refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource:
     invariant. Raises `SourceBusyError` / `InvalidUrlError` synchronously so
     the API can return 409 / 400 before kicking off the workflow.
     """
+    try:
+        existing_source = KnowledgeSource.objects.only("is_generated").get(id=source_id, team_id=team_id)
+    except KnowledgeSource.DoesNotExist:
+        raise
+    _ensure_user_managed_source(existing_source)
+
     with transaction.atomic():
         _check_source_quota_locked(team_id, reject_if_processing=True)
         try:
             source = KnowledgeSource.objects.select_for_update().get(id=source_id, team_id=team_id)
         except KnowledgeSource.DoesNotExist:
             raise
+        _ensure_user_managed_source(source)
         if source.source_type != SourceType.URL or not source.source_url:
             raise InvalidUrlError("Only URL sources can be refreshed.")
         if source.status == SourceStatus.PROCESSING:
@@ -1050,6 +1336,7 @@ def execute_refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource 
     except KnowledgeSource.DoesNotExist:
         return None
 
+    _ensure_user_managed_source(source)
     try:
         if source.crawl_mode and source.crawl_mode != CrawlMode.SINGLE:
             return _refresh_crawl_source(source=source, team_id=team_id)
@@ -1570,8 +1857,8 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
 
 @with_team_scope(canonical=True)
 def has_ready_sources(team_id: int) -> bool:
-    """True when the team has at least one READY source (READY implies chunks exist)."""
-    return KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.READY).exists()
+    """True when the team has at least one searchable chunk."""
+    return _safe_chunks_qs(team_id).exists()
 
 
 @with_team_scope(canonical=True)

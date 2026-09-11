@@ -4,6 +4,8 @@ import { IconCheckCircle, IconHide, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
+import type { SignalReport } from '../../types'
+import { hasOpenImplementationPr } from '../../utils/reportActions'
 import { openDismissReportDialog } from './DismissReportDialog'
 import { openResolveReportDialog } from './ResolveReportDialog'
 
@@ -13,14 +15,16 @@ import { openResolveReportDialog } from './ResolveReportDialog'
  * and the bulk state calls live in `inboxBulkActionsLogic`; delete / reingest
  * remain on `inboxSceneLogic` per-report.
  */
-export function InboxBulkSelectionBar(): JSX.Element | null {
-    const { selectedCount, isDismissing, isResolving } = useValues(inboxBulkActionsLogic)
+export function InboxBulkSelectionBar({ reports }: { reports: SignalReport[] }): JSX.Element | null {
+    const { selectedCount, selectedReportIds, isDismissing, isResolving } = useValues(inboxBulkActionsLogic)
     const { clearSelection, bulkDismiss, bulkResolve } = useActions(inboxBulkActionsLogic)
 
     if (selectedCount === 0) {
         return null
     }
     const busy = isDismissing || isResolving
+    const selectedIds = new Set(selectedReportIds)
+    const hasOpenPr = reports.some((report) => selectedIds.has(report.id) && hasOpenImplementationPr(report))
 
     return (
         <div className="flex items-center justify-between gap-3 flex-wrap rounded border border-accent bg-accent-highlight-secondary px-3 py-2">
@@ -39,6 +43,7 @@ export function InboxBulkSelectionBar(): JSX.Element | null {
                     onClick={() =>
                         openResolveReportDialog({
                             selectedCount,
+                            hasOpenPr,
                             onConfirm: ({ reason, note }) => bulkResolve(reason, note),
                         })
                     }
@@ -55,6 +60,7 @@ export function InboxBulkSelectionBar(): JSX.Element | null {
                     onClick={() =>
                         openDismissReportDialog({
                             selectedCount,
+                            hasOpenPr,
                             onConfirm: (dismissal) => bulkDismiss(dismissal),
                         })
                     }

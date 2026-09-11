@@ -70,6 +70,16 @@ export function experimentUrl(
   );
 }
 
+/** The project's date and time settings, where its timezone is set. */
+export function projectTimezoneSettingsUrl(
+  overrides?: LinkOverrides,
+): string | null {
+  return withProjectId(
+    (pid) => `/project/${pid}/settings/environment-customization#date-and-time`,
+    overrides,
+  );
+}
+
 export function skillUrl(
   skillName: string,
   overrides?: LinkOverrides,

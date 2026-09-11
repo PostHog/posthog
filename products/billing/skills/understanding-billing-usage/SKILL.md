@@ -40,17 +40,25 @@ or contract questions. Keep it focused on usage and spend behavior.
 | `posthog:billing-spend-get`    | Optional spend context when the user asks about dollars                 |
 | Product-specific MCP tools     | Follow-up investigation inside the affected product/project             |
 
-Only use this skill when the Billing read tools above are available. If the user asks
-about Billing usage and those tools are not available, do not continue with this
-workflow; briefly say that Billing usage investigation is not enabled for this
-organization or MCP session. If a Billing tool is available but returns a permission
-error, explain that the MCP session needs Billing access from an org admin or owner
-rather than saying the feature is unavailable.
+Only use this skill when the billing read tools above are available. If the user asks
+about billing usage and those tools are not available, do not continue with this
+workflow. Briefly say that billing usage investigation is not enabled for this
+organization or MCP session.
+
+If a billing tool returns a permission error, read the error detail before
+deciding what to do. Stop only when it says the user does not have billing
+access. Say the current PostHog user does not have billing access for this
+organization and should ask someone with billing access to run it or update
+their role.
+
+If the permission error points to requested projects or `team_ids`, correct the
+project filter once if the user provided the wrong project context. Do not
+describe that as missing billing access unless the tool says it is.
 
 Some clients expose PostHog MCP tools through `mcp__posthog__exec` instead of direct
-`posthog:*` tool names. If the direct Billing tools are not visible, search for
-`billing`, inspect the relevant tool schema, and call the Billing tool through the
-dispatcher before deciding Billing usage investigation is unavailable.
+`posthog:*` tool names. If the direct billing tools are not visible, search for
+`billing`, inspect the relevant tool schema, and call the billing tool through the
+dispatcher before deciding billing usage investigation is unavailable.
 
 Read `references/spike-alert-mechanics.md` when the prompt comes from a usage alert
 email or dashboard link and you need URL parameter or weekday/weekend baseline guidance.

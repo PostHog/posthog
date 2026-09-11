@@ -9,6 +9,8 @@ import {
     recentTaxonomicFiltersLogic,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 
@@ -98,6 +100,75 @@ describe('infiniteListLogic', () => {
         logicWithProps.mount()
         return logicWithProps
     }
+
+    it.each([
+        { state: 'initial request pending', initialCompleted: false, previousSearchPending: false, clear: false },
+        { state: 'initial request completed', initialCompleted: true, previousSearchPending: false, clear: false },
+        { state: 'previous search pending', initialCompleted: true, previousSearchPending: true, clear: false },
+        { state: 'clearing during initial load', initialCompleted: false, previousSearchPending: false, clear: true },
+    ])('debounces each query change with $state', async ({ initialCompleted, previousSearchPending, clear }) => {
+        const searches: string[] = []
+        let completeInitial!: () => void
+        const initialResponse = new Promise<void>((resolve) => {
+            completeInitial = resolve
+        })
+        let completePreviousSearch!: () => void
+        const previousSearchResponse = new Promise<void>((resolve) => {
+            completePreviousSearch = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team/event_definitions': async ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search') ?? ''
+                    searches.push(search)
+                    if (!search) {
+                        await initialResponse
+                    }
+                    if (search === 'prior') {
+                        await previousSearchResponse
+                    }
+                    return [200, { results: [{ name: search || 'initial_event' }], count: 1 }]
+                },
+            },
+        })
+        jest.useFakeTimers()
+        const searchLogic = logicWith({})
+        try {
+            await jest.advanceTimersByTimeAsync(1)
+            expect(searches).toEqual([''])
+            if (initialCompleted) {
+                completeInitial()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(searchLogic.values.remoteItems.first).toBeFalsy()
+            }
+            if (previousSearchPending) {
+                searchLogic.actions.setSearchQuery('prior')
+                await jest.advanceTimersByTimeAsync(500)
+                expect(searches).toEqual(['', 'prior'])
+            }
+            const beforeTyping = [...searches]
+            const queries = clear ? ['e', 'em', 'e', ''] : ['e', 'em', 'ema', 'emai', 'email']
+            const finalQuery = queries[queries.length - 1]
+            for (const query of queries) {
+                searchLogic.actions.setSearchQuery(query)
+                await jest.advanceTimersByTimeAsync(100)
+            }
+            expect(searchLogic.values.searchQuery).toBe(finalQuery)
+            expect(searches).toEqual(beforeTyping)
+            await jest.advanceTimersByTimeAsync(399)
+            expect(searches).toEqual(beforeTyping)
+            await jest.advanceTimersByTimeAsync(1)
+            expect(searches).toEqual([...beforeTyping, finalQuery])
+            completeInitial()
+            completePreviousSearch()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(searchLogic.values.remoteItems.searchQuery).toBe(finalQuery)
+        } finally {
+            completeInitial()
+            completePreviousSearch()
+            jest.useRealTimers()
+        }
+    })
 
     describe('index', () => {
         it('defaults to 0 when whether the first item should be selected is not specified', async () => {
@@ -916,6 +987,31 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    describe('events a picker excludes', () => {
+        const HIDDEN_EVENT = '$feature_flag_called'
+
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+        })
+
+        // The Pinned and Recent tabs filter against the caller's record rather than the Events
+        // group's own list, so the hidden names have to reach that record for a pin saved before
+        // the event was hidden to drop.
+        it('folds the hidden names into the record the Recent and Pinned tabs read', () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true })
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'hidden-events',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+            })
+            listLogic.mount()
+            expect(listLogic.values.excludedPropertiesWithHiddenEvents?.[TaxonomicFilterGroupType.Events]).toContain(
+                HIDDEN_EVENT
+            )
+        })
+    })
+
     // Transformation filters exclude `$exception` while allowing uncaptured events, so an excluded
     // name must never be offered as "not seen yet".
     describe('the "not seen yet" option and excluded names', () => {
@@ -941,6 +1037,36 @@ describe('infiniteListLogic', () => {
                 .toFinishAllListeners()
                 .toMatchValues({ showNonCapturedEventOption: expected })
         })
+    })
+
+    // A hidden event is excluded by its label and case variants, not just its raw name, so a picker
+    // that allows uncaptured events must not offer any of those forms as "not seen yet" — that would
+    // commit a name no event carries and hide the explanation of the event's absence.
+    describe('the "not seen yet" option and hidden events', () => {
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+        })
+
+        it.each([['$feature_flag_called'], ['$FEATURE_FLAG_CALLED'], ['Feature flag called']])(
+            'does not offer the option when searching %p',
+            async (query) => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true })
+                const listLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: `hidden-not-seen-${query}`,
+                    listGroupType: TaxonomicFilterGroupType.Events,
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                    showNumericalPropsOnly: false,
+                    allowNonCapturedEvents: true,
+                })
+                listLogic.mount()
+
+                await expectLogic(listLogic, () => {
+                    listLogic.actions.setSearchQuery(query)
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({ showNonCapturedEventOption: false })
+            }
+        )
     })
 
     describe('data warehouse pin lifecycle', () => {

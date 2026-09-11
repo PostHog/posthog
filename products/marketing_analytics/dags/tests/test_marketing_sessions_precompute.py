@@ -1,7 +1,10 @@
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
+
+from posthog.models import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.marketing_analytics.dags.marketing_sessions_precompute import _ensure_for_team
@@ -13,7 +16,7 @@ END = datetime(2026, 1, 2, tzinfo=UTC)
 
 
 class TestMarketingSessionsPrecomputeDag(APIBaseTest):
-    def _run(self, side_effect) -> int:
+    def _run(self, side_effect: Callable[[Team, datetime, datetime], LazyComputationResult] | Exception) -> int:
         with patch(_ENSURE, side_effect=side_effect):
             return _ensure_for_team(MagicMock(), self.team, START, END, chunk_days=1)
 

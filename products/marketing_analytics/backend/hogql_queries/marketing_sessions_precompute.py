@@ -36,9 +36,9 @@ CHUNK_DAYS = 1
 # so a query can never ask for a range the job does not cover.
 PRECOMPUTE_WINDOW_DAYS = int(os.getenv("MARKETING_SESSIONS_PRECOMPUTE_WINDOW_DAYS", "90"))
 
-# A session that starts just before a window's end still has events after it.
-SESSION_FORWARD_PAD_MINUTES = 24 * 60
+SESSION_SETTLING_PERIOD_SECONDS = 24 * 60 * 60
 
+# Bound the event scan by observed session ends; session IDs can span more than one day.
 SESSIONS_INSERT_TEMPLATE = """
 SELECT
     toStartOfHour(min(events.session.$start_timestamp)) AS period_bucket,
@@ -60,7 +60,12 @@ WHERE and(
     events.$session_id IS NOT NULL,
     equals(events.event, '$pageview'),
     events.timestamp >= {time_window_min},
-    events.timestamp < ({time_window_max} + toIntervalMinute({pad_minutes}))
+    events.timestamp <= (
+        SELECT max($end_timestamp)
+        FROM sessions
+        WHERE toStartOfHour($start_timestamp) >= {time_window_min}
+            AND toStartOfHour($start_timestamp) < {time_window_max}
+    )
 )
 GROUP BY session_id, person_id
 HAVING and(
@@ -71,7 +76,7 @@ HAVING and(
 
 
 def base_placeholders() -> dict[str, ast.Expr]:
-    return {"pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES)}
+    return {}
 
 
 def ensure_marketing_sessions_precomputed(
@@ -93,7 +98,7 @@ def ensure_marketing_sessions_precomputed(
             SESSIONS_TTL_SECONDS,
             team.timezone,
             max_window_days=CHUNK_DAYS,
-            settling_period_seconds=SESSION_FORWARD_PAD_MINUTES * 60,
+            settling_period_seconds=SESSION_SETTLING_PERIOD_SECONDS,
         ),
         table=LazyComputationTable.MARKETING_SESSIONS_DIMENSIONAL_PREAGGREGATED,
         placeholders=base_placeholders(),

@@ -125,7 +125,7 @@ def ensure_marketing_sessions_precompute_op(context: dagster.OpExecutionContext)
         "dagster/max_runtime": str(2 * 60 * 60),
     },
 )
-def marketing_sessions_precompute_job():
+def marketing_sessions_precompute_job() -> None:
     ensure_marketing_sessions_precompute_op()
 
 
