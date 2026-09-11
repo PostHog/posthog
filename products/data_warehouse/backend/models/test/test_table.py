@@ -500,6 +500,31 @@ class TestTable(BaseTest):
                 }
             }
 
+    @parameterized.expand(
+        [
+            # A JSON file's object keys vary per row, so the described key list is only a sample.
+            ("json", DataWarehouseTable.TableFormat.JSON, "JSON", "NativeJSONDatabaseField"),
+            # A Parquet file declares its struct fields, so the Tuple is accurate.
+            ("parquet", DataWarehouseTable.TableFormat.Parquet, None, "StringJSONDatabaseField"),
+        ]
+    )
+    def test_get_columns_stores_a_json_object_as_the_json_type(
+        self, _name: str, table_format: str, expected_clickhouse: str | None, expected_hogql: str
+    ):
+        described = "Tuple(inputContentType Nullable(String), inputTokenCount Nullable(Int64))"
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_table", url_pattern="", credential=credential, format=table_format, team=self.team
+        )
+
+        with patch("products.warehouse_sources.backend.models.table.sync_execute") as sync_execute_results:
+            sync_execute_results.return_value = [["input", described]]
+            columns = table.get_columns()
+
+        assert columns == {
+            "input": {"clickhouse": expected_clickhouse or described, "hogql": expected_hogql, "valid": True}
+        }
+
     def test_get_columns_with_hyphened_names(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
         table = DataWarehouseTable.objects.create(
@@ -966,6 +991,24 @@ class TestTable(BaseTest):
         definition = table.hogql_definition()
         assert definition.top_level_settings is not None
         assert definition.top_level_settings.format_csv_allow_double_quotes is False
+
+    def test_hogql_definition_allows_the_json_type_when_a_column_uses_it(self):
+        # The cluster enables the setting by default, so without this the table stops reading if that default changes.
+        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="runs",
+            url_pattern="https://example.com/runs/*.json",
+            format=DataWarehouseTable.TableFormat.JSON,
+            team=self.team,
+            columns={"usage": {"clickhouse": "JSON", "hogql": "NativeJSONDatabaseField"}},
+            credential=credential,
+        )
+
+        definition = table.hogql_definition()
+        assert isinstance(definition, HogQLDataWarehouseTable)
+        assert definition.top_level_settings is not None
+        assert definition.top_level_settings.allow_experimental_json_type is True
+        assert definition.structure == "`usage` JSON"
 
     def test_hogql_definition_no_raw_settings_for_parquet(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)

@@ -5375,6 +5375,32 @@ class TestPrinter(BaseTest):
         self.assertNotIn(forbidden_substring, printed)
         self.assertIn(expected_substring, printed)
 
+    @parameterized.expand(
+        [
+            ("single_key", "SELECT usage.inputTokens FROM runs", "runs.usage.inputTokens"),
+            # A key path that no sample of the files ever held still reads, because the subcolumn resolves per row.
+            ("key_path", "SELECT usage.detail.tier FROM runs", "runs.usage.detail.tier"),
+        ]
+    )
+    def test_data_warehouse_native_json_dot_notation_emits_subcolumn_access(self, _name, query, expected_substring):
+        # ClickHouse rejects JSONExtract on the JSON type, the way it rejects it on the Tuple above.
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="runs",
+            format="JSONEachRow",
+            url_pattern="http://s3/folder/*.json",
+            credential=credential,
+            columns={"usage": {"clickhouse": "JSON", "hogql": "NativeJSONDatabaseField", "valid": True}},
+        )
+
+        printed = self._select(query)
+
+        self.assertIn(expected_substring, printed)
+        self.assertNotIn("JSONExtract", printed)
+        # Without the setting ClickHouse refuses to create the JSON column the structure declares.
+        self.assertIn("allow_experimental_json_type=1", printed.replace(" ", ""))
+
 
 class TestNewEventsSchemaDefaults(BaseTest):
     @parameterized.expand([("json", True), ("legacy", False)])
