@@ -95,7 +95,7 @@ def run_metric(
         )
         started_at = time.monotonic()
         try:
-            with tags_context(product=Product.DATA_CATALOG, feature=Feature.QUERY, api_queries_budget_exempt=True):
+            with tags_context(product=Product.DATA_CATALOG, feature=Feature.QUERY):
                 raw = process_query_dict(
                     team,
                     query,

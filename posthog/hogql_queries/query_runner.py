@@ -2075,10 +2075,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if self.is_query_service:
             tag_queries(chargeable=1)
-            # Only server code sets api_queries_budget_exempt (materialized endpoint runs and data
-            # catalog metric runs); the product tag is caller-supplied via query.tags.productKey.
-            if not get_query_tag_value("api_queries_budget_exempt"):
-                self._enforce_api_queries_budget()
+        # Only the /query view and the inline endpoint run set api_queries_budgeted; the product
+        # tag is caller-supplied via query.tags.productKey, so it cannot opt a query in or out.
+        if get_query_tag_value("api_queries_budgeted"):
+            self._enforce_api_queries_budget()
 
         with (
             get_materialized_endpoints_rate_limiter().run(

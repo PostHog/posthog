@@ -227,14 +227,12 @@ class TestMetricRunTagging(APIBaseTest):
         def capture(*args: object, **kwargs: object) -> dict:
             tags = get_query_tags()
             captured["product"], captured["feature"] = tags.product, tags.feature
-            captured["exempt"] = tags.api_queries_budget_exempt
             return dict(_OK_PAYLOAD)
 
         with patch(_PROCESS_QUERY, side_effect=capture):
             run_metric(team=self.team, metric=metric, user=self.user)
 
         assert (captured["product"], captured["feature"]) == (Product.DATA_CATALOG, Feature.QUERY)
-        assert captured["exempt"] is True
 
     @parameterized.expand(
         [
