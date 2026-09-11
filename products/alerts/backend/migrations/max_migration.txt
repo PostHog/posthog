@@ -1,1 +1,1 @@
-0004_squash_2026_09_07_finalize_fks
+0006_alter_alert_insight_alter_alert_team_and_more

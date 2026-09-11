@@ -376,6 +376,82 @@ class TestReportChartsSection(SimpleTestCase):
         assert sql_chart["chartSettings"]["yAxis"][0]["column"]
 
 
+class TestPromptCacheablePrefix(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("signal_canonical", [], "canonical", False, False),
+            ("signal_custom_knowledge", [], "custom", False, True),
+            ("report_both_custom", ["emit_report", "edit_report"], "custom", False, False),
+            ("report_both_canonical_github_knowledge", ["emit_report", "edit_report"], "canonical", True, True),
+            ("report_emit_only_github", ["emit_report"], "custom", True, False),
+            ("report_edit_only_canonical_knowledge", ["edit_report"], "canonical", False, True),
+        ]
+    )
+    def test_per_team_and_per_run_values_render_only_in_the_trailing_block(
+        self,
+        _name: str,
+        allowed_tools: list[str],
+        origin: str,
+        github_read_access: bool,
+        business_knowledge_maintained: bool,
+    ) -> None:
+        # Both runtimes cache on prefix, so one interpolated value above the trailing block leaves
+        # every stable section after it uncacheable, and the fleet pays for the whole body again on
+        # the first turn of every run. The regression is a section drifting back up the prompt,
+        # which changes nothing a reader would notice, so assert on the split itself.
+        # The channel, report-tool, skill-origin, `gh` and business-knowledge forks each swap
+        # sections into the prose above the block, so a value added inside one of them renders for
+        # only some scouts — one shape would leave the other shapes' sections unchecked.
+        prompt = build_run_prompt(
+            LoadedSkill(
+                name="signals-scout-prefix-probe",
+                version=7,
+                body="watch",
+                description="d",
+                allowed_tools=allowed_tools,
+                files=[],
+                skill_id="skill-1",
+                origin=origin,  # type: ignore[arg-type]
+                authors=[],
+            ),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=987654,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            github_read_access=github_read_access,
+            business_knowledge_maintained=business_knowledge_maintained,
+            governed_metric_names=["mrr_probe_metric"],
+            write_scopes=["dashboard:write"],
+            structured_output_schema={"type": "object", "properties": {"verdict": {"type": "string"}}},
+            mcp_server_names=["Datadog (EU)"],
+        )
+
+        offsets = [
+            prompt.index(heading)
+            for heading in (
+                "# Governed metrics",
+                "# External MCP servers",
+                "# Write access",
+                "# Structured output",
+                "# Your run identity",
+            )
+        ]
+        # Per-team values first, the run's own identity last.
+        assert offsets == sorted(offsets)
+        head = prompt[: offsets[0]]
+        # Every stable section, down to the closing output-format one, sits above the block.
+        assert "# Output format" in head
+        for value in (
+            "00000000-0000-0000-0000-000000000abc",
+            "2026-05-01T12:34:56+00:00",
+            "987654",
+            "signals-scout-prefix-probe",
+            "mrr_probe_metric",
+            "Datadog",
+            '"verdict"',
+        ):
+            assert value not in head, f"{value} interpolated above the per-run block"
+
+
 class TestPromptCrossReferences(SimpleTestCase):
     @parameterized.expand(
         [
@@ -415,6 +491,8 @@ class TestPromptCrossReferences(SimpleTestCase):
             team_id=1,
             started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
             github_read_access=github_read_access,
+            # Carried on every case so the note section's own cross-references are held to the rule.
+            run_note="Focus on the checkout regression.",
         )
         headings = {line.removeprefix("# ") for line in prompt.splitlines() if line.startswith("# ")}
         # `*Emphasized*` spans naming another section, e.g. "see *Ground rules*". Single asterisks
@@ -472,6 +550,50 @@ class TestStructuredOutputPromptSection(SimpleTestCase):
         without_schema = _prompt(None)
         assert "# Structured output" not in without_schema
         assert "scout-record-output" not in without_schema
+
+
+class TestRunNotePromptSection(SimpleTestCase):
+    def _prompt(self, run_note: str | None) -> str:
+        return build_run_prompt(
+            LoadedSkill(
+                name="signals-scout-errors",
+                version=1,
+                body="watch",
+                description="d",
+                allowed_tools=[],
+                files=[],
+                skill_id="skill-1",
+                origin="canonical",
+                authors=[],
+            ),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=1,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            run_note=run_note,
+        )
+
+    @parameterized.expand([("absent", None), ("blank", "   \n  ")])
+    def test_no_section_without_a_note(self, _name: str, run_note: str | None) -> None:
+        # Every scheduled run takes this path, and would be told to weigh a note nobody left.
+        prompt = self._prompt(run_note)
+        assert "# A note for this run" not in prompt
+        assert "<run_note>" not in prompt
+
+    @parameterized.expand(
+        [
+            ("plain", "Focus on the checkout regression."),
+            # The tail renderer formats any section holding a `{schema_json}` placeholder, so a
+            # note like this one took the whole run down before the prompt was built.
+            ("braces", "Compare {schema_json} against the {} payload."),
+        ]
+    )
+    def test_note_renders_verbatim_in_its_own_section(self, _name: str, run_note: str) -> None:
+        prompt = self._prompt(run_note)
+        assert f"<run_note>\n{run_note}\n</run_note>" in prompt
+        # Read as fleet steering, a scout would be right to remember the nudge forever.
+        assert "# A note for this run" in prompt
+        assert "do not record it in the scratchpad as a durable memory" in prompt
+        assert "# Notes left for you" in prompt
 
 
 class TestExternalMcpServersPromptSection(SimpleTestCase):
@@ -644,9 +766,12 @@ class TestPromptBuilder(BaseTest):
             team_id=self.team.id,
             started_at=started_at,
         )
-        # Identity carries the skill name + version so bootstrap can reference it.
+        # Identity carries the skill name + version so bootstrap can reference it. The version
+        # renders as the bare number `skill-get` takes, since the endpoint validates it as an
+        # integer and the bootstrap points here rather than interpolating the value itself.
         assert "signals-scout-errors" in prompt
-        assert "(v1)" in prompt
+        assert "- **skill_version**: `1`" in prompt
+        assert "(v1)" not in prompt
         # The agent needs to know its own run id to attribute emits and memories.
         assert "00000000-0000-0000-0000-000000000abc" in prompt
         # Calling convention is stated up front: bare tool names resolve only
@@ -659,8 +784,11 @@ class TestPromptBuilder(BaseTest):
         # inlined — they're discovered at run time.
         assert "First: read your skill" in prompt
         # Skill version is pinned explicitly — the run row + tool resolution + budget
-        # were snapshotted against v1, so the bootstrap fetch must lock to v1 too.
-        assert 'skill-get(skill_name="signals-scout-errors", version=1)' in prompt
+        # were snapshotted against v1, so the bootstrap fetch must lock to v1 too. The two values
+        # ride in the run-identity block (asserted above), which is what keeps them out of the
+        # cacheable prose; the bootstrap step still has to say the version is not optional.
+        assert "skill-get(skill_name=<the skill_name there>, version=<the skill_version there>)" in prompt
+        assert "Pin that version explicitly" in prompt
         assert "skill-file-get" in prompt
         assert "watch for spikes" not in prompt
         assert "refs/playbook.md" not in prompt
@@ -954,7 +1082,7 @@ class TestPromptBuilder(BaseTest):
         # Reviewer routing for self-improvement reports points at the run-identity authors line,
         # not at "whoever owns this scout" guesswork — dropping the reference re-opens the
         # last-editor-becomes-the-assignee failure mode.
-        assert ("the skill authors listed under *Your run identity*" in prompt) is expect_escalation
+        assert ("the skill authors named in *Your run identity*" in prompt) is expect_escalation
         if _name == "custom_report_scout_emit_only":
             # The emit-only variant must never name the edit tool it lacks (fails closed).
             assert "scout-edit-report" not in prompt
@@ -1029,8 +1157,9 @@ class TestPromptBuilder(BaseTest):
             team_id=self.team.id,
             started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
         )
-        assert "**skill authors**: created by Ben (ben@posthog.com); since edited by" in prompt
-        assert self.user.email in prompt
+        # The uuid on the line is what the scout routes to, so an author with no GitHub still gets the report.
+        assert f"**skill authors**: created by Ben (ben@posthog.com, user_uuid `{ben.uuid}`); since edited by" in prompt
+        assert f"({self.user.email}, user_uuid `{self.user.uuid}`" in prompt
         # The authors line is a default, not an override — dropping the precedence hedge would
         # set the harness up to fight a skill body that defines its own reviewer routing.
         assert "unless your skill body defines its own reviewer routing" in prompt
@@ -1644,7 +1773,7 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "resolved, pin, expected_model, expected_runtime_adapter, expected_reasoning_effort",
+    "resolved, pin, expected_model, expected_runtime_adapter, expected_reasoning_effort, expected_service_tier",
     [
         # Gate resolved, no pin: the gate's triple reaches the sandbox as-is — the runtime (and
         # optional effort) travel with the model so the agent server can route it.
@@ -1654,6 +1783,7 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             "@cf/zai-org/glm-5.2",
             "codex",
             "high",
+            None,
         ),
         # Gate resolved AND a fleet-wide pin present: the gate wins — a pin silently swallowing a
         # configured model trial is the production bug this ordering exists to prevent.
@@ -1663,6 +1793,7 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             "@cf/zai-org/glm-5.2",
             "codex",
             None,
+            None,
         ),
         # Gate unallocated remainder: falls through to the pin's whole triple (the fleet default).
         (
@@ -1671,17 +1802,67 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
             "gpt-5.5",
             "codex",
             "high",
+            None,
         ),
         # Neither configured: agent-server default.
-        (ScoutModel(model=None, runtime_adapter=None), AgentRuntime(), None, None, None),
+        (ScoutModel(model=None, runtime_adapter=None), AgentRuntime(), None, None, None, None),
+        # The tier travels with the model it was configured beside. A slice pinned to flex asks for
+        # flex even when the pipeline pin names the same model untiered, so a same-model flex arm can
+        # run against the remainder's standard queue. Dropping this leaves the arm on standard and the
+        # comparison measures nothing.
+        (
+            ScoutModel(model="gpt-5.6-terra", runtime_adapter="codex", reasoning_effort="medium", service_tier="flex"),
+            AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", reasoning_effort="medium"),
+            "gpt-5.6-terra",
+            "codex",
+            "medium",
+            "flex",
+        ),
+        # The unallocated remainder runs the pin's model, so it takes the pin's tier with it.
+        (
+            ScoutModel(model=None, runtime_adapter=None),
+            AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", service_tier="flex"),
+            "gpt-5.6-terra",
+            "codex",
+            None,
+            "flex",
+        ),
+        # A slice with no tier of its own does NOT inherit the pin's: the pin's tier was paired with
+        # the pin's model, and some models reject the field outright.
+        (
+            ScoutModel(model="gpt-5.6-luna", runtime_adapter="codex"),
+            AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", service_tier="priority"),
+            "gpt-5.6-luna",
+            "codex",
+            None,
+            None,
+        ),
+        # A claude runtime joins no OpenAI queue: a tier on its slice (or the pin) is dropped rather
+        # than stamped, so the flex readout never counts a Claude run as a flex run.
+        (
+            ScoutModel(model="claude-sonnet-5", runtime_adapter="claude", service_tier="flex"),
+            AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", service_tier="flex"),
+            "claude-sonnet-5",
+            "claude",
+            None,
+            None,
+        ),
     ],
 )
 async def test_run_pins_sandbox_to_resolved_scout_model(
-    ateam, aerrors_skill, resolved, pin, expected_model, expected_runtime_adapter, expected_reasoning_effort
+    ateam,
+    aerrors_skill,
+    resolved,
+    pin,
+    expected_model,
+    expected_runtime_adapter,
+    expected_reasoning_effort,
+    expected_service_tier,
 ):
     # The `scouts-model-selection` gate is the per-run experiment layer and wins when it resolves a
     # model; the `signals-pipeline-models` pin is the default layer beneath it. Either way one
-    # source supplies the whole runtime/model/effort triple.
+    # source supplies the whole runtime/model/effort triple. The OpenAI service tier travels with
+    # it: the selected slice's own tier, or the pin's when the pin's model runs, codex only.
     # The routed model must also ride on both lifecycle events (omitted on the default path), so
     # run outcomes are sliceable by model without joining through $ai_generation.
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
@@ -1718,6 +1899,7 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
     assert captured["context"].model == expected_model
     assert captured["context"].runtime_adapter == expected_runtime_adapter
     assert captured["context"].reasoning_effort == expected_reasoning_effort
+    assert captured["context"].service_tier == expected_service_tier
     # The routed triple is also stamped on the bridge row's `metadata` (keys omitted when unset,
     # nothing at the top level on the default path) — the native API-side record of which model
     # served the run.
@@ -1728,6 +1910,7 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
             ("model", expected_model),
             ("runtime_adapter", expected_runtime_adapter),
             ("reasoning_effort", expected_reasoning_effort),
+            ("service_tier", expected_service_tier),
         )
         if value is not None
     }
@@ -1749,6 +1932,7 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
         else:
             assert props["model"] == expected_model
             assert props["runtime_adapter"] == expected_runtime_adapter
+        assert props.get("service_tier") == expected_service_tier
 
 
 @pytest.mark.asyncio
@@ -2563,7 +2747,7 @@ def test_to_summary_and_detail_surface_task_url_from_bridge():
         assert detail.task_url == summary.task_url
 
 
-_ROUTED_MODEL_KEYS = ("model", "runtime_adapter", "reasoning_effort")
+_ROUTED_MODEL_KEYS = ("model", "runtime_adapter", "reasoning_effort", "service_tier")
 
 
 class TestRunRowProvenanceStamps(BaseTest):
@@ -2635,6 +2819,29 @@ class TestRunRowProvenanceStamps(BaseTest):
             business_knowledge_maintained=True,
         )
         assert (run.metadata or {})["business_knowledge_maintained"] is True
+
+    def test_stamps_the_one_off_note_a_manual_run_carried(self) -> None:
+        # The run row is the only record of what a hand-triggered run was asked to do.
+        config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name="signals-scout-general")
+        skill = self._skill(allowed_tools=["emit_report"], origin="custom")
+        steered = _create_run_row(
+            run_id=uuid7(),
+            task_run=_make_task_run(self.team),
+            team=self.team,
+            config=config,
+            skill=skill,
+            run_note="Focus on the checkout regression.",
+        )
+        assert (steered.metadata or {})["run_note"] == "Focus on the checkout regression."
+
+        scheduled = _create_run_row(
+            run_id=uuid7(),
+            task_run=_make_task_run(self.team),
+            team=self.team,
+            config=config,
+            skill=skill,
+        )
+        assert "run_note" not in (scheduled.metadata or {})
 
 
 @pytest.mark.asyncio

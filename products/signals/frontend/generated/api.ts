@@ -75,6 +75,7 @@ import type {
     SignalScoutCreateResponseApi,
     SignalScoutEmissionApi,
     SignalScoutManualRunApi,
+    SignalScoutManualRunRequestApi,
     SignalScoutRunDetailApi,
     SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
@@ -493,7 +494,9 @@ export const getSignalsReportsStateCreateUrl = (projectId: string, id: string) =
 }
 
 /**
- * Transition a report to a new state. The model validates allowed transitions.
+ * Transition a report to a new state. The model validates allowed transitions, except that a
+ * verdict the report already holds (dismissing a suppressed report, resolving a resolved one)
+ * is a 200 that records the dismissal feedback without touching the status.
  *
  * The request body is validated by SignalReportStateRequestSerializer — only the
  * fields it declares (state, dismissal_reason, dismissal_note, corrected_repository,
@@ -907,17 +910,20 @@ export const getSignalsScoutConfigRunUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Dispatch one on-demand run of this scout immediately, regardless of its schedule. Useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously on the worker and inherits every guard the scheduled path has: it is forbidden if scouts are not enabled for the project (403), and skipped if self-driving is paused at the project's pull request limit, or the project is over its daily report limit or daily run budget (429), or a run for this scout is already in progress (409). A manual run counts against the same daily run budget as scheduled runs, so repeated manual runs of the same scout can exhaust the project's daily allowance. A manual run does not change the scout's schedule or `last_run_at`. A disabled scout can still be run this way (to test before enabling). Returns immediately with the workflow id — poll the scout's runs for the result.
+ * Dispatch one on-demand run of this scout immediately, regardless of its schedule. Useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously on the worker and inherits every guard the scheduled path has: it is forbidden if scouts are not enabled for the project (403), and skipped if self-driving is paused at the project's pull request limit, or the project is over its daily report limit or daily run budget (429), or a run for this scout is already in progress (409). A manual run counts against the same daily run budget as scheduled runs, so repeated manual runs of the same scout can exhaust the project's daily allowance. A manual run does not change the scout's schedule or `last_run_at`. A disabled scout can still be run this way (to test before enabling). Pass an optional `note` to steer this one run without leaving a scout note that would steer every later run too. Returns immediately with the workflow id: poll the scout's runs for the result.
  * @summary Run a scout now
  */
 export const signalsScoutConfigRun = async (
     projectId: string,
     id: string,
+    signalScoutManualRunRequestApi?: SignalScoutManualRunRequestApi,
     options?: RequestInit
 ): Promise<SignalScoutManualRunApi> => {
     return apiMutator<SignalScoutManualRunApi>(getSignalsScoutConfigRunUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalScoutManualRunRequestApi),
     })
 }
 
@@ -1214,7 +1220,7 @@ export const getSignalsScoutEmitReportUrl = (projectId: string, runId: string) =
 }
 
 /**
- * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `reports` to find a prior report and `edit-report` to update it instead.
+ * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. Safe to retry: resending an emission returns the report the first call authored (`idempotent_replay` true) rather than a second one, keyed on `idempotency_key` or, without one, on the report's content. Use `reports` to find a report from an earlier run and `edit-report` to update it instead of authoring a near-duplicate.
  * @summary Author a full report for a run
  */
 export const signalsScoutEmitReport = async (

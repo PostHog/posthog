@@ -39,6 +39,7 @@ from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH,
 from products.signals.backend.scout_harness.config_registry import CRON_SCHEDULE_MAX_LENGTH, cron_schedule_error
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.fleet_sync import SYNC_SURFACES
+from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCES
 from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW_DAYS
@@ -53,6 +54,7 @@ from products.signals.backend.scout_harness.tools.emit import (
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH, MAX_NOTES_LIST_LIMIT
 from products.signals.backend.scout_harness.tools.report import (
     MAX_EVIDENCE_DESCRIPTION_LENGTH,
+    MAX_IDEMPOTENCY_KEY_LENGTH,
     MAX_REPORT_SIGNALS,
     MAX_REPORT_SUMMARY_LENGTH,
     MAX_REPORT_TITLE_LENGTH,
@@ -101,9 +103,11 @@ logger = structlog.get_logger(__name__)
             "model": {"type": "string"},
             "runtime_adapter": {"type": "string"},
             "reasoning_effort": {"type": "string"},
+            "service_tier": {"type": "string"},
             "network_access": {"type": "string"},
             "write_scopes": {"type": "array", "items": {"type": "string"}},
             "triggered_by": {"type": "string"},
+            "run_note": {"type": "string"},
             # Closed and fully required, unlike the parent: the region is written whole or not at
             # all, so every flag is present whenever the object is. Leaving it open would generate
             # a `[key: string]: boolean` index signature that the optional named flags cannot
@@ -1204,10 +1208,9 @@ class ReportEvidenceSerializer(serializers.Serializer):
 class SuggestedReviewerSerializer(serializers.Serializer):
     """One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
 
-    The server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the
-    org member's linked GitHub login (and wins over a supplied `github_login` when both are given). A
-    `user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a
-    reviewer is never silently dropped."""
+    A reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a
+    member with no linked GitHub account routes the report like anyone else. A `user_uuid` that
+    isn't an org member of this team is rejected — so a reviewer is never silently dropped."""
 
     github_login = serializers.CharField(
         required=False,
@@ -1222,9 +1225,9 @@ class SuggestedReviewerSerializer(serializers.Serializer):
     user_uuid = serializers.UUIDField(
         required=False,
         help_text=(
-            "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). "
-            "Resolved server-side to the member's linked GitHub login — use this when you know the PostHog "
-            "user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+            "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use "
+            "this when you know the PostHog user, whether or not they have a GitHub handle — every "
+            "member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here."
         ),
     )
 
@@ -1347,6 +1350,18 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "research left open, phrased as the reader would send them."
         ),
     )
+    idempotency_key = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=MAX_IDEMPOTENCY_KEY_LENGTH,
+        help_text=(
+            "Optional name for this emission, unique within the run. Reuse it verbatim to retry a call "
+            "whose outcome you don't know (a timeout, a dropped connection): the retry returns the "
+            "report the first call authored, with `idempotent_replay` true, instead of a second report. "
+            "Omit it and the report's own content is the key, which covers a retry of the identical "
+            "call — pass one when a retry might reword the report."
+        ),
+    )
 
 
 class EmitReportResponseSerializer(serializers.Serializer):
@@ -1375,6 +1390,13 @@ class EmitReportResponseSerializer(serializers.Serializer):
             "One-line, actionable next step when `skipped_reason` is set and the block is fixable "
             "(e.g. an org admin must approve AI data processing). Null when the report was authored "
             "or the skip isn't something the scout can act on."
+        ),
+    )
+    idempotent_replay = serializers.BooleanField(
+        help_text=(
+            "True when this call authored nothing because the emission had already landed — the fields "
+            "above describe that first report. Expected on a retry; treat the report as filed and don't "
+            "send it again."
         ),
     )
 
@@ -2226,6 +2248,15 @@ SLACK_MEMBER_TARGET_ERROR = (
 )
 
 
+_SCOUT_SLACK_THREAD_REPORTS_HELP = (
+    "When true, post a report as a thread: a short lead in the channel and the rest split "
+    "into replies at the summary's section labels, which can be Markdown headings or bold "
+    "labels. Keeps a long summary from being clipped at Slack's section limit. On by "
+    "default; set it false to post a single message, which can truncate a long summary. "
+    "It does not change how findings post."
+)
+
+
 class SignalScoutSlackDestinationSerializer(serializers.Serializer):
     integration_id = serializers.IntegerField(
         min_value=1,
@@ -2269,13 +2300,8 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
 
     thread_reports = serializers.BooleanField(
         required=False,
-        default=False,
-        help_text=(
-            "When true, post a report as a thread: a short lead in the channel and the rest split "
-            "into replies at the summary's section labels, which can be Markdown headings or bold "
-            "labels. Keeps a long summary from being clipped at Slack's section limit. Off by "
-            "default, and it does not change how findings post."
-        ),
+        default=True,
+        help_text=_SCOUT_SLACK_THREAD_REPORTS_HELP,
     )
 
     def validate_users(self, value: list[str] | None) -> list[str] | None:
@@ -2302,6 +2328,13 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
         return attrs
 
 
+class SignalScoutSlackDestinationUpdateSerializer(SignalScoutSlackDestinationSerializer):
+    thread_reports = serializers.BooleanField(
+        required=False,
+        help_text=_SCOUT_SLACK_THREAD_REPORTS_HELP,
+    )
+
+
 class SignalScoutWebhookDestinationSerializer(serializers.Serializer):
     hog_function_id = serializers.CharField(
         help_text=(
@@ -2325,6 +2358,14 @@ class SignalScoutOutputDestinationsSerializer(serializers.Serializer):
             "omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the "
             "reference lives here so the owning product can manage the destination's lifecycle."
         ),
+    )
+
+
+class SignalScoutOutputDestinationsUpdateSerializer(SignalScoutOutputDestinationsSerializer):
+    slack = SignalScoutSlackDestinationUpdateSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.",
     )
 
 
@@ -2880,7 +2921,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "apart. Set null to return to the rolling interval schedule."
         ),
     )
-    output_destinations = SignalScoutOutputDestinationsSerializer(
+    output_destinations = SignalScoutOutputDestinationsUpdateSerializer(
         required=False,
         help_text="Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery.",
     )
@@ -2940,6 +2981,16 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
         return _validate_write_scopes(value)
 
     def update(self, instance: SignalScoutConfig, validated_data: dict) -> SignalScoutConfig:
+        output_destinations = validated_data.get("output_destinations")
+        current_slack = instance.output_destinations.get("slack") if instance.output_destinations else None
+        incoming_slack = output_destinations.get("slack") if output_destinations else None
+        if (
+            isinstance(current_slack, dict)
+            and current_slack.get("thread_reports") is False
+            and isinstance(incoming_slack, dict)
+            and "thread_reports" not in incoming_slack
+        ):
+            incoming_slack["thread_reports"] = False
         # Re-anchor the coordinator's cron due-check only when the schedule actually changes —
         # an emit/enabled-only save must not defer an already-overdue scheduled run.
         schedule_fields = ("run_interval_minutes", "run_cron_schedule")
@@ -3223,6 +3274,29 @@ class SignalScoutCreateResponseSerializer(serializers.Serializer):
     config = SignalScoutConfigSerializer()
 
 
+class SignalScoutManualRunRequestSerializer(serializers.Serializer):
+    """Request body for an on-demand (`run now`) scout dispatch.
+
+    Every field is optional: a plain trigger sends no body at all.
+    """
+
+    note = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=MAX_RUN_NOTE_CHARS,
+        help_text=(
+            "Optional steering for this run only, such as 'focus on the checkout regression' or "
+            "'skip the staging traffic today'. The agent reads it alongside the scout's durable "
+            "notes and weighs it the same way: it directs attention, it never forces a finding. "
+            "Use it instead of leaving a scout note that would also steer every later scheduled "
+            "run. The note is kept on the run for history and is never read by another run. "
+            "Because the agent reads it verbatim while holding privileged tools, a run that "
+            "carries one needs `llm_skill:write` on top of `signal_scout:write`, plus editor "
+            "access to skills, the same bar as leaving a note."
+        ),
+    )
+
+
 class SignalScoutManualRunSerializer(serializers.Serializer):
     """Response for an on-demand (`run now`) scout dispatch.
 
@@ -3319,10 +3393,9 @@ class ScoutMemberSerializer(serializers.Serializer):
     github_login = serializers.CharField(
         allow_null=True,
         help_text=(
-            "The member's resolved GitHub login (lowercased), already resolved server-side — put this value "
-            "in a report's `suggested_reviewers` once you've matched the finding's owner to this row. Null "
-            "when the member has no linked GitHub identity: a null-login member can't be routed to at all "
-            "(neither a login nor a uuid resolves), so pick a different owner or leave `suggested_reviewers` "
-            "empty."
+            "The member's resolved GitHub login (lowercased), already resolved server-side. Null when "
+            "the member has no linked GitHub account, which does not stop you routing to them: pass "
+            "their `user_uuid` in `suggested_reviewers` and the report reaches them. A null login only "
+            "means no draft PR can be opened as that person."
         ),
     )

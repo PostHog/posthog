@@ -5,8 +5,10 @@ import {
     computeFleetSummary,
     computeScoutRollups,
     deriveRunOutcome,
+    expensiveRunCostThreshold,
     formatRunCost,
     mostRecentEmittedRuns,
+    rosterRunCosts,
     runMatchesFilter,
     dayTimeToWeeklyCron,
     getScoutScheduleMode,
@@ -76,6 +78,79 @@ describe('scoutRunsWindow report channel', () => {
             [0, '$0.00'],
         ])('%s → %s', (cost, expected) => {
             expect(formatRunCost(cost)).toEqual(expected)
+        })
+    })
+
+    describe('expensiveRunCostThreshold', () => {
+        function costs(values: number[]): Map<string, number> {
+            return new Map(values.map((cost, index) => [`run-${index}`, cost]))
+        }
+
+        const skewed = [...Array.from({ length: 27 }, (_, index) => 0.02 + index / 1000), 0.6, 0.9, 3.19]
+
+        it('says nothing until enough runs are priced to rank them', () => {
+            // A decile over a handful of runs moves with every run that lands, so the marker would
+            // point at a different box each poll.
+            expect(expensiveRunCostThreshold(costs(skewed.slice(0, 19)))).toBeNull()
+            expect(expensiveRunCostThreshold(costs(skewed.slice(0, 20)))).not.toBeNull()
+        })
+
+        it('says nothing when every run costs the same', () => {
+            // A flat fleet has no top decile to point at, and a marker over every box is noise.
+            expect(expensiveRunCostThreshold(costs(Array.from({ length: 30 }, () => 0.05)))).toBeNull()
+        })
+
+        it('lands the line above the cheap majority when spend is skewed', () => {
+            // Scout spend is heavily skewed: the priciest run costs 50 times the median. The line
+            // has to leave that cheap median unmarked, or the marker points at the whole strip.
+            // A fleet of 30 runs has 3 runs in its priciest tenth, and the line marks those 3.
+            const threshold = expensiveRunCostThreshold(costs(skewed)) ?? 0
+
+            expect(skewed.filter((cost) => cost >= threshold)).toEqual([0.6, 0.9, 3.19])
+        })
+
+        // When most of the fleet shares one cheap price, that price sits on the decile boundary,
+        // and a line at the boundary would mark the whole strip. The priciest runs still have to
+        // carry the marker.
+        it.each<[string, number[], number[]]>([
+            ['two priciest runs', [...Array.from({ length: 18 }, () => 0.02), 1.5, 3.19], [1.5, 3.19]],
+            ['one priciest run', [...Array.from({ length: 19 }, () => 0.02), 3.19], [3.19]],
+        ])('marks the %s when the cheap majority shares one price', (_name, values, expected) => {
+            const threshold = expensiveRunCostThreshold(costs(values)) ?? 0
+
+            expect(values.filter((cost) => cost >= threshold)).toEqual(expected)
+        })
+    })
+
+    describe('rosterRunCosts', () => {
+        it('drops the cost of a run that has left the roster', () => {
+            const runs = [makeRun({ run_id: 'run-1' }), makeRun({ run_id: 'run-2' })]
+            const costs = new Map([
+                ['run-1', 0.02],
+                ['run-2', 0.03],
+                ['run-gone', 9.99],
+            ])
+
+            expect(rosterRunCosts(runs, costs)).toEqual(
+                new Map([
+                    ['run-1', 0.02],
+                    ['run-2', 0.03],
+                ])
+            )
+        })
+
+        it('keeps a run that has left the roster from turning the cost marker on', () => {
+            // A cost batch that fails keeps the previous poll's entries, so a run nobody can see
+            // could otherwise carry the map over the minimum and rank a line the strip has no
+            // runs for.
+            const runs = Array.from({ length: 19 }, (_, index) => makeRun({ run_id: `run-${index}` }))
+            const costs = new Map<string, number>([
+                ...runs.map((run, index): [string, number] => [run.run_id, 0.02 + index / 1000]),
+                ['run-gone', 9.99],
+            ])
+
+            expect(expensiveRunCostThreshold(costs)).not.toBeNull()
+            expect(expensiveRunCostThreshold(rosterRunCosts(runs, costs))).toBeNull()
         })
     })
 

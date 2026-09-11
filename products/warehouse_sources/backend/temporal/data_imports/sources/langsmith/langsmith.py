@@ -2,8 +2,9 @@ import re
 import json
 import hashlib
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
+from functools import partial
 from typing import Any, Optional
 from urllib.parse import urlencode, urlparse
 
@@ -21,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.settings import (
     DEFAULT_BASE_URL,
     LANGSMITH_ENDPOINTS,
+    RUNS_HEAVY_SELECT_FIELDS,
     RUNS_SELECT_FIELDS,
     LangSmithEndpointConfig,
 )
@@ -31,6 +33,10 @@ HOST_NOT_ALLOWED_ERROR = "LangSmith host is not allowed"
 # Returned when a cloud connection would send the API key over plaintext HTTP.
 INSECURE_SCHEME_ERROR = "LangSmith host must use https"
 
+# Raised (and registered retryable) when the API answers 429 or 5xx. `_fetch_page` retries it
+# inline; once that budget exhausts, Temporal retries the activity from the saved checkpoint.
+RETRYABLE_API_ERROR = "LangSmith API error (retryable)"
+
 # Raised (and registered non-retryable) when the host loops the runs cursor. A host that returns a
 # cursor we've already paged is stuck or hostile; retrying re-hits the same cursor, so fail for good.
 REPEATED_CURSOR_ERROR = "LangSmith returned a repeated pagination cursor"
@@ -38,6 +44,11 @@ REPEATED_CURSOR_ERROR = "LangSmith returned a repeated pagination cursor"
 # Raised (and registered non-retryable) when a page body exceeds MAX_RESPONSE_BYTES. The same page
 # is re-requested on every retry, so the cap is hit again deterministically — stop immediately.
 RESPONSE_TOO_LARGE_ERROR = "LangSmith API returned an oversized response"
+
+# Raised (and registered non-retryable) when the host returns oversized pagination data: a cursor
+# past MAX_CURSOR_BYTES, or an id set past MAX_SESSION_IDS_BYTES / MAX_DATASET_IDS_BYTES while
+# scoping a query. Every retry walks the same pages and collects the same oversized data.
+PAGINATION_TOO_LARGE_ERROR = "LangSmith returned oversized pagination data"
 
 # Raised (and registered non-retryable) when a single runs page stays over MAX_RESPONSE_BYTES even at
 # the minimum limit. A page that big has runs with very large inputs/outputs; halving the page can't
@@ -85,6 +96,11 @@ MAX_SESSION_IDS_BYTES = 2 * 1024 * 1024
 # scope the examples query. A user-controlled host could otherwise stream unbounded dataset ids.
 MAX_DATASET_IDS_BYTES = 2 * 1024 * 1024
 
+# Bound what one log line can carry out of a page. The host chooses how many runs it returns and
+# how long each id is, so an unbounded line lets it turn a warning into an oversized log event.
+MAX_LOGGED_RUN_IDS = 5
+MAX_LOGGED_RUN_ID_CHARS = 64
+
 
 class LangSmithRetryableError(Exception):
     pass
@@ -97,9 +113,25 @@ class LangSmithHostNotAllowedError(Exception):
 
 
 class LangSmithResponseTooLargeError(Exception):
-    """The host returned a body larger than `MAX_RESPONSE_BYTES` — refused before buffering it all."""
+    """The host returned a body larger than `MAX_RESPONSE_BYTES` — refused before buffering it all.
 
-    pass
+    `get_non_retryable_errors` matches on message text, so the sentinel is prefixed here rather than
+    at the raise site: a message without it is retried for the whole activity budget.
+    """
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(f"{RESPONSE_TOO_LARGE_ERROR}: {detail}")
+
+
+class LangSmithPaginationTooLargeError(Exception):
+    """The host returned oversized pagination data: a cursor, or the ids collected to scope a query.
+
+    Separate from `LangSmithResponseTooLargeError` because the runs page shrinker catches that one,
+    and shrinking a page cannot fix either of these limits. Same sentinel prefixing as above.
+    """
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(f"{PAGINATION_TOO_LARGE_ERROR}: {detail}")
 
 
 class LangSmithPageLimitError(Exception):
@@ -134,7 +166,7 @@ def _read_capped_body(response: requests.Response, cap: int = MAX_RESPONSE_BYTES
     for chunk in response.iter_content(chunk_size=READ_CHUNK_BYTES):
         buffer.extend(chunk)
         if len(buffer) > cap:
-            raise LangSmithResponseTooLargeError(f"{RESPONSE_TOO_LARGE_ERROR} (> {cap} bytes)")
+            raise LangSmithResponseTooLargeError(f"body over {cap} bytes")
     return bytes(buffer)
 
 
@@ -339,7 +371,7 @@ def _fetch_page(
         # 429 and transient 5xx are retryable (runs/query rate limits are tight: 10 req/10s on
         # windows up to 7 days, 3 req/10s beyond); auth/permission errors below are not.
         if response.status_code == 429 or response.status_code >= 500:
-            raise LangSmithRetryableError(f"LangSmith API error (retryable): status={response.status_code}, url={url}")
+            raise LangSmithRetryableError(f"{RETRYABLE_API_ERROR}: status={response.status_code}, url={url}")
 
         # Redirects are disabled as an SSRF boundary; a 3xx means the host tried to bounce the
         # authenticated request elsewhere, so fail instead of parsing (or following) it.
@@ -358,6 +390,26 @@ def _fetch_page(
         return json.loads(raw) if raw else None
 
 
+def _runs_select_fields(config: LangSmithEndpointConfig, enabled_columns: list[str] | None) -> list[str]:
+    """The `select` to send to runs/query for the columns the schema keeps.
+
+    MAX_RESPONSE_BYTES is enforced while the body is read, so a column the pipeline drops after the
+    fetch still costs its bytes on the wire. The primary key and the partition key are kept whatever
+    the user picked, because the merge and the Delta layout need them. `None` and an empty list mean
+    what they mean to `apply_enabled_columns_projection`: every column, and only the required ones.
+    """
+    if enabled_columns is None:
+        return list(RUNS_SELECT_FIELDS)
+    required = {*config.primary_keys, *([config.partition_key] if config.partition_key else [])}
+    wanted = {*enabled_columns} | required
+    return [name for name in RUNS_SELECT_FIELDS if name in wanted]
+
+
+def _bounded_run_ids(runs: list[Any]) -> list[str]:
+    """A sample of run ids, capped in count and length, for a log line."""
+    return [str(run.get("id"))[:MAX_LOGGED_RUN_ID_CHARS] for run in runs[:MAX_LOGGED_RUN_IDS] if isinstance(run, dict)]
+
+
 def _fetch_runs_page(
     session: requests.Session,
     url: str,
@@ -372,19 +424,45 @@ def _fetch_runs_page(
     A legitimate workspace with large prompt payloads can push a full page past MAX_RESPONSE_BYTES.
     Halving the page and retrying the same cursor lets the sync move forward without skipping runs.
     Returns the page data and the limit that fetched it, so the caller keeps the shrunk size for the
-    next pages. Raises LangSmithRunsPageTooLargeError when even a single-run page is oversized.
+    next pages.
+
+    One run over the cap on its own cannot be halved further, so the last attempt re-requests it
+    without the heavy fields: the row lands with null inputs/outputs instead of ending the table.
+    That narrowed response is also the only way to learn the run id, because an oversized body is
+    refused before it can be parsed. Raises LangSmithRunsPageTooLargeError when it is oversized too.
     """
+    heavy_fields_dropped = False
     while True:
         page_body = {**body, "limit": limit}
+        if heavy_fields_dropped:
+            page_body["select"] = [name for name in body["select"] if name not in RUNS_HEAVY_SELECT_FIELDS]
         if page_cursor:
             page_body["cursor"] = page_cursor
         try:
-            return _fetch_page(session, url, headers, logger, json_body=page_body), limit
+            data = _fetch_page(session, url, headers, logger, json_body=page_body)
         except LangSmithResponseTooLargeError:
-            if limit <= MIN_RUNS_PAGE_SIZE:
+            if limit > MIN_RUNS_PAGE_SIZE:
+                limit = max(MIN_RUNS_PAGE_SIZE, limit // 2)
+                logger.warning(
+                    f"LangSmith runs page exceeded the response cap; retrying same cursor with limit={limit}"
+                )
+                continue
+            if heavy_fields_dropped or not any(name in body["select"] for name in RUNS_HEAVY_SELECT_FIELDS):
                 raise LangSmithRunsPageTooLargeError(RUNS_PAGE_TOO_LARGE_ERROR)
-            limit = max(MIN_RUNS_PAGE_SIZE, limit // 2)
-            logger.warning(f"LangSmith runs page exceeded the response cap; retrying same cursor with limit={limit}")
+            heavy_fields_dropped = True
+            logger.warning(
+                "LangSmith run exceeded the response cap at the minimum page size; retrying the same cursor without "
+                f"{', '.join(RUNS_HEAVY_SELECT_FIELDS)}"
+            )
+            continue
+
+        if heavy_fields_dropped:
+            runs = data.get("runs", []) if isinstance(data, dict) else []
+            logger.warning(
+                f"LangSmith imported {len(runs)} run(s) without {', '.join(RUNS_HEAVY_SELECT_FIELDS)} because they "
+                f"exceeded the response cap: run_ids={_bounded_run_ids(runs)}"
+            )
+        return data, limit
 
 
 def _list_session_ids(
@@ -417,9 +495,9 @@ def _list_session_ids(
             ids.append(row_id)
             ids_bytes += len(row_id.encode())
             if ids_bytes > MAX_SESSION_IDS_BYTES:
-                raise LangSmithResponseTooLargeError(
-                    f"LangSmith returned an oversized set of tracing-project ids "
-                    f"(> {MAX_SESSION_IDS_BYTES} bytes) while scoping the runs query"
+                raise LangSmithPaginationTooLargeError(
+                    f"the set of tracing-project ids went over {MAX_SESSION_IDS_BYTES} bytes "
+                    f"while scoping the runs query"
                 )
         if len(rows) < config.page_size:
             break
@@ -463,9 +541,8 @@ def _list_dataset_ids(
             ids.append(row_id)
             ids_bytes += len(row_id.encode())
             if ids_bytes > MAX_DATASET_IDS_BYTES:
-                raise LangSmithResponseTooLargeError(
-                    f"LangSmith returned an oversized set of dataset ids "
-                    f"(> {MAX_DATASET_IDS_BYTES} bytes) while scoping the examples query"
+                raise LangSmithPaginationTooLargeError(
+                    f"the set of dataset ids went over {MAX_DATASET_IDS_BYTES} bytes while scoping the examples query"
                 )
         if len(rows) < config.page_size:
             break
@@ -478,6 +555,46 @@ def _list_dataset_ids(
     return ids
 
 
+def _emit_batches(
+    batcher: Batcher,
+    rows: list[Any],
+    resumable_source_manager: ResumableSourceManager[LangSmithResumeConfig],
+    resume_state: LangSmithResumeConfig,
+    *,
+    is_final_page: bool,
+) -> Iterator[Any]:
+    """Batch one page of rows, yielding a table each time one fills.
+
+    `resume_state` is saved AFTER yielding so a crash re-reads this page rather than skipping it,
+    because merge dedupes on the primary key. Nothing is saved on the final page, where the run is
+    finishing and there is no next page to resume to.
+    """
+    for item in rows:
+        batcher.batch(item)
+        if batcher.should_yield():
+            yield batcher.get_table()
+            if not is_final_page:
+                resumable_source_manager.save_state(resume_state)
+
+
+def _stop_at_page_limit(
+    batcher: Batcher,
+    resumable_source_manager: ResumableSourceManager[LangSmithResumeConfig],
+    resume_state: LangSmithResumeConfig,
+    message: str,
+) -> Iterator[Any]:
+    """End this attempt at MAX_PAGES_PER_RUN, checkpointing where the next attempt picks up.
+
+    Flushes any batched-but-unyielded items first: resuming from `resume_state` skips the page they
+    came from, so an unflushed partial batch is lost. The raise ends the attempt without one
+    attempt monopolising a worker, and a legitimate oversized import continues from the checkpoint.
+    """
+    if batcher.should_yield(include_incomplete_chunk=True):
+        yield batcher.get_table()
+    resumable_source_manager.save_state(resume_state)
+    raise LangSmithPageLimitError(message)
+
+
 def _get_runs_rows(
     session: requests.Session,
     headers: dict[str, str],
@@ -488,6 +605,7 @@ def _get_runs_rows(
     logger: FilteringBoundLogger,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
+    select_fields: list[str],
 ) -> Iterator[Any]:
     """Page through POST /runs/query with the body cursor.
 
@@ -513,7 +631,7 @@ def _get_runs_rows(
         return
 
     body: dict[str, Any] = {
-        "select": RUNS_SELECT_FIELDS,
+        "select": select_fields,
         # Ascending by start time so cursor pagination walks forward deterministically from the
         # window bound. The watermark still only persists at job end (sort_mode="desc") since we
         # can't verify the ordering guarantee across every LangSmith deployment.
@@ -540,25 +658,20 @@ def _get_runs_rows(
 
         next_cursor = (data.get("cursors") or {}).get("next")
 
-        for item in runs:
-            batcher.batch(item)
-            if batcher.should_yield():
-                yield batcher.get_table()
-                # Save AFTER yielding (and only when more pages remain) so a crash re-reads this
-                # page rather than skipping it — merge dedupes on the primary key.
-                if next_cursor:
-                    resumable_source_manager.save_state(
-                        LangSmithResumeConfig(cursor=page_cursor, window_start=window_start)
-                    )
+        yield from _emit_batches(
+            batcher,
+            runs,
+            resumable_source_manager,
+            LangSmithResumeConfig(cursor=page_cursor, window_start=window_start),
+            is_final_page=not next_cursor,
+        )
 
         if not next_cursor:
             break
 
         # Reject an absurdly large cursor before it's echoed back or remembered.
         if len(next_cursor.encode()) > MAX_CURSOR_BYTES:
-            raise LangSmithResponseTooLargeError(
-                f"LangSmith returned an oversized pagination cursor (> {MAX_CURSOR_BYTES} bytes)"
-            )
+            raise LangSmithPaginationTooLargeError(f"the runs cursor went over {MAX_CURSOR_BYTES} bytes")
 
         # A host that hands back a cursor it already gave us (or the one we just sent) is looping;
         # retrying would re-hit it, so fail for good instead of spinning until the activity timeout.
@@ -569,15 +682,11 @@ def _get_runs_rows(
 
         pages += 1
         if pages >= MAX_PAGES_PER_RUN:
-            # Flush any batched-but-unyielded items from this page before checkpointing the next
-            # page — resuming from next_cursor skips this page, so an unflushed partial batch is lost.
-            if batcher.should_yield(include_incomplete_chunk=True):
-                yield batcher.get_table()
-            # Checkpoint the next page and end this attempt; the resume path picks it up so a
-            # legitimate oversized import continues without one attempt monopolising a worker.
-            resumable_source_manager.save_state(LangSmithResumeConfig(cursor=next_cursor, window_start=window_start))
-            raise LangSmithPageLimitError(
-                f"LangSmith runs import hit the {MAX_PAGES_PER_RUN}-page per-attempt limit; resuming from checkpoint"
+            yield from _stop_at_page_limit(
+                batcher,
+                resumable_source_manager,
+                LangSmithResumeConfig(cursor=next_cursor, window_start=window_start),
+                f"LangSmith runs import hit the {MAX_PAGES_PER_RUN}-page per-attempt limit; resuming from checkpoint",
             )
 
         cursor = next_cursor
@@ -622,15 +731,13 @@ def _get_offset_rows(
 
         is_last_page = len(rows) < config.page_size
 
-        for item in rows:
-            batcher.batch(item)
-            if batcher.should_yield():
-                yield batcher.get_table()
-                # Save AFTER yielding so a crash re-reads this page rather than skipping it.
-                if not is_last_page:
-                    resumable_source_manager.save_state(
-                        LangSmithResumeConfig(offset=page_offset, window_start=window_start)
-                    )
+        yield from _emit_batches(
+            batcher,
+            rows,
+            resumable_source_manager,
+            LangSmithResumeConfig(offset=page_offset, window_start=window_start),
+            is_final_page=is_last_page,
+        )
 
         if is_last_page:
             break
@@ -638,17 +745,44 @@ def _get_offset_rows(
 
         pages += 1
         if pages >= MAX_PAGES_PER_RUN:
-            # Flush any batched-but-unyielded items from this page before checkpointing the next
-            # offset — resuming skips this page, so an unflushed partial batch is lost.
-            if batcher.should_yield(include_incomplete_chunk=True):
-                yield batcher.get_table()
-            # A host that returns a full page at every offset forever would page without end;
-            # checkpoint the next offset and end this attempt so the resume path continues a real
-            # oversized import without one attempt holding a worker until the activity timeout.
-            resumable_source_manager.save_state(LangSmithResumeConfig(offset=offset, window_start=window_start))
-            raise LangSmithPageLimitError(
-                f"LangSmith {config.name} import hit the {MAX_PAGES_PER_RUN}-page per-attempt limit; resuming from checkpoint"
+            # A host that returns a full page at every offset forever would page without end.
+            yield from _stop_at_page_limit(
+                batcher,
+                resumable_source_manager,
+                LangSmithResumeConfig(offset=offset, window_start=window_start),
+                f"LangSmith {config.name} import hit the {MAX_PAGES_PER_RUN}-page per-attempt limit; resuming from checkpoint",
             )
+
+
+def _examples_start_position(
+    resumable_source_manager: ResumableSourceManager[LangSmithResumeConfig],
+    dataset_ids: list[str],
+    logger: FilteringBoundLogger,
+) -> tuple[int, int | None]:
+    """Return the dataset index an interrupted examples run picks back up at, and the offset within
+    that dataset. The offset is None when there is no usable checkpoint and the sweep starts over.
+    """
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    # Only resume into a dataset that still exists; a deleted one restarts the sweep from the top
+    # so no dataset is silently skipped.
+    if resume is None or resume.dataset_id not in dataset_ids:
+        return 0, None
+    logger.debug(f"LangSmith: resuming examples from dataset={resume.dataset_id} offset={resume.offset}")
+    return dataset_ids.index(resume.dataset_id), resume.offset or 0
+
+
+def _examples_resume_state(
+    dataset_ids: list[str],
+    index: int,
+    next_offset: int,
+    *,
+    is_last_page: bool,
+) -> LangSmithResumeConfig:
+    """Where an examples run resumes from once it hits the per-attempt page cap."""
+    if is_last_page:
+        # This dataset is exhausted; resume picks up at the start of the next one.
+        return LangSmithResumeConfig(dataset_id=dataset_ids[index + 1], offset=0)
+    return LangSmithResumeConfig(dataset_id=dataset_ids[index], offset=next_offset)
 
 
 def _get_examples_rows(
@@ -674,21 +808,14 @@ def _get_examples_rows(
         logger.debug("LangSmith: no datasets in workspace, nothing to sync for examples")
         return
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    # Only resume into a dataset that still exists; a deleted one restarts the sweep from the top
-    # so no dataset is silently skipped.
-    resume_into_dataset = resume.dataset_id if resume is not None and resume.dataset_id in dataset_ids else None
-    resume_offset = resume.offset if resume is not None else None
-    start_index = dataset_ids.index(resume_into_dataset) if resume_into_dataset is not None else 0
-    if resume_into_dataset is not None:
-        logger.debug(f"LangSmith: resuming examples from dataset={resume_into_dataset} offset={resume_offset}")
+    start_index, resume_offset = _examples_start_position(resumable_source_manager, dataset_ids, logger)
 
     pages = 0
     for index in range(start_index, len(dataset_ids)):
         dataset_id = dataset_ids[index]
         is_last_dataset = index == len(dataset_ids) - 1
-        if index == start_index and resume_into_dataset is not None:
-            offset = resume_offset or 0
+        if index == start_index and resume_offset is not None:
+            offset = resume_offset
         else:
             offset = 0
             # Checkpoint the dataset boundary before reading it, so a crash resumes at this dataset
@@ -708,33 +835,23 @@ def _get_examples_rows(
             rows = data if isinstance(data, list) else []
             is_last_page = not rows or len(rows) < config.page_size
 
-            for item in rows:
-                batcher.batch(item)
-                if batcher.should_yield():
-                    yield batcher.get_table()
-                    # Save AFTER yielding so a crash re-reads this page rather than skipping it.
-                    # Skip only on the final page of the final dataset — the run is finishing.
-                    if not (is_last_page and is_last_dataset):
-                        resumable_source_manager.save_state(
-                            LangSmithResumeConfig(dataset_id=dataset_id, offset=page_offset)
-                        )
-
             run_is_finished = is_last_page and is_last_dataset
+            yield from _emit_batches(
+                batcher,
+                rows,
+                resumable_source_manager,
+                LangSmithResumeConfig(dataset_id=dataset_id, offset=page_offset),
+                is_final_page=run_is_finished,
+            )
+
             if pages >= MAX_PAGES_PER_RUN and not run_is_finished:
-                # Flush any batched-but-unyielded items before checkpointing where to resume —
-                # resuming skips this page, so an unflushed partial batch is lost.
-                if batcher.should_yield(include_incomplete_chunk=True):
-                    yield batcher.get_table()
-                if is_last_page:
-                    # This dataset is exhausted; resume picks up at the start of the next one.
-                    next_dataset_id = dataset_ids[index + 1]
-                    resumable_source_manager.save_state(LangSmithResumeConfig(dataset_id=next_dataset_id, offset=0))
-                else:
-                    resumable_source_manager.save_state(
-                        LangSmithResumeConfig(dataset_id=dataset_id, offset=page_offset + config.page_size)
-                    )
-                raise LangSmithPageLimitError(
-                    f"LangSmith examples import hit the {MAX_PAGES_PER_RUN}-page per-attempt limit; resuming from checkpoint"
+                yield from _stop_at_page_limit(
+                    batcher,
+                    resumable_source_manager,
+                    _examples_resume_state(
+                        dataset_ids, index, page_offset + config.page_size, is_last_page=is_last_page
+                    ),
+                    f"LangSmith examples import hit the {MAX_PAGES_PER_RUN}-page per-attempt limit; resuming from checkpoint",
                 )
 
             if is_last_page:
@@ -751,6 +868,7 @@ def get_rows(
     team_id: int,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    enabled_columns: list[str] | None = None,
 ) -> Iterator[Any]:
     config = LANGSMITH_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
@@ -765,10 +883,12 @@ def get_rows(
     # carry secrets or personal data the name-based scrubber won't recognize.
     session = make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False)
 
+    pager: Callable[..., Iterator[Any]]
     if config.scoped_by_dataset:
         pager = _get_examples_rows
     elif config.pagination == "cursor":
-        pager = _get_runs_rows
+        # Bound here because only runs has a server-side select to narrow.
+        pager = partial(_get_runs_rows, select_fields=_runs_select_fields(config, enabled_columns))
     else:
         pager = _get_offset_rows
     yield from pager(
@@ -796,6 +916,7 @@ def langsmith_source(
     team_id: int,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    enabled_columns: Optional[list[str]] = None,
 ) -> SourceResponse:
     config = LANGSMITH_ENDPOINTS[endpoint]
 
@@ -810,6 +931,7 @@ def langsmith_source(
             team_id=team_id,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
+            enabled_columns=enabled_columns,
         ),
         primary_keys=config.primary_keys,
         sort_mode=config.sort_mode,

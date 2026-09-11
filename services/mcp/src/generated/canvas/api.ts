@@ -114,7 +114,8 @@ export const CanvasesPartialUpdateBody = () => zod
  *
  * A publish queues a build; poll this until it is ready (the live pointer
  * advances) or failed (fix the error diagnostics and publish again — the
- * last good build stays live).
+ * last good build stays live). Send the response's ETag back as
+ * If-None-Match to make the poll revalidate without a body.
  */
 export const CanvasesBuildsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this canvas.'),
@@ -126,6 +127,12 @@ export const CanvasesBuildsRetrieveParams = () => zod.object({
 })
 
 export const CanvasesBuildsRetrieveQueryParams = () => zod.object({
+    scope: zod
+        .string()
+        .optional()
+        .describe(
+            '\"slim\" returns only what rendering needs — the live build, the head version\'s builds, and anything still in flight — instead of the full recent-build history. Any other value (or none) returns the full window.'
+        ),
     version_id: zod
         .string()
         .optional()
@@ -487,6 +494,12 @@ export const CanvasesLayoutRetrieveParams = () => zod.object({
 })
 
 export const CanvasesLayoutRetrieveQueryParams = () => zod.object({
+    include_components: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Also return the renderable build (with signed artifact URL) of every component the layout's live placements reference, so a grid renders from this one call."
+        ),
     version_id: zod
         .string()
         .optional()
@@ -1505,7 +1518,8 @@ export const CanvasesValidateCreateBody = () => zod
  * List the connector catalog: every provider and tool a canvas may declare, with the caller's connection state.
  *
  * Authoring agents read this to write ph.connectors.call sites and the
- * matching capabilities.connectors declarations.
+ * matching capabilities.connectors declarations. Sandbox tokens receive
+ * only static native tools, with no connection lookup or MCP installation data.
  */
 export const CanvasesConnectorsRetrieveParams = () => zod.object({
     project_id: zod

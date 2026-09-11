@@ -28,7 +28,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
 ## What the linters already enforce
 
 Run `bin/hogli lint:workflows` and `actionlint` before pushing — they gate CI, and they (not this list) are the source of truth for what's enforced.
-Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, required-check gate hygiene, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
+Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, required-check gate hygiene, secrets a reusable workflow reads being declared and passed by its callers, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
 Third-party action digests are bumped by Renovate.
 
 ## The dispatch budget (500 runs / 10s / repo)
@@ -158,9 +158,11 @@ Four rules for the gate body:
 1. **Allowlist every dependency, never denylist.** Assert `success`/`skipped` and fail everything else.
    A dependency tested only against `== 'failure'` lets `cancelled` through, and one bad dependency is enough — a gate that clears four correctly and one with a bare `failure` test is still wrong.
    The trap is the `changes` detector: clearing it with `== 'failure'` and then reading `needs.changes.outputs.*` reports green on cancellation, because those outputs are empty and the gate takes its "nothing to test" exit.
-2. **`needs` every job that produces coverage.**
+2. **`needs` every job that produces coverage, and every upstream that can skip one.**
    If a job's failure would only cascade into a downstream job being _skipped_, the gate reads that as a pass and you get a green check with zero tests run.
-   Name the upstream job explicitly.
+   The usual shape is a `changes` detector one step above the suite: it fails, the suite skips, and the gate reports success having run nothing ([measured on ci-nodejs](https://github.com/PostHog/posthog/actions/runs/32472790735)).
+   Name every job whose failure would skip one you do test, not only the direct ones.
+   Stop there. A test selector whose failure leaves the suite running in full is not gate-critical, and demanding it turns a recovered run into a red required check.
 3. **Legitimate skips must still pass.** A frontend-only PR skips backend jobs by design.
 4. **Every dependency's result must reach a fail-closed allowlist guard.**
    One inline `if` per dependency is the clearest form, but a shared shell helper or an `env:` block is equally fine: `WF007` traces each result through assignments, `${!var}` indirection, and helper argument positions within that step.
@@ -168,8 +170,12 @@ Four rules for the gate body:
    Comparisons in another step, comments, logs, or branches that do not exit nonzero prove nothing and are rejected.
    A result whose guard `WF007` cannot follow is reported rather than assumed safe, so an unusual routing may need the checks moved inline.
 
-`WF007` enforces 1, 4, and the `!cancelled()` condition, and it takes the dependency list from `needs:` as well as the step body, so a job you wired into `needs:` and then forgot to test is reported rather than silently trusted.
-The half of rule 2 it cannot check is whether you named the right jobs in `needs:` to begin with: "reporting job" and "coverage job" look identical to a linter, so that one is on you and the reviewer.
+`WF007` enforces 1, 2, 4, and the `!cancelled()` condition, and it takes the dependency list from `needs:` as well as the step body, so a job you wired into `needs:` and then forgot to test is reported rather than silently trusted.
+For rule 2 it walks the `needs:` graph above each dependency and reports any job the gate does not test, which is the half a linter can see.
+It follows an edge only when the upstream's failure would actually skip the job below it.
+A job whose `if` calls no status function is skipped by any failed upstream, and so is one held behind `success()` or `cancelled()`, since neither is true in that state.
+A job that reaches `always()`, `!cancelled()` or `failure()` keeps running, and is skipped only where its own condition compares against the failed job and goes false: an output reads back empty, while `result` reads back `failure`, so a recovery path testing `result == 'failure'` still runs.
+The half it cannot see is a coverage job with no `needs:` edge into the gate at all: "reporting job" and "coverage job" look identical from outside the graph, so that one is on you and the reviewer.
 
 ### What GitHub does with each conclusion
 
@@ -297,6 +303,14 @@ A dedicated GitHub App installation is its own bucket — rate-limit headroom pl
 - Cross-repo tokens set explicit `owner:` + `repositories:` (least privilege).
 - Creating the app + secret is out of scope here — use `/managing-github-actions-secrets`.
 
+### Secrets in reusable workflows
+
+A `workflow_call` workflow receives no secrets on its own.
+A `secrets.X` it reads interpolates to an empty string unless it declares `X` under `on.workflow_call.secrets` and every caller passes it, or a caller uses `secrets: inherit`.
+Nothing fails when that happens: an App-token step under `continue-on-error` falls back to `github.token` and the check stays green, which is how `ci-turbo` silently lost its dedicated rate-limit bucket.
+`WF010` fails an undeclared read, and fails a caller that omits a secret declared `required: true`.
+Declare `required: false` only when the callee genuinely works without the value, the way a smoke-test build withholds a publish key on purpose; that is the callee's promise, and the linter takes it at its word.
+
 ## Forks and untrusted PRs (public repo)
 
 Fork `pull_request` runs (and Dependabot) get a read-only `GITHUB_TOKEN` and no secrets.
@@ -352,6 +366,19 @@ Otherwise the fallback is full on drafts too: `ci-nodejs.yml` has a bare `pull_r
 
 `turbo-discover.js` (`draft ? 'skip' : 'full'`) and `ci-frontend.yml`'s `fall_back` are the two reference implementations of the draft/ready split; `ci-nodejs.yml` and `ci-e2e-playwright.yml` are the reference for always-full.
 Foot-gun: if the job that selects tests is cancelled mid-flight, its `mode` output is empty — normalize empty-mode **on a draft** to `skip`, or the draft grabs the full matrix and serializes the ready run behind it.
+
+### Forcing the full matrix on a draft
+
+The `run-ci-backend` and `run-ci-frontend` labels force the full matrix, but a label alone starts nothing.
+It takes effect on the next push, or when the PR is marked ready for review. An empty commit is enough:
+
+```bash
+git commit --allow-empty -m "chore(ci): run the full matrix" && git push
+```
+
+Do not add `labeled`/`unlabeled` back to a merge gate's `on.pull_request.types` to avoid that push.
+GitHub cannot filter a label trigger by name, so every unrelated label re-runs the full matrices against a commit CI has already covered.
+Guarding it inside the workflow is worse: skipping the gate job cascades to the `if: !cancelled()` aggregator, which counts a skipped dependency as success and posts a green required check with no tests behind it.
 
 ### A selector needs telemetry, or nobody knows whether it bites
 

@@ -46,6 +46,7 @@ logger = structlog.get_logger(__name__)
 
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
+SLACK_APP_MARKDOWN_FLAG = "slack-app-markdown"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -121,6 +122,22 @@ def is_slack_app_agent_design_enabled(integration: Integration, distinct_id: str
         integration,
         failure_log_key="slack_app_agent_design_feature_flag_check_failed",
         distinct_id=distinct_id,
+    )
+
+
+def is_slack_app_markdown_enabled(integration: Integration) -> bool:
+    """Gate for delivering an agent answer as a Slack ``markdown`` block instead of converting
+    it to ``mrkdwn`` first. Posts through the ``chat:write`` the mention flow already requires,
+    so this is the flag alone.
+
+    Keyed on the Slack workspace rather than the person: how an answer is formatted is a
+    property of the thread everybody reads, not of whoever asked, and a run's answer can be
+    posted for a reader the run was not created by.
+    """
+    return _workspace_flag_enabled(
+        SLACK_APP_MARKDOWN_FLAG,
+        integration,
+        failure_log_key="slack_app_markdown_feature_flag_check_failed",
     )
 
 

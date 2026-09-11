@@ -34,6 +34,7 @@ import {
   scoutCreatorKey,
   scoutCronScheduleError,
   scoutRunOutcomeLabel,
+  scoutScheduleNamesClockTime,
   sortConfigsForDisplay,
   summarizeRunWindow,
   weeklyCronToDayTime,
@@ -750,6 +751,26 @@ describe("schedule modes", () => {
       }),
     ).toBe(expected);
   });
+
+  it.each([
+    ["a rolling interval", null, 1440, false],
+    ["an hourly interval", null, 60, false],
+    ["a plain daily cron", "0 9 * * *", 1440, true],
+    ["a weekly cron", "30 8 * * 4", 1440, true],
+    ["a cron the presets cannot name", "0 9 * * 1-5", 1440, true],
+    ["a cron stepped by the hour", "0 */3 * * *", 1440, true],
+    ["a cron running through the day", "*/30 * * * *", 1440, false],
+  ])(
+    "tells whether %s states a clock time",
+    (_label, cron, minutes, expected) => {
+      expect(
+        scoutScheduleNamesClockTime({
+          run_interval_minutes: minutes as number,
+          run_cron_schedule: cron as string | null,
+        }),
+      ).toBe(expected);
+    },
+  );
 
   it.each([
     ["a rolling interval", null, "1440"],
