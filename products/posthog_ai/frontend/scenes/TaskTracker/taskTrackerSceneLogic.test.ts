@@ -13,6 +13,7 @@ import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schema
 import { attachedContextLogic, runStreamLogic } from '../../api/logics'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import { runCancellationLogic } from '../../logics/runCancellationLogic'
+import { runInteractionLogic } from '../../logics/runInteractionLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
@@ -145,6 +146,8 @@ describe('taskTrackerSceneLogic', () => {
             } else {
                 expect(logic.values.activeCreation).toEqual({
                     streamKey,
+                    interactionKey: streamKey,
+                    composerWasFocused: false,
                     taskId: 'new-task',
                     runId: 'run-1',
                     draft: 'A follow-up draft',
@@ -199,13 +202,16 @@ describe('taskTrackerSceneLogic', () => {
             logic.actions.submitNewTask()
             const streamKey = logic.values.activeCreation!.streamKey
             expect(runStreamLogic({ streamKey }).values.streamPhase).toBe('provisioning')
-            logic.actions.setStartupDraft('Include a weekly comparison')
+            const interaction = runInteractionLogic.findMounted(streamKey)!
+            interaction.actions.setComposerFormValues({ draft: 'Include a weekly comparison' })
+            interaction.actions.submitComposerForm()
+            interaction.actions.setComposerFormValues({ draft: 'Also include a chart' })
 
             await expectLogic(logic, finishRequest).toFinishAllListeners()
 
             expect(logic.values.activeCreation).toBeNull()
             expect(logic.values.newTaskData.description).toBe(
-                'Explain the example chart\n\nInclude a weekly comparison'
+                'Explain the example chart\n\nInclude a weekly comparison\n\nAlso include a chart'
             )
             expect(logic.values.isSubmittingTask).toBe(false)
             expect(router.values.location.pathname).toContain('/tasks/new')
