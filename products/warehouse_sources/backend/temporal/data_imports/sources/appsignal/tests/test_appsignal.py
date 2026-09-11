@@ -423,22 +423,35 @@ class TestFetchV2:
 class TestAppRows:
     @mock.patch(f"{MODULE}.make_tracked_session")
     def test_apps_carry_their_organization(self, mock_session):
-        mock_session.return_value = _v2_session(
+        # Only the configured app's organization: a personal token often reaches several, and
+        # syncing those would expose apps this connection never named.
+        session = _v2_session(
             graphql={
                 "data": {
-                    "viewer": {
-                        "organizations": [
-                            {"id": "org-1", "name": "Acme", "slug": "acme", "apps": [{"id": "a1", "name": "web"}]},
-                            {"id": "org-2", "name": "Other", "slug": "other", "apps": [{"id": "a2", "name": "api"}]},
-                        ]
+                    "app": {
+                        "organization": {
+                            "id": "org-1",
+                            "name": "Acme",
+                            "slug": "acme",
+                            "apps": [{"id": "a1", "name": "web"}, {"id": "a2", "name": "api"}],
+                        }
                     }
                 }
             }
         )
+        mock_session.return_value = session
 
         batches = list(get_rows("token", "app-id", "apps", mock.MagicMock(), _make_manager()))
 
-        assert [(row["id"], row["organizationSlug"]) for row in batches[0]] == [("a1", "acme"), ("a2", "other")]
+        assert [(row["id"], row["organizationSlug"]) for row in batches[0]] == [("a1", "acme"), ("a2", "acme")]
+        assert session.post.call_args.kwargs["json"]["variables"] == {"appId": "app-id"}
+
+    @mock.patch(f"{MODULE}.make_tracked_session")
+    def test_missing_app_raises_clear_error(self, mock_session):
+        mock_session.return_value = _v2_session(graphql={"data": {"app": None}})
+
+        with pytest.raises(Exception, match="AppSignal app not found"):
+            list(get_rows("token", "app-id", "apps", mock.MagicMock(), _make_manager()))
 
 
 class TestLogLineRows:

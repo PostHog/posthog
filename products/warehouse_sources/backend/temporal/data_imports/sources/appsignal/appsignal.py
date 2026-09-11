@@ -1,4 +1,3 @@
-import dataclasses
 from collections import deque
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -8,6 +7,8 @@ from urllib.parse import quote
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.appsignal.settings import (
     APPSIGNAL_ENDPOINTS,
@@ -44,7 +45,7 @@ class AppsignalRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class AppsignalResumeConfig:
     # REST windowed endpoints: epoch second the remaining walk starts from.
     window_start: int | None = None
@@ -417,10 +418,16 @@ def _to_iso(epoch: int) -> str:
     return _format_iso(datetime.fromtimestamp(epoch, tz=UTC))
 
 
-def _iter_windows(start: int, end: int, size: int) -> Iterator[tuple[int, int]]:
+@frozen
+class TimeWindow:
+    since: int
+    before: int
+
+
+def _iter_windows(start: int, end: int, size: int) -> Iterator[TimeWindow]:
     while start < end:
         stop = min(start + size, end)
-        yield start, stop
+        yield TimeWindow(since=start, before=stop)
         start = stop
 
 
@@ -486,9 +493,9 @@ def _fetch_v2(
 
 
 _APPS_QUERY = """
-query OrganizationApps {
-  viewer {
-    organizations {
+query OrganizationApps($appId: String!) {
+  app(id: $appId) {
+    organization {
       id
       name
       slug
@@ -531,9 +538,14 @@ def _get_app_rows(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
-    body = _fetch_graphql(session, api_token, _APPS_QUERY, {}, logger)
-    organizations = ((body.get("data") or {}).get("viewer") or {}).get("organizations") or []
+    body = _fetch_graphql(session, api_token, _APPS_QUERY, {"appId": app_id}, logger)
+    app_node = (body.get("data") or {}).get("app")
+    if app_node is None:
+        raise Exception("AppSignal app not found: check that the app ID matches your AppSignal app")
 
+    # Scoped to the organization that owns the configured app. A personal token often reaches
+    # several organizations, and syncing those would expose apps this connection never named.
+    organization = app_node.get("organization") or {}
     rows = [
         {
             **app,
@@ -541,7 +553,6 @@ def _get_app_rows(
             "organizationName": organization.get("name"),
             "organizationSlug": organization.get("slug"),
         }
-        for organization in organizations
         for app in organization.get("apps") or []
         if isinstance(app, dict)
     ]
@@ -755,7 +766,7 @@ def _get_metric_timeseries_rows(
         db_incremental_field_last_value,
     )
 
-    for window_since, window_before in _iter_windows(start, now, METRICS_WINDOW_SECONDS):
+    for window in _iter_windows(start, now, METRICS_WINDOW_SECONDS):
         rows: list[dict[str, Any]] = []
         for offset in range(0, len(selectors), METRICS_SELECTORS_PER_REQUEST):
             body = _fetch_v2(
@@ -765,8 +776,8 @@ def _get_metric_timeseries_rows(
                 logger,
                 body={
                     "site_id": app_id,
-                    "from": _to_iso(window_since),
-                    "to": _to_iso(window_before),
+                    "from": _to_iso(window.since),
+                    "to": _to_iso(window.before),
                     "resolution": METRICS_RESOLUTION,
                     "select": selectors[offset : offset + METRICS_SELECTORS_PER_REQUEST],
                 },
@@ -789,7 +800,7 @@ def _get_metric_timeseries_rows(
 
         rows.sort(key=lambda row: _to_epoch(row.get("timestamp")) or 0)
         yield rows
-        resumable_source_manager.save_state(AppsignalResumeConfig(window_start=window_before))
+        resumable_source_manager.save_state(AppsignalResumeConfig(window_start=window.before))
 
 
 def _iter_action_traces(
@@ -906,12 +917,12 @@ def _get_performance_trace_rows(
         db_incremental_field_last_value,
     )
 
-    for window_since, window_before in _iter_windows(start, now, TRACES_WINDOW_SECONDS):
-        traces = _window_traces(session, api_token, app_id, window_since, window_before, logger)
+    for window in _iter_windows(start, now, TRACES_WINDOW_SECONDS):
+        traces = _window_traces(session, api_token, app_id, window.since, window.before, logger)
         if not traces:
             continue
         yield traces
-        resumable_source_manager.save_state(AppsignalResumeConfig(window_start=window_before))
+        resumable_source_manager.save_state(AppsignalResumeConfig(window_start=window.before))
 
 
 def _get_trace_span_rows(
@@ -943,13 +954,13 @@ def _get_trace_span_rows(
     )
 
     traces_fetched = 0
-    for window_since, window_before in _iter_windows(start, now, TRACES_WINDOW_SECONDS):
+    for window in _iter_windows(start, now, TRACES_WINDOW_SECONDS):
         spans: list[dict[str, Any]] = []
         batch_traces = 0
         capped = False
         last_trace_time: Any = None
 
-        for trace in _window_traces(session, api_token, app_id, window_since, window_before, logger):
+        for trace in _window_traces(session, api_token, app_id, window.since, window.before, logger):
             trace_id, trace_time = trace.get("trace_id"), trace.get("time")
             if not trace_id:
                 continue
@@ -976,7 +987,7 @@ def _get_trace_span_rows(
             if batch_traces >= SPAN_BATCH_TRACES:
                 yield spans
                 resumable_source_manager.save_state(
-                    AppsignalResumeConfig(window_start=_to_epoch(trace_time) or window_since)
+                    AppsignalResumeConfig(window_start=_to_epoch(trace_time) or window.since)
                 )
                 spans, batch_traces = [], 0
 
@@ -984,10 +995,10 @@ def _get_trace_span_rows(
             yield spans
         if capped:
             resumable_source_manager.save_state(
-                AppsignalResumeConfig(window_start=_to_epoch(last_trace_time) or window_since)
+                AppsignalResumeConfig(window_start=_to_epoch(last_trace_time) or window.since)
             )
             return
-        resumable_source_manager.save_state(AppsignalResumeConfig(window_start=window_before))
+        resumable_source_manager.save_state(AppsignalResumeConfig(window_start=window.before))
 
 
 _WALKERS = {
