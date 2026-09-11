@@ -65,6 +65,17 @@ _RECENTLY_ACTIVE_COUNT_CACHE_TTL = 300
 # identified_only default, which is the opposite of what the window is for.
 _IDENTIFIED_PERSONS_ONLY = "person_mode != 'propertyless'"
 
+# Both activity-window queries select on this events predicate. They can answer one panel in a
+# single request cycle, so two copies could drift into reporting two different totals for one team.
+# The query text is fixed at import time and the bounds arrive as placeholders, so no caller-supplied
+# value ever reaches the string.
+_RECENTLY_ACTIVE_EVENTS_WHERE = f"timestamp >= {{cutoff}} AND timestamp < {{upper}} AND {_IDENTIFIED_PERSONS_ONLY}"
+_RECENTLY_ACTIVE_COUNT_QUERY = f"SELECT uniq(person_id) FROM events WHERE {_RECENTLY_ACTIVE_EVENTS_WHERE}"
+_RECENTLY_ACTIVE_MATCHED_QUERY = (
+    f"SELECT uniq(person_id), uniqIf(person_id, person_id IN {{matched}}) "
+    f"FROM events WHERE {_RECENTLY_ACTIVE_EVENTS_WHERE}"
+)
+
 
 # ClickHouse codes for "this literal can't be parsed as the column's type": 6 CANNOT_PARSE_TEXT,
 # 72 CANNOT_PARSE_NUMBER — e.g. a numeric operator (gt/lt) against a null or non-numeric filter
@@ -217,17 +228,10 @@ def _recently_active_window() -> tuple[datetime, datetime]:
     return now - timedelta(days=RECENTLY_ACTIVE_DAYS), now + timedelta(days=1)
 
 
-def _recently_active_events_where() -> tuple[str, dict[str, ast.Expr]]:
-    """The events predicate both activity-window queries select on, with its placeholders.
-
-    Both can answer the same panel in one request cycle, so two copies could drift into reporting
-    two different totals for one team.
-    """
+def _recently_active_window_placeholders() -> dict[str, ast.Expr]:
+    """Bind the window bounds for the query text above."""
     cutoff, upper = _recently_active_window()
-    return (
-        f"timestamp >= {{cutoff}} AND timestamp < {{upper}} AND {_IDENTIFIED_PERSONS_ONLY}",
-        {"cutoff": ast.Constant(value=cutoff), "upper": ast.Constant(value=upper)},
-    )
+    return {"cutoff": ast.Constant(value=cutoff), "upper": ast.Constant(value=upper)}
 
 
 def _recently_active_persons_count(team: Team) -> int:
@@ -242,8 +246,7 @@ def _recently_active_persons_count(team: Team) -> int:
     if cached is not None:
         return cached
 
-    where, placeholders = _recently_active_events_where()
-    query = parse_select(f"SELECT uniq(person_id) FROM events WHERE {where}", placeholders=placeholders)
+    query = parse_select(_RECENTLY_ACTIVE_COUNT_QUERY, placeholders=_recently_active_window_placeholders())
 
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
     response = execute_hogql_query(
@@ -297,12 +300,14 @@ def _get_person_blast_radius_recently_active(team: Team, filter: Filter) -> Blas
         total_users = _recently_active_persons_count(team)
         return BlastRadiusResult(affected=total_users, total=total_users, activity_window_days=RECENTLY_ACTIVE_DAYS)
 
-    where, placeholders = _recently_active_events_where()
     # One pass over the recent event window yields both the active total and the matched subset, so
     # the denominator is never a second scan and both numbers come from the same rows.
     query = parse_select(
-        f"SELECT uniq(person_id), uniqIf(person_id, person_id IN {{matched}}) FROM events WHERE {where}",
-        placeholders={"matched": _matched_persons_query(team, filter), **placeholders},
+        _RECENTLY_ACTIVE_MATCHED_QUERY,
+        placeholders={
+            "matched": _matched_persons_query(team, filter),
+            **_recently_active_window_placeholders(),
+        },
     )
 
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
