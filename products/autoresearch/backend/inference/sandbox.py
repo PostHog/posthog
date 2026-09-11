@@ -112,7 +112,8 @@ _PREDICT_TIMEOUT_S = 120
 # backstop that reclaims it: long enough for uploads, the command, and readback.
 _SANDBOX_TTL_S = 20 * 60
 # Without an explicit bound HogQL caps a query at its default of 100 rows, which would
-# shrink the train, holdout, and score matrices to a tiny sample. Mirrors FEATURE_QUERY_LIMIT.
+# shrink the train, holdout, and score matrices to a tiny sample. scoring.py bounds its
+# queries with the same constant.
 _MATERIALIZE_ROW_LIMIT = 50_000
 _OUTPUT_JSON = "data/output.json"
 _SCORES_PARQUET = "data/scores.parquet"
