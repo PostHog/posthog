@@ -284,14 +284,31 @@ function createAndInsertRoot(): { root: Root; onDestroy: () => void } {
 
 export const LemonDialog = LemonDialogComponent as typeof LemonDialogComponent & LemonDialogMethods
 
+// An imperative dialog owns its own root, so it has to tear that root down when it closes. The
+// caller's `onAfterClose` runs first rather than being replaced: without this a caller awaiting the
+// dialog's outcome (`onAfterClose: () => resolve(false)`) never hears that the dialog was dismissed,
+// and its promise stays pending forever.
+function chainOnAfterClose(callerOnAfterClose: (() => void) | undefined, onDestroy: () => void): () => void {
+    return () => {
+        callerOnAfterClose?.()
+        onDestroy()
+    }
+}
+
 LemonDialog.open = (props: LemonDialogProps) => {
     const { root, onDestroy } = createAndInsertRoot()
-    root.render(<LemonDialog {...props} onAfterClose={onDestroy} />)
+    root.render(<LemonDialog {...props} onAfterClose={chainOnAfterClose(props.onAfterClose, onDestroy)} />)
 }
 
 LemonDialog.openForm = (props: LemonFormDialogProps) => {
     const { root, onDestroy } = createAndInsertRoot()
     // Each dialog gets a unique key so nested dialogs don't share the same
     // lemonDialogLogic instance and corrupt each other's form state.
-    root.render(<LemonFormDialog {...props} dialogKey={uuid()} onAfterClose={onDestroy} />)
+    root.render(
+        <LemonFormDialog
+            {...props}
+            dialogKey={uuid()}
+            onAfterClose={chainOnAfterClose(props.onAfterClose, onDestroy)}
+        />
+    )
 }

@@ -182,6 +182,22 @@ export const SignalsReportsRefundCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Record that a person decided to implement a report PostHog would not implement on its own, and move it to `ready` so the resulting pull request can resolve it. Allowed from `potential`, `candidate`, `failed` and `suppressed` — the statuses a report holds when the safety judge rejected it or the pipeline never researched it. Any other status returns 409: a `ready` or `pending_input` report already offers Create PR, and a resolved or in-flight one holds no verdict to overrule. The override is appended to the report as a `safety_judgment` artefact with `choice: true`, naming the caller and their note, which makes the human verdict the report's canonical safety status and leaves an audit row in its work log. Call this before creating the implementation task.
+ * @summary Override the safety judgment blocking a report
+ */
+export const signalsReportsSafetyOverrideCreateBodyNoteMax = 4000
+
+export const SignalsReportsSafetyOverrideCreateBody = /* @__PURE__ */ zod.object({
+    note: zod
+        .string()
+        .max(signalsReportsSafetyOverrideCreateBodyNoteMax)
+        .optional()
+        .describe(
+            "Optional instructions the person gave the run when they overruled the judgment. Recorded on the override so the work log says what they asked for, and passed to the agent separately as the task's prompt. Capped at 4000 characters."
+        ),
+})
+
+/**
  * Transition a report to a new state. The model validates allowed transitions, except that a
  * verdict the report already holds (dismissing a suppressed report, resolving a resolved one)
  * is a 200 that records the dismissal feedback without touching the status.

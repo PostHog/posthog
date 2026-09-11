@@ -1,11 +1,23 @@
 // Pure eligibility predicates for report actions, shared by the detail pane, the triage flow, and
-// the list row context menu, so the surfaces cannot drift apart. Mirrors desktop `reportActions.ts`.
+// the list row context menu, so the surfaces cannot drift apart. The desktop app's own
+// `reportActions.ts` deliberately stays narrower: it has no confirmation surface for the override.
 
 import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../types'
 
 /**
- * Should the Create PR action be offered? Mirrors desktop `canCreateImplementationPr` /
- * the server-side autostart rules: only when ready & actionable, or blocked on user input.
+ * Statuses a report sits in when PostHog declined to implement it on its own: the safety judge
+ * rejected it (born suppressed, or failed), or the pipeline has not researched it yet.
+ */
+export const SAFETY_OVERRIDE_STATUSES: readonly SignalReportStatus[] = [
+    SignalReportStatus.POTENTIAL,
+    SignalReportStatus.CANDIDATE,
+    SignalReportStatus.FAILED,
+    SignalReportStatus.SUPPRESSED,
+]
+
+/**
+ * Should the Create PR action be offered? A report the pipeline approved (ready & actionable, or
+ * blocked on user input) offers it directly; a blocked one offers it behind a confirmation.
  */
 export function canCreateImplementationPr(report: SignalReport): boolean {
     if (report.implementation_pr_url) {
@@ -20,7 +32,18 @@ export function canCreateImplementationPr(report: SignalReport): boolean {
     if (report.status === 'ready') {
         return report.actionability != null && ACTIONABLE_ACTIONABILITY_VALUES.includes(report.actionability)
     }
-    return false
+    return requiresSafetyOverride(report)
+}
+
+/**
+ * Does pressing Create PR on this report overrule a decision PostHog already made? Such a report
+ * needs the confirmation and the recorded override before the run starts.
+ *
+ * `not_actionable` is excluded even here, because that judgment says the report holds no work to
+ * do, which is a different claim from "we would not risk it".
+ */
+export function requiresSafetyOverride(report: SignalReport): boolean {
+    return SAFETY_OVERRIDE_STATUSES.includes(report.status) && report.actionability !== 'not_actionable'
 }
 
 /**

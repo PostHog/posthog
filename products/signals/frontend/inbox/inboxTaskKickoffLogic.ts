@@ -19,6 +19,7 @@ import {
     TaskExecutionModeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
+import { openSafetyOverrideDialog } from './components/shell/SafetyOverrideDialog'
 import { InboxReportActionType, captureInboxReportActionCompleted } from './inboxAnalytics'
 import {
     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
@@ -28,6 +29,8 @@ import {
     SignalReportTaskRelationship,
 } from './types'
 import { aiConsentDisabledReason } from './utils/aiConsent'
+import { requiresSafetyOverride } from './utils/reportActions'
+import { latestUnsafeSafetyExplanation, safetyOverrideReason } from './utils/safetyOverride'
 
 // Cloud-adapted port of desktop `useDiscussReport` / `useCreatePrReport`. These are
 // task-kickoff actions (create a cloud Task linked to the report, then navigate to it) –
@@ -179,6 +182,31 @@ function handleKickoffError(
     }
     lemonToast.error(error?.detail || error?.message || fallbackMessage)
     captureInboxReportActionCompleted({ report, actionType, outcome: 'failure' })
+}
+
+/**
+ * Show the override confirmation for a blocked report and return the steer the person confirmed
+ * with, or null if they backed out.
+ *
+ * The judge's reason is fetched here rather than threaded through every surface, because the list
+ * row has not loaded the report's artefacts. A failed fetch still confirms: the person loses the
+ * quoted verdict, not the choice.
+ */
+async function confirmSafetyOverride(report: SignalReport, feedback?: string): Promise<string | null> {
+    let judgeExplanation: string | null = null
+    try {
+        // The log is served newest-first and the verdict is written when the report is authored, so
+        // it sits at the far end of any report with history. Same limit as the detail pane's load.
+        const artefacts = await api.signalReports.artefacts(report.id, { limit: 1000 })
+        judgeExplanation = latestUnsafeSafetyExplanation(artefacts.results)
+    } catch {
+        judgeExplanation = null
+    }
+    return await openSafetyOverrideDialog({
+        reportTitle: report.title,
+        reason: safetyOverrideReason(report, judgeExplanation),
+        initialNote: feedback ?? '',
+    })
 }
 
 async function createReportTask(
@@ -409,11 +437,37 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 actions.createPrFailure()
                 return
             }
+            // The override lives here rather than in each button because every Create PR surface
+            // dispatches this action, so no surface can skip the confirmation or the audit row.
+            let note = feedback
+            if (requiresSafetyOverride(report)) {
+                const confirmedNote = await confirmSafetyOverride(report, feedback)
+                if (confirmedNote === null) {
+                    captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'cancelled' })
+                    actions.createPrFailure()
+                    return
+                }
+                note = confirmedNote || undefined
+                try {
+                    await api.signalReports.overrideSafetyJudgment(report.id, note)
+                } catch (error: any) {
+                    // The 409 (the report moved on since the row was rendered) carries its reason
+                    // under `error`.
+                    lemonToast.error(
+                        error?.data?.error ||
+                            error?.detail ||
+                            "Couldn't record your decision on this report, so the run didn't start. Try again."
+                    )
+                    captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'failure' })
+                    actions.createPrFailure()
+                    return
+                }
+            }
             try {
                 await createReportTask(
                     report,
                     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
-                    buildCreatePrReportPrompt(report, feedback),
+                    buildCreatePrReportPrompt(report, note),
                     'Implement report fix',
                     CREATE_PR_RUNTIME
                 )
