@@ -651,8 +651,8 @@ export interface sessionRecordingPlayerLogicValues {
     playingState: SessionPlayerState.PLAY | SessionPlayerState.PAUSE
     playingTimeTracking: PlayerTimeTracking
     quickEmojiIsOpen: boolean
-    reportedReplayerErrors: Set<string>
     replayerNotReadyReason: string | null
+    reportedReplayerErrors: Set<string>
     resolution: {
         height: number
         width: number
@@ -1152,6 +1152,7 @@ export interface sessionRecordingPlayerLogicMeta {
             sessionPlayerMetaData: SessionRecordingType | null,
             currentTimestamp: number | undefined
         ) => string | undefined
+        replayerNotReadyReason: (player: Player | null) => string | null
         resolution: (
             sessionPlayerData: SessionPlayerData,
             currentTimestamp: number | undefined,
