@@ -353,6 +353,7 @@ class TestPullRequestLinkingQueuesTheReadyTransition:
         SignalReportAssignment.all_teams.filter(report=report).update(
             pr_url=None, repository=None, pr_number=None, pr_state=SignalReportAssignment.PrState.UNKNOWN
         )
+        SignalReportArtefact.objects.filter(report=report, type="pull_request").delete()
         self.mock_delay.reset_mock()
 
         update_assignments_for_pull_request(

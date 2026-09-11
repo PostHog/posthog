@@ -13,8 +13,9 @@ describe('prState', () => {
             PrBadgeState,
         ][] = [
             ['merged wins over every other state', SignalReportStatus.READY, true, 'draft', 'merged'],
-            ['a terminal report has no open PR', SignalReportStatus.SUPPRESSED, false, 'open', 'closed'],
-            ['a terminal report outranks a stale draft flag', SignalReportStatus.SUPPRESSED, false, 'draft', 'closed'],
+            ['an external PR can remain open after dismissal', SignalReportStatus.SUPPRESSED, false, 'open', 'open'],
+            ['a draft PR retains its own state', SignalReportStatus.SUPPRESSED, false, 'draft', 'draft'],
+            ['a closed stack layer stays closed on a live report', SignalReportStatus.READY, false, 'closed', 'closed'],
             ['a draft PR is not up for review', SignalReportStatus.READY, false, 'draft', 'draft'],
             ['an open PR is up for review', SignalReportStatus.READY, false, 'open', 'open'],
             ['an unreported PR state reads as open', SignalReportStatus.READY, false, undefined, 'open'],
