@@ -18,7 +18,6 @@ describe('resolvePanelType', () => {
 
     it('has a definition for every display type', () => {
         for (const type of ['line', 'area', 'bar', 'stat', 'gauge', 'bargauge', 'table', 'heatmap'] as const) {
-            expect(METRICS_PANELS[type]).toBeDefined()
             expect(METRICS_PANELS[type].label).toBeTruthy()
         }
     })
