@@ -482,6 +482,43 @@ describe("loopHogFlowMapping", () => {
     expect(isLoopShapedHogFlow(flow)).toBe(false);
   });
 
+  it("keeps a notify step between the task and the exit when reading and rewriting", () => {
+    const existing = flowFromWrite(scheduleValues());
+    const actions = existing.actions as Array<Record<string, unknown>>;
+    const notify = {
+      id: "notify",
+      name: "Notify",
+      type: "function",
+      config: {
+        template_id: "template-slack",
+        inputs: {
+          channel: { value: "C123" },
+          text: { value: "{variables.task_final_message}" },
+        },
+      },
+    };
+    actions.splice(2, 0, notify);
+    existing.edges = [
+      { from: "trigger", to: "create_task", type: "continue" },
+      { from: "create_task", to: "notify", type: "continue" },
+      { from: "notify", to: "exit", type: "continue" },
+    ];
+    expect(isLoopShapedHogFlow(existing)).toBe(true);
+
+    const { flow } = formValuesToHogFlowWrite(
+      scheduleValues({ instructions: "Updated prompt" }),
+      { enabled: true, existing },
+    );
+    expect(flow.actions.map((action) => action.id)).toEqual([
+      "trigger",
+      "create_task",
+      "notify",
+      "exit",
+    ]);
+    expect(flow.actions[2]).toEqual(notify);
+    expect(flow.edges).toEqual(existing.edges);
+  });
+
   it("marks a flow with a staged draft as foreign until it is published or discarded", () => {
     const flow = flowFromWrite(scheduleValues());
     expect(isLoopShapedHogFlow({ ...flow, draft: null })).toBe(true);
