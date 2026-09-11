@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, useRef } from 'react'
 
-import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDialog } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -21,9 +21,11 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
-    const needsOptIn = !currentTeam?.surveys_opt_in
     const isHostedSurvey = survey.type === SurveyType.ExternalSurvey
+    // PostHog hosts and renders these surveys, so they do not depend on the project's surveys_opt_in setting.
+    const needsOptIn = !currentTeam?.surveys_opt_in && !isHostedSurvey
     const conditionsSummary = isHostedSurvey ? [] : getSurveyDisplayConditionsSummary(survey)
+    const shouldOptIn = useRef(true)
 
     return (
         <AccessControlAction
@@ -36,6 +38,7 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                 data-attr="launch-survey"
                 size="small"
                 onClick={() => {
+                    shouldOptIn.current = true
                     LemonDialog.open({
                         title: 'Launch this survey?',
                         content: (
@@ -62,7 +65,21 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                                     </div>
                                 )}
                                 {needsOptIn && (
-                                    <div className="text-xs text-muted">This will enable surveys for your project.</div>
+                                    <div className="flex flex-col gap-1">
+                                        <LemonCheckbox
+                                            defaultChecked
+                                            onChange={(checked) => {
+                                                shouldOptIn.current = checked
+                                            }}
+                                            label="Enable surveys for this project"
+                                            data-attr="launch-survey-surveys-opt-in"
+                                            size="small"
+                                        />
+                                        <div className="text-xs text-muted">
+                                            Surveys are off for this project. Your app cannot show any survey until they
+                                            are on.
+                                        </div>
+                                    </div>
                                 )}
                             </div>
                         ),
@@ -70,7 +87,7 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                             children: isHostedSurvey ? 'Launch and copy link' : 'Launch',
                             type: 'primary',
                             onClick: () => {
-                                if (needsOptIn) {
+                                if (needsOptIn && shouldOptIn.current) {
                                     updateCurrentTeam({ surveys_opt_in: true })
                                 }
                                 if (isHostedSurvey) {
