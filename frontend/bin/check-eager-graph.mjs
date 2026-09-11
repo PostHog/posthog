@@ -91,10 +91,9 @@ const ROOTS = [
     {
         root: 'src/scenes/AuthenticatedShell.tsx',
         label: 'authenticated shell (every logged-in page)',
-        // 2026-09-11: 6.91 MiB eager output = 5.55 MiB JS (2688 files) + the 1.36 MiB linked
-        // stylesheet, once only that stylesheet counts. ~15% headroom so routine churn doesn't trip
-        // the warn.
-        budgetBytes: 8_330_000,
+        // 2026-09-11: 8.27 MiB eager output = 6.91 MiB JS (2688 files) + the 1.36 MiB linked
+        // stylesheet. ~15% headroom so routine churn doesn't trip the warn.
+        budgetBytes: 9_970_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'src/lib/components/ActivityLog/describers',
@@ -337,9 +336,10 @@ for (const { root: rootSpec, label, budgetBytes, forbidden } of ROOTS) {
         }
     }
     // esbuild attaches a chunk's stylesheet via `cssBundle`, not an `imports` edge, so the chunk walk
-    // never reaches it — but the linked sheet is downloaded before render. Without this, adding a
-    // large eager .scss moves real bytes onto the critical path while the metric stays flat.
-    if (linkedStylesheet && [...eagerChunks].some((chunk) => outputs[chunk].cssBundle === linkedStylesheet)) {
+    // never reaches it — but every page links the sheet, so it is downloaded before any root renders.
+    // Without this, adding a large eager .scss moves real bytes onto the critical path while the
+    // metric stays flat.
+    if (linkedStylesheet) {
         totalBytes += outputs[linkedStylesheet].bytes
     }
     const largest = [...eagerBytesByFile.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15)
