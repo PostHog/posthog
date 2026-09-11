@@ -12,7 +12,7 @@ from unittest.mock import ANY, patch
 from django.contrib.sessions.backends.base import UpdateError
 from django.core import mail
 from django.core.cache import cache
-from django.test import override_settings
+from django.test import Client, override_settings
 from django.urls.base import reverse
 from django.utils import timezone
 
@@ -24,7 +24,7 @@ from rest_framework.test import APIClient
 from social_django.models import UserSocialAuth
 from webauthn.helpers import bytes_to_base64url
 
-from posthog.api.email_verification import email_verification_code_verifier
+from posthog.api.email_verification import SIGNUP_EMAIL_PROOF_SESSION_KEY, email_verification_code_verifier
 from posthog.api.signup import _save_session_with_recovery, lookup_invite_for_saml, process_social_invite_signup
 from posthog.api.webauthn import (
     WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
@@ -210,6 +210,30 @@ class TestSignupAPI(APIBaseTest):
         mock_is_email_available.assert_called()
         # Assert the email was sent.
         mock_email_verifier.assert_called_once_with(user)
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.api.signup.email_verification_code_verifier.send_code")
+    def test_api_sign_up_without_csrf_does_not_record_the_credential_proof(
+        self, mock_email_verifier, mock_is_email_available
+    ):
+        # A cross-site form POST cannot read the CSRF cookie, so it cannot plant the proof that
+        # decides which credential survives the email claim.
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+
+        client = Client(enforce_csrf_checks=True)
+        response = client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "email": "csrf-squatter@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Squatters United, LLC",
+                "role_at_organization": "product",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertNotIn(SIGNUP_EMAIL_PROOF_SESSION_KEY, client.session)
+        mock_email_verifier.assert_not_called()
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.email_verification_code_verifier.send_code")

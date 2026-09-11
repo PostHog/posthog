@@ -1,11 +1,12 @@
 import uuid
 from typing import cast
 
+from django.db import transaction
 from django.utils import timezone
 
 import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from rest_framework import response, serializers, status, viewsets
+from rest_framework import exceptions, response, serializers, status, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
 from posthog.api.utils import action
@@ -18,6 +19,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
 from posthog.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS
+from posthog.session.activity import request_session_is_live
 from posthog.user_permissions import UserPermissions
 
 MAX_API_KEYS_PER_USER = 10  # Same as in scopes.tsx
@@ -182,41 +184,47 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         return scoped_organizations
 
     def create(self, validated_data: dict, **kwargs) -> PersonalAPIKey:
-        user = self.context["request"].user
-        count = PersonalAPIKey.objects.filter(user=user).count()
-        if count >= MAX_API_KEYS_PER_USER:
-            raise serializers.ValidationError(
-                f"You can only have {MAX_API_KEYS_PER_USER} personal API keys. Remove an existing key before creating a new one."
-            )
-        value = generate_random_token_personal()
-        mask_value = mask_key_value(value)
-        secure_value = hash_key_value(value)
-        personal_api_key = PersonalAPIKey.objects.create(
-            user=user, secure_value=secure_value, mask_value=mask_value, **validated_data
-        )
-        personal_api_key._value = value  # type: ignore
-        # User created their FIRST PAT themselves through a session, so the credential
-        # review interstitial has nothing partner-issued to surface for them - mark it
-        # acknowledged. Four gates, all load-bearing:
-        #   - count == 0: no pre-existing PATs, so this is the user's first. If they
-        #     already had keys, those might be partner-issued and still awaiting review,
-        #     so don't stamp.
-        #   - SessionAuthentication: PAT-bearer auth would let an attacker holding a
-        #     partner-issued PAT mint another PAT to silently dismiss the victim's
-        #     review screen. Same constraint as credentials_review_complete.
-        #   - credentials_reviewed_at IS NULL: don't clobber a real review timestamp.
-        #   - no live third-party OAuth access: a partner-provisioned account has access
-        #     to disclose even with no partner-issued PAT, and stamping here would retire
-        #     the interstitial before the user was ever shown that connection.
         request = self.context["request"]
-        if (
-            count == 0
-            and user.credentials_reviewed_at is None
-            and isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication)
-            and not has_live_third_party_oauth_access(user)
-        ):
-            user.credentials_reviewed_at = timezone.now()
-            user.save(update_fields=["credentials_reviewed_at"])
+        with transaction.atomic():
+            # Serialize with email-claim reconciliation and refuse when the claim revoked this
+            # request's session mid-flight: a stale session must not mint a key that survives the
+            # claim, or stamp credentials_reviewed_at from its stale in-memory user.
+            user = User.objects.select_for_update().get(pk=request.user.pk)
+            if not request_session_is_live(request, user):
+                raise exceptions.PermissionDenied("Your session ended. Log in again to create an API key.")
+            count = PersonalAPIKey.objects.filter(user=user).count()
+            if count >= MAX_API_KEYS_PER_USER:
+                raise serializers.ValidationError(
+                    f"You can only have {MAX_API_KEYS_PER_USER} personal API keys. Remove an existing key before creating a new one."
+                )
+            value = generate_random_token_personal()
+            mask_value = mask_key_value(value)
+            secure_value = hash_key_value(value)
+            personal_api_key = PersonalAPIKey.objects.create(
+                user=user, secure_value=secure_value, mask_value=mask_value, **validated_data
+            )
+            personal_api_key._value = value  # type: ignore
+            # User created their FIRST PAT themselves through a session, so the credential
+            # review interstitial has nothing partner-issued to surface for them - mark it
+            # acknowledged. Four gates, all load-bearing:
+            #   - count == 0: no pre-existing PATs, so this is the user's first. If they
+            #     already had keys, those might be partner-issued and still awaiting review,
+            #     so don't stamp.
+            #   - SessionAuthentication: PAT-bearer auth would let an attacker holding a
+            #     partner-issued PAT mint another PAT to silently dismiss the victim's
+            #     review screen. Same constraint as credentials_review_complete.
+            #   - credentials_reviewed_at IS NULL: don't clobber a real review timestamp.
+            #   - no live third-party OAuth access: a partner-provisioned account has access
+            #     to disclose even with no partner-issued PAT, and stamping here would retire
+            #     the interstitial before the user was ever shown that connection.
+            if (
+                count == 0
+                and user.credentials_reviewed_at is None
+                and isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication)
+                and not has_live_third_party_oauth_access(user)
+            ):
+                user.credentials_reviewed_at = timezone.now()
+                user.save(update_fields=["credentials_reviewed_at"])
         return personal_api_key
 
     def roll(self, personal_api_key: PersonalAPIKey) -> PersonalAPIKey:

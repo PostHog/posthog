@@ -762,22 +762,27 @@ class UserSerializer(serializers.ModelSerializer):
 
         old_passkeys_enabled_for_2fa = instance.passkeys_enabled_for_2fa
         updated_attrs = list(validated_data.keys())
-        instance = cast(User, super().update(instance, validated_data))
 
         if password:
             with transaction.atomic():
-                # Serialize with email-claim reconciliation, then re-check that this request's
-                # session is still live. The claim revokes sessions inside its transaction, so a
-                # write that lands after it would re-arm a credential the claim just removed.
-                User.objects.select_for_update().get(pk=instance.pk)
+                # Lock before any write and re-check the session. super().update() saves the whole
+                # instance, so a claim committing between validation and that save would otherwise
+                # be undone by the stale password hash written back here.
+                instance = cast(User, User.objects.select_for_update().get(pk=instance.pk))
                 if not request_session_is_live(self.context["request"], instance):
                     raise exceptions.PermissionDenied("Your session ended. Log in again to change your password.")
+                # Re-check the current password against the locked row: the claim may have wiped it
+                # while this request ran.
+                self.validate_password_change(instance, current_password, password)
+                instance = cast(User, super().update(instance, validated_data))
                 # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validated in validate_password_change above)
                 instance.set_password(password)
                 instance.save()
             update_session_auth_hash(self.context["request"], instance)
             updated_attrs.append("password")
             send_password_changed_email.delay(instance.id)
+        else:
+            instance = cast(User, super().update(instance, validated_data))
 
         # Only the upgrade (enabling) counts as a credential change — disabling is a downgrade and
         # deliberately does not revoke other sessions.
@@ -1623,9 +1628,16 @@ class UserViewSet(
         # review screen, so accepting PersonalAPIKeyAuthentication here would let
         # the attacker who minted the PAK silently dismiss their own surfacing.
         user = self.get_object()
-        if user.credentials_reviewed_at is None:
-            user.credentials_reviewed_at = django_timezone.now()
-            user.save(update_fields=["credentials_reviewed_at"])
+        with transaction.atomic():
+            # Same protocol as the other credential writers: refuse when an email claim
+            # revoked this request's session mid-flight, so the stale session cannot
+            # dismiss the review the claim just raised.
+            locked = User.objects.select_for_update().get(pk=user.pk)
+            if not request_session_is_live(request, locked):
+                raise exceptions.PermissionDenied("Your session ended. Log in again to review your credentials.")
+            if locked.credentials_reviewed_at is None:
+                locked.credentials_reviewed_at = django_timezone.now()
+                locked.save(update_fields=["credentials_reviewed_at"])
         return Response(status=204)
 
 

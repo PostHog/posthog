@@ -35,6 +35,7 @@ from posthog.api.webauthn import (
     WEBAUTHN_SIGNUP_EMAIL_KEY,
     WEBAUTHN_SIGNUP_USER_UUID_KEY,
 )
+from posthog.auth import SessionAuthentication
 from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
@@ -73,6 +74,10 @@ def _signup_requires_email_verification(user: User) -> bool:
 
 def verify_email_or_login(request: Request, user: User, passkey_credential_id: str | None = None) -> None:
     if _signup_requires_email_verification(user):
+        # The proof this session stores decides which credential survives the email claim.
+        # Cross-site form posts cannot read the CSRF cookie, so requiring it here stops an
+        # unauthenticated page from planting the proof in the victim's browser.
+        SessionAuthentication().enforce_csrf(request)
         request.session[SIGNUP_EMAIL_PROOF_SESSION_KEY] = {
             "user_uuid": str(user.uuid),
             "credential_type": "passkey" if passkey_credential_id else "password",

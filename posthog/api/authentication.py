@@ -53,6 +53,7 @@ from posthog.api.email_verification import (
     email_verification_code_verifier,
     is_email_verification_disabled,
 )
+from posthog.auth import SessionAuthentication
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.email import is_email_available
@@ -348,6 +349,10 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
         if not is_email_verified_for_login(user):
+            # The proof this session stores decides which credential survives the email claim.
+            # Cross-site form posts cannot read the CSRF cookie, so requiring it here stops an
+            # unauthenticated page from planting the proof in the victim's browser.
+            SessionAuthentication().enforce_csrf(request)
             request.session[SIGNUP_EMAIL_PROOF_SESSION_KEY] = {
                 "user_uuid": str(user.uuid),
                 "credential_type": "password",

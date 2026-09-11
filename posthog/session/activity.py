@@ -122,7 +122,10 @@ def request_session_is_live(request: HttpRequest, user: User) -> bool:
     """
     if is_impersonated_session(request):
         return True
-    session_key = request.session.session_key
+    session = getattr(request, "session", None)
+    if session is None:
+        return True
+    session_key = session.session_key
     if not session_key:
         return True
     return Session.objects.filter(

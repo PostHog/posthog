@@ -17,7 +17,7 @@ from django.core.asgi import get_asgi_application
 from django.core.cache import cache
 from django.db import connection
 from django.http import HttpResponse
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import Client, RequestFactory, SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -600,6 +600,21 @@ class TestLoginAPI(APIBaseTest):
 
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @patch("posthog.api.authentication.is_email_available", return_value=True)
+    @patch("posthog.api.email_verification.send_email_verification_code")
+    def test_email_unverified_login_without_csrf_does_not_record_the_credential_proof(
+        self, mock_send_code, mock_is_email_available
+    ):
+        # A cross-site form POST cannot read the CSRF cookie, so it cannot plant the proof that
+        # decides which credential survives the email claim.
+        self.user.is_email_verified = False
+        self.user.save()
+        client = Client(enforce_csrf_checks=True)
+        response = client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertNotEqual(response.json().get("code"), "verify_email_pending")
+        self.assertNotIn(SIGNUP_EMAIL_PROOF_SESSION_KEY, client.session)
 
     @patch("posthog.ph_client.posthoganalytics.get_feature_flag", side_effect=RuntimeError("flags down"))
     @patch("posthog.ph_client.posthoganalytics.feature_enabled", side_effect=RuntimeError("flags down"))

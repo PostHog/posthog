@@ -495,6 +495,17 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == 204
         assert User.objects.get(pk=self.user.pk).credentials_reviewed_at == first_ts
 
+    @patch("posthog.api.user.request_session_is_live", return_value=False)
+    def test_credentials_review_complete_refused_when_the_session_was_revoked_mid_request(self, _mock_live):
+        # An email claim revokes the request's session while the acknowledgement runs. The stale
+        # session must not dismiss the review the claim just raised.
+        User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
+
+        response = self.client.post("/api/users/@me/credentials_review_complete/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert User.objects.get(pk=self.user.pk).credentials_reviewed_at is None
+
     def test_credentials_review_complete_requires_auth(self):
         self.client.logout()
         response = self.client.post("/api/users/@me/credentials_review_complete/")
@@ -1811,15 +1822,17 @@ class TestUserAPI(APIBaseTest):
         # An email claim revokes the request's session while an in-flight password change runs.
         # The write must refuse instead of re-arming a login credential the claim just removed.
         # The mock stands in for the race window: the session is live at authentication time and
-        # gone by write time, which a test client cannot produce within one request.
+        # gone by write time, which a test client cannot produce within one request. The profile
+        # field proves super().update() never saved the stale instance either.
         response = self.client.patch(
             "/api/users/@me/",
-            {"current_password": self.CONFIG_PASSWORD, "password": "a_new_password"},
+            {"current_password": self.CONFIG_PASSWORD, "password": "a_new_password", "first_name": "Sneaky"},
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
+        self.assertNotEqual(self.user.first_name, "Sneaky")
 
     @patch("posthoganalytics.capture")
     def test_cannot_update_to_insecure_password(self, mock_capture):
