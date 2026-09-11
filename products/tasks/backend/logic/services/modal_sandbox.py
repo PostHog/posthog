@@ -124,6 +124,8 @@ SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.12.5"
 READINESS_PROBE_INTERVAL_MS = 250
 READINESS_PROBE_TIMEOUT_SECONDS = 45
 POST_MOUNT_PROBE_TIMEOUT_SECONDS = 45
+UNREADY_TERMINATE_MAX_ATTEMPTS = 3
+UNREADY_TERMINATE_BACKOFF_BASE_SECONDS = 1.0
 
 # Recoverable infra errors Modal surfaces when filesystem snapshotting times out or loses its
 # connection (e.g. the command router's "Deadline exceeded"). These usually succeed on retry, so
@@ -878,10 +880,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                         "snapshot_mount_path": snapshot_mount_path,
                     },
                 )
-                try:
-                    sb.terminate()
-                except Exception as e:
-                    logger.warning(f"Failed to terminate unready sandbox {sb.object_id}: {e}")
+                cls._terminate_unready_sandbox(sb, config)
                 if directory_mount_applied:
                     # The directory resume mount (not the image) wedged the sandbox:
                     # recreate on the same chain and leave the mount off. The run loses
@@ -904,11 +903,15 @@ class ModalSandbox(AgentServerLaunchMixin):
                         cause=RuntimeError("readiness probe never passed"),
                     )
                 earlier_fallback: str | None = config.image_fallback
+                # Cleared so the chain the recreate writes for itself — a create failure
+                # inside the recovery, which names a tier the hop below skips over — reads
+                # back distinguishable from the hops already recorded.
+                config.image_fallback = None
                 sb, modal_output, winner = cls._create_from_image_candidates(create_kwargs, remaining, config)
                 directory_mount_applied = False
                 # Every hop stays in the string: the run log reads the field once, so an
                 # overwrite would hide the dropped resume snapshot or package overlay.
-                hop = f"{wedged} -> {winner.label}"
+                hop = f"{wedged} -> {config.image_fallback or winner.label}"
                 config.image_fallback = f"{earlier_fallback}; {hop}" if earlier_fallback else hop
 
             if config.metadata:
@@ -985,6 +988,32 @@ class ModalSandbox(AgentServerLaunchMixin):
             {"config_name": config.name},
             cause=RuntimeError("empty image candidate list"),
         )
+
+    @staticmethod
+    def _terminate_unready_sandbox(sb: modal.Sandbox, config: SandboxConfig) -> None:
+        """Terminate a sandbox the readiness probe rejected, retrying before giving up.
+
+        The caller replaces the sandbox and drops its id, and ``process-task`` only records
+        an id once ``create()`` has returned, so a sandbox still running here is invisible
+        to every later cleanup path. Failing the provision costs one retry; leaking it bills
+        until Modal's own timeout.
+        """
+        for attempt in range(1, UNREADY_TERMINATE_MAX_ATTEMPTS + 1):
+            try:
+                sb.terminate()
+                return
+            except Exception as e:
+                logger.warning(
+                    f"Failed to terminate unready sandbox {sb.object_id} "
+                    f"(attempt {attempt}/{UNREADY_TERMINATE_MAX_ATTEMPTS}): {e}"
+                )
+                if attempt == UNREADY_TERMINATE_MAX_ATTEMPTS:
+                    raise SandboxProvisionError(
+                        "Failed to terminate an unready sandbox",
+                        {"config_name": config.name, "sandbox_id": sb.object_id},
+                        cause=e,
+                    ) from e
+                time.sleep(UNREADY_TERMINATE_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)))
 
     @classmethod
     def _is_ready(cls, sb: modal.Sandbox, *, after_directory_mount: bool) -> bool:

@@ -56,6 +56,7 @@ from products.tasks.backend.logic.services.modal_sandbox import (
     READINESS_PROBE_INTERVAL_MS,
     READINESS_PROBE_TIMEOUT_SECONDS,
     SANDBOX_IMAGE,
+    UNREADY_TERMINATE_MAX_ATTEMPTS,
     ModalSandbox,
     _attach_local_package_mounts,
     _get_modal_region,
@@ -1960,6 +1961,90 @@ class TestModalSandboxCreateImageFallback:
 
         mock_sb.terminate.assert_called_once()
         assert error.value.non_retryable is False
+
+    def test_unready_sandbox_that_refuses_to_terminate_fails_the_provision(self):
+        # process-task only records a sandbox id once create() has returned, so an unready
+        # sandbox we could not terminate is invisible to every later cleanup path. Failing
+        # beats recovering onto the next image and leaving the old one billing.
+        mock_sb = MagicMock()
+        mock_sb.object_id = "sb-stuck"
+        mock_sb.wait_until_ready.side_effect = ModalTimeoutError("readiness probe timed out")
+        mock_sb.terminate.side_effect = ModalServiceError("terminate failed")
+
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
+            patch("products.tasks.backend.logic.services.modal_sandbox._get_template_image", return_value=MagicMock()),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_name",
+                return_value=MagicMock(name="custom_image"),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._attach_local_package_mounts",
+                side_effect=lambda image, template, **kwargs: image,
+            ),
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create", return_value=mock_sb),
+            patch("products.tasks.backend.logic.services.modal_sandbox.time.sleep"),
+            patch("products.tasks.backend.exceptions.capture_exception"),
+        ):
+            with pytest.raises(SandboxProvisionError) as error:
+                ModalSandbox.create(
+                    SandboxConfig(name="t", template=SandboxTemplate.VM_BASE, custom_image_name="posthog-dev-stack")
+                )
+
+        assert mock_sb.terminate.call_count == UNREADY_TERMINATE_MAX_ATTEMPTS
+        assert "Failed to terminate an unready sandbox" in str(error.value)
+
+    def test_create_failure_inside_the_recovery_stays_on_the_fallback_chain(self):
+        # The recovery re-enters the image chain, which records its own downgrade on
+        # image_fallback. Overwriting that hides the tier the recovery tried and failed on,
+        # leaving the run log naming a hop that never happened.
+        config = SandboxConfig(
+            name="t",
+            template=SandboxTemplate.VM_BASE,
+            custom_image_name="posthog-dev-stack",
+            snapshot_external_id="im-snap-1",
+        )
+        snapshot_image = MagicMock(name="snapshot_image")
+        custom_image = MagicMock(name="custom_image")
+        base_image = MagicMock(name="base_image")
+        images_tried: list[Any] = []
+
+        def sandbox_create(**kwargs: Any) -> Any:
+            images_tried.append(kwargs["image"])
+            if len(images_tried) == 2:
+                raise ModalServiceError("custom image unavailable")
+            sb = MagicMock()
+            sb.object_id = f"sb-{len(images_tried)}"
+            if len(images_tried) == 1:
+                sb.wait_until_ready.side_effect = ModalTimeoutError("readiness probe timed out")
+            return sb
+
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
+            patch("products.tasks.backend.logic.services.modal_sandbox._get_template_image", return_value=base_image),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_name", return_value=custom_image
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_id", return_value=snapshot_image
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._attach_local_package_mounts",
+                side_effect=lambda image, template, **kwargs: image,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create", side_effect=sandbox_create
+            ),
+            patch("products.tasks.backend.exceptions.capture_exception"),
+        ):
+            sandbox = ModalSandbox.create(config)
+
+        assert images_tried == [snapshot_image, custom_image, base_image]
+        assert sandbox.config.image_fallback == (
+            "snapshot image im-snap-1 (never became ready) -> custom image posthog-dev-stack -> base image"
+        )
 
     def test_wedged_directory_mount_recovers_on_same_image_and_names_the_mount(self):
         # A directory resume that wedges the sandbox never changed the boot image — the
