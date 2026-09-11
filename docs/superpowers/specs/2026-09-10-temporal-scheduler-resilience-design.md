@@ -220,6 +220,8 @@ Fire-and-forget dispatch uses `start_child_workflow` with `ParentClosePolicy.ABA
 
 A completed child cannot permanently block the same source item. A failed child either leaves the occurrence retryable or records an explicit terminal quarantine outcome. Quarantine may intentionally block that one occurrence pending operator action, while discovery must scan past it so unrelated source items continue progressing.
 
+A quarantined occurrence stays blocked from automatic reuse on purpose and remains visible to operators. Discovery excludes it when safe or scans past it while advancing rotation state, so it cannot repeatedly consume the tenant's fair share or block healthy work behind it. Clearing a quarantine is an operator action.
+
 Retries for one logical occurrence stay inside the original workflow execution and retry budget. A new workflow ID represents a new occurrence or an explicit recovery generation, not an accidental reuse of a failed ID.
 
 A coordinator attempts the remainder of its bounded page after one child fails to start. It reports all start failures after the page has been processed.
@@ -425,6 +427,7 @@ Every coordinator adds regression coverage for:
 - maximum-size supported item configuration;
 - child work taking longer than the schedule interval;
 - one deterministic poison item exhausting its retry budget;
+- a still-due quarantined item ranked ahead of healthy work in the same tenant;
 - a worker outage followed by catch-up;
 - lowering the configured limit while a backlog exists;
 - duplicate schedule starts; and
