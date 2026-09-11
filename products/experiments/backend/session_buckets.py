@@ -512,7 +512,7 @@ def _resolve_window_end(
     if cached is not None:
         return cached.window_end
 
-    def latest_from(window_start: datetime) -> Optional[datetime]:
+    def latest_from(window_start: datetime, window_end: datetime) -> Optional[datetime]:
         return _latest_session_exposure_at(
             team,
             user,
@@ -520,17 +520,18 @@ def _resolve_window_end(
             exposure=exposure,
             variant_keys=variant_keys,
             window_start=window_start,
-            window_end=run_end,
+            window_end=window_end,
             shared_hogql=shared_hogql,
         )
 
     # The recent stretch first, and it settles the anchor on its own whenever it holds an exposure:
     # every exposure outside it is older than every exposure inside it, so its latest is the run's
-    # latest. An experiment with current traffic therefore never reads its older days.
+    # latest. An experiment with current traffic therefore never reads its older days. The second
+    # probe stops where the first one started, which the first one has just found empty.
     recent_start = max(search_start, run_end - timedelta(days=MAX_BUCKET_SCAN_DAYS))
-    latest = latest_from(recent_start)
+    latest = latest_from(recent_start, run_end)
     if latest is None and recent_start > search_start:
-        latest = latest_from(search_start)
+        latest = latest_from(search_start, recent_start)
     window_end = None if latest is None else min(run_end, latest + timedelta(hours=MAX_SESSION_DURATION_HOURS))
     safe_cache_set(cache_key, _WindowAnchor(window_end=window_end), timeout=SESSION_BUCKET_CACHE_TTL)
     return window_end
