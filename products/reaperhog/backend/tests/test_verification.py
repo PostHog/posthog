@@ -179,6 +179,13 @@ def test_prompts_frame_scout_evidence_as_data_and_strip_tag_breakouts() -> None:
         (_verdict(True, Confidence.HIGH, files_to_delete=["/etc/passwd"]), ClusterStatus.UNDECIDED),
         (_verdict(True, Confidence.HIGH, files_to_delete=["a.py<script>"]), ClusterStatus.UNDECIDED),
         (
+            _verdict(True, Confidence.HIGH, files_to_edit=[".github/workflows/ci.yml"]),
+            ClusterStatus.UNDECIDED,
+        ),
+        (_verdict(True, Confidence.HIGH, files_to_edit=["products/a/CODEOWNERS"]), ClusterStatus.UNDECIDED),
+        # A lockfile may lose a single reference, so it is refused only as a deletion.
+        (_verdict(True, Confidence.HIGH, files_to_edit=["package.json"]), ClusterStatus.DEAD),
+        (
             Verdict(is_dead=True, confidence=Confidence.HIGH, deletion_plan="p", argumentation="a"),
             ClusterStatus.UNDECIDED,
         ),

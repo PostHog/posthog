@@ -31,16 +31,23 @@ Investigate the codebase with rg and by reading files. DO NOT delete or edit any
 Return ONLY valid JSON output that conforms to the provided schema."""
 
 _HARD_FLOORS = (
-    "migrations, anything under .github/, CODEOWNERS, dependency manifests and lockfiles, generated files, "
-    "and public API serializers or URL confs must never appear in files_to_delete"
+    "migrations, dependency manifests and lockfiles, generated files, and public API serializers or URL "
+    "confs must never appear in files_to_delete, and anything under .github/ or a CODEOWNERS file must "
+    "appear in neither files_to_delete nor files_to_edit"
 )
 
 # The deletion plan is handed to a write-capable agent, so these paths are refused in code and not
-# only asked for in the prompt.
-_PROTECTED_PATHS = (
-    re.compile(r"(^|/)migrations/"),
+# only asked for in the prompt. CI configuration and ownership are refused in both lists: a workflow
+# the agent edits runs on its branch with the repository's secrets, and a CODEOWNERS edit changes who
+# has to approve the result. The rest may appear in files_to_edit, because losing a single reference
+# is how a deletion finishes, but never in files_to_delete.
+_NEVER_TOUCHED = (
     re.compile(r"^\.github/"),
     re.compile(r"(^|/)CODEOWNERS$"),
+)
+_NEVER_DELETED = (
+    *_NEVER_TOUCHED,
+    re.compile(r"(^|/)migrations/"),
     re.compile(r"(^|/)generated/"),
     re.compile(
         r"(^|/)(package\.json|package-lock\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|yarn\.lock|uv\.lock|"
@@ -105,14 +112,23 @@ def _repository_path(path: str) -> str | None:
     return "/".join(segments)
 
 
-def protected_paths(paths: Iterable[str]) -> tuple[str, ...]:
-    """The paths a deletion plan may not touch, plus any path that does not name a file in this repository."""
+def _refused(paths: Iterable[str], rules: tuple[re.Pattern[str], ...]) -> tuple[str, ...]:
     refused = set()
     for path in paths:
         repository_path = _repository_path(path)
-        if repository_path is None or any(rule.search(repository_path) for rule in _PROTECTED_PATHS):
+        if repository_path is None or any(rule.search(repository_path) for rule in rules):
             refused.add(sanitize_text(path))
     return tuple(sorted(refused))
+
+
+def protected_paths(paths: Iterable[str]) -> tuple[str, ...]:
+    """The paths a plan may not delete, plus any path that does not name a file in this repository."""
+    return _refused(paths, _NEVER_DELETED)
+
+
+def protected_edits(paths: Iterable[str]) -> tuple[str, ...]:
+    """The paths a plan may not even edit, on the same terms."""
+    return _refused(paths, _NEVER_TOUCHED)
 
 
 def verdict_violations(verdict: Verdict) -> tuple[str, ...]:
@@ -121,6 +137,9 @@ def verdict_violations(verdict: Verdict) -> tuple[str, ...]:
     blocked = protected_paths(verdict.files_to_delete)
     if blocked:
         problems.append(f"files_to_delete names protected or unusable path(s): {', '.join(blocked)}")
+    uneditable = protected_edits(verdict.files_to_edit)
+    if uneditable:
+        problems.append(f"files_to_edit names protected or unusable path(s): {', '.join(uneditable)}")
     if not verdict.searches:
         problems.append("no searches recorded")
     return tuple(problems)
