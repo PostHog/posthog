@@ -205,6 +205,18 @@ function decodePathSegments(pathname: string): string[] {
     });
 }
 
+// The web app used to inject the current project into the address bar, so
+// links copied from there carry `project/<id>` before `code/`. A project id is
+// numeric or a `phc_` key; anything else is a real segment (a channel can be
+// named "project").
+function stripProjectPrefix(segments: string[]): string[] {
+  const [first, second] = segments;
+  if (first === "project" && second && /^(\d+$|phc_)/.test(second)) {
+    return segments.slice(2);
+  }
+  return segments;
+}
+
 function matchRoute(
   segments: string[],
   route: ShareLinkRoute,
@@ -231,7 +243,7 @@ export function parseShareLink(href: string): ShareLinkTarget | null {
   }
   if (!posthogHosts().has(url.host)) return null;
 
-  const segments = decodePathSegments(url.pathname);
+  const segments = stripProjectPrefix(decodePathSegments(url.pathname));
   for (const route of SHARE_LINK_ROUTES) {
     const target = matchRoute(segments, route);
     if (target) return target;

@@ -66,6 +66,7 @@ import {
   useCanvasDrafts,
   useCanvasSource,
   useCanvasVersions,
+  useDashboard,
   useDashboardMutations,
   usePrimeCanvasView,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
@@ -215,12 +216,10 @@ export function FreeformCanvasView({
   // The generation-task association lives in the canvas record's meta. Poll it
   // while a task is running so the fresh head version + the cleared association
   // show up without a manual refresh.
-  const { data: dashboard, isLoading: dashboardLoading } = useQuery(
-    trpc.dashboards.get.queryOptions(
-      { id: dashboardId },
-      { enabled: !!dashboardId, staleTime: 4000 },
-    ),
-  );
+  // Through useDashboard so every observer of this key carries the auth-scoped
+  // meta; React Query keeps meta per query, and an observer without it clears
+  // it for the rest.
+  const { dashboard, isLoading: dashboardLoading } = useDashboard(dashboardId);
   const genTaskId = dashboard?.generationTaskId ?? null;
   const channelId = dashboard?.channelId ?? "";
 
