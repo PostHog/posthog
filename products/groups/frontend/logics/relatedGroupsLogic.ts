@@ -91,6 +91,9 @@ export const relatedGroupsLogic = kea<relatedGroupsLogicType>([
                         group_type_index: props.groupTypeIndex,
                         id: props.id,
                     })}`
+                    // groupsRelatedRetrieve returns Promise<void> because the endpoint declares no
+                    // response schema, so it cannot type the ActorType list this loader returns.
+                    // nosemgrep: prefer-codegen-api
                     return await api.get(url)
                 },
                 setGroup: () => [],

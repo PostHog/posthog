@@ -271,6 +271,9 @@ export const groupLogic = kea<groupLogicType>([
                 loadGroup: async () => {
                     const params = { group_type_index: props.groupTypeIndex, group_key: props.groupKey }
                     const url = `api/environments/${values.currentTeamId}/groups/find?${toParams(params)}`
+                    // groupsFindRetrieve returns Promise<void> because the endpoint declares no
+                    // response schema, so it cannot type the Group this loader returns.
+                    // nosemgrep: prefer-codegen-api
                     return await api.get(url)
                 },
             },
