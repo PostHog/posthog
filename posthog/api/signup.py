@@ -1045,7 +1045,10 @@ def social_create_user(
         # on the organization domain or if JIT provisioning is enabled, we'll provision them.
         logger.info(f"social_create_user_is_not_new")
 
-        if user.is_email_verified is False:
+        # `is not True` also covers the legacy NULL state (accounts created before the column
+        # existed, never verified). The SSO login proves the address, so local credentials set
+        # before the claim must go, exactly as for an explicitly unverified account.
+        if user.is_email_verified is not True:
             logger.info(f"social_create_user_is_not_new_unverified_clearing_local_credentials")
             with transaction.atomic():
                 reconcile_email_claim_credentials(

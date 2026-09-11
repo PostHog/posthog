@@ -715,6 +715,34 @@ class TestWebAuthnCredentialManagement(APIBaseTest):
 
         mock_send_email.delay.assert_called_once_with(self.user.id)
 
+    @patch("posthog.api.webauthn.request_session_is_live", return_value=False)
+    @patch("posthog.api.webauthn.verify_passkey_authentication_response")
+    def test_verify_complete_refused_when_the_session_was_revoked_mid_request(self, mock_verify, _mock_live):
+        # An email claim revokes the request's session while the verification runs. The write
+        # must refuse instead of re-adding a login credential the claim just removed.
+        # The mock stands in for the race window: the session is live at authentication time and
+        # gone by write time, which a test client cannot produce within one request.
+        unverified_credential = WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"revoked-session-credential",
+            label="Unverified Passkey",
+            public_key=b"public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=False,
+        )
+        self.client.post(f"/api/webauthn/credentials/{unverified_credential.pk}/verify/")
+        mock_verify.return_value = MagicMock(new_sign_count=1)
+
+        response = self.client.post(
+            f"/api/webauthn/credentials/{unverified_credential.pk}/verify_complete/", {}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        unverified_credential.refresh_from_db()
+        self.assertFalse(unverified_credential.verified)
+
     @patch("posthog.api.webauthn.send_passkey_added_email")
     @patch("posthog.api.webauthn.verify_passkey_authentication_response")
     def test_verify_complete_first_passkey_revokes_other_sessions(self, mock_verify, _mock_send_email):

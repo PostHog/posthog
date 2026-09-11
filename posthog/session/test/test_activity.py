@@ -15,6 +15,7 @@ from loginas import settings as la_settings
 from posthog.models import User
 from posthog.session.activity import (
     list_user_sessions,
+    request_session_is_live,
     revoke_other_sessions,
     revoke_other_sessions_for_request,
     revoke_user_auth_session,
@@ -45,6 +46,35 @@ class TestSessionActivity(BaseTest):
         request.user = user
         request.session = self.engine.SessionStore(session_key=session_key)
         return request
+
+    def test_request_session_is_live_tracks_revocation(self):
+        user = self._make_user()
+        key = self._login_session(user)
+        request = self._request(user, key)
+
+        self.assertTrue(request_session_is_live(request, user))
+
+        revoke_other_sessions(user, keep_session_key=None)
+
+        self.assertFalse(request_session_is_live(request, user))
+
+    def test_request_session_is_live_passes_without_a_session_row(self):
+        # Non-session authenticators (API keys, OAuth tokens) own no session row for a claim to
+        # revoke, so the guard lets their requests through.
+        user = self._make_user()
+        request = RequestFactory().get("/")
+        request.user = user
+        request.session = self.engine.SessionStore()
+
+        self.assertTrue(request_session_is_live(request, user))
+
+    def test_request_session_is_live_rejects_another_users_session_row(self):
+        user = self._make_user()
+        other_user = self._make_user()
+        key = self._login_session(other_user)
+        request = self._request(user, key)
+
+        self.assertFalse(request_session_is_live(request, user))
 
     def test_public_id_is_stable_and_opaque(self):
         key = "some-session-key"

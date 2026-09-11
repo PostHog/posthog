@@ -13,6 +13,10 @@ def reconcile_email_claim_credentials(
     trusted_social_auth_id: int | None = None,
 ) -> None:
     """Reconcile credentials when an email address is claimed."""
+    # Serialize with login-credential writers (password change, passkey verification): they take
+    # this same row lock and then re-check their session, so a write from a session this claim
+    # revokes cannot land after the wipe.
+    User.objects.select_for_update().get(pk=user.pk)
     update_fields: list[str] = []
 
     if user.credentials_reviewed_at is not None:

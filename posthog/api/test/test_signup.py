@@ -1251,7 +1251,10 @@ class TestSignupAPI(APIBaseTest):
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
-    def test_sso_merge_into_legacy_account_preserves_credentials(self, mock_sso_providers, mock_request):
+    def test_sso_merge_into_legacy_account_claims_the_address(self, mock_sso_providers, mock_request):
+        # Legacy NULL accounts predate the is_email_verified column and were never verified.
+        # The SSO login proves the address, so local credentials set before the claim must not
+        # survive it — otherwise a squatter's password keeps working after the owner links SSO.
         with self.is_cloud(True):
             email = "legacy@posthog.net"
             existing = User.objects.create(email=email, distinct_id=str(uuid.uuid4()), is_email_verified=None)
@@ -1271,8 +1274,9 @@ class TestSignupAPI(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             existing.refresh_from_db()
-            self.assertTrue(existing.has_usable_password())
-            self.assertTrue(WebauthnCredential.objects.filter(id=passkey.id).exists())
+            self.assertFalse(existing.has_usable_password())
+            self.assertFalse(WebauthnCredential.objects.filter(id=passkey.id).exists())
+            self.assertTrue(existing.is_email_verified)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")

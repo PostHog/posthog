@@ -912,10 +912,9 @@ class TestUserAPI(APIBaseTest):
         assert response_data["scene_personalisation"] == expected_choices
 
     @patch("posthog.api.user.is_email_available", return_value=False)
-    @patch("posthog.tasks.email.send_email_change_emails.delay")
-    def test_no_notifications_when_user_email_is_changed_and_email_not_available(
-        self, mock_send_email_change_emails, mock_is_email_available
-    ):
+    def test_email_change_refused_when_email_is_not_configured(self, mock_is_email_available):
+        # Without email there is no way to verify the new address, so the change must never fall
+        # back to a direct write of the login identity.
         self.user.email = "alpha@example.com"
         self.user.save()
 
@@ -925,14 +924,12 @@ class TestUserAPI(APIBaseTest):
                 "email": "beta@example.com",
             },
         )
-        response_data = response.json()
-        self.user.refresh_from_db()
 
-        assert response.status_code == status.HTTP_200_OK
-        assert response_data["email"] == "beta@example.com"
-        assert self.user.email == "beta@example.com"
-        mock_is_email_available.assert_called_once()
-        mock_send_email_change_emails.assert_not_called()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "email_not_available"
+        self.user.refresh_from_db()
+        assert self.user.email == "alpha@example.com"
+        assert self.user.pending_email is None
 
     @patch("posthog.api.user.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_email_change_emails.delay")
@@ -1022,8 +1019,12 @@ class TestUserAPI(APIBaseTest):
         assert self.user.email == "alpha@example.com"
         assert self.user.pending_email is None
 
-    @patch("posthog.api.user.is_email_available", return_value=False)
-    def test_email_change_allowed_when_dropping_own_plus_alias(self, _mock_is_email_available):
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    @patch("posthog.api.email_verification.send_email_verification_code")
+    def test_email_change_allowed_when_dropping_own_plus_alias(
+        self, mock_send_code, _mock_send_email_change_emails, _mock_is_email_available
+    ):
         # The collision check must skip the editor's own row, or a legacy alias holder can never clean it up.
         self.user.email = "alpha+legacy@example.com"
         self.user.save()
@@ -1032,7 +1033,16 @@ class TestUserAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         self.user.refresh_from_db()
+        assert self.user.pending_email == "alpha@example.com"
+
+        response = self.client.post(
+            "/api/users/verify_email/",
+            {"uuid": self.user.uuid, "code": mock_send_code.call_args[0][1]},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        self.user.refresh_from_db()
         assert self.user.email == "alpha@example.com"
+        assert self.user.pending_email is None
 
     @parameterized.expand(
         [
@@ -1795,6 +1805,21 @@ class TestUserAPI(APIBaseTest):
         # Password was successfully changed
         user.refresh_from_db()
         self.assertTrue(user.check_password("a_new_password"))
+
+    @patch("posthog.api.user.request_session_is_live", return_value=False)
+    def test_password_change_refused_when_the_session_was_revoked_mid_request(self, _mock_live):
+        # An email claim revokes the request's session while an in-flight password change runs.
+        # The write must refuse instead of re-arming a login credential the claim just removed.
+        # The mock stands in for the race window: the session is live at authentication time and
+        # gone by write time, which a test client cannot produce within one request.
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"current_password": self.CONFIG_PASSWORD, "password": "a_new_password"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
 
     @patch("posthoganalytics.capture")
     def test_cannot_update_to_insecure_password(self, mock_capture):

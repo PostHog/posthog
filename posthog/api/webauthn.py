@@ -4,6 +4,7 @@ from typing import Any, cast
 
 from django.contrib.auth import authenticate, login
 from django.contrib.auth.signals import user_login_failed
+from django.db import transaction
 from django.http.response import JsonResponse
 
 import structlog
@@ -34,7 +35,7 @@ from posthog.passkey import (
     verify_passkey_registration_response,
 )
 from posthog.rate_limit import WebAuthnSignupRegistrationThrottle
-from posthog.session.activity import revoke_other_sessions_for_request
+from posthog.session.activity import request_session_is_live, revoke_other_sessions_for_request
 from posthog.tasks.email import send_passkey_added_email, send_passkey_removed_email
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
@@ -781,10 +782,19 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
                 credential_current_sign_count=credential.counter,
             )
 
-            # Mark credential as verified
-            credential.verified = True
-            credential.counter = verification.new_sign_count
-            credential.save()
+            # Mark credential as verified, serialized with email-claim reconciliation: the claim
+            # revokes this request's session row inside its transaction, so a verification that
+            # lands after it would re-add a login credential on the reconciled account.
+            with transaction.atomic():
+                User.objects.select_for_update().get(pk=user.pk)
+                if not request_session_is_live(request, user):
+                    return Response(
+                        {"error": "Your session ended. Please log in and try again."},
+                        status=status.HTTP_401_UNAUTHORIZED,
+                    )
+                credential.verified = True
+                credential.counter = verification.new_sign_count
+                credential.save()
 
             send_passkey_added_email.delay(user.id)
 

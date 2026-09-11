@@ -129,6 +129,7 @@ from posthog.rate_limit import (
 )
 from posthog.session.activity import (
     list_user_sessions,
+    request_session_is_live,
     revoke_other_sessions,
     revoke_other_sessions_for_request,
     revoke_user_auth_session,
@@ -703,14 +704,15 @@ class UserSerializer(serializers.ModelSerializer):
             validated_data["current_team"] = current_team
             validated_data["current_organization"] = current_team.organization
 
-        if (
-            "email" in validated_data
-            and validated_data["email"].lower() != instance.email.lower()
-            and is_email_available()
-        ):
+        if "email" in validated_data and validated_data["email"].lower() != instance.email.lower():
             request = self.context["request"]
             if not isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
                 raise exceptions.PermissionDenied("Email changes require a browser session.")
+            if not is_email_available():
+                raise serializers.ValidationError(
+                    "Email changes can't be verified because email is not configured for this instance.",
+                    code="email_not_available",
+                )
             new_email = validated_data["email"]
             # Moving between two SSO-enforced domains of the same org is a domain migration, not an SSO bypass.
             # SSO enforcement can only be set on a verified domain, so an enforced domain is always verified.
@@ -763,9 +765,16 @@ class UserSerializer(serializers.ModelSerializer):
         instance = cast(User, super().update(instance, validated_data))
 
         if password:
-            # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validated in validate_password_change above)
-            instance.set_password(password)
-            instance.save()
+            with transaction.atomic():
+                # Serialize with email-claim reconciliation, then re-check that this request's
+                # session is still live. The claim revokes sessions inside its transaction, so a
+                # write that lands after it would re-arm a credential the claim just removed.
+                User.objects.select_for_update().get(pk=instance.pk)
+                if not request_session_is_live(self.context["request"], instance):
+                    raise exceptions.PermissionDenied("Your session ended. Log in again to change your password.")
+                # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validated in validate_password_change above)
+                instance.set_password(password)
+                instance.save()
             update_session_auth_hash(self.context["request"], instance)
             updated_attrs.append("password")
             send_password_changed_email.delay(instance.id)
