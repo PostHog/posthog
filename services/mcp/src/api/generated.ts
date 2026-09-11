@@ -10266,7 +10266,7 @@ export namespace Schemas {
       /** @nullable */
       readonly last_checked_at: string | null;
       /**
-         * Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior.
+         * Local time that starts alert checks in HH:MM format. Updating this value recalculates the next check. Set null to remove the custom start time.
          * @nullable
          */
       schedule_start_time?: string | null;
@@ -62790,7 +62790,7 @@ export namespace Schemas {
       /** @nullable */
       readonly last_checked_at?: string | null;
       /**
-         * Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior.
+         * Local time that starts alert checks in HH:MM format. Updating this value recalculates the next check. Set null to remove the custom start time.
          * @nullable
          */
       schedule_start_time?: string | null;
