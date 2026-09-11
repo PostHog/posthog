@@ -16,7 +16,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
 import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
-import { RetentionBreakdownFilter } from 'scenes/retention/RetentionBreakdownFilter'
 
 import { hasBreakdownFilter, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
@@ -24,6 +23,7 @@ import { ChartDisplayType } from '~/types'
 import { FunnelBinsPicker } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelBinsPicker'
 import { FunnelDisplayLayoutPicker } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelDisplayLayoutPicker'
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
+import { RetentionBreakdownFilter } from 'products/product_analytics/frontend/insights/retention/filters/RetentionBreakdownFilter'
 
 import { useInsightDisplayOptions } from './insightDisplayOptions'
 

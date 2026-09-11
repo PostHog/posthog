@@ -256,7 +256,10 @@ def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
 
     if response.status_code == 200:
         return True, None
-    if response.status_code == 401:
+    if response.status_code in (400, 401):
+        # Our request (GET /v1/users?limit=1) is always well-formed, so a 400 is Clerk rejecting the
+        # credential itself — a malformed or wrong-format secret key. That is user input, like a 401
+        # revoked key, so explain it the same way instead of filing an error.
         return False, _INVALID_KEY_MESSAGE
     if response.status_code == 403:
         return False, _FORBIDDEN_KEY_MESSAGE

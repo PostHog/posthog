@@ -5,7 +5,7 @@ import datetime as dt
 from datetime import UTC, datetime
 
 import unittest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -212,7 +212,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
             date_to=datetime(2025, 12, 16, 10, 33, 0, tzinfo=UTC),
         )
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_projection_path_service_severity_only(self):
         alert = self._make_alert(
             filters={
@@ -226,7 +226,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         assert result.count > 0
         assert result.query_duration_ms >= 0
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_projection_path_service_only(self):
         alert = self._make_alert(
             filters={
@@ -237,14 +237,14 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, AlertCheckCountResult)
         assert result.count == 100
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_empty_filters_returns_all_logs(self):
         alert = self._make_alert(filters={})
         result = self._make_query(alert).execute()
         assert isinstance(result, AlertCheckCountResult)
         assert result.count > 0
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_null_filter_values_treated_as_empty(self):
         # The frontend/API can persist explicit `null` for these keys (as opposed to
         # omitting them), which previously crashed every check with a pydantic
@@ -255,7 +255,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, AlertCheckCountResult)
         assert result.count > 0
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_raw_scan_path_body_filter(self):
         alert = self._make_alert(
             filters={
@@ -282,7 +282,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, AlertCheckCountResult)
         assert result.count > 0
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_raw_scan_path_resource_attribute_filter(self):
         alert = self._make_alert(
             filters={
@@ -308,7 +308,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, AlertCheckCountResult)
         assert result.count > 0
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_raw_scan_path_log_attribute_filter(self):
         # log_attribute filters read the `attributes_map_str` Map column. This only happens with
         # propertyGroupsMode=OPTIMIZED; without it the read falls back to JSONExtract, which is
@@ -337,7 +337,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, AlertCheckCountResult)
         assert result.count > 0
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_empty_results_return_zero(self):
         alert = self._make_alert(
             filters={
@@ -348,7 +348,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, AlertCheckCountResult)
         assert result.count == 0
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_bucketed_output(self):
         alert = self._make_alert(
             filters={
@@ -365,7 +365,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         timestamps = [item.timestamp for item in result]
         assert timestamps == sorted(timestamps)
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_bucketed_empty_results(self):
         alert = self._make_alert(
             filters={
@@ -375,7 +375,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         result = self._make_query(alert).execute_bucketed(interval_minutes=5)
         assert result == []
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_bucketed_output_with_body_filter(self):
         alert = self._make_alert(
             filters={
@@ -403,7 +403,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         total = sum(item.count for item in result)
         assert total > 0
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_bucketed_projection_path(self):
         alert = self._make_alert(
             filters={
@@ -415,7 +415,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, list)
         assert len(result) > 0
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_bucketed_raw_scan_path(self):
         alert = self._make_alert(
             filters={
@@ -442,7 +442,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(result, list)
         assert len(result) > 0
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_bucketed_count_placement(self):
         # Seeds five logs at known timestamps spanning two 5-min buckets
         # ([10:00, 10:05) and [10:05, 10:10)) and asserts the per-bucket counts
@@ -488,7 +488,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         assert bucket_a.timestamp.replace(tzinfo=UTC) == datetime(2025, 12, 16, 10, 0, 0, tzinfo=UTC)
         assert bucket_b.timestamp.replace(tzinfo=UTC) == datetime(2025, 12, 16, 10, 5, 0, tzinfo=UTC)
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_bucketed_sum_equals_single_count(self):
         # Same WHERE clause, same date range, just GROUP BY in one path. If any
         # rows fall through bucket boundaries (e.g. a half-open interval bug
@@ -501,7 +501,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert sum(b.count for b in bucketed) == single.count
 
-    @freeze_time("2025-12-16T11:00:00Z")
+    @time_machine.travel("2025-12-16T11:00:00Z", tick=False)
     def test_bucketed_count_matches_python_histogram_across_random_inputs(self):
         # Stress test the actual ClickHouse bucketing: seed N logs at random
         # timestamps with a unique service name, run execute_bucketed, then
@@ -567,7 +567,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                 f"expected: {sorted(expected.items())}"
             )
 
-    @freeze_time("2025-12-17T01:00:00Z")
+    @time_machine.travel("2025-12-17T01:00:00Z", tick=False)
     def test_bucketed_count_correct_across_midnight_boundary(self):
         # Cadence-grid bucketing anchors at midnight UTC — buckets that span
         # the day rollover must land in the right slot.
@@ -611,7 +611,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         }
         assert actual == expected
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_bucketed_subsecond_precision_at_boundaries(self):
         # DateTime64(6) precision: a log at :04:59.999999 is in [10:00, 10:05);
         # one at :05:00.000000 is in [10:05, 10:10). Boundary ownership matters
@@ -653,7 +653,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         }
         assert actual == expected
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_bucketed_excludes_log_at_exact_date_to(self):
         # Half-open [date_from, date_to) — a log timestamped exactly at date_to
         # must be excluded. Catches an off-by-one if anyone changes < to <=.
@@ -690,7 +690,7 @@ class TestAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         # Only the .999999 log should be counted; the .000000 log is at date_to and excluded.
         assert actual == {datetime(2025, 12, 16, 10, 5, 0, tzinfo=UTC): 1}
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_bucketed_sparse_data_returns_only_populated_buckets(self):
         # CH GROUP BY only emits buckets that have data. This is the contract
         # downstream callers (the activity, the simulate fill helper) depend on:
@@ -807,7 +807,7 @@ class TestEvaluatorWindowAccuracy(ClickhouseTestMixin, APIBaseTest):
             ("offset_55", 55),
         ]
     )
-    @freeze_time("2025-12-16T13:30:00Z")
+    @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
     def test_m_equals_1_full_window_count_is_independent_of_nca_offset(self, _name: str, offset_minutes: int):
         # 1 log/min × 60-min window = 60.
         self._seed_one_log_per_minute(start_hour_utc=10, hours=3)
@@ -835,7 +835,7 @@ class TestEvaluatorWindowAccuracy(ClickhouseTestMixin, APIBaseTest):
             ("offset_55", 55),
         ]
     )
-    @freeze_time("2025-12-16T13:30:00Z")
+    @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
     def test_m_of_n_each_period_reports_full_window_count(self, _name: str, offset_minutes: int):
         # 1 log/min × 3 × 20-min periods = 20 each.
         self._seed_one_log_per_minute(start_hour_utc=10, hours=3)
@@ -858,7 +858,7 @@ class TestEvaluatorWindowAccuracy(ClickhouseTestMixin, APIBaseTest):
         # Total across all periods = 60 logs.
         assert sum(p.count for p in result) == 60
 
-    @freeze_time("2025-12-16T13:30:00Z")
+    @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
     def test_m_equals_1_steady_rate_does_not_oscillate_across_hour(self):
         self._seed_one_log_per_minute(start_hour_utc=10, hours=3)
         alert = self._make_alert(window_minutes=60, evaluation_periods=1)
@@ -877,7 +877,7 @@ class TestEvaluatorWindowAccuracy(ClickhouseTestMixin, APIBaseTest):
             f"Per-offset counts: {counts_by_offset}"
         )
 
-    @freeze_time("2025-12-16T13:30:00Z")
+    @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
     def test_m_of_n_steady_rate_does_not_oscillate_across_hour(self):
         self._seed_one_log_per_minute(start_hour_utc=10, hours=3)
         alert = self._make_alert(window_minutes=20, evaluation_periods=3)
@@ -911,7 +911,7 @@ class TestExecuteRollingChecks(ClickhouseTestMixin, APIBaseTest):
     def _seed_per_minute(self, base: datetime, counts_per_minute: list[int]) -> None:
         _seed_log_rows(self.team.id, self.SERVICE, base, counts_per_minute, "rc")
 
-    @freeze_time("2025-12-16T13:30:00Z")
+    @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
     def test_m_equals_1_returns_single_latest_window_count(self):
         self._seed_per_minute(datetime(2025, 12, 16, 12, 0, tzinfo=UTC), [1, 1, 1, 1, 1])
         alert = self._make_alert(window_minutes=15)
@@ -925,7 +925,7 @@ class TestExecuteRollingChecks(ClickhouseTestMixin, APIBaseTest):
         assert result[0].count == 5
         assert result[0].timestamp == datetime(2025, 12, 16, 12, 0, tzinfo=UTC)
 
-    @freeze_time("2025-12-16T13:30:00Z")
+    @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
     def test_m_equals_3_overlapping_windows_each_count_includes_shared_data(self):
         self._seed_per_minute(datetime(2025, 12, 16, 12, 0, tzinfo=UTC), [1] * 60)
         alert = self._make_alert(window_minutes=15)
@@ -944,7 +944,7 @@ class TestExecuteRollingChecks(ClickhouseTestMixin, APIBaseTest):
             datetime(2025, 12, 16, 12, 15, tzinfo=UTC),
         ]
 
-    @freeze_time("2025-12-16T13:30:00Z")
+    @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
     def test_spike_is_visible_in_all_windows_that_contain_it(self):
         counts = [0] * 60
         for m in range(8, 13):
@@ -975,7 +975,7 @@ class TestExecuteRollingChecks(ClickhouseTestMixin, APIBaseTest):
             ("offset_59", 59),
         ]
     )
-    @freeze_time("2025-12-16T13:30:00Z")
+    @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
     def test_count_is_invariant_to_nca_clock_offset(self, _name: str, offset_min: int):
         self._seed_per_minute(datetime(2025, 12, 16, 10, 0, tzinfo=UTC), [1] * 180)
         alert = self._make_alert(window_minutes=15)
@@ -988,7 +988,7 @@ class TestExecuteRollingChecks(ClickhouseTestMixin, APIBaseTest):
         counts = [b.count for b in result]
         assert counts == [15, 15, 15]
 
-    @freeze_time("2025-12-16T13:30:00Z")
+    @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
     def test_cadence_other_than_5min_works(self):
         self._seed_per_minute(datetime(2025, 12, 16, 12, 0, tzinfo=UTC), [1] * 60)
         alert = self._make_alert(window_minutes=15, check_interval_minutes=10)
@@ -1001,7 +1001,7 @@ class TestExecuteRollingChecks(ClickhouseTestMixin, APIBaseTest):
 
         assert [b.count for b in result] == [15, 15, 15]
 
-    @freeze_time("2025-12-16T13:30:00Z")
+    @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
     def test_empty_results_returns_zero_for_each_period(self):
         alert = self._make_alert(filters={"serviceNames": ["nonexistent"]})
         nca = datetime(2025, 12, 16, 12, 30, tzinfo=UTC)
@@ -1034,7 +1034,7 @@ class TestExecuteRollingChecksBatched(ClickhouseTestMixin, APIBaseTest):
     def _seed(self, service: str, base: datetime, counts_per_minute: list[int]) -> None:
         _seed_log_rows(self.team.id, service, base, counts_per_minute, f"rcb-{service}")
 
-    @freeze_time("2025-12-16T13:30:00Z")
+    @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
     def test_per_alert_counts_match_single_alert_query(self):
         base = datetime(2025, 12, 16, 12, 0, tzinfo=UTC)
         self._seed(self.SERVICE_A, base, [3] * 60)
@@ -1056,7 +1056,7 @@ class TestExecuteRollingChecksBatched(ClickhouseTestMixin, APIBaseTest):
             ).execute_rolling_checks(nca=nca, window_minutes=15, cadence_minutes=5, period_count=3)
             assert batched.per_alert[str(alert.id)] == single
 
-    @freeze_time("2025-12-16T13:30:00Z")
+    @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
     def test_single_alert_cohort_matches_per_alert_path(self):
         base = datetime(2025, 12, 16, 12, 0, tzinfo=UTC)
         self._seed(self.SERVICE_A, base, [5] * 60)
@@ -1074,7 +1074,7 @@ class TestExecuteRollingChecksBatched(ClickhouseTestMixin, APIBaseTest):
 
         assert batched.per_alert[str(alert.id)] == single
 
-    @freeze_time("2025-12-16T13:30:00Z")
+    @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
     def test_m_equals_1_returns_single_period_per_alert(self):
         base = datetime(2025, 12, 16, 12, 0, tzinfo=UTC)
         self._seed(self.SERVICE_A, base, [2] * 60)
@@ -1129,7 +1129,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
     def _date_range(self) -> tuple[datetime, datetime]:
         return datetime(2025, 12, 16, 9, 0, 0, tzinfo=UTC), datetime(2025, 12, 16, 10, 33, 0, tzinfo=UTC)
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_returns_per_alert_buckets(self):
         alert_a = self._make_alert(name="A", filters={"serviceNames": ["argo-rollouts"]})
         alert_b = self._make_alert(name="B", filters={"serviceNames": ["billing"]})
@@ -1143,7 +1143,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         assert set(result.per_alert.keys()) == {str(alert_a.id), str(alert_b.id)}
         assert result.query_duration_ms >= 0
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_per_alert_counts_match_single_alert_query(self):
         # Equivalence guarantee: every per-alert bucket column from the batched
         # query must match what a single-alert AlertCheckQuery returns. If they
@@ -1169,7 +1169,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
             non_zero_batched = [b for b in batched_for_alert if b.count > 0]
             assert non_zero_batched == single, f"alert={alert.name}"
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_single_alert_cohort_is_supported(self):
         # The activity sends every cohort through the batched path even when
         # there's only one alert in it. Verify N=1 behaves correctly.
@@ -1184,7 +1184,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         non_zero = [b for b in result.per_alert[str(alert.id)] if b.count > 0]
         assert len(non_zero) > 0
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_empty_alerts_raises(self):
         date_from, date_to = self._date_range()
         with self.assertRaisesRegex(ValueError, "at least one alert"):
@@ -1205,7 +1205,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                 date_to=datetime(2025, 12, 16, 10, 33, 0, tzinfo=UTC),
             )
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_mixed_projection_eligibility_drops_to_raw_scan(self):
         # If any alert in the batch has a body filter, the cohort drops projection
         # eligibility — entire batch falls back to raw scan. Both columns still
@@ -1241,7 +1241,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert set(result.per_alert.keys()) == {str(alert_proj.id), str(alert_body.id)}
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_no_matching_logs_returns_zero_counts(self):
         alert_a = self._make_alert(name="A", filters={"serviceNames": ["nonexistent-a"]})
         alert_b = self._make_alert(name="B", filters={"serviceNames": ["nonexistent-b"]})
@@ -1258,7 +1258,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
             buckets = result.per_alert[str(alert.id)]
             assert all(b.count == 0 for b in buckets)
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_buckets_in_ascending_order(self):
         alert_a = self._make_alert(name="A", filters={"serviceNames": ["argo-rollouts"]})
         alert_b = self._make_alert(name="B", filters={"serviceNames": ["billing"]})
@@ -1272,7 +1272,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
             timestamps = [b.timestamp for b in result.per_alert[str(alert.id)]]
             assert timestamps == sorted(timestamps), f"alert={alert.name}"
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_query_failure_propagates(self):
         alert = self._make_alert()
         date_from, date_to = self._date_range()
@@ -1292,7 +1292,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
             ("offset_55", 55),
         ]
     )
-    @freeze_time("2025-12-16T13:30:00Z")
+    @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
     def test_execute_periods_per_alert_per_period_indexing_is_correct(self, _name: str, offset_minutes: int):
         # service_a: 1 log/min. service_b: 2 logs/min. Expected: A=[20,20,20], B=[40,40,40] for any NCA offset.
         rows = []
@@ -1360,7 +1360,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
             f"NCA offset {offset_minutes}min: alert B per-period counts diverge from constant 40; got {b_counts}"
         )
 
-    @freeze_time("2025-12-16T11:00:00Z")
+    @time_machine.travel("2025-12-16T11:00:00Z", tick=False)
     def test_per_alert_results_match_single_query_across_random_inputs(self):
         # Generative property test: the batched query must produce the same
         # per-alert bucket counts as running each alert through `AlertCheckQuery`
@@ -1433,7 +1433,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                     f"single:             {single}"
                 )
 
-    @freeze_time("2025-12-16T11:00:00Z")
+    @time_machine.travel("2025-12-16T11:00:00Z", tick=False)
     def test_sparse_alert_in_busy_cohort_returns_zero_counts(self):
         # Multi-alert cohort where one alert has matches and one is sparse:
         # confirm the sparse alert's per_alert slice contains only zeros (the
@@ -1481,7 +1481,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         assert all(b.count == 0 for b in sparse_buckets)
         assert [b.timestamp for b in busy_buckets] == [b.timestamp for b in sparse_buckets]
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_excludes_log_at_exact_date_to(self):
         # Half-open [date_from, date_to). A log timestamped exactly at date_to
         # must be excluded for every alert in the cohort.
@@ -1522,7 +1522,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         # Only the .999999 log is counted; the .000000 log at date_to is excluded.
         assert non_zero == {datetime(2025, 12, 16, 10, 5, 0, tzinfo=UTC): 1}
 
-    @freeze_time("2025-12-17T01:00:00Z")
+    @time_machine.travel("2025-12-17T01:00:00Z", tick=False)
     def test_buckets_correct_across_midnight_boundary(self):
         # Cadence-grid bucketing anchors at midnight UTC — buckets that span
         # the day rollover must land in the right slot in the batched path too.
@@ -1570,7 +1570,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         }
         assert actual == expected
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_subsecond_precision_at_boundaries(self):
         # DateTime64(6) precision: a log at :04:59.999999 belongs in [10:00, 10:05);
         # one at :05:00.000000 belongs in [10:05, 10:10). Ensure batched bucket
@@ -1615,7 +1615,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
             datetime(2025, 12, 16, 10, 5, 0, tzinfo=UTC): 2,
         }
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_bucket_placement_matches_single_query(self):
         # Targeted equivalence test: seed five logs at known timestamps that
         # split across two 5-minute buckets, run batched with two alerts (one
@@ -1667,7 +1667,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
     @parameterized.expand([("bucketed",), ("periods",), ("rolling",)])
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_heterogeneous_cohort_matches_single_alert_results(self, path: str):
         # Cohort mixing a match-everything alert (its predicate is ~always true),
         # a service alert, an attribute alert, and a zero-match alert. Guards the
@@ -1696,7 +1696,7 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
                 got = [b for b in got if b.count > 0]
             assert got == single, f"alert={alert.name} path={path}"
 
-    @freeze_time("2025-12-16T13:30:00Z")
+    @time_machine.travel("2025-12-16T13:30:00Z", tick=False)
     def test_max_cohort_size_query_builds_and_matches(self):
         # A full-size cohort duplicates every predicate into the hoisted OR
         # chain on top of its countIf copy: guards the doubled predicate text
@@ -1880,7 +1880,7 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
             ("matches_nothing", "no-such-kind", 0),
         ]
     )
-    @freeze_time("2026-02-03T10:05:00Z")
+    @time_machine.travel("2026-02-03T10:05:00Z", tick=False)
     def test_single_alert_attribute_filter_cohort_matches_per_alert_path(
         self, _name: str, attr_value: str, expected_total: int
     ):
@@ -2005,7 +2005,7 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    @freeze_time("2026-02-03T10:05:00Z")
+    @time_machine.travel("2026-02-03T10:05:00Z", tick=False)
     def test_boundary_rows_with_attribute_filter(
         self, name: str, timestamps: list[str], date_from: datetime, date_to: datetime, expected_total: int
     ):
@@ -2061,7 +2061,7 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
             ("regex", "regex", "connection reset|task_crashed", 2),
         ]
     )
-    @freeze_time("2026-02-03T10:05:00Z")
+    @time_machine.travel("2026-02-03T10:05:00Z", tick=False)
     def test_body_filter_alert_matches_per_alert_path(self, _name: str, operator: str, value: str, expected: int):
         # Body filters are the only predicates carrying an indexHint(...). With
         # the hint hoisted into the outer WHERE alongside its countIf copy,
@@ -2089,7 +2089,7 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
         non_zero = [b for b in batched_bucketed.per_alert[str(alert.id)] if b.count > 0]
         assert non_zero == single_bucketed
 
-    @freeze_time("2026-02-03T10:05:00Z")
+    @time_machine.travel("2026-02-03T10:05:00Z", tick=False)
     def test_body_and_resource_attribute_filter_matches_per_alert_path(self):
         # The full failing shape: the body filter contributes the indexHint and
         # the resource-attribute filter contributes a `resource_fingerprint IN
@@ -2141,7 +2141,7 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
 # source stream. Seeded classes can never hit it; production hits it whenever
 # a shard has no matching parts for the check window.
 class TestBatchedQueryPredicateHoistingEmptyScan(ClickhouseTestMixin, APIBaseTest):
-    @freeze_time("2026-02-03T10:05:00Z")
+    @time_machine.travel("2026-02-03T10:05:00Z", tick=False)
     def test_body_and_resource_filter_with_no_matching_logs(self):
         alert = LogsAlertConfiguration.objects.create(
             team=self.team,
