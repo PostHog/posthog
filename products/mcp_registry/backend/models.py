@@ -107,6 +107,12 @@ class MCPRegistryServer(UUIDModel):
             models.Index(fields=["liveness"]),
             models.Index(fields=["last_probed_at"]),
             models.Index(fields=["canonical_url"]),
+            # Serves the standalone-row lookup in linking.resolve_measured_server, which the
+            # aggregation loop runs once per measured (team, server_name) pair.
+            models.Index(
+                fields=["display_name", "listed_in_registry", "is_measured"],
+                name="mcp_registry_srv_name_idx",
+            ),
         ]
 
     def __str__(self) -> str:
