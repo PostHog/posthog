@@ -34,7 +34,13 @@ SELECT
     properties.$ai_provider AS provider,
     if(timestamp >= toDateTime('<jump_day>'), 'after', 'before') AS window,
     count() AS calls,
+    round(count() / sum(count()) OVER (PARTITION BY window), 4) AS call_share,
     round(sum(toFloat(properties.$ai_total_cost_usd)), 4) AS cost_usd,
+    round(
+        sum(toFloat(properties.$ai_total_cost_usd))
+            / nullIf(sum(sum(toFloat(properties.$ai_total_cost_usd))) OVER (PARTITION BY window), 0),
+        4
+    ) AS cost_share,
     round(avg(toFloat(properties.$ai_total_cost_usd)), 6) AS avg_cost_per_call
 FROM events
 WHERE event IN ('$ai_generation', '$ai_embedding')
@@ -44,9 +50,11 @@ GROUP BY model, provider, window
 ORDER BY model, provider, window
 ```
 
-Read the two rows per model together. A model that appears only in `after`, or
-one that disappears, is a strong signal. A model whose `calls` grew while its
-`avg_cost_per_call` held steady is volume, not mix.
+Read the two rows per model together.
+A model that appears only in `after`, or one that disappears, is a strong signal.
+Then compare `call_share` and `cost_share` between the two windows.
+A model that takes a larger share of the calls or the cost in `after` is a mix shift, even when its own `avg_cost_per_call` held steady.
+Call it volume only when the shares held steady and the total call count moved.
 
 ## Step 3 — Look for prompt bloat
 
