@@ -136,7 +136,12 @@ def assess_scout(name: str, runs: list[dict], interval: float | None, mem_count:
     completed = sum(1 for r in runs if r.get("status") == "completed")
     failed = sum(1 for r in runs if r.get("status") == "failed")
 
-    durations = [m for r in runs if (m := minutes_between(r.get("started_at"), r.get("completed_at"))) is not None]
+    # Only settled outcomes count: a cancelled run (worker shutdown, deploy) says nothing about
+    # the scout, and an in-flight row has no outcome yet.
+    settled = [r for r in runs if r.get("status") in ("completed", "failed")]
+    durations = [
+        m for r in settled if (m := minutes_between(r.get("started_at"), r.get("completed_at"))) is not None
+    ]
     median_dur = round(statistics.median(durations), 1) if durations else None
     # A wall overrun is a failed run that ran to the budget AND whose `failure_reason`, when the
     # row carries one, says it timed out. A named credential or tool failure is not a timeout
@@ -181,7 +186,7 @@ def assess_scout(name: str, runs: list[dict], interval: float | None, mem_count:
 
     return {
         "name": name, "runs": n, "completed": completed, "failed": failed, "timeouts": timeouts,
-        "success_pct": pct(completed, n), "median_dur": median_dur, "median_gap": median_gap,
+        "success_pct": pct(completed, len(settled)), "median_dur": median_dur, "median_gap": median_gap,
         "interval": interval, "adherence": adherence, "stalls": stalls,
         "wrote": wrote, "wrote_pct": pct(wrote, n), "mem_count": mem_count,
         "stale_min": stale_min, "dispatch_stale_min": dispatch_stale_min,
