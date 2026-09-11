@@ -164,10 +164,13 @@ tools:
         title: Get skill
         description: >
             Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows
-            the Agent Skills specification (agentskills.io). The response always includes body_total_length (the full
-            body length in characters) — if the body you received is shorter than that, it was truncated in transit, so
-            page through it with body_offset and body_length and continue from body_next_offset until it is null. To
-            link a user to this skill in the PostHog app, build the URL from the skill `name`, not its `id`:
+            the Agent Skills specification (agentskills.io). This store holds only the skills your team published.
+            Built-in PostHog skills (for example `querying-posthog-data`) are not in it. Load a built-in skill with
+            `learn posthog:<skill>` when the `learn` command is available, or read it from your installed PostHog skills
+            (`.agents/skills/`). The response always includes body_total_length (the full body length in characters) —
+            if the body you received is shorter than that, it was truncated in transit, so page through it with
+            body_offset and body_length and continue from body_next_offset until it is null. To link a user to this
+            skill in the PostHog app, build the URL from the skill `name`, not its `id`:
             `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid
             route segment and will 404.
     skill-list:
@@ -183,7 +186,10 @@ tools:
         description: >
             List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use
             descriptions to determine which skill to fetch for a given task. Does not return skill body content (use
-            skill-get to fetch full content). To link a user to a skill in the PostHog app, build the URL from the skill
+            skill-get to fetch full content). This store holds only the skills your team published. Built-in PostHog
+            skills (for example `querying-posthog-data`) are not in it. Load a built-in skill with
+            `learn posthog:<skill>` when the `learn` command is available, or read it from your installed PostHog
+            skills (`.agents/skills/`). To link a user to a skill in the PostHog app, build the URL from the skill
             `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id`
             (UUID) is not a valid route segment and will 404.
     skill-rename:

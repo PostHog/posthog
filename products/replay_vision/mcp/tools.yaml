@@ -269,9 +269,17 @@ tools:
             `credit_limit` to cap what this one scanner can spend per billing period, so it cannot starve the org's
             other scanners. The scanner stops scanning once the credits left cannot cover another observation, and
             resumes when the period resets. To get notified about what the scanner finds, add a scout digest or an alert
-            from the scanner's Scouts and Alerts tabs. For a scanner scoped to one experiment's exposed sessions, load
-            the `scanning-experiments-with-replay-vision` skill first — it derives the query from the experiment's
-            exposure criteria.
+            from the scanner's Scouts and Alerts tabs. For a scanner scoped to one experiment's exposed sessions, set
+            `experiment_targeting` to `{"experiment_id": <id>, "variant": null}` (or one variant key) and leave exposure
+            out of `query`: the API derives the person-scoped exposure filter server-side, and rejects an
+            `experiment_exposure` filter set directly in `query`. Pass the same `experiment_targeting` to
+            `vision-scanners-estimate-create`, so the estimate counts only exposed sessions. Create with
+            `enabled: false`, so you can preview the prompt on real sessions first. The
+            `scanning-experiments-with-replay-vision` skill carries the full flow (status guards, prompt templates,
+            sizing). It is a built-in PostHog skill, not a team skill in the skills store, so do not fetch it with
+            `skill-get`. Load it with `learn posthog:scanning-experiments-with-replay-vision` when the `learn` command
+            is available, or read it from your installed PostHog skills (`.agents/skills/`). If you have neither, the
+            facts above are sufficient to continue.
         agent_note: >
             A new scanner runs the prompt as written, and the first sweep is where its weaknesses show. Tell the person
             that rating its results thumbs up or down turns into a config recommendation they can review, and that
@@ -324,7 +332,8 @@ tools:
             Preview how many observations a proposed scanner would generate, and what they would cost, before saving it.
             Send a `query` (`RecordingsQuery` shape; `date_from`/`date_to` are ignored — the estimate uses a fixed
             30-day lookback) plus the proposed `sampling_rate`, `sampling_mode` and `model`, and `scanner_id` when
-            re-estimating an existing scanner so its own projection isn't double-counted. Returns
+            re-estimating an existing scanner so its own projection isn't double-counted. For an experiment scanner,
+            pass the same `experiment_targeting` you will save, so the estimate counts only exposed sessions. Returns
             `matched_sessions_in_window`, the `window_days` it was measured over, `estimated_observations_per_month`,
             `credits_per_observation`, `estimated_credits_per_month`, and `other_enabled_scanners_monthly_credits` (the
             org's other enabled scanners' projected spend). Enabled scanners sweep every 5 minutes, so a broad query can
