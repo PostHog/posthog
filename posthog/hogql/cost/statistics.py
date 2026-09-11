@@ -84,6 +84,7 @@ class ClickHouseStatisticsProvider:
         since = today - timedelta(days=EVENT_VOLUME_WINDOW_DAYS)
         try:
             with tags_context(product=Product.INTERNAL, feature=Feature.SCHEMA_INTROSPECTION, team_id=team_id):
+                # nosemgrep: clickhouse-fstring-param-audit - the f-string only interpolates a module constant table name; team_id is bound as a parameter
                 rows = sync_execute(
                     f"""
                     SELECT date, event, sumMerge(event_count) AS event_count
