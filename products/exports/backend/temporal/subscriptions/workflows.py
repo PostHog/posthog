@@ -37,7 +37,9 @@ from products.exports.backend.tasks.failure_handler import (
     SLO_FAILURE_COMPONENT_EXPORT_WORKER,
 )
 from products.exports.backend.temporal.subscriptions.activities import (
+    SUBSCRIPTION_RECOVERY_ACTIVITY_TIMEOUT,
     advance_next_delivery_date,
+    advance_next_delivery_date_v2,
     advance_subscription_scheduler_cursor_activity,
     complete_subscription_scheduler_claim_activity,
     confirm_subscription_scheduler_claim_activity,
@@ -63,6 +65,7 @@ from products.exports.backend.temporal.subscriptions.retry_policy import (
 from products.exports.backend.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from products.exports.backend.temporal.subscriptions.types import (
     AI_PROMPT_RESOURCE_TYPE,
+    AdvanceNextDeliveryDateInputs,
     AdvanceSubscriptionSchedulerCursorInputs,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
@@ -397,6 +400,25 @@ def _scheduler_claim_inputs(inputs: TrackedSubscriptionInputs) -> SubscriptionSc
     )
 
 
+async def _advance_subscription_schedule(inputs: TrackedSubscriptionInputs) -> bool | None:
+    if inputs.scheduled_at and temporalio.workflow.patched("subscription-idempotent-schedule-advance-v1"):
+        return await temporalio.workflow.execute_activity(
+            advance_next_delivery_date_v2,
+            AdvanceNextDeliveryDateInputs(
+                subscription_id=inputs.subscription_id,
+                expected_next_delivery_date=inputs.scheduled_at,
+            ),
+            start_to_close_timeout=dt.timedelta(minutes=2),
+            retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+        )
+    return await temporalio.workflow.execute_activity(
+        advance_next_delivery_date,
+        inputs.subscription_id,
+        start_to_close_timeout=dt.timedelta(minutes=2),
+        retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+    )
+
+
 async def _confirm_subscription_scheduler_claim(inputs: SubscriptionSchedulerClaimInputs | None) -> None:
     if inputs is None:
         return
@@ -451,7 +473,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
                         region=inputs.region,
                         limit=inputs.max_subscriptions_per_run,
                     ),
-                    start_to_close_timeout=dt.timedelta(minutes=2),
+                    start_to_close_timeout=SUBSCRIPTION_RECOVERY_ACTIVITY_TIMEOUT,
                     retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
                 )
             except Exception:
@@ -821,12 +843,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # just-auto-disabled sub doesn't get a misleading future delivery date.
             if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:
                 try:
-                    advance_result = await temporalio.workflow.execute_activity(
-                        advance_next_delivery_date,
-                        inputs.subscription_id,
-                        start_to_close_timeout=dt.timedelta(minutes=2),
-                        retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
-                    )
+                    advance_result = await _advance_subscription_schedule(inputs)
                     schedule_advanced = (
                         advance_result is not False
                         if temporalio.workflow.patched("subscription-scheduler-advance-result-v1")
@@ -1086,12 +1103,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
             # doesn't get a misleading future delivery date.
             if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:
                 try:
-                    advance_result = await temporalio.workflow.execute_activity(
-                        advance_next_delivery_date,
-                        inputs.subscription_id,
-                        start_to_close_timeout=dt.timedelta(minutes=2),
-                        retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
-                    )
+                    advance_result = await _advance_subscription_schedule(inputs)
                     schedule_advanced = (
                         advance_result is not False
                         if temporalio.workflow.patched("subscription-scheduler-advance-result-v1")

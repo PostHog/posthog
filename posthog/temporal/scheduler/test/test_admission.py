@@ -9,6 +9,8 @@ from django.db import close_old_connections
 from django.test import SimpleTestCase, TestCase, TransactionTestCase
 from django.utils import timezone
 
+from prometheus_client import CollectorRegistry
+
 from posthog.models.temporal_scheduler import TemporalSchedulerClaim, TemporalSchedulerPermitPool
 from posthog.temporal.scheduler.admission import (
     SchedulerAdmissionLimits,
@@ -24,6 +26,7 @@ from posthog.temporal.scheduler.admission import (
     renew_scheduler_claim,
     reserve_scheduler_claims,
 )
+from posthog.temporal.scheduler.metrics import SchedulerMetrics
 
 SCHEDULER = "subscriptions"
 REGION = "eu"
@@ -124,6 +127,34 @@ class TestReserveSchedulerClaims(TestCase):
             TemporalSchedulerPermitPool.objects.get(scheduler=SCHEDULER, region=REGION, tenant_key="").in_flight,
             1,
         )
+
+    def test_reusing_released_claim_with_same_owner_token_rotates_fencing_token(self) -> None:
+        owner_token = uuid.uuid4()
+        request = SchedulerClaimRequest(
+            tenant_key="team:1",
+            occurrence_key="one",
+            workflow_id="workflow-one",
+            claim_token=owner_token,
+        )
+        first = reserve_scheduler_claims(
+            scheduler=SCHEDULER,
+            region=REGION,
+            requests=[request],
+            limits=_limits(),
+        ).reservations[0]
+        self.assertTrue(release_scheduler_claim(first.claim_id, first.claim_token))
+
+        second = reserve_scheduler_claims(
+            scheduler=SCHEDULER,
+            region=REGION,
+            requests=[request],
+            limits=_limits(),
+        ).reservations[0]
+
+        self.assertEqual(second.claim_id, first.claim_id)
+        self.assertNotEqual(second.claim_token, first.claim_token)
+        self.assertFalse(release_scheduler_claim(second.claim_id, first.claim_token))
+        self.assertTrue(release_scheduler_claim(second.claim_id, second.claim_token))
 
     def test_duplicate_deferred_requests_are_all_counted_as_deferred(self) -> None:
         reserve_scheduler_claims(
@@ -556,6 +587,7 @@ class TestSchedulerClaimLifecycle(TestCase):
         expected_lease = TemporalSchedulerClaim.objects.get(id=self.reservation.claim_id).lease_expires_at
         assert expected_lease is not None
 
+        metrics = MagicMock()
         with patch("posthog.temporal.scheduler.admission._set_scheduler_lock_timeout") as set_lock_timeout:
             self.assertTrue(
                 defer_scheduler_claim_recovery(
@@ -565,10 +597,34 @@ class TestSchedulerClaimLifecycle(TestCase):
                     error="Temporal status unavailable",
                     expected_lease_expires_at=expected_lease,
                     now=self.now,
+                    metrics=metrics,
                 )
             )
 
         set_lock_timeout.assert_called_once_with()
+        metrics.record_claim_transition.assert_called_once_with(SCHEDULER, REGION, "recovery_deferred")
+
+    def test_recovery_deferral_is_not_counted_as_a_lease_renewal(self) -> None:
+        expected_lease = TemporalSchedulerClaim.objects.get(id=self.reservation.claim_id).lease_expires_at
+        assert expected_lease is not None
+        metrics = SchedulerMetrics(registry=(registry := CollectorRegistry()))
+
+        self.assertTrue(
+            defer_scheduler_claim_recovery(
+                self.reservation.claim_id,
+                self.reservation.claim_token,
+                lease_duration=timedelta(minutes=5),
+                error="Temporal status unavailable",
+                expected_lease_expires_at=expected_lease,
+                now=self.now,
+                metrics=metrics,
+            )
+        )
+
+        labels = {"scheduler": SCHEDULER, "region": REGION}
+        transition_total = "posthog_temporal_scheduler_claim_transition_total"
+        self.assertEqual(registry.get_sample_value(transition_total, {**labels, "transition": "recovery_deferred"}), 1)
+        self.assertIsNone(registry.get_sample_value(transition_total, {**labels, "transition": "renewed"}))
 
     def test_recovery_can_confirm_an_expired_reserved_claim(self) -> None:
         recovery_time = self.now + timedelta(minutes=6)

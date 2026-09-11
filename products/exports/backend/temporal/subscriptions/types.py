@@ -191,6 +191,12 @@ class SubscriptionSchedulerClaimInputs:
     claim_token: str
 
 
+@dataclasses.dataclass(frozen=True)
+class AdvanceNextDeliveryDateInputs:
+    subscription_id: int
+    expected_next_delivery_date: str
+
+
 @dataclasses.dataclass
 class CreateExportAssetsInputs:
     subscription_id: int
