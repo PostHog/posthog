@@ -11,8 +11,9 @@ seconds — it's an offline command.
 
 A third section counts the `filters` round-trip divergences between the two flags-cache
 builders: shapes the Rust builder writes back narrower than the stored JSONB holds. They are
-never violations, because a clean violations run gates flipping enforcement on. DIVERGENCE_NOTE
-carries the operator-facing explanation of the counts.
+never violations, because a clean violations run gates flipping enforcement on. Each count is
+reported over all stored flags and over the flags the verifier actually compares.
+DIVERGENCE_NOTE carries the operator-facing explanation.
 """
 
 import re
@@ -50,12 +51,16 @@ def _sanitize_for_console(text: str) -> str:
     return _CONTROL_CHARS_RE.sub("�", text)
 
 
-def _iter_flag_rows(queryset: Any, *, limit: int, chunk_size: int = 500) -> Iterator[tuple[int, int, Any, bool, bool]]:
+def _iter_flag_rows(
+    queryset: Any, *, limit: int, chunk_size: int = 500
+) -> Iterator[tuple[int, int, Any, bool, bool, bool]]:
     # Keyset pagination instead of .iterator(): prod runs behind PgBouncer with server-side
     # cursors disabled, so .iterator() buffers the entire result set client-side on execute
     # and a full scan would hold every flag's filters JSON in memory at once. Repeated
     # id-bounded LIMIT queries keep memory bounded on any connection.
-    base = queryset.order_by("id").values_list("id", "team_id", "filters", "active", "deleted")
+    base = queryset.order_by("id").values_list(
+        "id", "team_id", "filters", "active", "deleted", "has_encrypted_payloads"
+    )
     last_id, yielded = 0, 0
     while True:
         page = chunk_size if not limit else min(chunk_size, limit - yielded)
@@ -133,14 +138,15 @@ DIVERGENCE_SHAPES: tuple[str, ...] = (
 )
 
 DIVERGENCE_NOTE = """\
-These are cache-write divergences, not enforcement violations, and they do not affect the
-clean-run gate above. Both builders evaluate the flag the same way.
-On a live flag, the Rust builder writes the field back in a narrower form than the stored JSONB
-holds. The Python cache verifier reports that entry as a filters mismatch and repairs it on
-every pass.
-An inactive or deleted flag never reaches the cache with its stored filters, because both
-builders blank them first. Such a flag counts in the flags total and not in the live count.
-Size a verifier fix from the live count, and a stored-data rewrite from the total.\
+These are cache-write divergences, not enforcement violations, so they do not affect the
+clean-run gate above. The two builders differ in the bytes they write, not in what the flag
+resolves to for a user. The Python cache verifier reports the difference as a filters mismatch
+and repairs it on every pass.
+The second number counts only the flags whose stored filters the verifier compares. It leaves
+out a flag that is inactive or deleted, a flag with encrypted payloads, and a flag with a
+structural violation, because no cache entry holds the stored filters of any of those. Each
+sampled detail says which one applies.
+Size a verifier fix from the second number, and a stored-data rewrite from the first.\
 """
 
 
@@ -207,11 +213,29 @@ def _iter_dropped_keys(level: dict[str, Any], kept_by_rust: frozenset[str], path
 class DivergenceReport:
     shape_id: str
     flags_affected: int = 0
-    # Only a live flag's stored filters reach the cache, so only these can make the verifier
-    # report a mismatch.
-    live_flags_affected: int = 0
+    # Only these can make the verifier report a mismatch. See _not_compared_reason.
+    compared_flags_affected: int = 0
     sample_flag_ids: list[int] = field(default_factory=list)
     sample_details: list[str] = field(default_factory=list)
+
+
+def _not_compared_reason(
+    *, active: bool, deleted: bool, has_encrypted_payloads: bool, structurally_valid: bool
+) -> str | None:
+    """Why the verifier never compares this flag's stored filters, or None when it does."""
+    # _is_unevaluable is the cache builders' own gate, so a change to what they blank cannot
+    # leave this count quietly wrong.
+    if _is_unevaluable({"active": active, "deleted": deleted}):
+        return "inactive or deleted"
+    # An encrypted-payload flag is served from /remote_config, and _get_feature_flags_for_teams_batch
+    # excludes it from the payload the verifier compares.
+    if has_encrypted_payloads:
+        return "encrypted payloads"
+    # filters_schema.py mirrors the Rust field shapes, so a blob it rejects structurally is one
+    # Rust may fail to deserialize. Rust then writes no narrowed form to diverge from.
+    if not structurally_valid:
+        return "structural violation"
+    return None
 
 
 class RoundTripDivergenceAggregator:
@@ -223,9 +247,9 @@ class RoundTripDivergenceAggregator:
             shape_id: DivergenceReport(shape_id=shape_id) for shape_id in DIVERGENCE_SHAPES
         }
         self.flags_with_any_divergence = 0
-        self.live_flags_with_any_divergence = 0
+        self.compared_flags_with_any_divergence = 0
 
-    def record(self, *, flag_id: int, team_id: int, live: bool, found: Iterable[tuple[str, str]]) -> None:
+    def record(self, *, flag_id: int, team_id: int, not_compared: str | None, found: Iterable[tuple[str, str]]) -> None:
         counted: set[str] = set()
         for shape_id, detail in found:
             if shape_id in counted:
@@ -233,16 +257,18 @@ class RoundTripDivergenceAggregator:
             counted.add(shape_id)
             report = self.reports[shape_id]
             report.flags_affected += 1
-            if live:
-                report.live_flags_affected += 1
+            if not_compared is None:
+                report.compared_flags_affected += 1
             if len(report.sample_flag_ids) < self.max_samples:
                 report.sample_flag_ids.append(flag_id)
-                marker = "" if live else " [not live]"
+                # Naming the reason saves tracing a sample id back to find out why the verifier
+                # never reports it.
+                marker = "" if not_compared is None else f" [not compared: {not_compared}]"
                 report.sample_details.append(f"flag={flag_id} team={team_id} {detail}{marker}")
         if counted:
             self.flags_with_any_divergence += 1
-            if live:
-                self.live_flags_with_any_divergence += 1
+            if not_compared is None:
+                self.compared_flags_with_any_divergence += 1
 
 
 class Command(BaseCommand):
@@ -298,16 +324,8 @@ class Command(BaseCommand):
         # collect_filters_violations runs CROSS_FIELD_CHECKS, which deliberately excludes
         # check_groups_non_empty_for_create: non-empty groups is a POST-only rule (#50084) —
         # stored flags with empty groups are valid state and must never show up in this report.
-        for flag_id, flag_team_id, filters, active, deleted in _iter_flag_rows(queryset, limit=limit):
+        for flag_id, flag_team_id, filters, active, deleted, encrypted in _iter_flag_rows(queryset, limit=limit):
             scanned += 1
-            divergences.record(
-                flag_id=flag_id,
-                team_id=flag_team_id,
-                # The cache builders' own predicate, so a change to what they blank cannot leave
-                # this count quietly wrong.
-                live=not _is_unevaluable({"active": active, "deleted": deleted}),
-                found=_iter_divergences(filters),
-            )
             try:
                 violations = collect_filters_violations(
                     filters, context={UNKNOWN_KEYS_SINK_CONTEXT_KEY: sink, FLAG_ID_CONTEXT_KEY: flag_id}
@@ -322,6 +340,17 @@ class Command(BaseCommand):
                         message=f"{type(exc).__name__}: {exc}",
                     )
                 ]
+            divergences.record(
+                flag_id=flag_id,
+                team_id=flag_team_id,
+                not_compared=_not_compared_reason(
+                    active=active,
+                    deleted=deleted,
+                    has_encrypted_payloads=encrypted,
+                    structurally_valid=not any(v.rule_id.startswith("structural.") for v in violations),
+                ),
+                found=_iter_divergences(filters),
+            )
             if not violations:
                 continue
             flags_with_violations += 1
@@ -381,12 +410,12 @@ class Command(BaseCommand):
             ],
             "untracked_unknown_keys": sink.untracked_keys,
             "flags_with_roundtrip_divergences": divergences.flags_with_any_divergence,
-            "live_flags_with_roundtrip_divergences": divergences.live_flags_with_any_divergence,
+            "compared_flags_with_roundtrip_divergences": divergences.compared_flags_with_any_divergence,
             "roundtrip_divergences": [
                 {
                     "shape_id": report.shape_id,
                     "flags_affected": report.flags_affected,
-                    "live_flags_affected": report.live_flags_affected,
+                    "compared_flags_affected": report.compared_flags_affected,
                     "sample_flag_ids": report.sample_flag_ids,
                     "sample_details": report.sample_details,
                 }
@@ -448,13 +477,13 @@ class Command(BaseCommand):
         self.stdout.write("")
         self.stdout.write(
             f"Cache-write round-trip divergences ({divergences.flags_with_any_divergence} flags, "
-            f"{divergences.live_flags_with_any_divergence} of them live):"
+            f"{divergences.compared_flags_with_any_divergence} compared by the verifier):"
         )
         for report in sorted(divergences.reports.values(), key=lambda r: (-r.flags_affected, r.shape_id)):
             ids = ", ".join(str(flag_id) for flag_id in report.sample_flag_ids)
             self.stdout.write(
                 f"  {report.shape_id:<30} {report.flags_affected} flags, "
-                f"{report.live_flags_affected} live  sample ids: {ids}"
+                f"{report.compared_flags_affected} compared  sample ids: {ids}"
             )
             for detail in report.sample_details:
                 self.stdout.write(f"      {_sanitize_for_console(detail)}")

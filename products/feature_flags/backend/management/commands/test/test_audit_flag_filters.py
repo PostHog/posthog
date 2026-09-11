@@ -370,6 +370,15 @@ class TestAuditFlagFilters(BaseTest):
                 [],
             ),
             (
+                "blank_valued_dropped_key",
+                {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100, "description": ""}]},
+                },
+                [DIVERGENCE_DROPPED_KEY],
+            ),
+            ("malformed_levels_are_skipped", {"groups": "all", "multivariate": [], "holdout": 3}, []),
+            (
                 "unknown_keys_at_round_tripped_levels",
                 {
                     "junk_f": 1,
@@ -407,6 +416,13 @@ class TestAuditFlagFilters(BaseTest):
         assert counts == {shape_id: 1 if shape_id in expected else 0 for shape_id in DIVERGENCE_SHAPES}
         for shape_id in expected:
             assert self._divergence(report, shape_id)["sample_flag_ids"] == [flag.id]
+
+    def test_json_report_carries_the_divergence_note(self) -> None:
+        self._create_flag("absent-groups", {"payloads": {"true": '"x"'}})
+
+        report = self._run()
+
+        assert "Size a verifier fix from the second number" in report["roundtrip_divergences_note"]
 
     def test_roundtrip_divergence_counts_flag_once_per_shape(self) -> None:
         self._create_flag(
@@ -446,26 +462,39 @@ class TestAuditFlagFilters(BaseTest):
         assert counts[DIVERGENCE_NUMERIC_PROPERTY_KEY] == 1
         assert counts[DIVERGENCE_OPERATOR_ALIAS] == 1
         assert report["flags_with_roundtrip_divergences"] == 1
-        assert report["live_flags_with_roundtrip_divergences"] == 1
+        assert report["compared_flags_with_roundtrip_divergences"] == 1
         detail = self._divergence(report, DIVERGENCE_NUMERIC_PROPERTY_KEY)["sample_details"][0]
         assert f"flag={flag.id} team={self.team.id}" in detail
         assert "groups[0].properties[0].key" in detail
 
-    @parameterized.expand([("inactive", {"active": False}), ("soft_deleted", {"deleted": True})])
-    def test_unevaluable_flag_counts_in_the_total_but_not_the_live_count(
-        self, _name: str, flag_kwargs: dict[str, Any]
+    @parameterized.expand(
+        [
+            ("inactive", {"payloads": {}}, {"active": False}, "inactive or deleted"),
+            ("soft_deleted", {"payloads": {}}, {"deleted": True}, "inactive or deleted"),
+            ("encrypted", {"payloads": {}}, {"has_encrypted_payloads": True}, "encrypted payloads"),
+            (
+                "structural_violation",
+                {"groups": [{"properties": [{"key": 1}]}]},
+                {},
+                "structural violation",
+            ),
+        ]
+    )
+    def test_flag_the_verifier_skips_counts_only_in_the_total(
+        self, name: str, filters: dict[str, Any], flag_kwargs: dict[str, Any], reason: str
     ) -> None:
-        # Both builders blank an unevaluable flag's filters, so its stored shape never gets cached.
-        self._create_flag("unevaluable", {"payloads": {}}, **flag_kwargs)
+        flag = self._create_flag(name, filters, **flag_kwargs)
 
         report = self._run()
 
-        entry = self._divergence(report, DIVERGENCE_ABSENT_GROUPS)
+        shape_id = DIVERGENCE_NUMERIC_PROPERTY_KEY if name == "structural_violation" else DIVERGENCE_ABSENT_GROUPS
+        entry = self._divergence(report, shape_id)
         assert entry["flags_affected"] == 1
-        assert entry["live_flags_affected"] == 0
+        assert entry["compared_flags_affected"] == 0
         assert report["flags_with_roundtrip_divergences"] == 1
-        assert report["live_flags_with_roundtrip_divergences"] == 0
-        assert "[not live]" in entry["sample_details"][0]
+        assert report["compared_flags_with_roundtrip_divergences"] == 0
+        assert f"flag={flag.id} team={self.team.id}" in entry["sample_details"][0]
+        assert f"[not compared: {reason}]" in entry["sample_details"][0]
 
     def test_console_output_reports_divergences_and_their_meaning(self) -> None:
         self._create_flag("absent-groups", {"payloads": {"true": '"x"'}})
@@ -474,8 +503,8 @@ class TestAuditFlagFilters(BaseTest):
         call_command("audit_flag_filters", "--team-id", str(self.team.id), stdout=out)
 
         output = out.getvalue()
-        assert "Cache-write round-trip divergences (1 flags, 1 of them live):" in output
-        assert re.search(rf"{re.escape(DIVERGENCE_ABSENT_GROUPS)}\s+1 flags, 1 live", output)
+        assert "Cache-write round-trip divergences (1 flags, 1 compared by the verifier):" in output
+        assert re.search(rf"{re.escape(DIVERGENCE_ABSENT_GROUPS)}\s+1 flags, 1 compared", output)
         assert "not enforcement violations" in output
 
     def test_console_output_omits_the_divergence_note_on_a_clean_scan(self) -> None:
@@ -485,5 +514,5 @@ class TestAuditFlagFilters(BaseTest):
         call_command("audit_flag_filters", "--team-id", str(self.team.id), stdout=out)
 
         output = out.getvalue()
-        assert "Cache-write round-trip divergences (0 flags, 0 of them live):" in output
+        assert "Cache-write round-trip divergences (0 flags, 0 compared by the verifier):" in output
         assert "not enforcement violations" not in output
