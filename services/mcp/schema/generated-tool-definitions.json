@@ -5649,7 +5649,7 @@
         }
     },
     "file-download-batch-exports-retrieve": {
-        "description": "Get the status of an on-demand file download export. Returns Starting or Running while the export is in progress, Completed with file IDs when files are ready, or a failed status with an error message. A Completed response also reports records_completed, the number of rows the run exported, which is what file downloads are billed on; report that count to the user. When status is Completed, use the downloading-batch-export-files skill to download each file through the existing REST download endpoint; the generated MCP download operation is intentionally not enabled because it is a redirect to the file body.",
+        "description": "Get the status of an on-demand file download export. Returns Starting or Running while the export is in progress, Completed with file IDs when files are ready, or a failed status with an error message. A Completed response also reports records_completed, the number of rows the run exported; report that count to the user. When status is Completed, use the downloading-batch-export-files skill to download each file through the existing REST download endpoint; the generated MCP download operation is intentionally not enabled because it is a redirect to the file body.",
         "category": "Data pipelines",
         "feature": "batch_exports",
         "summary": "Get file download export status",

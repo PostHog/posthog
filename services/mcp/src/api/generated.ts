@@ -77360,7 +77360,7 @@ export namespace Schemas {
       status: RetrieveCompletedOutputStatus;
       files: string[];
       /**
-         * Number of rows this run exported. This is the count file downloads are billed on.
+         * Number of rows this run exported.
          * @nullable
          */
       records_completed: number | null;

@@ -359,7 +359,7 @@ class RetrieveCompletedOutputSerializer(serializers.Serializer):
     files = serializers.ListField(child=serializers.UUIDField())
     records_completed = serializers.IntegerField(
         allow_null=True,
-        help_text="Number of rows this run exported. This is the count file downloads are billed on.",
+        help_text="Number of rows this run exported.",
     )
 
 
@@ -386,7 +386,7 @@ class RetrieveOutputSerializer(serializers.Serializer):
     records_completed = serializers.IntegerField(
         required=False,
         allow_null=True,
-        help_text="Number of rows this run exported. This is the count file downloads are billed on.",
+        help_text="Number of rows this run exported.",
     )
 
 
