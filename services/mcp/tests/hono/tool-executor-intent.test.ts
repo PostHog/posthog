@@ -1,4 +1,12 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+
+vi.mock('@/tools', async () => {
+    const { default: executeSql } = await import('@/tools/posthogAiTools/executeSql')
+    const { default: getProjects } = await import('@/tools/projects/getProjects')
+    return { TOOL_MAP: { 'execute-sql': executeSql, 'projects-get': getProjects } }
+})
+
+vi.mock('@/tools/generated', () => ({ GENERATED_TOOL_MAP: {} }))
 
 vi.mock('@/resources/internals', () => ({
     fetchContextMillResources: vi.fn().mockRejectedValue(new Error('mocked')),
@@ -83,6 +91,10 @@ describe('ToolExecutor analytics capture', () => {
     let catalog: ToolCatalog
     let executor: ToolExecutor
 
+    afterEach(() => {
+        vi.restoreAllMocks()
+    })
+
     beforeAll(async () => {
         catalog = new ToolCatalog()
         await catalog.warmup()
@@ -117,6 +129,7 @@ describe('ToolExecutor analytics capture', () => {
             expectedSource: 'context_parameter',
             expectedModel: 'gpt-5.6-codex',
             expectedModelSource: 'self_reported',
+            expectedMissingReason: undefined,
         },
         {
             label: 'prefers Codex request metadata over an unknown self-report',
@@ -130,6 +143,7 @@ describe('ToolExecutor analytics capture', () => {
             expectedSource: 'context_parameter',
             expectedModel: 'gpt-5.6-sol',
             expectedModelSource: 'client_metadata',
+            expectedMissingReason: undefined,
         },
         {
             label: 'captures no intent when the agent omits context',
@@ -138,10 +152,34 @@ describe('ToolExecutor analytics capture', () => {
             expectedSource: undefined,
             expectedModel: undefined,
             expectedModelSource: undefined,
+            expectedMissingReason: 'missing',
         },
+        ...[
+            { llm_model: ' UnKnOwN ', reason: 'unknown' },
+            { llm_model: '   ', reason: 'invalid' },
+            { llm_model: null, reason: 'invalid' },
+            { llm_model: 42, reason: 'invalid' },
+        ].map(({ llm_model, reason }) => ({
+            label: `records ${reason} for model argument ${JSON.stringify(llm_model)}`,
+            args: { command: 'tools', llm_model },
+            requestMeta: undefined,
+            expectedIntent: undefined,
+            expectedSource: undefined,
+            expectedModel: undefined,
+            expectedModelSource: undefined,
+            expectedMissingReason: reason,
+        })),
     ])(
         'exec call $label',
-        async ({ args, requestMeta, expectedIntent, expectedSource, expectedModel, expectedModelSource }) => {
+        async ({
+            args,
+            requestMeta,
+            expectedIntent,
+            expectedSource,
+            expectedModel,
+            expectedModelSource,
+            expectedMissingReason,
+        }) => {
             const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
 
             const filteredTools = catalog
@@ -165,8 +203,33 @@ describe('ToolExecutor analytics capture', () => {
             expect(arg.intentSource).toBe(expectedSource)
             expect(arg.llmModel).toBe(expectedModel)
             expect(arg.llmModelSource).toBe(expectedModelSource)
+            expect(arg.properties?.$mcp_llm_model_missing_reason).toBe(expectedMissingReason)
 
             captureSpy.mockRestore()
+        }
+    )
+
+    it.each(['not_captured', 'capture_error'] as const)(
+        'records %s when analytics preparation cannot capture a supplied model',
+        async (reason) => {
+            const client = getPostHogClient()
+            vi.spyOn(client, 'prepareToolCall').mockImplementationOnce((_name, args) => {
+                if (reason === 'capture_error') {
+                    throw new Error('Analytics preparation failed')
+                }
+                return { args, isMissingCapability: false, isFeedback: false }
+            })
+            const captureSpy = vi.spyOn(client, 'captureToolCall').mockImplementation(() => {})
+
+            const result = (await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'tools', llm_model: 'example-model' } },
+                makeState([], { useSingleExec: true })
+            )) as { isError?: boolean }
+
+            expect(result.isError).toBeFalsy()
+            expect(captureSpy).toHaveBeenCalledTimes(1)
+            expect(captureSpy.mock.calls[0]![0].properties?.$mcp_llm_model_missing_reason).toBe(reason)
+            expect(captureSpy.mock.calls[0]![0].llmModel).toBeUndefined()
         }
     )
 
@@ -199,6 +262,7 @@ describe('ToolExecutor analytics capture', () => {
         expect(arg.intent).toBe('looking up the current user')
         expect(arg.llmModel).toBe('claude-sonnet-4-20250514')
         expect(arg.llmModelSource).toBe('self_reported')
+        expect(arg.properties).not.toHaveProperty('$mcp_llm_model_missing_reason')
         expect(arg.properties?.$mcp_error_type).not.toBe('validation')
 
         captureSpy.mockRestore()
@@ -256,6 +320,7 @@ describe('ToolExecutor analytics capture', () => {
         expect(result.content).toBeTruthy()
         expect(captureSpy).toHaveBeenCalledTimes(1)
         expect(captureSpy.mock.calls[0]![0].intent).toBeUndefined()
+        expect(captureSpy.mock.calls[0]![0].properties?.$mcp_llm_model_missing_reason).toBe('missing')
 
         captureSpy.mockRestore()
     })
