@@ -286,13 +286,13 @@ async def _dispatch_report_workflows(
             )
             for report_id in report_ids
         ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        _log_fan_out_failures(kind, report_ids, results)
+        legacy_results = await asyncio.gather(*tasks, return_exceptions=True)
+        _log_fan_out_failures(kind, report_ids, legacy_results)
         return
 
-    results: list[bool | BaseException] = []
+    start_results: list[bool | BaseException] = []
     for report_id_batch in batched(report_ids, REPORT_START_BATCH_SIZE, strict=False):
-        results.extend(
+        start_results.extend(
             await asyncio.gather(
                 *(_start_report_workflow(workflow_id_prefix, report_id) for report_id in report_id_batch),
                 return_exceptions=True,
@@ -301,7 +301,7 @@ async def _dispatch_report_workflows(
 
     already_started = 0
     failures: list[tuple[str, str]] = []
-    for report_id, result in zip(report_ids, results):
+    for report_id, result in zip(report_ids, start_results):
         if isinstance(result, BaseException):
             failures.append((report_id, f"{type(result).__name__}: {result}"))
         elif result is False:

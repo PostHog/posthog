@@ -46,6 +46,7 @@ async def test_eval_report_schedules_have_bounded_inputs_and_explicit_policy(
     ):
         await create_schedule(MagicMock())
 
+    assert create.await_args is not None
     schedule = create.await_args.args[2]
     assert schedule.action.args == [expected_args]
     assert schedule.action.execution_timeout == expected_timeout

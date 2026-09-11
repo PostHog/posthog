@@ -63,6 +63,7 @@ async def test_scheduled_coordinator_starts_children_without_waiting_for_complet
         call("eval-report-scheduled-bounded-input-2026-09"),
         call("eval-report-scheduled-fire-and-forget-2026-09"),
     ]
+    assert execute_activity.await_args is not None
     assert execute_activity.await_args.args[1].max_reports_per_run == 300
     assert start_child.await_count == 2
     execute_child.assert_not_awaited()
@@ -98,6 +99,7 @@ async def test_scheduled_coordinator_preserves_legacy_child_waits_during_replay(
     ):
         await ScheduleAllEvalReportsWorkflow().run(ScheduleAllEvalReportsWorkflowInputs())
 
+    assert execute_activity.await_args is not None
     assert execute_activity.await_args.args[1] == {"buffer_minutes": 15}
     execute_child.assert_awaited_once()
     start_child.assert_not_awaited()
@@ -133,6 +135,7 @@ async def test_count_coordinator_uses_bounded_input_and_fire_and_forget_dispatch
     ):
         await CheckCountTriggeredReportsWorkflow().run(CheckCountTriggeredReportsWorkflowInputs())
 
+    assert execute_activity.await_args is not None
     assert execute_activity.await_args.args[1].max_reports_per_run == 800
     assert patched.call_args_list == [
         call("eval-report-count-bounded-input-2026-09"),
@@ -158,6 +161,7 @@ async def test_count_coordinator_preserves_empty_fetch_payload_during_legacy_rep
         await CheckCountTriggeredReportsWorkflow().run(CheckCountTriggeredReportsWorkflowInputs())
 
     patched.assert_called_once_with("eval-report-count-bounded-input-2026-09")
+    assert execute_activity.await_args is not None
     assert execute_activity.await_args.args[1] == {}
 
 
