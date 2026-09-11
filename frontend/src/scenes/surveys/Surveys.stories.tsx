@@ -583,6 +583,18 @@ export const SurveyResults: Story = {
     ],
 }
 
+export const SurveySummaryExport: Story = {
+    ...SurveyResults,
+    parameters: {
+        ...SurveyResults.parameters,
+        pageUrl: `${urls.survey(MOCK_SURVEY_WITH_RESULTS.id)}?tab=summary`,
+        testOptions: {
+            waitForSelector: '#survey-responses-export',
+            viewport: { width: 560, height: 800 },
+        },
+    },
+}
+
 export const SurveyNotFound: Story = {
     tags: ['test-skip'],
     parameters: {
