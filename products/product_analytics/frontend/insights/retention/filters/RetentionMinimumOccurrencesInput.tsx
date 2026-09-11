@@ -3,11 +3,11 @@ import { toast } from 'react-toastify'
 
 import { LemonInput, Tooltip } from '@posthog/lemon-ui'
 
-import { retentionLogic } from 'products/product_analytics/frontend/insights/retention/retentionLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { insightLogic } from '../insightLogic'
+import { retentionLogic } from '../retentionLogic'
 
-export function MinimumOccurrencesInput(): JSX.Element | null {
+export function RetentionMinimumOccurrencesInput(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { retentionFilter } = useValues(retentionLogic(insightProps))
     const { updateInsightFilter } = useActions(retentionLogic(insightProps))
