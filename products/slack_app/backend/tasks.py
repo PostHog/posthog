@@ -85,27 +85,35 @@ def run_error_tracking_issue_action(
         )
         return
 
-    if action_id == ERROR_TRACKING_RESOLVE_ACTION_ID:
-        outcome = resolve_issue_from_slack(
-            uuid.UUID(issue_id), fingerprint=fingerprint, team_id=team_id, integration=integration, user=user
-        )
-        texts = {
-            "ok": "Resolved. The thread will update in a moment.",
-            "ok_moved": "Resolved the issue this one was merged into. This thread will not update.",
-            "already": "This issue is already resolved.",
-        }
-    else:
-        outcome = assign_issue_to_user_from_slack(
-            uuid.UUID(issue_id), fingerprint=fingerprint, team_id=team_id, integration=integration, user=user
-        )
-        texts = {
-            "ok": "Assigned to you. The thread will update in a moment.",
-            "ok_moved": "Assigned the issue this one was merged into to you. This thread will not update.",
-            "already": "This issue is already assigned to you.",
-        }
+    try:
+        if action_id == ERROR_TRACKING_RESOLVE_ACTION_ID:
+            outcome = resolve_issue_from_slack(
+                uuid.UUID(issue_id), fingerprint=fingerprint, team_id=team_id, integration=integration, user=user
+            )
+            texts = {
+                "ok": "Resolved. The thread will update in a moment.",
+                "ok_moved": "Resolved the issue this one was merged into. This thread will not update.",
+                "already": "This issue is already resolved.",
+            }
+        else:
+            outcome = assign_issue_to_user_from_slack(
+                uuid.UUID(issue_id), fingerprint=fingerprint, team_id=team_id, integration=integration, user=user
+            )
+            texts = {
+                "ok": "Assigned to you. The thread will update in a moment.",
+                "ok_moved": "Assigned the issue this one was merged into to you. This thread will not update.",
+                "already": "This issue is already assigned to you.",
+            }
+    except Exception:
+        # The task does not retry, so the clicker must hear about the failure now.
+        logger.exception("error_tracking_slack_action_failed", issue_id=issue_id, action_id=action_id)
+        reply("Something went wrong. Try again from PostHog.")
+        raise
     if outcome == "not_found":
         reply("This issue no longer exists in PostHog.")
     elif outcome == "no_access":
         reply("You do not have access to change this issue in PostHog.")
+    elif outcome == "unavailable":
+        reply("Alerts are turned off for this project.")
     else:
         reply(texts[outcome])

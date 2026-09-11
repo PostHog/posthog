@@ -21,6 +21,7 @@ from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.error_tracking.backend.logic import issue_mutations
+from products.error_tracking.backend.logic.alerts import native_alerts_enabled
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -31,7 +32,7 @@ logger = structlog.get_logger(__name__)
 
 # "ok_moved": the clicked thread's issue was merged away and the action landed on the survivor,
 # so the thread itself will not update.
-SlackActionOutcome = Literal["ok", "ok_moved", "already", "not_found", "no_access"]
+SlackActionOutcome = Literal["ok", "ok_moved", "already", "not_found", "no_access", "unavailable"]
 
 # Two quick clicks land on different workers; a short claim per (issue, action) makes the
 # second one report "already" instead of producing a second lifecycle reply.
@@ -67,6 +68,9 @@ def _authorized_issue(
     issue, moved = _find_issue(issue_id, fingerprint, team_id, integration.team.project_id)
     if issue is None:
         return "not_found"
+    # Posted messages outlive the flag: turning the feature off must also disarm their buttons.
+    if not native_alerts_enabled(issue.team_id):
+        return "unavailable"
     # Mirrors TeamMemberAccessPermission: an org member without membership in a private
     # project must be denied.
     if UserPermissions(user).team(issue.team).effective_membership_level is None:
