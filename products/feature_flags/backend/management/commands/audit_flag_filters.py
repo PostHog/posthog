@@ -51,9 +51,23 @@ def _sanitize_for_console(text: str) -> str:
     return _CONTROL_CHARS_RE.sub("�", text)
 
 
-def _iter_flag_rows(
-    queryset: Any, *, limit: int, chunk_size: int = 500
-) -> Iterator[tuple[int, int, Any, bool, bool, bool | None]]:
+@frozen
+class ScannedFlag:
+    id: int
+    team_id: int
+    filters: Any
+    active: bool
+    deleted: bool
+    has_encrypted_payloads: bool | None
+
+
+@frozen
+class Divergence:
+    shape_id: str
+    detail: str
+
+
+def _iter_flag_rows(queryset: Any, *, limit: int, chunk_size: int = 500) -> Iterator[ScannedFlag]:
     # Keyset pagination instead of .iterator(): prod runs behind PgBouncer with server-side
     # cursors disabled, so .iterator() buffers the entire result set client-side on execute
     # and a full scan would hold every flag's filters JSON in memory at once. Repeated
@@ -69,7 +83,15 @@ def _iter_flag_rows(
         chunk = list(base.filter(id__gt=last_id)[:page])
         if not chunk:
             return
-        yield from chunk
+        for row in chunk:
+            yield ScannedFlag(
+                id=row[0],
+                team_id=row[1],
+                filters=row[2],
+                active=row[3],
+                deleted=row[4],
+                has_encrypted_payloads=row[5],
+            )
         yielded += len(chunk)
         last_id = chunk[-1][0]
 
@@ -150,14 +172,14 @@ Size a verifier fix from the second number, and a stored-data rewrite from the f
 """
 
 
-def _iter_divergences(filters: Any) -> Iterator[tuple[str, str]]:
-    """Yield (shape id, detail) per round-trip divergence in one stored filters blob."""
+def _iter_divergences(filters: Any) -> Iterator[Divergence]:
+    """Yield one Divergence per round-trip divergence in one stored filters blob."""
     # Every level is type-guarded because a blob Rust cannot deserialize at all is reported by
     # collect_filters_violations, not counted here.
     if not isinstance(filters, dict):
         return
     if "groups" not in filters:
-        yield DIVERGENCE_ABSENT_GROUPS, 'no groups key, and Rust writes "groups": []'
+        yield Divergence(shape_id=DIVERGENCE_ABSENT_GROUPS, detail='no groups key, and Rust writes "groups": []')
     # Only `groups` is typed on the Rust side. super_groups and holdout_groups reach the `extra`
     # map as raw JSON, so their contents come back byte-identical.
     groups = filters.get("groups")
@@ -189,24 +211,26 @@ def _iter_divergences(filters: Any) -> Iterator[tuple[str, str]]:
         yield from _iter_dropped_keys(holdout, RUST_HOLDOUT_FIELDS, "holdout")
 
 
-def _iter_property_divergences(property_filter: dict[str, Any], path: str) -> Iterator[tuple[str, str]]:
+def _iter_property_divergences(property_filter: dict[str, Any], path: str) -> Iterator[Divergence]:
     key = property_filter.get("key")
     # isinstance(True, int) is True in Python, and Rust's `deserialize_key` takes a string or a
     # JSON number only, so a bool key fails deserialization instead of round-tripping narrowed.
     if not isinstance(key, bool) and isinstance(key, int | float):
-        yield DIVERGENCE_NUMERIC_PROPERTY_KEY, f"{path}.key: the number {key} becomes a string"
+        yield Divergence(
+            shape_id=DIVERGENCE_NUMERIC_PROPERTY_KEY, detail=f"{path}.key: the number {key} becomes a string"
+        )
     operator = property_filter.get("operator")
     if isinstance(operator, str) and operator in FEATURE_FLAG_OPERATOR_ALIASES:
         canonical = FEATURE_FLAG_OPERATOR_ALIASES[operator]
-        yield DIVERGENCE_OPERATOR_ALIAS, f"{path}.operator: {operator} becomes {canonical}"
+        yield Divergence(shape_id=DIVERGENCE_OPERATOR_ALIAS, detail=f"{path}.operator: {operator} becomes {canonical}")
 
 
-def _iter_dropped_keys(level: dict[str, Any], kept_by_rust: frozenset[str], path: str) -> Iterator[tuple[str, str]]:
+def _iter_dropped_keys(level: dict[str, Any], kept_by_rust: frozenset[str], path: str) -> Iterator[Divergence]:
     # The verifier's _strip_null_values drops a null-valued key from the stored side too, so both
     # sides come out equal even though Rust never wrote the key.
     for key, value in level.items():
         if key not in kept_by_rust and value is not None:
-            yield DIVERGENCE_DROPPED_KEY, f"{path}.{key} is dropped"
+            yield Divergence(shape_id=DIVERGENCE_DROPPED_KEY, detail=f"{path}.{key} is dropped")
 
 
 @frozen(frozen=False)
@@ -219,17 +243,15 @@ class DivergenceReport:
     sample_details: list[str] = field(default_factory=list)
 
 
-def _not_compared_reason(
-    *, active: bool, deleted: bool, has_encrypted_payloads: bool | None, structurally_valid: bool
-) -> str | None:
+def _not_compared_reason(flag: ScannedFlag, *, structurally_valid: bool) -> str | None:
     """Why the verifier never compares this flag's stored filters, or None when it does."""
     # _is_unevaluable is the cache builders' own gate, so a change to what they blank cannot
     # leave this count quietly wrong.
-    if _is_unevaluable({"active": active, "deleted": deleted}):
+    if _is_unevaluable({"active": flag.active, "deleted": flag.deleted}):
         return "inactive or deleted"
     # An encrypted-payload flag is served from /remote_config, and _get_feature_flags_for_teams_batch
     # excludes it from the payload the verifier compares.
-    if has_encrypted_payloads:
+    if flag.has_encrypted_payloads:
         return "encrypted payloads"
     # filters_schema.py mirrors the Rust field shapes, so a blob it rejects structurally is one
     # Rust may fail to deserialize. Rust then writes no narrowed form to diverge from.
@@ -249,22 +271,22 @@ class RoundTripDivergenceAggregator:
         self.flags_with_any_divergence = 0
         self.compared_flags_with_any_divergence = 0
 
-    def record(self, *, flag_id: int, team_id: int, not_compared: str | None, found: Iterable[tuple[str, str]]) -> None:
+    def record(self, *, flag: ScannedFlag, not_compared: str | None, found: Iterable[Divergence]) -> None:
         counted: set[str] = set()
-        for shape_id, detail in found:
-            if shape_id in counted:
+        for divergence in found:
+            if divergence.shape_id in counted:
                 continue
-            counted.add(shape_id)
-            report = self.reports[shape_id]
+            counted.add(divergence.shape_id)
+            report = self.reports[divergence.shape_id]
             report.flags_affected += 1
             if not_compared is None:
                 report.compared_flags_affected += 1
             if len(report.sample_flag_ids) < self.max_samples:
-                report.sample_flag_ids.append(flag_id)
+                report.sample_flag_ids.append(flag.id)
                 # Naming the reason saves tracing a sample id back to find out why the verifier
                 # never reports it.
                 marker = "" if not_compared is None else f" [not compared: {not_compared}]"
-                report.sample_details.append(f"flag={flag_id} team={team_id} {detail}{marker}")
+                report.sample_details.append(f"flag={flag.id} team={flag.team_id} {divergence.detail}{marker}")
         if counted:
             self.flags_with_any_divergence += 1
             if not_compared is None:
@@ -324,11 +346,11 @@ class Command(BaseCommand):
         # collect_filters_violations runs CROSS_FIELD_CHECKS, which deliberately excludes
         # check_groups_non_empty_for_create: non-empty groups is a POST-only rule (#50084) —
         # stored flags with empty groups are valid state and must never show up in this report.
-        for flag_id, flag_team_id, filters, active, deleted, encrypted in _iter_flag_rows(queryset, limit=limit):
+        for flag in _iter_flag_rows(queryset, limit=limit):
             scanned += 1
             try:
                 violations = collect_filters_violations(
-                    filters, context={UNKNOWN_KEYS_SINK_CONTEXT_KEY: sink, FLAG_ID_CONTEXT_KEY: flag_id}
+                    flag.filters, context={UNKNOWN_KEYS_SINK_CONTEXT_KEY: sink, FLAG_ID_CONTEXT_KEY: flag.id}
                 )
             except Exception as exc:
                 # The whole point of this command is surviving wild-west data: one flag whose
@@ -341,15 +363,12 @@ class Command(BaseCommand):
                     )
                 ]
             divergences.record(
-                flag_id=flag_id,
-                team_id=flag_team_id,
+                flag=flag,
                 not_compared=_not_compared_reason(
-                    active=active,
-                    deleted=deleted,
-                    has_encrypted_payloads=encrypted,
+                    flag,
                     structurally_valid=not any(v.rule_id.startswith("structural.") for v in violations),
                 ),
-                found=_iter_divergences(filters),
+                found=_iter_divergences(flag.filters),
             )
             if not violations:
                 continue
@@ -363,9 +382,9 @@ class Command(BaseCommand):
                 counted_rules.add(violation.rule_id)
                 report.flags_affected += 1
                 if len(report.sample_flag_ids) < samples:
-                    report.sample_flag_ids.append(flag_id)
+                    report.sample_flag_ids.append(flag.id)
                     report.sample_details.append(
-                        f"flag={flag_id} team={flag_team_id} {violation.path}: {violation.message}"
+                        f"flag={flag.id} team={flag.team_id} {violation.path}: {violation.message}"
                     )
 
         reports = sorted(rule_reports.values(), key=lambda r: (-r.flags_affected, r.rule_id))
