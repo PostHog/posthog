@@ -246,8 +246,10 @@ async def test_count_coordinator_acknowledges_cursor_after_due_child_starts() ->
         activity_schedule_to_close_timeout,
         incremental_ack,
         run_deadline,
+        metrics_region,
     ):
         events.append("check")
+        assert metrics_region == "eu"
         assert dispatch_due_reports is True
         assert activity_schedule_to_close_timeout == COUNT_TRIGGER_CHECK_SCHEDULE_TO_CLOSE_TIMEOUT
         assert incremental_ack == _IncrementalCursorAck(
