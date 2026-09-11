@@ -21,6 +21,8 @@ from posthog.models.utils import UUIDModel
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
+    ActionabilityAssessment,
+    ActionabilityChoice,
     ArtefactContent,
     ArtefactContentValidationError,
     ChannelAssignment,
@@ -521,20 +523,59 @@ class SignalReport(UUIDModel):
         updated_fields.update(["status", "updated_at"])
         return list(updated_fields)
 
+    def _latest_actionability(self) -> ActionabilityChoice | None:
+        """The choice on this report's newest `actionability_judgment` artefact (None when it has
+        none, or when the stored content no longer parses)."""
+        content = (
+            SignalReportArtefact.objects.filter(
+                report_id=self.id,
+                team_id=self.team_id,
+                type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            )
+            .order_by("-created_at")
+            .values_list("content", flat=True)
+            .first()
+        )
+        if content is None:
+            return None
+        try:
+            return ActionabilityAssessment.model_validate_json(content).actionability
+        except ValidationError:
+            return None
+
     def restore_target_status(self) -> "SignalReport.Status":
         """
         The status a suppressed report should return to on restore (un-archive).
 
         A report archived while fully researched (ready / pending_input / resolved / failed) returns
-        to that exact state so it reappears where the user archived it from. Anything else — including
-        in-flight states with no live workflow, or legacy rows with no recorded prior status — routes
-        back through POTENTIAL to re-enter the pipeline.
+        to that exact state so it reappears where the user archived it from. In-flight states have no
+        live workflow to resume, so they route back through POTENTIAL to re-enter the pipeline.
+
+        A report *born* suppressed (scout authorship, where the safety/actionability judge picks the
+        birth status) is the case neither of those covers: it never passed through `transition_to`,
+        so it records no prior status, yet it is fully authored. POTENTIAL would strand it, because its
+        backing signals were never indexed, so no later signal re-promotes it, and the scout's
+        dedupe pointer stops it being authored again. Restore is a person overruling that judge, so
+        it goes to the user-visible status its actionability implies. Only an immediately-actionable
+        verdict earns READY; every other verdict (and a report carrying none) lands in PENDING_INPUT,
+        which says the report needs a person without hiding the actions READY would hide from it.
+
+        "Authored but never surfaced" is `first_visible_at is None` alongside a title and summary.
+        A null prior status alone is too narrow: a report an earlier restore stranded in POTENTIAL
+        records POTENTIAL the next time it is archived, and must still come back out. A snoozed
+        report is excluded by the same test, because it surfaced before the snooze.
         """
         S = self.Status
         researched = {S.READY, S.PENDING_INPUT, S.RESOLVED, S.FAILED}
         prior = self.status_before_suppression
         if prior in {s.value for s in researched}:
             return S(prior)
+        if prior in (None, S.POTENTIAL) and self.first_visible_at is None and self.title and self.summary:
+            return (
+                S.READY
+                if self._latest_actionability() == ActionabilityChoice.IMMEDIATELY_ACTIONABLE
+                else S.PENDING_INPUT
+            )
         return S.POTENTIAL
 
     def update_authored_content(self, *, title: str | None = None, summary: str | None = None) -> list[str]:
@@ -1127,7 +1168,7 @@ class SignalReportArtefact(UUIDModel):
             raise ValueError(f"{type(content).__name__} is not a status artefact content model")
         artefact = cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
         if reevaluate_autostart and artefact.type == cls.ArtefactType.SUGGESTED_REVIEWERS:
-            cls._schedule_autostart_reevaluation(team_id=team_id, report_id=str(report_id))
+            cls.schedule_autostart_reevaluation(team_id=team_id, report_id=str(report_id))
         return artefact
 
     @classmethod
@@ -1154,14 +1195,16 @@ class SignalReportArtefact(UUIDModel):
         return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 
     @staticmethod
-    def _schedule_autostart_reevaluation(*, team_id: int, report_id: str) -> None:
+    def schedule_autostart_reevaluation(*, team_id: int, report_id: str) -> None:
         """After the current transaction commits, re-evaluate auto-start for the report.
 
         Changing a report's suggested reviewers can newly satisfy auto-start (e.g. adding a
         reviewer whose autonomy threshold qualifies), so any path that appends a reviewers status
-        re-runs the idempotent auto-start check. Scheduled on commit so the new reviewers are
-        visible and the task-start side effect isn't rolled back; best-effort so it never breaks
-        the write. Imported lazily to avoid a models <-> auto_start import cycle.
+        re-runs the idempotent auto-start check. Restoring a report out of the archive and back
+        into the inbox re-runs it for the same reason: the report is eligible again, and its
+        artefacts are what auto-start reads. Scheduled on commit so the new state is visible and
+        the task-start side effect isn't rolled back; best-effort so it never breaks the write.
+        Imported lazily to avoid a models <-> auto_start import cycle.
         """
 
         def _run() -> None:
@@ -1271,7 +1314,7 @@ class SignalReportArtefact(UUIDModel):
             update_fields.append("channel_id")
         self.save(update_fields=update_fields)
         if self.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
-            self._schedule_autostart_reevaluation(team_id=self.team_id, report_id=str(self.report_id))
+            self.schedule_autostart_reevaluation(team_id=self.team_id, report_id=str(self.report_id))
 
 
 class SignalReportTask(UUIDModel):

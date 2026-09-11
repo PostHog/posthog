@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.apps import apps
 from django.core.cache import cache
@@ -32,7 +32,12 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
-from products.signals.backend.artefact_schemas import ChannelAssignment
+from products.signals.backend.artefact_schemas import (
+    ActionabilityAssessment,
+    ActionabilityChoice,
+    ChannelAssignment,
+    SafetyJudgment,
+)
 from products.signals.backend.implementation_pr import (
     ImplementationPr,
     fetch_implementation_pr_state_for_reports,
@@ -1972,7 +1977,9 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert report.signals_at_run == 0
 
     def test_can_reopen_suppressed_report(self):
-        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        # Nothing was ever authored on this one, so there is no researched state to return it to,
+        # and it re-enters the pipeline. See the restore tests below for the authored cases.
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.SUPPRESSED)
         response = self.client.post(
             self._state_url(str(report.id)),
             data=json.dumps({"state": "potential"}),
@@ -2128,6 +2135,35 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         report.refresh_from_db()
         assert report.status == expected_status
 
+    def _create_born_suppressed_report(
+        self, *, actionability: str | None = "immediately_actionable", safe: bool | None = False
+    ) -> SignalReport:
+        # A scout-authored report the judge suppressed at birth: no prior status, but fully authored.
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.SUPPRESSED,
+            title="Born suppressed",
+            summary="The judge archived this one before anyone saw it.",
+        )
+        attribution = ArtefactAttribution.system()
+        if actionability is not None:
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=ActionabilityAssessment(
+                    explanation="researched", actionability=ActionabilityChoice(actionability), already_addressed=False
+                ),
+                attribution=attribution,
+            )
+        if safe is not None:
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=SafetyJudgment(choice=safe, explanation=None if safe else "looks adversarial"),
+                attribution=attribution,
+            )
+        return report
+
     @parameterized.expand(
         [
             # prior status before archiving, expected status after restore
@@ -2142,7 +2178,21 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         ]
     )
     def test_restore_returns_report_to_pre_suppression_status(self, _name, prior_status, expected_restored_status):
-        report = SignalReport.objects.create(team=self.team, status=prior_status, title="t", summary="s")
+        researched = prior_status in {
+            SignalReport.Status.READY,
+            SignalReport.Status.PENDING_INPUT,
+            SignalReport.Status.RESOLVED,
+            SignalReport.Status.FAILED,
+        }
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=prior_status,
+            # A pre-research report carries no authored content and has never been visible; both
+            # arrive together at the transition into ready / pending_input.
+            title="t" if researched else "",
+            summary="s" if researched else "",
+            first_visible_at=timezone.now() if researched else None,
+        )
 
         suppress = self.client.post(
             self._state_url(str(report.id)), data=json.dumps({"state": "suppressed"}), content_type="application/json"
@@ -2159,6 +2209,109 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         report.refresh_from_db()
         assert report.status == expected_restored_status
         assert report.status_before_suppression is None
+
+    @parameterized.expand(
+        [
+            # actionability recorded at birth, status the restore routes to
+            ("immediately_actionable", "immediately_actionable", SignalReport.Status.READY),
+            ("requires_human_input", "requires_human_input", SignalReport.Status.PENDING_INPUT),
+            # The judge suppressed it as not worth acting on; the restore overrules that, so it
+            # surfaces where every action stays offered rather than back where it came from.
+            ("not_actionable", "not_actionable", SignalReport.Status.PENDING_INPUT),
+            ("no_verdict", None, SignalReport.Status.PENDING_INPUT),
+        ]
+    )
+    def test_restore_of_a_report_born_suppressed_routes_by_actionability(self, _name, actionability, expected_status):
+        # A scout-authored report the judge suppressed at birth never passed through a transition,
+        # so it records no prior status. POTENTIAL would strand it there for good: nothing
+        # re-promotes a report whose signals were never indexed.
+        report = self._create_born_suppressed_report(actionability=actionability)
+
+        response = self.client.post(
+            self._state_url(str(report.id)), data=json.dumps({"state": "potential"}), content_type="application/json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == expected_status
+        assert report.title == "Born suppressed"
+
+    def test_a_report_an_earlier_restore_stranded_comes_back_out(self):
+        # The reports already sitting in potential from before this routing existed: archiving one
+        # records potential as its prior status, so the restore has to read the report itself
+        # rather than trust that status.
+        report = self._create_born_suppressed_report()
+        report.status = SignalReport.Status.POTENTIAL
+        report.save(update_fields=["status"])
+        self.client.post(
+            self._state_url(str(report.id)), data=json.dumps({"state": "suppressed"}), content_type="application/json"
+        )
+
+        self.client.post(
+            self._state_url(str(report.id)), data=json.dumps({"state": "potential"}), content_type="application/json"
+        )
+
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+
+    @parameterized.expand(
+        [
+            # safety verdict the report was archived under, choice the restore leaves canonical
+            ("unsafe_verdict_is_overruled", False, True),
+            # A report archived by a human dismissal carries no safety call to overrule, and
+            # inventing one would claim a judgment nobody made.
+            ("no_verdict_to_overrule", None, None),
+        ]
+    )
+    def test_restore_records_the_human_override_of_a_safety_verdict(self, _name, stored_safe, expected_choice):
+        report = self._create_born_suppressed_report(safe=stored_safe)
+
+        self.client.post(
+            self._state_url(str(report.id)), data=json.dumps({"state": "potential"}), content_type="application/json"
+        )
+
+        verdict = (
+            SignalReportArtefact.objects.filter(
+                report_id=report.id, type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if expected_choice is None:
+            assert verdict is None
+            return
+        assert verdict is not None
+        assert json.loads(verdict.content)["choice"] is expected_choice
+        assert verdict.created_by_id == self.user.id
+
+    @parameterized.expand(
+        [
+            ("restore_out_of_the_archive", True),
+            # A snooze parks the report on purpose; it must not open a PR on the way past.
+            ("snooze_of_a_ready_report", False),
+        ]
+    )
+    def test_only_a_restore_into_the_inbox_re_evaluates_autostart(self, _name, expect_reevaluated):
+        report = (
+            self._create_born_suppressed_report()
+            if expect_reevaluated
+            else self._create_report(report_status=SignalReport.Status.READY)
+        )
+
+        with patch(
+            "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts", new=AsyncMock()
+        ) as autostart:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.post(
+                    self._state_url(str(report.id)),
+                    data=json.dumps({"state": "potential"}),
+                    content_type="application/json",
+                )
+
+        assert autostart.await_count == (1 if expect_reevaluated else 0)
+        if expect_reevaluated:
+            assert autostart.await_args is not None
+            assert autostart.await_args.kwargs["report_id"] == str(report.id)
 
     def test_restore_preserves_title_and_summary(self):
         report = SignalReport.objects.create(
