@@ -190,7 +190,7 @@ export interface scratchpadLogicActions {
         hasMore: boolean
     }
     clearFilters: () => {}
-    loadEntries: () => any
+    loadEntries: (_payload: void) => void
     loadEntriesFailure: (
         error: string,
         errorObject?: any
@@ -200,10 +200,10 @@ export interface scratchpadLogicActions {
     }
     loadEntriesSuccess: (
         entries: ScratchpadEntryApi[],
-        payload?: any
+        payload?: void
     ) => {
         entries: ScratchpadEntryApi[]
-        payload?: any
+        payload?: void
     }
     loadFullContent: (key: string) => {
         key: string
@@ -360,16 +360,21 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
         entries: [
             null as ScratchpadEntryApi[] | null,
             {
-                loadEntries: async () => {
+                loadEntries: async (_payload: void, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return []
                     }
-                    return await signalsScoutScratchpadSearch(String(teamId), {
+                    const page = await signalsScoutScratchpadSearch(String(teamId), {
                         limit: SCRATCHPAD_FETCH_LIMIT,
                         content_max_chars: SCRATCHPAD_PREVIEW_CHARS,
                         ...dateFromParam(values.timeFilter),
                     })
+                    // Drop a stale response if the span moved on while this request was in flight.
+                    // A wider span is the slower read, so narrowing right after widening is the
+                    // order that would otherwise let the older response answer last.
+                    breakpoint()
+                    return page
                 },
             },
         ],
