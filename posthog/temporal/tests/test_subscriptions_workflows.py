@@ -4116,9 +4116,7 @@ async def test_claimed_subscription_page_refills_after_payload_trim_and_admissio
             short_id=f"refill-{index}",
             name=f"Refill insight {index}",
         )
-        subscriptions.append(
-            await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
-        )
+        subscriptions.append(await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user))
     await sync_to_async(Subscription.objects.filter(id__in=[item.id for item in subscriptions]).update)(
         next_delivery_date=due_at
     )
