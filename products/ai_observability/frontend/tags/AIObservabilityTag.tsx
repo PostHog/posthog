@@ -22,8 +22,10 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -743,7 +745,16 @@ export function AIObservabilityTagScene({ id }: { id?: string }): JSX.Element {
     const isNew = taggerId === 'new'
     const { tagger, taggerLoading, activeTab, providerKeys } = useValues(llmTaggerLogic({ id: taggerId }))
     const { setActiveTab } = useActions(llmTaggerLogic({ id: taggerId }))
+    const { featureFlags } = useValues(featureFlagLogic)
     const providerKeyIssue = tagger?.enabled ? getTaggerProviderKeyIssue(tagger, providerKeys) : null
+
+    if (!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TAGS]) {
+        return (
+            <SceneContent>
+                <LemonBanner type="warning">Taggers are not enabled for this project.</LemonBanner>
+            </SceneContent>
+        )
+    }
 
     if (taggerLoading) {
         return (

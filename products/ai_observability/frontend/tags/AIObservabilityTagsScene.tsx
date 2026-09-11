@@ -3,6 +3,7 @@ import { combineUrl, router } from 'kea-router'
 
 import { IconPencil, IconPlus, IconSearch, IconTrash, IconWarning } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonInput,
     LemonSkeleton,
@@ -15,7 +16,9 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -104,10 +107,18 @@ function getTaggerProviderKeyIssue(tagger: Tagger, providerKeys: LLMProviderKey[
 
 function AIObservabilityTagsContent(): JSX.Element {
     const taggersLogic = llmTaggersLogic()
-    const { filteredTaggers, taggersLoading, taggersFilter, dateFilter, runStatsMap, tagDistributionMap } =
-        useValues(taggersLogic)
+    const {
+        filteredTaggers,
+        taggersLoading,
+        taggersFilter,
+        dateFilter,
+        runStatsMap,
+        tagDistributionMap,
+        seedingDefaults,
+    } = useValues(taggersLogic)
     const { providerKeys } = useValues(llmProviderKeysLogic)
-    const { setTaggersFilter, toggleTaggerEnabled, loadTaggers, setDates } = useActions(taggersLogic)
+    const { setTaggersFilter, toggleTaggerEnabled, loadTaggers, setDates, seedDefaultTaggers } =
+        useActions(taggersLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
@@ -307,7 +318,26 @@ function AIObservabilityTagsContent(): JSX.Element {
                     pageSize: 50,
                 }}
                 nouns={['tagger', 'taggers']}
-                emptyState={<div className="text-center p-8 text-muted">No taggers found.</div>}
+                emptyState={
+                    <div className="text-center p-8 text-muted flex flex-col items-center gap-2">
+                        <span>No taggers found.</span>
+                        {!taggersFilter && (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Tagger}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={seedDefaultTaggers}
+                                    loading={seedingDefaults}
+                                    data-attr="seed-default-taggers-button"
+                                >
+                                    Add the default taggers
+                                </LemonButton>
+                            </AccessControlAction>
+                        )}
+                    </div>
+                }
             />
         </div>
     )
@@ -315,6 +345,16 @@ function AIObservabilityTagsContent(): JSX.Element {
 
 export function AIObservabilityTagsScene(): JSX.Element {
     const { searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TAGS]) {
+        return (
+            <SceneContent>
+                <LemonBanner type="warning">Taggers are not enabled for this project.</LemonBanner>
+            </SceneContent>
+        )
+    }
+
     return (
         <SceneContent>
             <SceneTitleSection

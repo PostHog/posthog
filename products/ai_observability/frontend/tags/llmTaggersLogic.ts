@@ -40,10 +40,10 @@ export interface llmTaggersLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     chartQuery: TrendsQuery | null
     filteredTaggers: Tagger[]
-    hasSeededDefaults: boolean
     runStats: TaggerRunStats[]
     runStatsLoading: boolean
     runStatsMap: Record<string, number>
+    seedingDefaults: boolean
     tagCounts: TaggerTagCount[]
     tagCountsLoading: boolean
     tagDistributionMap: Record<
@@ -120,6 +120,9 @@ export interface llmTaggersLogicActions {
     loadTaggersSuccess: (taggers: Tagger[]) => {
         taggers: Tagger[]
     }
+    seedDefaultTaggers: () => {
+        value: true
+    }
     setTaggersFilter: (filter: string) => {
         filter: string
     }
@@ -176,6 +179,7 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
     actions({
         loadTaggers: true,
         loadTaggersSuccess: (taggers: Tagger[]) => ({ taggers }),
+        seedDefaultTaggers: true,
         toggleTaggerEnabled: (id: string) => ({ id }),
         setTaggersFilter: (filter: string) => ({ filter }),
     }),
@@ -200,10 +204,11 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
                 setTaggersFilter: (_, { filter }) => filter,
             },
         ],
-        hasSeededDefaults: [
+        seedingDefaults: [
             false,
             {
-                loadTaggersSuccess: () => true,
+                seedDefaultTaggers: () => true,
+                loadTaggersSuccess: () => false,
             },
         ],
     }),
@@ -387,23 +392,20 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
         loadTaggers: async () => {
             // nosemgrep: prefer-codegen-api
             const response = await api.get('api/environments/@current/taggers/')
-            if (response.results.length === 0 && !values.hasSeededDefaults) {
-                for (const template of defaultTaggerTemplates) {
-                    // nosemgrep: prefer-codegen-api
-                    await api.create('api/environments/@current/taggers/', {
-                        name: template.name,
-                        description: template.description,
-                        enabled: false,
-                        tagger_config: template.tagger_config,
-                        conditions: [{ id: `cond-${Date.now()}`, rollout_percentage: 100, properties: [] }],
-                    })
-                }
+            actions.loadTaggersSuccess(response.results)
+        },
+        seedDefaultTaggers: async () => {
+            for (const template of defaultTaggerTemplates) {
                 // nosemgrep: prefer-codegen-api
-                const seeded = await api.get('api/environments/@current/taggers/')
-                actions.loadTaggersSuccess(seeded.results)
-            } else {
-                actions.loadTaggersSuccess(response.results)
+                await api.create('api/environments/@current/taggers/', {
+                    name: template.name,
+                    description: template.description,
+                    enabled: false,
+                    tagger_config: template.tagger_config,
+                    conditions: [{ id: `cond-${Date.now()}`, rollout_percentage: 100, properties: [] }],
+                })
             }
+            actions.loadTaggers()
         },
         loadTaggersSuccess: () => {
             actions.loadRunStats()

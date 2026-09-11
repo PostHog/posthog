@@ -131,8 +131,18 @@ describe('llmTaggersLogic', () => {
             logic?.unmount()
         })
 
-        it('seeds default taggers when none exist and creates them disabled', async () => {
+        it('does not seed default taggers just because the list is empty', async () => {
             await expectLogic(logic).toDispatchActions(['loadTaggersSuccess'])
+
+            expect(createCalls).toHaveLength(0)
+        })
+
+        it('seeds default taggers when asked and creates them disabled', async () => {
+            await expectLogic(logic).toDispatchActions(['loadTaggersSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.seedDefaultTaggers()
+            }).toDispatchActions(['seedDefaultTaggers', 'loadTaggers', 'loadTaggersSuccess'])
 
             expect(createCalls).toHaveLength(defaultTaggerTemplates.length)
             for (const call of createCalls) {
