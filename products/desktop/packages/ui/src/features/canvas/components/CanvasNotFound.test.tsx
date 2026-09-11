@@ -5,6 +5,7 @@ const state = vi.hoisted(() => ({
   currentProject: undefined as { id: number; name: string } | undefined,
   channels: [] as { id: string; name: string }[],
   channelsLoading: false,
+  channelsError: null as Error | null,
 }));
 
 vi.mock("@posthog/ui/features/projects/useProjects", () => ({
@@ -14,6 +15,10 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({
     channels: state.channels,
     isLoading: state.channelsLoading,
+    isError: state.channelsError !== null,
+    isFetching: false,
+    error: state.channelsError,
+    refetch: () => {},
   }),
 }));
 vi.mock("@posthog/ui/router/routeSkeletons", () => ({
@@ -43,6 +48,7 @@ describe("CanvasNotFound", () => {
     state.currentProject = { id: 2, name: "Marketing" };
     state.channels = channels;
     state.channelsLoading = false;
+    state.channelsError = null;
 
     render(<CanvasNotFound channelId="chan-1" />);
 
@@ -55,10 +61,24 @@ describe("CanvasNotFound", () => {
     state.currentProject = { id: 2, name: "Marketing" };
     state.channels = [];
     state.channelsLoading = true;
+    state.channelsError = null;
 
     render(<CanvasNotFound channelId="chan-1" />);
 
     expect(screen.getByTestId("canvas-skeleton")).toBeInTheDocument();
     expect(screen.queryByText(/canvas/i)).not.toBeInTheDocument();
+  });
+
+  it("offers a retry when the channel list is the thing that failed", () => {
+    state.currentProject = { id: 2, name: "Marketing" };
+    state.channels = [];
+    state.channelsLoading = false;
+    state.channelsError = new Error("Failed to fetch");
+
+    render(<CanvasNotFound channelId="chan-1" />);
+
+    expect(screen.getByText(/Failed to fetch/)).toBeInTheDocument();
+    expect(screen.getByText("Try again")).toBeInTheDocument();
+    expect(screen.queryByText(/don't have access/)).not.toBeInTheDocument();
   });
 });

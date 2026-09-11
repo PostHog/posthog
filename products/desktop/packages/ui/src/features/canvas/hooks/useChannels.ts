@@ -54,8 +54,19 @@ function toChannel(channel: TaskChannel): Channel {
 export function useChannels(options?: { enabled?: boolean }): {
   channels: Channel[];
   isLoading: boolean;
+  isError: boolean;
+  isFetching: boolean;
+  error: Error | null;
+  refetch: () => void;
 } {
-  const { channels: taskChannels, isLoading } = useTaskChannels(options);
+  const {
+    channels: taskChannels,
+    isLoading,
+    isError,
+    isFetching,
+    error,
+    refetch,
+  } = useTaskChannels(options);
   // Memoize so the array reference is stable while the underlying data is
   // unchanged — callers depend on `channels` in their own memos/effects.
   const channels = useMemo(
@@ -63,7 +74,7 @@ export function useChannels(options?: { enabled?: boolean }): {
       taskChannels.map(toChannel).sort((a, b) => a.name.localeCompare(b.name)),
     [taskChannels],
   );
-  return { channels, isLoading };
+  return { channels, isLoading, isError, isFetching, error, refetch };
 }
 
 /**
