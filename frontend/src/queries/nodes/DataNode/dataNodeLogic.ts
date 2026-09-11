@@ -100,6 +100,7 @@ import type {
     LogAttributesQueryResponse,
     LogValuesQueryResponse,
     LogsQueryResponse,
+    MetricsHistogramQueryResponse,
     MetricsQueryResponse,
     TraceSpansAggregationQueryResponse,
     TraceSpansAttributeBreakdownQueryResponse,
@@ -304,6 +305,7 @@ export interface dataNodeLogicValues {
         | HogQueryResponse
         | LogAttributesQueryResponse
         | LogValuesQueryResponse
+        | MetricsHistogramQueryResponse
         | MetricsQueryResponse
         | Record<string, any>
         | SessionsQueryResponse
@@ -402,6 +404,7 @@ export interface dataNodeLogicActions {
             | HogQueryResponse
             | LogAttributesQueryResponse
             | LogValuesQueryResponse
+            | MetricsHistogramQueryResponse
             | MetricsQueryResponse
             | Record<string, any>
             | SessionsQueryResponse
@@ -425,6 +428,7 @@ export interface dataNodeLogicActions {
             | HogQueryResponse
             | LogAttributesQueryResponse
             | LogValuesQueryResponse
+            | MetricsHistogramQueryResponse
             | MetricsQueryResponse
             | Record<string, any>
             | SessionsQueryResponse
@@ -478,6 +482,7 @@ export interface dataNodeLogicActions {
             | HogQueryResponse
             | LogAttributesQueryResponse
             | LogValuesQueryResponse
+            | MetricsHistogramQueryResponse
             | MetricsQueryResponse
             | Record<string, any>
             | SessionsQueryResponse
@@ -495,6 +500,7 @@ export interface dataNodeLogicActions {
             | HogQueryResponse
             | LogAttributesQueryResponse
             | LogValuesQueryResponse
+            | MetricsHistogramQueryResponse
             | MetricsQueryResponse
             | Record<string, any>
             | SessionsQueryResponse
@@ -521,6 +527,7 @@ export interface dataNodeLogicActions {
             | HogQueryResponse
             | LogAttributesQueryResponse
             | LogValuesQueryResponse
+            | MetricsHistogramQueryResponse
             | MetricsQueryResponse
             | Record<string, any>
             | SessionsQueryResponse
@@ -538,6 +545,7 @@ export interface dataNodeLogicActions {
             | HogQueryResponse
             | LogAttributesQueryResponse
             | LogValuesQueryResponse
+            | MetricsHistogramQueryResponse
             | MetricsQueryResponse
             | Record<string, any>
             | SessionsQueryResponse
@@ -604,6 +612,7 @@ export interface dataNodeLogicActions {
         | LogAttributesQueryResponse
         | LogsQueryResponse
         | LogValuesQueryResponse
+        | MetricsHistogramQueryResponse
         | MetricsQueryResponse
         | Record<string, any>
         | SessionsQueryResponse
@@ -629,6 +638,7 @@ export interface dataNodeLogicActions {
             | LogAttributesQueryResponse
             | LogsQueryResponse
             | LogValuesQueryResponse
+            | MetricsHistogramQueryResponse
             | MetricsQueryResponse
             | Record<string, any>
             | SessionsQueryResponse
@@ -646,6 +656,7 @@ export interface dataNodeLogicActions {
             | LogAttributesQueryResponse
             | LogsQueryResponse
             | LogValuesQueryResponse
+            | MetricsHistogramQueryResponse
             | MetricsQueryResponse
             | Record<string, any>
             | SessionsQueryResponse
@@ -664,6 +675,7 @@ export interface dataNodeLogicActions {
             | LogAttributesQueryResponse
             | LogsQueryResponse
             | LogValuesQueryResponse
+            | MetricsHistogramQueryResponse
             | MetricsQueryResponse
             | Record<string, any>
             | SessionsQueryResponse
@@ -681,6 +693,7 @@ export interface dataNodeLogicActions {
             | LogAttributesQueryResponse
             | LogsQueryResponse
             | LogValuesQueryResponse
+            | MetricsHistogramQueryResponse
             | MetricsQueryResponse
             | Record<string, any>
             | SessionsQueryResponse
@@ -717,6 +730,7 @@ export interface dataNodeLogicMeta {
                 | HogQueryResponse
                 | LogAttributesQueryResponse
                 | LogValuesQueryResponse
+                | MetricsHistogramQueryResponse
                 | MetricsQueryResponse
                 | Record<string, any>
                 | SessionsQueryResponse
@@ -736,6 +750,7 @@ export interface dataNodeLogicMeta {
                 | HogQueryResponse
                 | LogAttributesQueryResponse
                 | LogValuesQueryResponse
+                | MetricsHistogramQueryResponse
                 | MetricsQueryResponse
                 | Record<string, any>
                 | SessionsQueryResponse
@@ -759,6 +774,7 @@ export interface dataNodeLogicMeta {
                 | HogQueryResponse
                 | LogAttributesQueryResponse
                 | LogValuesQueryResponse
+                | MetricsHistogramQueryResponse
                 | MetricsQueryResponse
                 | Record<string, any>
                 | SessionsQueryResponse
@@ -776,6 +792,7 @@ export interface dataNodeLogicMeta {
                 | HogQueryResponse
                 | LogAttributesQueryResponse
                 | LogValuesQueryResponse
+                | MetricsHistogramQueryResponse
                 | MetricsQueryResponse
                 | Record<string, any>
                 | SessionsQueryResponse
@@ -795,6 +812,7 @@ export interface dataNodeLogicMeta {
                 | HogQueryResponse
                 | LogAttributesQueryResponse
                 | LogValuesQueryResponse
+                | MetricsHistogramQueryResponse
                 | MetricsQueryResponse
                 | Record<string, any>
                 | SessionsQueryResponse
@@ -813,6 +831,7 @@ export interface dataNodeLogicMeta {
                 | HogQueryResponse
                 | LogAttributesQueryResponse
                 | LogValuesQueryResponse
+                | MetricsHistogramQueryResponse
                 | MetricsQueryResponse
                 | Record<string, any>
                 | SessionsQueryResponse
@@ -834,6 +853,7 @@ export interface dataNodeLogicMeta {
                 | HogQueryResponse
                 | LogAttributesQueryResponse
                 | LogValuesQueryResponse
+                | MetricsHistogramQueryResponse
                 | MetricsQueryResponse
                 | Record<string, any>
                 | SessionsQueryResponse
@@ -851,6 +871,7 @@ export interface dataNodeLogicMeta {
                 | HogQueryResponse
                 | LogAttributesQueryResponse
                 | LogValuesQueryResponse
+                | MetricsHistogramQueryResponse
                 | MetricsQueryResponse
                 | Record<string, any>
                 | SessionsQueryResponse
@@ -1459,6 +1480,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
@@ -1515,6 +1537,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
@@ -1666,6 +1689,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
@@ -1689,6 +1713,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
@@ -1733,6 +1758,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
@@ -1756,6 +1782,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
@@ -1806,6 +1833,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
@@ -1828,6 +1856,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     | import('~/queries/schema/schema-general').HogQueryResponse
                     | import('~/queries/schema/schema-general').LogAttributesQueryResponse
                     | import('~/queries/schema/schema-general').LogValuesQueryResponse
+                    | import('~/queries/schema/schema-general').MetricsHistogramQueryResponse
                     | import('~/queries/schema/schema-general').MetricsQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse

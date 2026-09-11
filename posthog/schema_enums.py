@@ -3352,10 +3352,25 @@ class MetricsDisplayType(StrEnum):
     HEATMAP = "heatmap"
 
 
+class MetricsFilterOp(StrEnum):
+    EQ = "eq"
+    NEQ = "neq"
+    REGEX = "regex"
+    NOT_REGEX = "not_regex"
+
+
 class MetricsNullMode(StrEnum):
     GAP = "gap"
     ZERO = "zero"
     CONNECT = "connect"
+
+
+class MetricsOtelType(StrEnum):
+    GAUGE = "gauge"
+    SUM = "sum"
+    HISTOGRAM = "histogram"
+    EXPONENTIAL_HISTOGRAM = "exponential_histogram"
+    SUMMARY = "summary"
 
 
 class MetricsReducer(StrEnum):
@@ -3365,21 +3380,6 @@ class MetricsReducer(StrEnum):
     MAX = "max"
     SUM = "sum"
     DELTA = "delta"
-
-
-class MetricsFilterOp(StrEnum):
-    EQ = "eq"
-    NEQ = "neq"
-    REGEX = "regex"
-    NOT_REGEX = "not_regex"
-
-
-class MetricsOtelType(StrEnum):
-    GAUGE = "gauge"
-    SUM = "sum"
-    HISTOGRAM = "histogram"
-    EXPONENTIAL_HISTOGRAM = "exponential_histogram"
-    SUMMARY = "summary"
 
 
 class MetricsStatSummary(StrEnum):
@@ -3458,6 +3458,7 @@ class NodeKind(StrEnum):
     LOG_ATTRIBUTES_QUERY = "LogAttributesQuery"
     LOG_VALUES_QUERY = "LogValuesQuery"
     METRICS_QUERY = "MetricsQuery"
+    METRICS_HISTOGRAM_QUERY = "MetricsHistogramQuery"
     TRACE_SPANS_QUERY = "TraceSpansQuery"
     TRACE_SPANS_AGGREGATION_QUERY = "TraceSpansAggregationQuery"
     TRACE_SPANS_TREE_QUERY = "TraceSpansTreeQuery"
