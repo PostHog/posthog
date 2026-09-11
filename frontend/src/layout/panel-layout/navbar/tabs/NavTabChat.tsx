@@ -410,7 +410,10 @@ export function NavTabChat({
                                 </div>
                             </>
                         )}
-                        {tasksEnabled && tasksError && tasks.length === 0 && !tasksLoading && (
+                        {/* Deliberately not gated on an empty list. A failed load keeps the previous page,
+                            so that gate would leave the user reading the old filter's rows with no error
+                            and no retry. Nothing else reports this failure: there is no toast for it. */}
+                        {tasksEnabled && tasksError && !tasksLoading && (
                             <LoadTasksError onRetry={() => loadTasks(taskListParams)} />
                         )}
                         {tasksEnabled && tasksLoading && tasks.length === 0 && historyGroups.length > 0 && (
