@@ -33,6 +33,7 @@ export function DataQualityChecksPanel({
         checks,
         checksLoading,
         checksLoadError,
+        checksLoaded,
         enabledChecksCount,
         isSuiteRunning,
         pollTimedOut,
@@ -60,7 +61,7 @@ export function DataQualityChecksPanel({
         ) : null
     }
 
-    if (checksLoadError) {
+    if (checksLoadError && !checksLoaded) {
         return (
             <LemonBanner type="error" action={{ children: 'Retry', onClick: loadChecks }}>
                 Could not load the checks. Try again.
@@ -120,6 +121,11 @@ export function DataQualityChecksPanel({
                     </p>
                 )}
 
+                {checksLoadError && (
+                    <LemonBanner type="warning" action={{ children: 'Retry', onClick: loadChecks }}>
+                        Could not refresh the checks. Showing the latest available results.
+                    </LemonBanner>
+                )}
                 {isSuiteRunning && (
                     <LemonBanner type="info" icon={<Spinner />}>
                         Running checks...

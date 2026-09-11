@@ -58,6 +58,7 @@ export interface dataQualityChecksLogicValues {
     checkRunsByCheckId: Record<string, DataQualityCheckRunApi[]>
     checks: DataQualityCheckApi[]
     checksLoadError: string | null
+    checksLoaded: boolean
     checksLoading: boolean
     enabledChecksCount: number
     health: DataQualitySubjectHealthApi | null
@@ -271,6 +272,14 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
             {
                 loadChecks: () => null,
                 loadChecksFailure: (_, { error }) => error,
+            },
+        ],
+        // A refresh runs after every suite run, so a later failure must not take the last good
+        // list off the screen: the panel keeps it and warns instead.
+        checksLoaded: [
+            false,
+            {
+                loadChecksSuccess: () => true,
             },
         ],
         checks: {

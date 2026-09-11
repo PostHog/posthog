@@ -188,9 +188,22 @@ describe('dataQualityChecksLogic', () => {
         ;(dataCatalogMetricsChecksList as jest.Mock).mockRejectedValueOnce(new Error('Service unavailable'))
         await mountLogic({ subjectType: 'metric', subjectId: 'metric-1' })
         expect(logic.values.checksLoadError).toBe('Service unavailable')
+        expect(logic.values.checksLoaded).toBe(false)
         logic.actions.loadChecks()
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.checksLoadError).toBeNull()
+        expect(logic.values.checksLoaded).toBe(true)
+    })
+
+    it('keeps the loaded checks when a later refresh fails', async () => {
+        await mountLogic()
+        ;(warehouseSavedQueriesChecksList as jest.Mock).mockRejectedValueOnce(new Error('Service unavailable'))
+        logic.actions.loadChecks()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.checksLoadError).toBe('Service unavailable')
+        expect(logic.values.checksLoaded).toBe(true)
+        expect(logic.values.checks).toHaveLength(1)
     })
 
     it('fails closed without a toast when the subject is forbidden', async () => {
