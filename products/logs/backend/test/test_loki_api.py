@@ -167,3 +167,15 @@ class TestLokiQueryApi(APIBaseTest):
         assert response.status_code == expected_status
         if expected_status == status.HTTP_403_FORBIDDEN:
             self.request_mock.assert_not_called()
+
+    @parameterized.expand([("bearer", "headers"), ("query_param", "query")])
+    def test_public_project_token_does_not_authenticate(self, _name: str, placement: str):
+        self.client.logout()
+        project_token = self.team.api_token
+        if placement == "headers":
+            response = self.client.get(f"{self.base}/labels", headers={"authorization": f"Bearer {project_token}"})
+        else:
+            response = self.client.get(f"{self.base}/labels", {"api_key": project_token, "token": project_token})
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        self.request_mock.assert_not_called()
