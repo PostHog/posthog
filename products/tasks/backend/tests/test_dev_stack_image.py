@@ -124,6 +124,30 @@ class TestBakeDevStackImage:
         assert sandbox.published_name is None
         assert sandbox.destroyed is True
 
+    def test_failed_bake_error_keeps_the_failing_tail_within_the_property_limit(self):
+        # Error tracking truncates the exception message near 10,000 characters, cutting the
+        # end. The failing command sits at the end of the output, so the retained tail must
+        # stay short enough that the whole message survives ingestion.
+        ERROR_TRACKING_PROPERTY_LIMIT = 10_000
+        failing_marker = "FATAL: bin/migrate --scope=clickhouse exited 1"
+
+        class _NoisyStream(_FakeStream):
+            def iter_stdout(self):
+                for i in range(4000):
+                    yield f"[bake] warming step line {i}\n"
+                yield f"{failing_marker}\n"
+
+        fake_cls = _make_fake_sandbox_cls(exit_code=1)
+        fake_cls.execute_stream = lambda self, command, timeout_seconds=None: _NoisyStream(1)
+
+        with patch("products.tasks.backend.logic.services.dev_stack_image.get_sandbox_class", return_value=fake_cls):
+            with pytest.raises(DevStackImageBakeError) as exc_info:
+                bake_dev_stack_image(_unique_publish_name())
+
+        message = str(exc_info.value)
+        assert failing_marker in message
+        assert len(message) < ERROR_TRACKING_PROPERTY_LIMIT
+
     def test_transient_snapshot_failure_retries_publish_without_rebaking(self):
         # A snapshot timeout after a completed bake must retry on the still-running
         # sandbox — failing the activity instead re-runs the whole 15-25 minute bake.
