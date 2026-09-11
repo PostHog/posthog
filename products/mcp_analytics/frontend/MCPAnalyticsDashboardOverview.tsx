@@ -2,15 +2,13 @@ import { useActions, useValues } from 'kea'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { FilterBar } from 'lib/components/FilterBar'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { McpDateFilter } from './components/McpDateFilter'
+import { McpSharedFilters } from './components/McpSharedFilters'
 import { ActivityChart } from './dashboard/ActivityChart'
 import { HarnessBarChart } from './dashboard/HarnessBarChart'
 import { KpiTiles } from './dashboard/KpiTiles'
@@ -19,7 +17,6 @@ import { NotableSessionsTable } from './dashboard/NotableSessionsTable'
 import { ToolErrorRateChart } from './dashboard/ToolErrorRateChart'
 import { ToolUsageChart } from './dashboard/ToolUsageChart'
 import { MCPAnalyticsFirstLook } from './firstLook/MCPAnalyticsFirstLook'
-import { mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
 import { mcpDashboardOverviewLogic } from './mcpDashboardOverviewLogic'
 
 export function MCPAnalyticsDashboardOverview(): JSX.Element {
@@ -47,8 +44,6 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         interval,
     } = useValues(mcpDashboardOverviewLogic)
     const { setDateFilter } = useActions(mcpDashboardOverviewLogic)
-    const { filterTestAccounts, propertyFilters } = useValues(mcpAnalyticsFiltersLogic)
-    const { setFilterTestAccounts, setPropertyFilters } = useActions(mcpAnalyticsFiltersLogic)
     const { timezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -65,28 +60,8 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                             onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
                             dataAttr="mcp-dashboard-date-filter"
                         />
-                        <div data-attr="mcp-dashboard-property-filter">
-                            <PropertyFilters
-                                pageKey="mcp-dashboard-overview"
-                                propertyFilters={propertyFilters}
-                                onChange={setPropertyFilters}
-                                taxonomicGroupTypes={[
-                                    TaxonomicFilterGroupType.MCPProperties,
-                                    TaxonomicFilterGroupType.EventProperties,
-                                    TaxonomicFilterGroupType.EventFeatureFlags,
-                                ]}
-                                eventNames={['$mcp_tool_call']}
-                                buttonText="Add filter"
-                            />
-                        </div>
+                        <McpSharedFilters pageKey="mcp-dashboard-overview" dataAttrPrefix="mcp-dashboard" />
                     </>
-                }
-                right={
-                    <TestAccountFilterSwitch
-                        checked={filterTestAccounts}
-                        onChange={setFilterTestAccounts}
-                        data-attr="mcp-dashboard-test-account-filter"
-                    />
                 }
             />
             <MCPAnalyticsFirstLook />

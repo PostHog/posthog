@@ -13,13 +13,14 @@ import posthoganalytics
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 
 if TYPE_CHECKING:
-    from posthog.schema import DateRange, IntervalType
+    from posthog.schema import AnyPropertyFilterDiscriminated, DateRange, IntervalType
 
     from posthog.models.team import Team
     from posthog.models.user import User
@@ -59,6 +60,23 @@ def tool_scope_exprs(tool: str) -> list[ast.Expr]:
         ),
         parse_expr("properties.$mcp_source = {source}", placeholders={"source": ast.Constant(value=NEW_SDK_SOURCE)}),
     ]
+
+
+def shared_filter_exprs(
+    team: "Team",
+    properties: "list[AnyPropertyFilterDiscriminated] | None",
+    filter_test_accounts: bool | None,
+) -> list[ast.Expr]:
+    """Property filters plus, when enabled, the team's default test-account exclusions.
+
+    Every MCP analytics runner that accepts the dashboard's shared property filters and
+    "Filter out internal and test users" switch applies them through this one expression,
+    so the two behave identically everywhere they're wired in.
+    """
+    all_properties = list(properties or [])
+    if filter_test_accounts:
+        all_properties += team.test_account_filters or []
+    return [property_to_expr(all_properties, team)] if all_properties else []
 
 
 def display_person_properties(*, email: str, name: str) -> str:

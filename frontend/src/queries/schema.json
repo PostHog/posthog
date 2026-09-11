@@ -32957,6 +32957,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolCategoriesQuery",
                     "type": "string"
@@ -32964,6 +32967,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolCategoriesQueryResponse"
@@ -33065,6 +33074,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolCategoryCountsQuery",
                     "type": "string"
@@ -33072,6 +33084,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolCategoryCountsQueryResponse"
@@ -33307,6 +33325,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
                     "description": "Bucket granularity for the series. The frontend passes getDefaultInterval so a sub-day window buckets by hour/minute instead of collapsing to a single day point. Defaults to day."
@@ -33318,6 +33339,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolDailyStatsQueryResponse"
@@ -33423,6 +33450,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolDescriptionsQuery",
                     "type": "string"
@@ -33430,6 +33460,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolDescriptionsQueryResponse"
@@ -33604,6 +33640,9 @@
                     "description": "Raw $mcp_error_type bucket; \"unknown\" selects errored events without an error type.",
                     "type": "string"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolFailureOccurrencesQuery",
                     "type": "string"
@@ -33611,6 +33650,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolFailureOccurrencesQueryResponse"
@@ -33702,6 +33747,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolFailuresQuery",
                     "type": "string"
@@ -33709,6 +33757,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolFailuresQueryResponse"
@@ -33814,6 +33868,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolNeighborsQuery",
                     "type": "string"
@@ -33826,6 +33883,12 @@
                     "description": "Whether to count tools called immediately before or after the target tool.",
                     "enum": ["before", "after"],
                     "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolNeighborsQueryResponse"
@@ -33950,6 +34013,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
                     "description": "Bucket granularity; the frontend passes getDefaultInterval. Defaults to day."
@@ -33961,6 +34027,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolQualityDailyStatsQueryResponse"
@@ -34112,6 +34184,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolQualityRowsQuery",
                     "type": "string"
@@ -34127,6 +34202,12 @@
                 "offset": {
                     "$ref": "#/definitions/integer",
                     "description": "Number of matching tools to skip."
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolQualityRowsQueryResponse"
@@ -34269,6 +34350,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolSampleIntentsQuery",
                     "type": "string"
@@ -34276,6 +34360,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolSampleIntentsQueryResponse"
@@ -34397,6 +34487,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolStatsQuery",
                     "type": "string"
@@ -34404,6 +34497,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolStatsQueryResponse"
@@ -34538,6 +34637,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPToolTopUsersQuery",
                     "type": "string"
@@ -34545,6 +34647,12 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolTopUsersQueryResponse"

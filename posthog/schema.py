@@ -26892,8 +26892,10 @@ class MCPToolCategoriesQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolCategoriesQuery"] = "MCPToolCategoriesQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[AnyPropertyFilterDiscriminated] | None = None
     response: MCPToolCategoriesQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -26904,8 +26906,10 @@ class MCPToolCategoryCountsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolCategoryCountsQuery"] = "MCPToolCategoryCountsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[AnyPropertyFilterDiscriminated] | None = None
     response: MCPToolCategoryCountsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -26928,6 +26932,7 @@ class MCPToolDailyStatsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
         description=(
@@ -26938,6 +26943,7 @@ class MCPToolDailyStatsQuery(BaseModel):
     )
     kind: Literal["MCPToolDailyStatsQuery"] = "MCPToolDailyStatsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[AnyPropertyFilterDiscriminated] | None = None
     response: MCPToolDailyStatsQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str = Field(
@@ -26952,8 +26958,10 @@ class MCPToolDescriptionsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolDescriptionsQuery"] = "MCPToolDescriptionsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[AnyPropertyFilterDiscriminated] | None = None
     response: MCPToolDescriptionsQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str = Field(
@@ -26978,8 +26986,10 @@ class MCPToolFailureOccurrencesQuery(BaseModel):
         ...,
         description=('Raw $mcp_error_type bucket; "unknown" selects errored events without an error type.'),
     )
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolFailureOccurrencesQuery"] = "MCPToolFailureOccurrencesQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[AnyPropertyFilterDiscriminated] | None = None
     response: MCPToolFailureOccurrencesQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str = Field(
@@ -26994,8 +27004,10 @@ class MCPToolFailuresQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolFailuresQuery"] = "MCPToolFailuresQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[AnyPropertyFilterDiscriminated] | None = None
     response: MCPToolFailuresQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str = Field(
@@ -27010,12 +27022,14 @@ class MCPToolNeighborsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolNeighborsQuery"] = "MCPToolNeighborsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     neighborDirection: NeighborDirection = Field(
         ...,
         description=("Whether to count tools called immediately before or after the target tool."),
     )
+    properties: list[AnyPropertyFilterDiscriminated] | None = None
     response: MCPToolNeighborsQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str = Field(
@@ -27034,12 +27048,14 @@ class MCPToolQualityDailyStatsQuery(BaseModel):
         description=("Restrict to these $mcp_tool_category values; empty or omitted means all categories."),
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
         description=("Bucket granularity; the frontend passes getDefaultInterval. Defaults to day."),
     )
     kind: Literal["MCPToolQualityDailyStatsQuery"] = "MCPToolQualityDailyStatsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[AnyPropertyFilterDiscriminated] | None = None
     response: MCPToolQualityDailyStatsQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str | None = Field(
@@ -27058,6 +27074,7 @@ class MCPToolQualityRowsQuery(BaseModel):
         description=("Restrict to these $mcp_tool_category values; empty or omitted means all categories."),
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolQualityRowsQuery"] = "MCPToolQualityRowsQuery"
     limit: int | None = Field(
         default=None,
@@ -27065,6 +27082,7 @@ class MCPToolQualityRowsQuery(BaseModel):
     )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = Field(default=None, description="Number of matching tools to skip.")
+    properties: list[AnyPropertyFilterDiscriminated] | None = None
     response: MCPToolQualityRowsQueryResponse | None = None
     search: str | None = Field(
         default=None,
@@ -27086,8 +27104,10 @@ class MCPToolSampleIntentsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolSampleIntentsQuery"] = "MCPToolSampleIntentsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[AnyPropertyFilterDiscriminated] | None = None
     response: MCPToolSampleIntentsQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str = Field(
@@ -27102,8 +27122,10 @@ class MCPToolStatsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolStatsQuery"] = "MCPToolStatsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[AnyPropertyFilterDiscriminated] | None = None
     response: MCPToolStatsQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str = Field(
@@ -27118,8 +27140,10 @@ class MCPToolTopUsersQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = None
     kind: Literal["MCPToolTopUsersQuery"] = "MCPToolTopUsersQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: list[AnyPropertyFilterDiscriminated] | None = None
     response: MCPToolTopUsersQueryResponse | None = None
     tags: QueryLogTags | None = None
     toolName: str = Field(

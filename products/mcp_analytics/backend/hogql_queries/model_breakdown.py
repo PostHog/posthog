@@ -10,7 +10,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -18,7 +17,11 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
-from products.mcp_analytics.backend.hogql_queries.base import mcp_query_date_range, validate_mcp_analytics_access
+from products.mcp_analytics.backend.hogql_queries.base import (
+    mcp_query_date_range,
+    shared_filter_exprs,
+    validate_mcp_analytics_access,
+)
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -46,11 +49,7 @@ class MCPModelBreakdownQueryRunner(AnalyticsQueryRunner[MCPModelBreakdownQueryRe
             ),
             parse_expr("timestamp <= {date_to}", placeholders={"date_to": self.query_date_range.date_to_as_hogql()}),
         ]
-        properties = list(self.query.properties or [])
-        if self.query.filterTestAccounts:
-            properties += self.team.test_account_filters or []
-        if properties:
-            exprs.append(property_to_expr(properties, self.team))
+        exprs.extend(shared_filter_exprs(self.team, self.query.properties, self.query.filterTestAccounts))
         return ast.And(exprs=exprs)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:

@@ -4,6 +4,7 @@ import api from 'lib/api'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { formatMsAsSeconds } from './dashboard/formatters'
 import { type DailyToolStat, buildDailyChartData, mcpAnalyticsToolQualityLogic } from './mcpAnalyticsToolQualityLogic'
@@ -293,6 +294,90 @@ describe('mcpAnalyticsToolQualityLogic', () => {
 
             // Two weeks would auto-group by day.
             expect(logic.values.interval).toBe('hour')
+        })
+    })
+
+    describe('shared filter wiring', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+            jest.spyOn(mockApi, 'query').mockImplementation(async (query: any) =>
+                query.kind === NodeKind.MCPToolQualityRowsQuery ? emptyToolRowsResponse : { results: [] }
+            )
+        })
+
+        function queryCallsSince(callIndex: number): Record<string, any>[] {
+            return mockApi.query.mock.calls.slice(callIndex).map((call) => call[0] as any)
+        }
+
+        const EVENT_FILTER: AnyPropertyFilter = {
+            key: '$mcp_tool_name',
+            value: ['query_run'],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        }
+
+        it('spreads the shared property filters into every query and reloads on change', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                logic.actions.setPropertyFilters([EVENT_FILTER])
+            }).toFinishAllListeners()
+
+            // Categories, category counts, tool rows, and daily stats all reload.
+            const reloads = queryCallsSince(callsBefore)
+            expect(reloads.length).toBe(4)
+            expect(reloads.every((call) => JSON.stringify(call.properties) === JSON.stringify([EVENT_FILTER]))).toBe(
+                true
+            )
+        })
+
+        it('spreads filterTestAccounts into every query and reloads on change', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                logic.actions.setFilterTestAccounts(true)
+            }).toFinishAllListeners()
+
+            const reloads = queryCallsSince(callsBefore)
+            expect(reloads.length).toBe(4)
+            expect(reloads.every((call) => call.filterTestAccounts === true)).toBe(true)
+        })
+
+        // Regression: loadAvailableCategories now depends on the shared filters, so it can be
+        // re-triggered while a previous request from before the filter change is still in flight.
+        // Without a breakpoint, that stale response could resolve last and overwrite the scope
+        // selector with categories that no longer match the current filters.
+        it('discards a superseded available-categories response so a slow earlier request cannot overwrite it', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            let resolveSlow: (value: unknown) => void = () => {}
+            const slow = new Promise((resolve) => {
+                resolveSlow = resolve
+            })
+            jest.spyOn(mockApi, 'query')
+                .mockImplementationOnce(() => slow as any)
+                .mockImplementationOnce(() => Promise.resolve({ results: [{ category: 'fresh' }] }))
+
+            await expectLogic(logic, () => {
+                logic.actions.loadAvailableCategories()
+                logic.actions.loadAvailableCategories()
+            }).toDispatchActions(['loadAvailableCategoriesSuccess'])
+
+            expect(logic.values.availableCategories).toEqual(['fresh'])
+
+            // The stale first request resolving late must not overwrite the fresher result.
+            resolveSlow({ results: [{ category: 'stale' }] })
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.availableCategories).toEqual(['fresh'])
         })
     })
 })

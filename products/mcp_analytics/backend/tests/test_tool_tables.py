@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     DateRange,
+    EventPropertyFilter,
     IntervalType,
     MCPToolDailyStatsQuery,
     MCPToolDescriptionsQuery,
@@ -17,6 +18,7 @@ from posthog.schema import (
     MCPToolStatsQuery,
     MCPToolTopUsersQuery,
     NeighborDirection,
+    PropertyOperator,
 )
 
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -406,6 +408,7 @@ def _emit_tool_call(
     distinct_id: str = "d1",
     source: str | None = NEW_SDK_SOURCE,
     is_error: bool = False,
+    error_type: str | None = None,
     duration_ms: float | None = None,
     intent: str | None = None,
     intent_source: str | None = None,
@@ -418,6 +421,8 @@ def _emit_tool_call(
     properties: dict[str, Any] = {"$mcp_tool_name": tool_name, "$mcp_is_error": is_error}
     if source is not None:
         properties["$mcp_source"] = source
+    if error_type is not None:
+        properties["$mcp_error_type"] = error_type
     if duration_ms is not None:
         properties["$mcp_duration_ms"] = duration_ms
     if intent is not None:
@@ -588,10 +593,18 @@ class TestMCPToolSampleIntentsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clic
 
 
 class TestMCPToolNeighborsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
-    def _run(self, direction: NeighborDirection, tool_name: str = "query_run") -> list[Any]:
+    def _run(
+        self,
+        direction: NeighborDirection,
+        tool_name: str = "query_run",
+        properties: list[Any] | None = None,
+    ) -> list[Any]:
         runner = MCPToolNeighborsQueryRunner(
             query=MCPToolNeighborsQuery(
-                toolName=tool_name, neighborDirection=direction, dateRange=DateRange(date_from="-7d")
+                toolName=tool_name,
+                neighborDirection=direction,
+                dateRange=DateRange(date_from="-7d"),
+                properties=properties,
             ),
             team=self.team,
         )
@@ -617,3 +630,228 @@ class TestMCPToolNeighborsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhou
         assert len(rows) == 1
         assert rows[0].neighbor_tool == expected_neighbor
         assert rows[0].co_occurrences == 1
+
+    def test_shared_filters_do_not_change_which_call_counts_as_the_neighbor(self) -> None:
+        # Regression: a property filter that drops the middle call from the CTE before
+        # lagInFrame/leadInFrame run would make the runner see tool_c as query_run's immediate
+        # successor instead of the true next call, tool_b. Only the target call's own match
+        # should decide whether the occurrence counts; every call must stay in the window so
+        # adjacency reflects the real conversation order.
+        now = datetime.now(tz=UTC)
+        _emit_tool_call(
+            self.team,
+            tool_name="query_run",
+            session_id="conv1",
+            client_name="matches",
+            timestamp=now - timedelta(minutes=2),
+        )
+        _emit_tool_call(
+            self.team,
+            tool_name="tool_b",
+            session_id="conv1",
+            client_name="excluded",
+            timestamp=now - timedelta(minutes=1),
+        )
+        _emit_tool_call(self.team, tool_name="tool_c", session_id="conv1", client_name="matches", timestamp=now)
+        flush_persons_and_events()
+
+        rows = self._run(
+            NeighborDirection.AFTER,
+            properties=[
+                EventPropertyFilter(key="$mcp_client_name", value=["matches"], operator=PropertyOperator.EXACT)
+            ],
+        )
+
+        assert len(rows) == 1
+        assert rows[0].neighbor_tool == "tool_b"
+
+
+def _setup_two_tool_calls(team: Any) -> None:
+    """One event on the shared property filter's match, one off it: the two-events-in,
+    one-out pattern every case below uses to prove the filter reaches the runner."""
+    _emit_tool_call(team, distinct_id="d1", client_name="included-client")
+    _emit_tool_call(team, distinct_id="d2", client_name="excluded-client")
+
+
+def _setup_two_failures(team: Any) -> None:
+    _emit_tool_call(team, distinct_id="d1", is_error=True, error_type="included_error", client_name="included-client")
+    _emit_tool_call(team, distinct_id="d2", is_error=True, error_type="excluded_error", client_name="excluded-client")
+
+
+def _setup_two_descriptions(team: Any) -> None:
+    _emit_tool_call(team, distinct_id="d1", description="included desc", client_name="included-client")
+    _emit_tool_call(team, distinct_id="d2", description="excluded desc", client_name="excluded-client")
+
+
+def _setup_two_failed_calls(team: Any) -> None:
+    _emit_tool_call(team, distinct_id="d1", is_error=True, error_type="internal", client_name="included-client")
+    _emit_tool_call(team, distinct_id="d2", is_error=True, error_type="internal", client_name="excluded-client")
+
+
+def _setup_two_sample_intents(team: Any) -> None:
+    _emit_tool_call(team, distinct_id="d1", intent='{"goal":"included"}', client_name="included-client")
+    _emit_tool_call(team, distinct_id="d2", intent='{"goal":"excluded"}', client_name="excluded-client")
+
+
+def _setup_two_conversations(team: Any) -> None:
+    """Two independent conversations, each pairing the target tool with a different neighbor,
+    tagged by client so a filter on one client keeps only its conversation's pair intact."""
+    now = datetime.now(tz=UTC)
+    _emit_tool_call(
+        team,
+        tool_name="query_run",
+        session_id="conv1",
+        client_name="included-client",
+        timestamp=now - timedelta(minutes=2),
+    )
+    _emit_tool_call(
+        team,
+        tool_name="tool_a",
+        session_id="conv1",
+        client_name="included-client",
+        timestamp=now - timedelta(minutes=1),
+    )
+    _emit_tool_call(
+        team,
+        tool_name="query_run",
+        session_id="conv2",
+        client_name="excluded-client",
+        timestamp=now - timedelta(minutes=2),
+    )
+    _emit_tool_call(
+        team,
+        tool_name="tool_b",
+        session_id="conv2",
+        client_name="excluded-client",
+        timestamp=now - timedelta(minutes=1),
+    )
+
+
+class TestMCPToolTablesSharedFilters(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    """Every runner in this module resolves its WHERE through `_tool_call_where`, which applies
+    the dashboard's shared property filters and "Filter out internal and test users" switch via
+    `shared_filter_exprs` (see hogql_queries/base.py). One parameterized case per runner proves
+    that wiring reaches all of them, rather than duplicating a property-filter test and a
+    filterTestAccounts test per runner.
+    """
+
+    @parameterized.expand(
+        [
+            (
+                "top_users",
+                MCPToolTopUsersQueryRunner,
+                MCPToolTopUsersQuery,
+                {"toolName": "query_run"},
+                _setup_two_tool_calls,
+                len,
+                2,
+                1,
+            ),
+            (
+                "failures",
+                MCPToolFailuresQueryRunner,
+                MCPToolFailuresQuery,
+                {"toolName": "query_run"},
+                _setup_two_failures,
+                len,
+                2,
+                1,
+            ),
+            (
+                "failure_occurrences",
+                MCPToolFailureOccurrencesQueryRunner,
+                MCPToolFailureOccurrencesQuery,
+                {"toolName": "query_run", "errorType": "internal"},
+                _setup_two_failed_calls,
+                len,
+                2,
+                1,
+            ),
+            (
+                "stats",
+                MCPToolStatsQueryRunner,
+                MCPToolStatsQuery,
+                {"toolName": "query_run"},
+                _setup_two_tool_calls,
+                lambda rows: rows[0].calls if rows else 0,
+                2,
+                1,
+            ),
+            (
+                "daily_stats",
+                MCPToolDailyStatsQueryRunner,
+                MCPToolDailyStatsQuery,
+                {"toolName": "query_run"},
+                _setup_two_tool_calls,
+                lambda rows: sum(r.calls for r in rows),
+                2,
+                1,
+            ),
+            (
+                "descriptions",
+                MCPToolDescriptionsQueryRunner,
+                MCPToolDescriptionsQuery,
+                {"toolName": "query_run"},
+                _setup_two_descriptions,
+                len,
+                2,
+                1,
+            ),
+            (
+                "sample_intents",
+                MCPToolSampleIntentsQueryRunner,
+                MCPToolSampleIntentsQuery,
+                {"toolName": "query_run"},
+                _setup_two_sample_intents,
+                len,
+                2,
+                1,
+            ),
+            (
+                "neighbors",
+                MCPToolNeighborsQueryRunner,
+                MCPToolNeighborsQuery,
+                {"toolName": "query_run", "neighborDirection": NeighborDirection.AFTER},
+                _setup_two_conversations,
+                len,
+                2,
+                1,
+            ),
+        ]
+    )
+    def test_property_filter_and_test_accounts_narrow_the_results(
+        self,
+        _name: str,
+        runner_cls: Any,
+        query_cls: Any,
+        extra_query_kwargs: dict[str, Any],
+        setup_fn: Any,
+        metric_fn: Any,
+        expected_unfiltered: Any,
+        expected_filtered: Any,
+    ) -> None:
+        setup_fn(self.team)
+        flush_persons_and_events()
+
+        def run(**filter_kwargs: Any) -> Any:
+            query = query_cls(dateRange=DateRange(date_from="-7d"), **extra_query_kwargs, **filter_kwargs)
+            return metric_fn(runner_cls(query=query, team=self.team).calculate().results)
+
+        assert run() == expected_unfiltered
+
+        assert (
+            run(
+                properties=[
+                    EventPropertyFilter(
+                        key="$mcp_client_name", value=["included-client"], operator=PropertyOperator.EXACT
+                    )
+                ]
+            )
+            == expected_filtered
+        )
+
+        self.team.test_account_filters = [
+            {"key": "$mcp_client_name", "value": ["excluded-client"], "operator": "is_not", "type": "event"}
+        ]
+        self.team.save()
+        assert run(filterTestAccounts=True) == expected_filtered
