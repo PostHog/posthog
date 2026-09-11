@@ -69,4 +69,24 @@ describe("useLoopBuilderTask", () => {
       expect(input.repository).toBeUndefined();
     },
   );
+
+  it("starts one task when a second submit lands while the flag is still loading", async () => {
+    let releaseFlag = (): void => {};
+    mockedResolveFlag.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          releaseFlag = () => resolve(false);
+        }),
+    );
+    const run = vi.fn(async () => true);
+    mockedRunner.mockImplementation(() => ({ run, isRunning: false }));
+
+    const { result } = renderHook(() => useLoopBuilderTask());
+    const first = result.current.runTask("Summarize open PRs");
+    const second = result.current.runTask("Summarize open PRs");
+    releaseFlag();
+    await Promise.all([first, second]);
+
+    expect(run).toHaveBeenCalledTimes(1);
+  });
 });

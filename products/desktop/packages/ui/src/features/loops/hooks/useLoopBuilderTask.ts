@@ -15,7 +15,7 @@ import {
   type InboxCloudTaskInputContext,
   useInboxCloudTaskRunner,
 } from "@posthog/ui/features/inbox/hooks/useInboxCloudTaskRunner";
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   buildLoopBuilderSystemInstructions,
   type LoopBuilderBackend,
@@ -119,19 +119,33 @@ export function useLoopBuilderTask(context?: {
     onTaskCreated: handleTaskCreated,
   });
 
+  // The runner only closes its own door once it starts, which is after the flag
+  // await below. The ref holds submits that arrive in the same tick, before a
+  // render can disable the composer; the state is what disables it.
+  const startingRef = useRef(false);
+  const [isStarting, setIsStarting] = useState(false);
+
   const runTask = useCallback(
     async (instructions: string) => {
-      instructionsRef.current = instructions;
-      const workflowBacked = await resolveFeatureFlagAfterLoad(
-        featureFlags,
-        LOOPS_HOG_FLOWS_FLAG,
-        featureFlagsLoaded,
-      );
-      backendRef.current = workflowBacked ? "workflow" : "loops";
-      await run();
+      if (startingRef.current) return;
+      startingRef.current = true;
+      setIsStarting(true);
+      try {
+        instructionsRef.current = instructions;
+        const workflowBacked = await resolveFeatureFlagAfterLoad(
+          featureFlags,
+          LOOPS_HOG_FLOWS_FLAG,
+          featureFlagsLoaded,
+        );
+        backendRef.current = workflowBacked ? "workflow" : "loops";
+        await run();
+      } finally {
+        startingRef.current = false;
+        setIsStarting(false);
+      }
     },
     [run, featureFlags, featureFlagsLoaded],
   );
 
-  return { runTask, isRunning };
+  return { runTask, isRunning: isStarting || isRunning };
 }
