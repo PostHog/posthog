@@ -1167,7 +1167,7 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
     )
 
 /**
- * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `reports` to find a prior report and `edit-report` to update it instead.
+ * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. Safe to retry: resending an emission returns the report the first call authored (`idempotent_replay` true) rather than a second one, keyed on `idempotency_key` or, without one, on the report's content. Use `reports` to find a report from an earlier run and `edit-report` to update it instead of authoring a near-duplicate.
  * @summary Author a full report for a run
  */
 export const signalsScoutEmitReportBodyTitleMax = 300
@@ -1192,6 +1192,8 @@ export const signalsScoutEmitReportBodyChartsMax = 20
 export const signalsScoutEmitReportBodySuggestedPromptsItemMax = 200
 
 export const signalsScoutEmitReportBodySuggestedPromptsMax = 3
+
+export const signalsScoutEmitReportBodyIdempotencyKeyMax = 200
 
 export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
     .object({
@@ -1349,6 +1351,13 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them."
+            ),
+        idempotency_key: zod
+            .string()
+            .max(signalsScoutEmitReportBodyIdempotencyKeyMax)
+            .nullish()
+            .describe(
+                "Optional name for this emission, unique within the run. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report."
             ),
     })
     .describe('Request body for `emit-report`. Run attribution is taken from the URL path.')
