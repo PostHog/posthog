@@ -190,6 +190,11 @@ function handleKickoffError(
     captureInboxReportActionCompleted({ report, actionType, outcome: 'failure' })
 }
 
+// Mirrors `signal_report_discussion_question`'s `max_length` in the tasks `TaskCreateSerializer`
+// (`@maxLength 4000` in the generated tasks schema); keep the two in sync. Over it, task creation
+// comes back as a 400 on a field the reader never sees named.
+export const REPORT_DISCUSSION_QUESTION_MAX_LENGTH = 4000
+
 async function createReportTask(
     report: SignalReport,
     relationship: SignalReportTaskRelationship,

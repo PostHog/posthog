@@ -11,7 +11,11 @@ import { maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { AttachedContextBar } from 'products/posthog_ai/frontend/api/primitives'
 
 import { captureInboxReportAction, discussQuestionProperties } from '../../inboxAnalytics'
-import { inboxTaskKickoffLogic, isActionCapableReport } from '../../inboxTaskKickoffLogic'
+import {
+    inboxTaskKickoffLogic,
+    isActionCapableReport,
+    REPORT_DISCUSSION_QUESTION_MAX_LENGTH,
+} from '../../inboxTaskKickoffLogic'
 import { SignalReport } from '../../types'
 
 export function ReportDiscussionComposer({
@@ -59,6 +63,7 @@ export function ReportDiscussionComposer({
                             disabledReason: aiConsentDisabledReason ?? undefined,
                             dataAttr: 'inbox-report-ask-ai-submit',
                             context: <AttachedContextBar />,
+                            maxLength: REPORT_DISCUSSION_QUESTION_MAX_LENGTH,
                         }}
                     />
                     {suggestions.length > 0 && (

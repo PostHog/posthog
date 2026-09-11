@@ -49,8 +49,16 @@ export interface DisplayFormatterContext {
  */
 export const MAX_MESSAGE_LENGTH = 40000
 
-/** Shown when a message is over `MAX_MESSAGE_LENGTH`, both before sending and if the server rejects it. */
-export const MESSAGE_TOO_LONG = `Your message is too long. Shorten it to ${MAX_MESSAGE_LENGTH.toLocaleString()} characters or fewer.`
+/**
+ * Shown when a message is over the composer's limit, both before sending and if the server rejects
+ * it. The limit is a parameter because a composer wired to a stricter endpoint caps below
+ * `MAX_MESSAGE_LENGTH`.
+ */
+export function messageTooLongError(limit: number): string {
+    return `Your message is too long. Shorten it to ${limit.toLocaleString()} characters or fewer.`
+}
+
+export const MESSAGE_TOO_LONG = messageTooLongError(MAX_MESSAGE_LENGTH)
 
 /**
  * Counts the way the server's `CharField` does: it trims whitespace, then measures Unicode code
