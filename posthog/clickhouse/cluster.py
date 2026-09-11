@@ -797,8 +797,13 @@ class MutationWaiters:
             waiter.wait(client)
 
 
-def wait_for_mutations_on_shards(cluster: ClickhouseCluster, shard_mutations: Mapping[int, MutationWaiter]) -> None:
-    """Block until every mutation in ``shard_mutations`` is complete on all hosts within its shard."""
+def wait_for_mutations_on_shards(
+    cluster: ClickhouseCluster, shard_mutations: Mapping[int, MutationWaiter | MutationWaiters]
+) -> None:
+    """Block until every mutation in ``shard_mutations`` is complete on all hosts within its shard.
+
+    A shard's value can bundle several mutations, which is how a sweep spanning tables waits on one.
+    """
     # during periods of elevated replication lag, it may take some time for mutations to become available on
     # the shards, so give them a little bit of breathing room with retries
     retry_policy = RetryPolicy(max_attempts=3, delay=10.0, exceptions=(MutationNotFound,))
