@@ -136,12 +136,17 @@ Duration/bytes percentiles cover **successful** reads only (failed reads have tr
 Bucketed history behind the Trends tab. One param: `hours` (1–504, default 168).
 Returns zero-filled arrays aligned to `buckets` (hourly up to 48h, daily beyond):
 read counts (`total`, `precomputed`, `fallback`),
-latency and cost of the precomputed read path
-(`precomputed_p50_duration_ms`, `precomputed_p90_duration_ms`, `precomputed_avg_read_bytes`;
-successful precomputed reads only).
-The latency and bytes-per-read series should stay flat as the preaggregation tables grow —
-a sustained rise means precomputed reads are scanning more than their own jobs' rows,
-which breaks the core assumption that read cost tracks experiment size, not cache size.
+latency of the precomputed exposures path
+(`precomputed_p50_duration_ms`, `precomputed_p90_duration_ms`; successful reads only),
+and `fully_precomputed_avg_read_bytes` — average `read_bytes` of reads where **both** the
+exposures and metric-events sides came from the cache.
+The bytes series is restricted to fully precomputed reads because `read_bytes` covers the
+whole metric query: a direct events scan on the metric-events side swamps the cache read
+by orders of magnitude.
+The latency and bytes series should stay flat as the preaggregation tables grow —
+a sustained rise in the bytes series means cache reads are scanning more than their own
+jobs' rows, which breaks the core assumption that read cost tracks experiment size, not
+cache size.
 Also `builds.failed_by_code` and `builds.failed_read_bytes`.
 
 ### GET `/api/debug_ch_queries/cache_health/`

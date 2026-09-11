@@ -406,6 +406,7 @@ class ExternalDataSourceType(models.TextChoices):
     FRESHCHAT = "Freshchat", "Freshchat"
     FRESHSERVICE = "Freshservice", "Freshservice"
     FULCRUM = "Fulcrum", "Fulcrum"
+    GAINSIGHTCS = "GainsightCs", "GainsightCs"
     GAINSIGHTPX = "GainsightPx", "GainsightPx"
     GITBOOK = "GitBook", "GitBook"
     GLASSFROG = "Glassfrog", "Glassfrog"
@@ -1406,6 +1407,9 @@ class ExternalDataSourceType(models.TextChoices):
     TENJIN = "Tenjin", "Tenjin"
     FOLK = "Folk", "Folk"
     CYBERSOURCE = "Cybersource", "Cybersource"
+    GOOGLEADSENSE = "GoogleAdSense", "GoogleAdSense"
+    SEQUENZY = "Sequenzy", "Sequenzy"
+    SKIO = "Skio", "Skio"
 
 
 def external_data_source_type_choices() -> list[tuple[str, str | Promise]]:

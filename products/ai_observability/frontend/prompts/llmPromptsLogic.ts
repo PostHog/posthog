@@ -245,7 +245,10 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
 
     trackedActionToUrl(({ values }) => {
         const changeUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] | void => {
-            const nextValues = cleanPagedSearchOrderParams(values.filters)
+            const nextValues = {
+                ...cleanPagedSearchOrderParams(values.filters),
+                created_by_id: values.filters.created_by_id,
+            }
             const urlValues = cleanFilters(router.values.searchParams)
 
             if (!objectsEqual(values.filters, urlValues)) {

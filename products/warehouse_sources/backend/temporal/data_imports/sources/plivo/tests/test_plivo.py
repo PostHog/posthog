@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from requests import Response
@@ -107,8 +107,12 @@ class TestBuildWindows:
         assert all(we - ws <= timedelta(days=30) for ws, we in windows)
 
 
-@freeze_time(FROZEN_NOW)
 class TestWindowedEndpoints:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(FROZEN_NOW, tick=False):
+            yield
+
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_full_refresh_walks_retention_in_30_day_windows(self, MockSession: mock.MagicMock) -> None:
         calls = _wire(MockSession.return_value, lambda url, params: _page([], 0))
@@ -218,8 +222,12 @@ class TestWindowedEndpoints:
         assert calls[1]["params"]["offset"] == 0
 
 
-@freeze_time(FROZEN_NOW)
 class TestNonWindowedEndpoints:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(FROZEN_NOW, tick=False):
+            yield
+
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_recordings_incremental_filters_without_windowing(self, MockSession: mock.MagicMock) -> None:
         calls = _wire(MockSession.return_value, lambda url, params: _page([{"recording_id": "r1", "add_time": ""}], 1))

@@ -5,7 +5,7 @@ import typing as t
 from datetime import date, timedelta
 from typing import Any, cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
@@ -64,6 +64,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_source 
     DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE,
     INVALID_CREDENTIALS_FALLBACK_MESSAGE,
     ExternalDataSourceViewSet,
+    _classify_refresh_schemas_error,
     get_declared_field_names,
     get_direct_connection_metadata,
     get_nonsensitive_and_sensitive_field_names,
@@ -78,6 +79,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     FieldType,
     VersionDeprecation,
     WebhookCreationResult,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    HostNotAllowedError,
+    TemporaryHostResolutionError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
@@ -2783,6 +2789,71 @@ class TestExternalDataSource(APIBaseTest):
         # stripe_secret_key must still be in the DB
         source.refresh_from_db()
         assert source.job_inputs["auth_method"]["stripe_secret_key"] == "sk_test_123"
+
+    @parameterized.expand(
+        [
+            # The settings form resubmits the connection config even when someone only flips an
+            # unrelated setting, so an unreachable source must not fail that save.
+            ("unchanged_config", {}, 200, False),
+            # A submitted credential change still has to be probed before it's stored.
+            (
+                "changed_credential",
+                {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_456"}},
+                400,
+                True,
+            ),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(False, "Could not reach your source."),
+    )
+    def test_patch_external_data_source_probes_connection_only_when_config_changed(
+        self, _name, job_input_overrides, expected_status, expect_probe, mock_validate
+    ):
+        source = self._create_external_data_source()
+        get_data = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}").json()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {**get_data["job_inputs"], **job_input_overrides},
+                "auto_sync_new_schemas": True,
+            },
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert mock_validate.called is expect_probe
+        source.refresh_from_db()
+        assert source.auto_sync_new_schemas is (expected_status == 200)
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(False, "Could not reach your source."),
+    )
+    def test_patch_external_data_source_probes_connection_when_stored_config_cannot_be_parsed(self, mock_validate):
+        # A stored secret that still carries the Fernet marker (e.g. decrypted with a key that's since
+        # been rotated out) makes the stored config unparseable. The submitted config is otherwise the
+        # same shape the source was created with, so a naive comparison could call this "unchanged" —
+        # but with nothing valid to compare against, the probe must still run rather than being skipped.
+        source = self._create_external_data_source()
+        source.job_inputs = {"auth_method": {"selection": "api_key", "stripe_secret_key": "gAAAAA_undecryptable"}}
+        source.save()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+                "auto_sync_new_schemas": True,
+            },
+        )
+
+        assert response.status_code == 400, response.json()
+        assert mock_validate.called is True
+        source.refresh_from_db()
+        # The rejected probe means the save didn't go through — the corrupted secret is still stored,
+        # not silently replaced by an unvalidated one.
+        assert source.job_inputs["auth_method"]["stripe_secret_key"] == "gAAAAA_undecryptable"
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.SnowflakeSource.validate_credentials",
@@ -5697,9 +5768,9 @@ class TestExternalDataSource(APIBaseTest):
             ("2024-07-01T18:00:00.000Z", ExternalDataJob.Status.COMPLETED),
             ("2024-07-02T06:00:00.000Z", ExternalDataJob.Status.FAILED),
         ]:
-            with freeze_time(created_at):
+            with time_machine.travel(created_at, tick=False):
                 ExternalDataJob.objects.create(team=self.team, pipeline=source, schema=schema, status=job_status)
-        with freeze_time("2024-07-02T06:00:00.000Z"):
+        with time_machine.travel("2024-07-02T06:00:00.000Z", tick=False):
             ExternalDataJob.objects.create(
                 team=self.team, pipeline=never_completed, status=ExternalDataJob.Status.RUNNING
             )
@@ -5768,7 +5839,7 @@ class TestExternalDataSource(APIBaseTest):
     def test_source_jobs_pagination(self):
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
-        with freeze_time("2024-07-01T12:00:00.000Z"):
+        with time_machine.travel("2024-07-01T12:00:00.000Z", tick=False):
             job1 = ExternalDataJob.objects.create(
                 team=self.team,
                 pipeline=source,
@@ -5790,7 +5861,7 @@ class TestExternalDataSource(APIBaseTest):
             assert data[0]["id"] == str(job1.pk)
 
         # Query newer jobs
-        with freeze_time("2024-07-01T18:00:00.000Z"):
+        with time_machine.travel("2024-07-01T18:00:00.000Z", tick=False):
             job2 = ExternalDataJob.objects.create(
                 team=self.team,
                 pipeline=source,
@@ -5812,7 +5883,7 @@ class TestExternalDataSource(APIBaseTest):
             assert data[0]["id"] == str(job2.pk)
 
         # Query older jobs
-        with freeze_time("2024-07-01T09:00:00.000Z"):
+        with time_machine.travel("2024-07-01T09:00:00.000Z", tick=False):
             job3 = ExternalDataJob.objects.create(
                 team=self.team,
                 pipeline=source,
@@ -6055,7 +6126,8 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["password"] == "db_password"  # Main DB password preserved
         assert source.job_inputs["ssh_tunnel"]["auth"]["password"] == "ssh_secret_password"  # SSH password preserved
-        mock_validate_credentials.assert_called_once()
+        # Saving without changes leaves the connection untouched, so it isn't probed
+        mock_validate_credentials.assert_not_called()
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
@@ -7075,7 +7147,8 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 200, response.json()
         source.refresh_from_db()
         assert source.job_inputs["api_key"] == "existing_token"
-        mock_validate_credentials.assert_called_once()
+        # The domain and the preserved token match what's stored, so the connection isn't probed
+        mock_validate_credentials.assert_not_called()
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
@@ -10372,6 +10445,9 @@ class TestCheckCDCPrerequisitesWizard(APIBaseTest):
             ),
             ("ssh_tunnel_error", BaseSSHTunnelForwarderError("Could not establish session to SSH gateway")),
             ("ssl_required_error", SSLRequiredError("SSL/TLS is required but not supported by the server")),
+            # The host policy's own lookup answered "try again" while probing the source. Nothing is
+            # wrong with the source and a fresh attempt recovers, so it must not be captured either.
+            ("temporary_host_resolution_error", TemporaryHostResolutionError("db.example.com")),
         ]
     )
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.capture_exception")
@@ -10958,6 +11034,37 @@ class TestDisableCDC(APIBaseTest):
         non_cdc_schema.refresh_from_db()
         assert non_cdc_schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
         assert non_cdc_schema.should_sync is True
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        return_value=None,
+    )
+    def test_disable_cdc_clears_an_earlier_auto_disable(self, _cleanup) -> None:
+        # PostHog can halt a CDC schema before the user gives up on CDC. The halt must not
+        # survive their disable, or the failure digest keeps emailing them about a sync
+        # they switched off themselves.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+
+        halted_schema = ExternalDataSchema.objects.create(
+            name="cdc_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+        )
+        ExternalDataSchema.objects.filter(pk=halted_schema.pk).update(
+            should_sync=False,
+            status=ExternalDataSchema.Status.FAILED,
+            auto_disabled_at=timezone.now(),
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        assert response.status_code == 200, response.content
+
+        halted_schema.refresh_from_db()
+        assert halted_schema.auto_disabled_at is None
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.purge_buffer_prefix")
     def test_disable_cdc_requires_editor_on_every_table(self, mock_purge) -> None:
@@ -13952,3 +14059,13 @@ class TestFanoutParentCreation(APIBaseTest):
 
         assert response.status_code == 201, response.json()
         assert ExternalDataSchema.objects.get(team_id=self.team.pk, name="issue_events").should_sync is True
+
+
+class TestRefreshSchemasErrorClassification(SimpleTestCase):
+    def test_a_rejected_host_returns_the_guidance_without_a_source_registry(self) -> None:
+        message, is_expected = _classify_refresh_schemas_error(
+            None, HostNotAllowedError("Database host not allowed: resolves to a private address")
+        )
+
+        assert message == DATABASE_HOST_NOT_ALLOWED_GUIDANCE
+        assert is_expected is True
