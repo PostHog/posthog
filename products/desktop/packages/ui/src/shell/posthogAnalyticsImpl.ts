@@ -382,14 +382,16 @@ export function recordApiRequest(
 }
 
 function normalizeApiOperation(path: string): string {
-  return path
-    .split("?", 1)[0]
-    .replace(/\/[0-9]+(?=\/|$)/g, "/$id")
-    .replace(
-      /\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\/|$)/gi,
-      "/$id",
+  return isApiOperationTemplate(path) ? path : "custom";
+}
+
+function isApiOperationTemplate(path: string): boolean {
+  return (
+    path.includes("{") &&
+    /^\/(?:[A-Za-z0-9._~!$&'()*+,;=:@-]+|\{[A-Za-z_][A-Za-z0-9_]*\})(?:\/(?:[A-Za-z0-9._~!$&'()*+,;=:@-]+|\{[A-Za-z_][A-Za-z0-9_]*\}))*\/?$/.test(
+      path,
     )
-    .replace(/\/[A-Za-z0-9-]{16,}(?=\/|$)/g, "/$id");
+  );
 }
 
 /**

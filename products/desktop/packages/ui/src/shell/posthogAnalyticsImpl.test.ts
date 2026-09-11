@@ -253,7 +253,7 @@ describe("recordNavigationSettled", () => {
 });
 
 describe("recordApiRequest", () => {
-  it("records duration by route with a normalized API operation", async () => {
+  it("records duration by route with a templated API operation", async () => {
     const { initializePostHog, recordApiRequest } = await loadAnalytics();
     initializePostHog();
 
@@ -261,7 +261,7 @@ describe("recordApiRequest", () => {
       125,
       "/tasks/$taskId",
       "GET",
-      "/api/projects/2/tasks/0190abcd-1234-7890-8abc-def012345678/",
+      "/api/projects/{projectId}/tasks/{taskId}/",
       200,
       "success",
     );
@@ -273,12 +273,30 @@ describe("recordApiRequest", () => {
         unit: "ms",
         attributes: {
           method: "GET",
-          operation: "/api/projects/$id/tasks/$id/",
+          operation: "/api/projects/{projectId}/tasks/{taskId}/",
           outcome: "success",
           route: "/tasks/$taskId",
           status_class: "2xx",
         },
       },
+    );
+  });
+
+  it.each([
+    "/api/skills/foo/files/billing/config.ts",
+    "/api/skills/short-name/files/src/components/Thing.tsx",
+  ])("uses a bounded operation for raw dynamic path %s", async (path) => {
+    const { initializePostHog, recordApiRequest } = await loadAnalytics();
+    initializePostHog();
+
+    recordApiRequest(125, "/tasks/$taskId", "GET", path, 200, "success");
+
+    expect(mockPosthog.metrics.histogram).toHaveBeenCalledWith(
+      "desktop.api.request.duration",
+      125,
+      expect.objectContaining({
+        attributes: expect.objectContaining({ operation: "custom" }),
+      }),
     );
   });
 });
