@@ -13,6 +13,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required as base_login_required
 from django.db import DEFAULT_DB_ALIAS, connections
+from django.db.migrations.exceptions import CircularDependencyError, NodeNotFoundError
 from django.db.migrations.executor import MigrationExecutor
 from django.db.models import Q
 from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, JsonResponse
@@ -121,15 +122,22 @@ def login_required(view):
 
 
 def health(request):
-    executor = MigrationExecutor(connections[DEFAULT_DB_ALIAS])
-    plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
-    status = 503 if plan else 200
-    if status == 503:
-        err = Exception("Migrations are not up to date. If this continues migrations have failed")
-        capture_exception(err)
-        return HttpResponse("Migrations are not up to date", status=status, content_type="text/plain")
-    if status == 200:
-        return HttpResponse("ok", status=status, content_type="text/plain")
+    try:
+        executor = MigrationExecutor(connections[DEFAULT_DB_ALIAS])
+        plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
+    except (NodeNotFoundError, CircularDependencyError) as err:
+        # A broken graph is a checkout problem, so name the bad nodes instead of raising a traceback.
+        logger.warning("health_check_migration_graph_invalid", error=str(err))
+        return HttpResponse(f"Migration graph is not valid: {err}", status=503, content_type="text/plain")
+    if plan:
+        # Pending migrations are expected while a deploy applies them. Log the state instead of
+        # capturing an exception, because this probe runs constantly and would flood error tracking.
+        logger.warning(
+            "health_check_migrations_pending",
+            pending_migrations=[f"{migration.app_label}.{migration.name}" for migration, _ in plan],
+        )
+        return HttpResponse("Migrations are not up to date", status=503, content_type="text/plain")
+    return HttpResponse("ok", status=200, content_type="text/plain")
 
 
 def stats(request):
