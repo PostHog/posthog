@@ -134,12 +134,18 @@ async def _describe_columns(
 
 
 def _reject_duplicate_output_columns(columns: list[tuple[str, str]]) -> None:
-    seen: set[str] = set()
+    # Folded because Delta compares field names without case, so `userId` beside `userid` is as
+    # unwritable as a literal repeat. Left to the write, that pair costs a full scan first.
+    first_spelling: dict[str, str] = {}
     duplicates: list[str] = []
     for column_name, _ in columns:
-        if column_name in seen and column_name not in duplicates:
-            duplicates.append(column_name)
-        seen.add(column_name)
+        folded = column_name.lower()
+        if folded in first_spelling:
+            for spelling in (first_spelling[folded], column_name):
+                if spelling not in duplicates:
+                    duplicates.append(spelling)
+        else:
+            first_spelling[folded] = column_name
     if duplicates:
         raise DuplicateOutputColumnError(duplicates)
 
@@ -180,6 +186,7 @@ class DuplicateOutputColumnError(NonReportableError):
         names = ", ".join(f'"{name}"' for name in duplicates)
         super().__init__(
             f"The query returns more than one column named {names}. "
+            "Names that differ only by case count as duplicates. "
             "Give each output column a unique name, for example with an alias."
         )
         self.duplicates = duplicates

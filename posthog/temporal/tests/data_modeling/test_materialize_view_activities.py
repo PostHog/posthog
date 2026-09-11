@@ -1677,14 +1677,16 @@ class TestHogqlTableDescribeSettings:
 
 class TestHogqlTableDuplicateOutputColumns:
     @pytest.mark.parametrize(
-        "describe_body",
+        ("describe_body", "expected_duplicates"),
         [
-            pytest.param(b"event\tDateTime\nevent\tDateTime\n", id="type-the-wrapper-converts"),
-            pytest.param(b"event\tString\nevent\tString\n", id="type-the-wrapper-leaves-alone"),
+            pytest.param(b"event\tDateTime\nevent\tDateTime\n", ["event"], id="type-the-wrapper-converts"),
+            pytest.param(b"event\tString\nevent\tString\n", ["event"], id="type-the-wrapper-leaves-alone"),
+            # Delta refuses these at the write, so the scan they would cost is wasted either way
+            pytest.param(b"event\tString\nEvent\tString\n", ["event", "Event"], id="names-differing-only-by-case"),
         ],
     )
     async def test_a_repeated_output_name_is_refused_before_the_query_runs(
-        self, ateam: Team, describe_body: bytes
+        self, ateam: Team, describe_body: bytes, expected_duplicates: list[str]
     ) -> None:
         client = _EmptyArrowClient(pa.schema([pa.field("event", pa.string())]))
         client.describe_body = describe_body
@@ -1703,8 +1705,9 @@ class TestHogqlTableDuplicateOutputColumns:
         ):
             _ = [batch async for batch in hogql_table("SELECT *, event FROM events", ateam, LOGGER.bind())]
 
-        assert error.value.duplicates == ["event"]
-        assert '"event"' in str(error.value)
+        assert error.value.duplicates == expected_duplicates
+        for name in expected_duplicates:
+            assert f'"{name}"' in str(error.value)
         assert client.arrow_query_calls == 0
         # a broken saved query is the customer's to fix, so the refusal must not reach error tracking
         assert isinstance(error.value, NonReportableError)
