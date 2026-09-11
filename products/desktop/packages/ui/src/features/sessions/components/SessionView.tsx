@@ -11,7 +11,11 @@ import {
   FAST_MODE_OPTION_CATEGORY,
 } from "@posthog/core/task-detail/previewConfig";
 import { useService } from "@posthog/di/react";
-import { type AcpMessage, FAST_MODE_FLAG } from "@posthog/shared";
+import {
+  type AcpMessage,
+  FAST_MODE_FLAG,
+  type OptimisticPromptAttachment,
+} from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   spendStopMessage,
@@ -105,7 +109,10 @@ interface SessionViewProps {
   isPromptPending?: boolean | null;
   promptStartedAt?: number | null;
   onBeforeSubmit?: (text: string, clearEditor: () => void) => boolean;
-  onSendPrompt: (text: string) => Promise<boolean>;
+  onSendPrompt: (
+    text: string,
+    attachments?: OptimisticPromptAttachment[],
+  ) => Promise<boolean>;
   onBashCommand?: (command: string) => void;
   onCancelPrompt: () => void;
   repoPath?: string | null;
@@ -409,6 +416,10 @@ export function SessionView({
       const submissionId = ++composerSubmissionRef.current;
       const editor = editorRef.current;
       const submittedContent = editor?.getContent() ?? null;
+      const submittedAttachments: OptimisticPromptAttachment[] | undefined =
+        submittedContent?.attachments?.map((attachment) => ({
+          ...attachment,
+        }));
       if (
         editor &&
         shouldSubmitComposerOptimistically(submittedContent, text)
@@ -416,7 +427,7 @@ export function SessionView({
         const sendPromise = submitComposerPrompt(
           editor,
           submittedContent,
-          () => onSendPrompt(text),
+          () => onSendPrompt(text, submittedAttachments),
           () => submissionId === composerSubmissionRef.current,
         );
         sendInFlightRef.current = false;
@@ -425,7 +436,7 @@ export function SessionView({
       }
 
       try {
-        if (await onSendPrompt(text)) {
+        if (await onSendPrompt(text, submittedAttachments)) {
           const currentEditor = editorRef.current;
           if (
             currentEditor &&

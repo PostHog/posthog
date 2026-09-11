@@ -8,6 +8,7 @@ import {
 } from "@phosphor-icons/react";
 import { WorkerPoolContextProvider } from "@pierre/diffs/react";
 import { buildTurnRatingMetric } from "@posthog/core/analytics/aiFeedback";
+import { stripTrailingAttachmentSummary } from "@posthog/core/editor/cloud-prompt";
 import { useService } from "@posthog/di/react";
 import {
   Button,
@@ -535,13 +536,16 @@ function UserBubble({
   attachments?: UserMessageAttachment[];
   keyboardFocused?: boolean;
 }) {
+  const cleanedContent =
+    attachments.length > 0 ? stripTrailingAttachmentSummary(content) : content;
+
   // A message relayed from another agent run renders as an incoming agent
   // message (start-aligned, outlined, provenance chip) instead of masquerading
   // as something this run's user typed. The envelope boilerplate never renders;
   // only the sender-authored body flows into the normal pipeline below.
   const { peerAgentMessage, blocks, displayContent } = useMemo(
-    () => splitUserMessage(content),
-    [content],
+    () => splitUserMessage(cleanedContent),
+    [cleanedContent],
   );
   const visibleBlocks = useVisibleInjectedBlocks(blocks);
   // Provenance is never flag-gated: a peer message must not read as the user's.

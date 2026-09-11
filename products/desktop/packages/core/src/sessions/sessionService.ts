@@ -31,6 +31,7 @@ import {
   getBackoffDelay,
   getCloudUrlFromRegion,
   getConfigOptionByCategory,
+  getFileName,
   getReasoningEffortOptions,
   isFatalSessionError,
   isJsonRpcNotification,
@@ -45,6 +46,7 @@ import {
   type ModelAccess,
   mergeConfigOptions,
   type OptimisticItem,
+  type OptimisticPromptAttachment,
   type PermissionRequest,
   type QueuedMessage,
   resolveBypassRevertMode,
@@ -114,6 +116,10 @@ import {
   planPermissionResponse,
   resolveAllowAlwaysUpgradeMode,
 } from "./permissionResponse";
+import {
+  type AttachmentRef,
+  extractPromptDisplayContent,
+} from "./promptContent";
 import {
   collapseSupersededToolCallUpdates,
   convertStoredEntriesToEvents,
@@ -275,6 +281,75 @@ type TrpcSubscription = {
 interface CloudHydrationResult {
   historyEntryCount: number;
   liveStreamLineCount: number;
+}
+
+interface InitialCloudOptimisticPrompt {
+  content: string;
+  attachments: OptimisticPromptAttachment[];
+}
+
+interface SendPromptOptions {
+  steer?: boolean;
+  attachments?: OptimisticPromptAttachment[];
+}
+
+interface SendCloudPromptOptions extends SendPromptOptions {
+  skipQueueGuard?: boolean;
+}
+
+function optimisticAttachmentKey(
+  attachment: OptimisticPromptAttachment,
+): string {
+  if (!attachment.id.startsWith("file://")) return attachment.id;
+
+  try {
+    return decodeURIComponent(new URL(attachment.id).pathname);
+  } catch {
+    return attachment.id;
+  }
+}
+
+function mergeOptimisticPromptAttachments(
+  derived: AttachmentRef[],
+  submitted: OptimisticPromptAttachment[] | undefined,
+): OptimisticPromptAttachment[] {
+  const attachments: OptimisticPromptAttachment[] = [];
+  const attachmentIndexByKey = new Map<string, number>();
+  const append = (attachment: OptimisticPromptAttachment): void => {
+    if (!attachment.id) return;
+    const key = optimisticAttachmentKey(attachment);
+    const existingIndex = attachmentIndexByKey.get(key);
+    if (existingIndex === undefined) {
+      attachmentIndexByKey.set(key, attachments.length);
+      attachments.push({
+        id: attachment.id,
+        label: attachment.label,
+        ...(attachment.previewUrl ? { previewUrl: attachment.previewUrl } : {}),
+      });
+      return;
+    }
+    const existing = attachments[existingIndex];
+    attachments[existingIndex] = {
+      id: attachment.id,
+      label: attachment.label,
+      ...(attachment.previewUrl || existing.previewUrl
+        ? { previewUrl: attachment.previewUrl ?? existing.previewUrl }
+        : {}),
+    };
+  };
+
+  for (const attachment of derived) append(attachment);
+  for (const attachment of submitted ?? []) append(attachment);
+  return attachments;
+}
+
+function attachmentsFromFilePaths(
+  filePaths: string[],
+): OptimisticPromptAttachment[] {
+  return filePaths.map((filePath) => ({
+    id: filePath,
+    label: getFileName(filePath),
+  }));
 }
 
 const CLOUD_HYDRATION_MAX_ENTRIES = 100_000;
@@ -1875,13 +1950,16 @@ export class SessionService {
     { promise: Promise<SessionConfigOption[]>; fetchedAt: number }
   >();
   /**
-   * Initial cloud prompt text (user message + any channel CONTEXT.md block),
-   * stashed by task creation keyed by taskId. The cloud sandbox takes seconds to
+   * Initial cloud prompt content and attachment labels, stashed by task
+   * creation keyed by taskId. The cloud sandbox takes seconds to
    * boot and echo this back, so the optimistic placeholder would otherwise show
    * the bare task description with no CONTEXT.md chip until the echo lands. Seed
    * the placeholder with this richer text instead, then drop it once consumed.
    */
-  private initialCloudOptimisticPrompt = new Map<string, string>();
+  private initialCloudOptimisticPrompt = new Map<
+    string,
+    InitialCloudOptimisticPrompt
+  >();
 
   constructor(private readonly d: SessionServiceDeps) {
     this.cloudRunIdleTracker = new CloudRunIdleTracker();
@@ -4149,7 +4227,7 @@ export class SessionService {
   async sendPrompt(
     taskId: string,
     prompt: string | ContentBlock[],
-    options?: { steer?: boolean },
+    options?: SendPromptOptions,
   ): Promise<{ stopReason: string }> {
     if (!this.d.getIsOnline()) {
       throw new Error(
@@ -4178,6 +4256,7 @@ export class SessionService {
     if (options?.steer && session.isPromptPending && !session.isCompacting) {
       if (session.isCloud && session.status === "connected") {
         return this.sendCloudPrompt(session, prompt, {
+          ...options,
           skipQueueGuard: true,
           steer: true,
         });
@@ -4217,7 +4296,7 @@ export class SessionService {
     }
 
     if (session.isCloud) {
-      return this.sendCloudPrompt(session, prompt);
+      return this.sendCloudPrompt(session, prompt, options);
     }
 
     if (session.status !== "connected") {
@@ -4263,7 +4342,7 @@ export class SessionService {
     });
 
     // Show the user's message in the chat immediately, before any respawn
-    this.applyOptimisticPrompt(session.taskRunId, blocks, promptText);
+    this.applyOptimisticPrompt(session.taskRunId, blocks, options?.attachments);
 
     if (promptReferencesAbsoluteFolder(prompt)) {
       const repoPath = this.localRepoPaths.get(taskId);
@@ -4297,6 +4376,7 @@ export class SessionService {
 
     return this.sendLocalPrompt(session, blocks, promptText, {
       optimisticApplied: true,
+      attachments: options?.attachments,
     });
   }
 
@@ -4509,7 +4589,7 @@ export class SessionService {
   private applyOptimisticPrompt(
     taskRunId: string,
     blocks: ContentBlock[],
-    promptText: string,
+    submittedAttachments?: OptimisticPromptAttachment[],
   ): void {
     this.d.store.updateSession(taskRunId, {
       isPromptPending: true,
@@ -4526,10 +4606,18 @@ export class SessionService {
         buttonId: skillButtonId,
       });
     } else {
+      const displayContent = extractPromptDisplayContent(blocks, {
+        filterHidden: true,
+      });
+      const attachments = mergeOptimisticPromptAttachments(
+        displayContent.attachments,
+        submittedAttachments,
+      );
       this.d.store.appendOptimisticItem(taskRunId, {
         type: "user_message",
-        content: promptText,
+        content: displayContent.text,
         timestamp: Date.now(),
+        ...(attachments.length > 0 ? { attachments } : {}),
       });
     }
   }
@@ -4538,10 +4626,18 @@ export class SessionService {
     session: AgentSession,
     blocks: ContentBlock[],
     promptText: string,
-    options: { optimisticApplied?: boolean; isRecoveryResend?: boolean } = {},
+    options: {
+      optimisticApplied?: boolean;
+      isRecoveryResend?: boolean;
+      attachments?: OptimisticPromptAttachment[];
+    } = {},
   ): Promise<{ stopReason: string }> {
     if (!options.optimisticApplied) {
-      this.applyOptimisticPrompt(session.taskRunId, blocks, promptText);
+      this.applyOptimisticPrompt(
+        session.taskRunId,
+        blocks,
+        options.attachments,
+      );
     }
 
     try {
@@ -4588,6 +4684,7 @@ export class SessionService {
             session,
             blocks,
             promptText,
+            options.attachments,
             errorDetails || errorMessage,
           );
           if (resent) {
@@ -4663,6 +4760,7 @@ export class SessionService {
     session: AgentSession,
     blocks: ContentBlock[],
     promptText: string,
+    attachments: OptimisticPromptAttachment[] | undefined,
     reason: string,
   ): Promise<{ stopReason: string } | null> {
     let recovered = false;
@@ -4700,6 +4798,7 @@ export class SessionService {
     });
     return this.sendLocalPrompt(refreshed, blocks, promptText, {
       isRecoveryResend: true,
+      attachments,
     });
   }
 
@@ -4879,10 +4978,14 @@ export class SessionService {
   private async sendCloudPrompt(
     session: AgentSession,
     prompt: string | ContentBlock[],
-    options?: { skipQueueGuard?: boolean; steer?: boolean },
+    options?: SendCloudPromptOptions,
   ): Promise<{ stopReason: string }> {
     const normalizedPrompt = await this.resolveCloudPrompt(prompt);
     const transport = this.d.h.getCloudPromptTransport(normalizedPrompt);
+    const optimisticAttachments = mergeOptimisticPromptAttachments(
+      attachmentsFromFilePaths(transport.filePaths),
+      options?.attachments,
+    );
     if (
       !transport.messageText &&
       transport.filePaths.length === 0 &&
@@ -4919,7 +5022,9 @@ export class SessionService {
             "Cloud run couldn't start. Check that GitHub is connected for this project, then try again.",
         );
       }
-      return this.resumeCloudRun(session, normalizedPrompt);
+      return this.resumeCloudRun(session, normalizedPrompt, {
+        attachments: optimisticAttachments,
+      });
     }
 
     if (session.cloudStatus !== "in_progress") {
@@ -4994,6 +5099,9 @@ export class SessionService {
       content: transport.promptText,
       timestamp: Date.now(),
       pinToTop: false,
+      ...(optimisticAttachments.length > 0
+        ? { attachments: optimisticAttachments }
+        : {}),
     });
 
     const authStatus = await this.getAuthCredentialsStatus().catch((error) => {
@@ -5110,7 +5218,9 @@ export class SessionService {
       if (!result.success) {
         if (result.status === 409 && !options?.steer) {
           this.d.store.clearTailOptimisticItems(session.taskRunId);
-          return this.resumeCloudRun(session, normalizedPrompt);
+          return this.resumeCloudRun(session, normalizedPrompt, {
+            attachments: optimisticAttachments,
+          });
         }
         throw new Error(result.error ?? "Failed to send cloud command");
       }
@@ -5289,6 +5399,7 @@ export class SessionService {
   private async resumeCloudRun(
     session: AgentSession,
     prompt: string | ContentBlock[],
+    options?: Pick<SendPromptOptions, "attachments">,
   ): Promise<{ stopReason: string }> {
     const normalizedPrompt = await this.resolveCloudPrompt(prompt);
     const authStatus = await this.getAuthCredentialsStatus();
@@ -5310,6 +5421,10 @@ export class SessionService {
     }
 
     const transport = this.d.h.getCloudPromptTransport(normalizedPrompt);
+    const optimisticAttachments = mergeOptimisticPromptAttachments(
+      attachmentsFromFilePaths(transport.filePaths),
+      options?.attachments,
+    );
     if (
       !transport.messageText &&
       transport.filePaths.length === 0 &&
@@ -5327,6 +5442,9 @@ export class SessionService {
       content: transport.promptText,
       timestamp: Date.now(),
       pinToTop: false,
+      ...(optimisticAttachments.length > 0
+        ? { attachments: optimisticAttachments }
+        : {}),
     });
 
     const rollbackOptimisticPrompt = () => {
@@ -6857,9 +6975,12 @@ export class SessionService {
       ) {
         this.d.store.appendOptimisticItem(taskRunId, {
           type: "user_message",
-          content: initialPrompt,
+          content: initialPrompt.content,
           timestamp: Date.now(),
           pinToTop: true,
+          ...(initialPrompt.attachments.length > 0
+            ? { attachments: initialPrompt.attachments }
+            : {}),
         });
       }
     } else {
@@ -7068,16 +7189,23 @@ export class SessionService {
   }
 
   /**
-   * Stash the initial cloud prompt (user message plus any channel CONTEXT.md
-   * block) so the optimistic placeholder can render it — and its CONTEXT.md
-   * chip — immediately, instead of waiting for the sandbox to boot and echo it
+   * Stash the initial cloud prompt and attachment labels so the optimistic
+   * placeholder can render them immediately, instead of waiting for the
+   * sandbox to boot and echo it
    * back. Best-effort: lost on reload, where the merge layer dedupes the echo
    * against the bare placeholder instead.
    */
-  rememberInitialCloudPrompt(taskId: string, content: string): void {
+  rememberInitialCloudPrompt(
+    taskId: string,
+    content: string,
+    filePaths?: string[],
+  ): void {
     const trimmed = content.trim();
     if (trimmed) {
-      this.initialCloudOptimisticPrompt.set(taskId, content);
+      this.initialCloudOptimisticPrompt.set(taskId, {
+        content,
+        attachments: attachmentsFromFilePaths(filePaths ?? []),
+      });
     }
   }
 
@@ -7646,7 +7774,12 @@ export class SessionService {
       ? typeof runState?.pending_user_message === "string"
         ? runState.pending_user_message
         : undefined
-      : (this.initialCloudOptimisticPrompt.get(taskId) ?? taskDescription);
+      : (this.initialCloudOptimisticPrompt.get(taskId)?.content ??
+        taskDescription);
+    const initialPrompt = this.initialCloudOptimisticPrompt.get(taskId);
+    const initialAttachments = isResumeRun
+      ? undefined
+      : initialPrompt?.attachments;
     const hasOptimisticUserPrompt = session.optimisticItems.some(
       (item) => item.type === "user_message",
     );
@@ -7665,6 +7798,9 @@ export class SessionService {
         content: seedContent,
         timestamp: Date.now(),
         pinToTop: !isResumeRun,
+        ...(initialAttachments?.length
+          ? { attachments: initialAttachments }
+          : {}),
       });
     }
     if (hasCurrentRunUserPrompt || isTerminalRun) {

@@ -53,7 +53,7 @@ describe("UserMessage", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
-  it("renders attachment chips for cloud prompts", () => {
+  it("renders attachment chips above cloud prompts", () => {
     renderWithFlags(
       <UserMessage
         content="read this file"
@@ -65,9 +65,38 @@ describe("UserMessage", () => {
       true,
     );
 
-    expect(screen.getByText("read this file")).toBeInTheDocument();
-    expect(screen.getByText("test.txt")).toBeInTheDocument();
+    const prompt = screen.getByText("read this file");
+    const firstAttachment = screen.getByText("test.txt");
+
+    expect(prompt).toBeInTheDocument();
+    expect(firstAttachment).toBeInTheDocument();
     expect(screen.getByText("notes.md")).toBeInTheDocument();
+    expect(
+      firstAttachment.compareDocumentPosition(prompt) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("renders attachment chips without their synthesized trailing summary", () => {
+    renderWithFlags(
+      <UserMessage
+        content={"review this\n\nAttached files: notes.md"}
+        attachments={[{ id: "attachment://notes.md", label: "notes.md" }]}
+      />,
+      true,
+    );
+
+    expect(screen.getByText("review this")).toBeInTheDocument();
+    expect(screen.getByText("notes.md")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Attached files: notes.md"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps attachment-like text when attachment metadata is absent", () => {
+    renderWithFlags(<UserMessage content="Attached files: notes.md" />, true);
+
+    expect(screen.getByText("Attached files: notes.md")).toBeInTheDocument();
   });
 
   it("renders a peer agent message as the body plus a provenance chip, never the raw envelope", () => {

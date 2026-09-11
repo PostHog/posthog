@@ -29,12 +29,19 @@ export interface QueuedMessage {
   queuedAt: number;
 }
 
+export interface OptimisticPromptAttachment {
+  id: string;
+  label: string;
+  previewUrl?: string;
+}
+
 export type OptimisticItem =
   | {
       type: "user_message";
       id: string;
       content: string;
       timestamp: number;
+      attachments?: OptimisticPromptAttachment[];
       pinToTop?: boolean;
     }
   | {

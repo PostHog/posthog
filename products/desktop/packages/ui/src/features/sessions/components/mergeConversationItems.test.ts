@@ -74,6 +74,48 @@ describe("mergeConversationItems", () => {
     });
   });
 
+  it.each([
+    {
+      name: "keeps optimistic attachments when the echo has none",
+      echoedAttachments: undefined,
+      expectedAttachments: [{ id: "inline-image:1", label: "diagram.png" }],
+    },
+    {
+      name: "replaces optimistic attachments with authoritative echo attachments",
+      echoedAttachments: [
+        { id: "file:///tmp/diagram.png", label: "diagram.png" },
+      ],
+      expectedAttachments: [
+        { id: "file:///tmp/diagram.png", label: "diagram.png" },
+      ],
+    },
+  ])("cloud: $name", ({ echoedAttachments, expectedAttachments }) => {
+    const optimisticAttachments = [
+      { id: "inline-image:1", label: "diagram.png" },
+    ];
+    const result = mergeConversationItems({
+      conversationItems: [
+        {
+          ...userMessage("echo", "review this", undefined, 100),
+          ...(echoedAttachments ? { attachments: echoedAttachments } : {}),
+        },
+      ],
+      optimisticItems: [
+        {
+          ...userMessage("opt", "review this"),
+          attachments: optimisticAttachments,
+        },
+      ],
+      isCloud: true,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      id: "opt",
+      attachments: expectedAttachments,
+    });
+  });
+
   it("cloud: dedupes the echoed prompt even when it carries an appended channel CONTEXT.md", () => {
     const echoedWithContext =
       'hello\n\n<channel_context channel="bluebird">background</channel_context>';

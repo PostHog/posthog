@@ -93,7 +93,11 @@ function snapshotUpdate(
   };
 }
 
-function createHarness(isTaskAuthor = true, initialPrompt?: string) {
+function createHarness(
+  isTaskAuthor = true,
+  initialPrompt?: string,
+  initialFilePaths?: string[],
+) {
   const sessions: Record<string, AgentSession> = {};
   const store = {
     getSessions: () => sessions,
@@ -232,7 +236,13 @@ function createHarness(isTaskAuthor = true, initialPrompt?: string) {
   } as unknown as SessionServiceDeps;
 
   const service = new SessionService(deps);
-  if (initialPrompt) service.rememberInitialCloudPrompt(TASK_ID, initialPrompt);
+  if (initialPrompt) {
+    service.rememberInitialCloudPrompt(
+      TASK_ID,
+      initialPrompt,
+      initialFilePaths,
+    );
+  }
   service.watchCloudTask(TASK_ID, RUN_ID, "https://us.posthog.com", 1);
   if (!onUpdate) throw new Error("watchCloudTask did not subscribe");
   const session = sessions[RUN_ID];
@@ -279,6 +289,19 @@ describe("cloud task update notifications", () => {
     );
     expect(harness.session.optimisticItems).toEqual([
       expect.objectContaining({ content: prompt, pinToTop: true }),
+    ]);
+  });
+
+  it("seeds initial cloud prompt attachment metadata", () => {
+    const harness = createHarness(true, "Review the diagram", [
+      "/tmp/diagram.png",
+    ]);
+
+    expect(harness.session.optimisticItems).toEqual([
+      expect.objectContaining({
+        content: "Review the diagram",
+        attachments: [{ id: "/tmp/diagram.png", label: "diagram.png" }],
+      }),
     ]);
   });
 

@@ -287,6 +287,7 @@ describe("TaskCreationSaga", () => {
     expect(sessionService.rememberInitialCloudPrompt).toHaveBeenCalledWith(
       "task-123",
       sentMessage,
+      [],
     );
   });
 
@@ -330,6 +331,7 @@ describe("TaskCreationSaga", () => {
     expect(sessionService.rememberInitialCloudPrompt).toHaveBeenCalledWith(
       "task-123",
       sentMessage,
+      [],
     );
   });
 

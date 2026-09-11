@@ -1,4 +1,5 @@
 import { Check, Copy, Robot, SlackLogo } from "@phosphor-icons/react";
+import { stripTrailingAttachmentSummary } from "@posthog/core/editor/cloud-prompt";
 import { Box, IconButton } from "@radix-ui/themes";
 import { motion } from "framer-motion";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -52,12 +53,15 @@ export const UserMessage = memo(function UserMessage({
   taskId,
   keyboardFocused = false,
 }: UserMessageProps) {
+  const cleanedContent =
+    attachments.length > 0 ? stripTrailingAttachmentSummary(content) : content;
+
   // A message relayed from another agent run renders with a provenance chip and
   // neutral accent instead of masquerading as this run's user. The envelope
   // boilerplate never renders; only the sender-authored body flows on.
   const { peerAgentMessage, blocks, displayContent } = useMemo(
-    () => splitUserMessage(content),
-    [content],
+    () => splitUserMessage(cleanedContent),
+    [cleanedContent],
   );
   const visibleBlocks = useVisibleInjectedBlocks(blocks);
 
@@ -91,6 +95,11 @@ export const UserMessage = memo(function UserMessage({
         }}
       >
         <CollapsibleMessageContent contentClassName="font-medium text-[13px] [&_p]:leading-[1.9]">
+          {showAttachmentChips && (
+            <div className={displayContent.trim() ? "mb-1.5" : ""}>
+              <UserMessageAttachments attachments={attachments} />
+            </div>
+          )}
           {containsFileMentions ? (
             parseFileMentions(displayContent)
           ) : (
@@ -107,11 +116,6 @@ export const UserMessage = memo(function UserMessage({
                 />
               )}
               <InjectedBlockChips blocks={visibleBlocks} taskId={taskId} />
-            </div>
-          )}
-          {showAttachmentChips && (
-            <div className={content.trim() ? "mt-1.5" : ""}>
-              <UserMessageAttachments attachments={attachments} />
             </div>
           )}
         </CollapsibleMessageContent>

@@ -18,10 +18,26 @@ export default meta;
 type Story = StoryObj<typeof UserMessage>;
 
 const FIXED_TIMESTAMP = Date.parse("2026-07-01T10:30:00Z");
+const IMAGE_PREVIEW_URL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAKAAAABkCAYAAAABtjuPAAAA/ElEQVR42u3SwQ0AEBAAQYXwEF2r072JKi5kHtvAZkrE2lJWxQQBKAAlAAWgBKAAlAAUgBKAAlACUABKAArAW21dAlAACkAABaAABFAACkAABaAABFAACkAABaAABFAACkAABaAABFAACkAA9RjAmEMCUAAKQAAFoAAEUAAKQAAFoAAEUAAKQAAFoAAEUAAKQAAFoAAEUAAKQAAFoAAEUAAKQAAFoAAEUAAKQAAFoAAEUAAKQAAFoAAUgAAKQAEIoAAUgAAKQAEIoAAUgAAKQAEIoAAUgAAKQAEIoAAUgFJSAApAASgBKAAlAAWgBKAAlAAUgBKAAlACUP90AP5EMZdDgPdWAAAAAElFTkSuQmCC";
 
 export const Typed: Story = {
   args: {
     content: "What are our top errors this week?",
+    timestamp: FIXED_TIMESTAMP,
+  },
+};
+
+export const WithImageAttachment: Story = {
+  args: {
+    content: "What does this image show?",
+    attachments: [
+      {
+        id: "inline-image:storybook",
+        label: "screenshot.png",
+        previewUrl: IMAGE_PREVIEW_URL,
+      },
+    ],
     timestamp: FIXED_TIMESTAMP,
   },
 };

@@ -218,6 +218,26 @@ describe("useSessionCallbacks.handleSendPrompt", () => {
     expect(toastError).toHaveBeenCalledWith("fetch failed");
   });
 
+  it("forwards non-empty submitted attachments to the session service", async () => {
+    sessionService.sendPrompt.mockResolvedValue({ stopReason: "end_turn" });
+    const attachments = [
+      {
+        id: "inline-image:test",
+        label: "diagram.png",
+        previewUrl: "data:image/png;base64,aW1hZ2U=",
+      },
+    ];
+
+    const { result } = renderCallbacks();
+    await result.current.handleSendPrompt("review this", attachments);
+
+    expect(sessionService.sendPrompt).toHaveBeenCalledWith(
+      TASK,
+      "review this",
+      { steer: false, attachments },
+    );
+  });
+
   it("forwards the steer intent from the messaging mode", async () => {
     messagingMode.value = "steer";
     sessionService.sendPrompt.mockResolvedValue({ stopReason: "steered" });

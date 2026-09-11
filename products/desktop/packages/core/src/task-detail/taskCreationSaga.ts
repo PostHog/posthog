@@ -329,6 +329,7 @@ export class TaskCreationSaga extends Saga<
         this.deps.sessionService.rememberInitialCloudPrompt(
           task.id,
           warmPayload.pendingUserMessage,
+          warmPayload.transport.filePaths,
         );
       }
       this.deps.track(ANALYTICS_EVENTS.PROMPT_SENT, {
@@ -431,6 +432,7 @@ export class TaskCreationSaga extends Saga<
             this.deps.sessionService.rememberInitialCloudPrompt(
               task.id,
               pendingUserMessage,
+              transport?.filePaths,
             );
           }
           const cloudAdapter = isPiRuntime

@@ -71,6 +71,35 @@ describe("promptContent", () => {
     ]);
   });
 
+  it("moves absolute raster image file tags into attachments", () => {
+    const result = extractPromptDisplayContent([
+      {
+        type: "text",
+        text: 'describe this\n<file path="/tmp/diagram.png" />\n<file path="/tmp/notes.txt" />\n<folder path="/tmp/docs" />',
+      },
+    ]);
+
+    expect(result).toEqual({
+      text: 'describe this\n\n<file path="/tmp/notes.txt" />\n<folder path="/tmp/docs" />',
+      attachments: [{ id: "/tmp/diagram.png", label: "diagram.png" }],
+    });
+  });
+
+  it("deduplicates image file tags and ACP resource attachments", () => {
+    const result = extractPromptDisplayContent([
+      { type: "text", text: '<file path="/tmp/diagram.png" />' },
+      {
+        type: "resource_link",
+        uri: "file:///tmp/diagram.png",
+        name: "diagram.png",
+      },
+    ]);
+
+    expect(result.attachments).toEqual([
+      { id: "file:///tmp/diagram.png", label: "diagram.png" },
+    ]);
+  });
+
   it("extracts inline Pi images as previewable attachments", () => {
     const result = extractPromptDisplayContent([
       { type: "text", text: "what is in this image?" },

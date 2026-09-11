@@ -13,7 +13,10 @@ import {
 } from "@posthog/core/sessions/sessionService";
 import { useService } from "@posthog/di/react";
 import { useHostTRPCClient } from "@posthog/host-router/react";
-import { sessionSupportsSideQuestion } from "@posthog/shared";
+import {
+  type OptimisticPromptAttachment,
+  sessionSupportsSideQuestion,
+} from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   resolveLocalSkillPrompt,
@@ -64,7 +67,10 @@ export function useSessionCallbacks({
   const messagingMode = useMessagingMode(taskId);
 
   const handleSendPrompt = useCallback(
-    async (text: string): Promise<boolean> => {
+    async (
+      text: string,
+      attachments?: OptimisticPromptAttachment[],
+    ): Promise<boolean> => {
       const currentSession = sessionRef.current;
       const currentEvents = currentSession?.events ?? [];
       const handled = await tryExecuteCodeCommand(text, {
@@ -147,6 +153,7 @@ export function useSessionCallbacks({
         markActivity(taskId);
         await sessionService.sendPrompt(taskId, promptText ?? text, {
           steer: messagingMode === "steer",
+          ...(attachments?.length ? { attachments } : {}),
         });
 
         const view = getAppViewSnapshot();

@@ -1,7 +1,13 @@
 import type { ContentBlock } from "@agentclientprotocol/sdk";
-import { getFileName } from "@posthog/shared";
+import {
+  getFileName,
+  isAbsolutePath,
+  isRasterImageFile,
+  unescapeXmlAttr,
+} from "@posthog/shared";
 
 const ATTACHMENT_URI_PREFIX = "attachment://";
+const ABSOLUTE_FILE_TAG_REGEX = /<file\s+path="([^"]+)"\s*\/>/g;
 
 function hashAttachmentPath(filePath: string): string {
   let hash = 2166136261;
@@ -143,31 +149,62 @@ export interface PromptDisplayContent {
   attachments: AttachmentRef[];
 }
 
+function attachmentDedupeKey(attachment: AttachmentRef): string {
+  if (!attachment.id.startsWith("file://")) return attachment.id;
+
+  try {
+    return decodeURIComponent(new URL(attachment.id).pathname);
+  } catch {
+    return attachment.id;
+  }
+}
+
+function stripRasterImageFileTags(
+  text: string,
+  appendAttachment: (attachment: AttachmentRef) => void,
+): string {
+  return text.replaceAll(ABSOLUTE_FILE_TAG_REGEX, (tag, rawPath: string) => {
+    const filePath = unescapeXmlAttr(rawPath);
+    if (!isAbsolutePath(filePath) || !isRasterImageFile(filePath)) {
+      return tag;
+    }
+
+    appendAttachment({ id: filePath, label: getFileName(filePath) });
+    return "";
+  });
+}
+
 export function extractPromptDisplayContent(
   blocks: ContentBlock[],
   options?: { filterHidden?: boolean },
 ): PromptDisplayContent {
   const filterHidden = options?.filterHidden ?? false;
+  const attachmentIndexByKey = new Map<string, number>();
+  const attachments: AttachmentRef[] = [];
+  const appendAttachment = (attachment: AttachmentRef): void => {
+    if (!attachment.id) return;
+    const key = attachmentDedupeKey(attachment);
+    const existingIndex = attachmentIndexByKey.get(key);
+    if (existingIndex !== undefined) {
+      attachments[existingIndex] = attachment;
+      return;
+    }
+    attachmentIndexByKey.set(key, attachments.length);
+    attachments.push(attachment);
+  };
 
   const textParts: string[] = [];
   for (const block of blocks) {
-    if (block.type !== "text") continue;
-    if (filterHidden) {
-      const meta = (block as { _meta?: { ui?: { hidden?: boolean } } })._meta;
-      if (meta?.ui?.hidden) continue;
+    if (block.type === "text") {
+      if (filterHidden) {
+        const meta = (block as { _meta?: { ui?: { hidden?: boolean } } })._meta;
+        if (meta?.ui?.hidden) continue;
+      }
+      textParts.push(stripRasterImageFileTags(block.text, appendAttachment));
     }
-    textParts.push(block.text);
-  }
 
-  const seen = new Set<string>();
-  const attachments: AttachmentRef[] = [];
-  for (const block of blocks) {
-    const ref = getBlockAttachmentRef(block);
-    if (!ref || seen.has(ref.id)) continue;
-    const { id } = ref;
-    if (!id) continue;
-    seen.add(id);
-    attachments.push(ref);
+    const attachment = getBlockAttachmentRef(block);
+    if (attachment) appendAttachment(attachment);
   }
 
   return { text: textParts.join(""), attachments };

@@ -321,6 +321,7 @@ export {
   isSelectGroup,
   mergeConfigOptions,
   type OptimisticItem,
+  type OptimisticPromptAttachment,
   type PermissionRequest,
   type QueuedMessage,
   resolveBypassRevertMode,

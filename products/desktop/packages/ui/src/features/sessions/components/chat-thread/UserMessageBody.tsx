@@ -1,4 +1,5 @@
 import { CaretDown } from "@phosphor-icons/react";
+import { stripTrailingAttachmentSummary } from "@posthog/core/editor/cloud-prompt";
 import { cn } from "@posthog/quill";
 import { ChatMarkdown } from "@posthog/ui/features/sessions/components/chat-thread/ChatMarkdown";
 import {
@@ -28,7 +29,9 @@ export function UserMessageBody({
   content: string;
   attachments?: UserMessageAttachment[];
 }) {
-  const containsFileMentions = hasFileMentions(content);
+  const cleanedContent =
+    attachments.length > 0 ? stripTrailingAttachmentSummary(content) : content;
+  const containsFileMentions = hasFileMentions(cleanedContent);
 
   const [isExpanded, setIsExpanded] = useState(false);
   const [isOverflowing, setIsOverflowing] = useState(false);
@@ -48,10 +51,15 @@ export function UserMessageBody({
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [content, isExpanded]);
+  }, [cleanedContent, isExpanded]);
 
   return (
     <>
+      {attachments.length > 0 && !containsFileMentions && (
+        <div className={cleanedContent.trim() ? "mb-1.5" : ""}>
+          <UserMessageAttachments attachments={attachments} />
+        </div>
+      )}
       <div
         ref={textRef}
         className={cn(
@@ -66,16 +74,11 @@ export function UserMessageBody({
         )}
       >
         {containsFileMentions ? (
-          parseFileMentions(content)
+          parseFileMentions(cleanedContent)
         ) : (
-          <ChatMarkdown content={content} />
+          <ChatMarkdown content={cleanedContent} />
         )}
       </div>
-      {attachments.length > 0 && !containsFileMentions && (
-        <div className="mt-1.5">
-          <UserMessageAttachments attachments={attachments} />
-        </div>
-      )}
       {isOverflowing && (
         <button
           type="button"

@@ -7486,20 +7486,43 @@ describe("SessionService", () => {
       );
     });
 
-    it("sends prompt via tRPC when session is ready", async () => {
+    it("sends a local image prompt with a previewable optimistic attachment", async () => {
       const service = getSessionService();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession(),
       );
       mockTrpcAgent.prompt.mutate.mockResolvedValue({ stopReason: "end_turn" });
+      const prompt: ContentBlock[] = [
+        { type: "text", text: "Review this image" },
+        {
+          type: "image",
+          data: "aW1hZ2U=",
+          mimeType: "image/png",
+          fileName: "diagram.png",
+        } as ContentBlock,
+      ];
 
-      const result = await service.sendPrompt("task-123", "Hello");
+      const result = await service.sendPrompt("task-123", prompt);
 
       expect(result.stopReason).toBe("end_turn");
       expect(mockTrpcAgent.prompt.mutate).toHaveBeenCalledWith({
         sessionId: "run-123",
-        prompt: [{ type: "text", text: "Hello" }],
+        prompt,
       });
+      expect(mockSessionStoreSetters.appendOptimisticItem).toHaveBeenCalledWith(
+        "run-123",
+        expect.objectContaining({
+          type: "user_message",
+          content: "Review this image",
+          attachments: [
+            {
+              id: expect.stringMatching(/^inline-image:/),
+              label: "diagram.png",
+              previewUrl: "data:image/png;base64,aW1hZ2U=",
+            },
+          ],
+        }),
+      );
     });
 
     it("reuses attachments uploaded before sending cloud follow-ups", async () => {

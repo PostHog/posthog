@@ -81,7 +81,7 @@ function ImageAttachment({
       <Dialog.Trigger>
         <button
           type="button"
-          className="group relative h-16 w-20 overflow-hidden rounded-md border border-gray-6 bg-gray-3"
+          className="group relative h-16 w-20 cursor-zoom-in overflow-hidden rounded-md border border-gray-6 bg-gray-3"
           aria-label={`Preview ${attachment.label}`}
         >
           <img
