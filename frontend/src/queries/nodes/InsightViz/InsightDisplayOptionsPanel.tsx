@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { cn } from 'lib/utils/css-classes'
 
 import { SectionHeader } from './DisplayOptions'
 import { DisplayOptionSection, DisplayOptionTab, DisplayOptionTabKey } from './insightDisplayOptions'
@@ -30,33 +31,49 @@ function DisplayOptionSectionList({ sections }: { sections: DisplayOptionSection
     )
 }
 
-export function InsightDisplayOptionsPanel({ tabs }: { tabs: DisplayOptionTab[] }): JSX.Element {
+export function InsightDisplayOptionsPanel({ tabs }: { tabs: DisplayOptionTab[] }): JSX.Element | null {
     const [activeKey, setActiveKey] = useState<DisplayOptionTabKey>(tabs[0]?.key ?? 'general')
     const activeTab = tabs.find((tab) => tab.key === activeKey) ?? tabs[0]
 
-    if (tabs.length <= 1) {
+    if (!activeTab) {
+        return null
+    }
+
+    if (tabs.length === 1) {
         return (
-            <div className="min-w-64 py-1" data-attr="insight-display-options-panel">
-                {activeTab && <DisplayOptionSectionList sections={activeTab.sections} />}
+            <div className="py-1" data-attr="insight-display-options-panel">
+                <DisplayOptionSectionList sections={activeTab.sections} />
             </div>
         )
     }
 
     return (
-        <div className="min-w-64 py-1" data-attr="insight-display-options-panel">
+        <div className="py-1" data-attr="insight-display-options-panel">
             <LemonTabs
                 size="small"
                 activeKey={activeTab.key}
                 onChange={setActiveKey}
-                barClassName="mx-2 mb-1 overflow-x-visible [&>div]:w-full [&>div]:justify-around"
+                barClassName="mx-2 mb-1 overflow-x-visible"
                 data-attr="insight-display-options-tabs"
                 tabs={tabs.map((tab) => ({
                     key: tab.key,
                     label: tab.label,
                     'data-attr': `insight-display-options-tab-${tab.key}`,
-                    content: <DisplayOptionSectionList sections={tab.sections} />,
                 }))}
             />
+            {/* Inactive tabs stay mounted at zero height so the widest tab sets the panel width for all of them */}
+            {tabs.map((tab) => {
+                const isActive = tab.key === activeTab.key
+                return (
+                    <div
+                        key={tab.key}
+                        className={cn(!isActive && 'invisible h-0 overflow-hidden')}
+                        aria-hidden={!isActive || undefined}
+                    >
+                        <DisplayOptionSectionList sections={tab.sections} />
+                    </div>
+                )
+            })}
         </div>
     )
 }

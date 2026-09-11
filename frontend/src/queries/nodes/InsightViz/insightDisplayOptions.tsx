@@ -4,7 +4,6 @@ import { normalizeAxisLabel } from '@posthog/quill-charts'
 
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 import { PIE_DISPLAY_TYPES } from 'lib/constants'
-import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -16,7 +15,7 @@ import { ChartDisplayType } from '~/types'
 
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 
-import { DisplayOption, DisplayOptions, SectionHeader } from './DisplayOptions'
+import { DisplayOption, DisplayOptions } from './DisplayOptions'
 import { BAR_DISPLAYS, displayMatches, isDefaultTrendsLineDisplay, LINE_DISPLAYS } from './displayTypes'
 
 export interface DisplayOptionSection {
@@ -329,22 +328,19 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
         { key: 'axes', label: 'Axes', sections: axesSections, count: axesCount },
         { key: 'lines', label: 'Lines', sections: linesSections, count: linesCount },
     ]
-    const tabs = allTabs.filter((tab) => tab.sections.length > 0)
+    // Only trends has enough options to need tabs; the other insight types keep one flat list.
+    const tabs = (
+        isTrends
+            ? allTabs
+            : [
+                  {
+                      key: 'general' as const,
+                      label: 'General',
+                      sections: allTabs.flatMap((tab) => tab.sections),
+                      count: allTabs.reduce((sum, tab) => sum + tab.count, 0),
+                  },
+              ]
+    ).filter((tab) => tab.sections.length > 0)
 
     return { tabs, count: tabs.reduce((sum, tab) => sum + tab.count, 0) }
-}
-
-// The dashboard tile's "Display options" submenu still renders these as a plain LemonMenu.
-export function displayOptionsToMenuItems(tabs: DisplayOptionTab[]): LemonMenuItems {
-    return tabs.flatMap((tab) =>
-        tab.sections.map((section) => ({
-            key: section.key,
-            title: (
-                <SectionHeader tooltip={section.tooltip} dataAttr={section.dataAttr}>
-                    {section.title ?? tab.label}
-                </SectionHeader>
-            ),
-            items: section.items.map((Item, index) => ({ key: index, label: Item })),
-        }))
-    )
 }

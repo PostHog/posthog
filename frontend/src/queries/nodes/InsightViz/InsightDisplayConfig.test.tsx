@@ -283,11 +283,8 @@ describe('InsightDisplayConfig', () => {
                 'retention',
                 makeRetentionQuery(),
                 {
-                    tabs: ['General', 'Lines'],
-                    sections: {
-                        General: ['On dashboards', 'Cohort labels start at'],
-                        Lines: ['Style', 'Overlays'],
-                    },
+                    tabs: [],
+                    sections: { General: ['On dashboards', 'Cohort labels start at', 'Style', 'Overlays'] },
                     overlayItems: ['Show trend lines'],
                 },
             ],
@@ -295,8 +292,8 @@ describe('InsightDisplayConfig', () => {
                 'stickiness',
                 makeStickinessQuery(),
                 {
-                    tabs: ['General', 'Axes', 'Lines'],
-                    sections: { General: [], Axes: ['Y-axis'], Lines: ['Style'] },
+                    tabs: [],
+                    sections: { General: ['Y-axis', 'Style'] },
                     displayItems: ['Show values on series', 'Show legendBottom'],
                 },
             ],
@@ -340,7 +337,7 @@ describe('InsightDisplayConfig', () => {
                         expect(getDisplaySectionItems()).toEqual(expected.displayItems)
                     }
                 }
-                if (tab === 'Lines' && expected.overlayItems) {
+                if ((tab === 'Lines' || expected.tabs.length === 0) && expected.overlayItems) {
                     expect(getSectionItems('options-overlays-section')).toEqual(expected.overlayItems)
                 }
             }

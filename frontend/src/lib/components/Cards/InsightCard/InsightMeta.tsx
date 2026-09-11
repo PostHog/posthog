@@ -46,7 +46,7 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { displayOptionsToMenuItems, useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
+import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
 import { Node, ProductKey } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode, isDataVisualizationNodeWithHogQLQuery } from '~/queries/utils'
 import {
@@ -254,7 +254,6 @@ export function InsightMeta({
     // Hoist the hooks out of the More overlay so kea logics they mount don't do so lazily inside a
     // portal, which cascades into closing the dropdown before the user can interact with it.
     const { tabs: displayOptionTabs } = useInsightDisplayOptions()
-    const displayOptionItems = displayOptionsToMenuItems(displayOptionTabs)
     const dashboardVisualizationPersistence: DashboardVisualizationPersistence | undefined = persistDisplayOptions
         ? {
               saving: savingSqlVisualization,
@@ -272,7 +271,6 @@ export function InsightMeta({
         persistence: dashboardVisualizationPersistence,
         savingDisplayOptions,
     })
-    const displayMenuItems = [...visualizationItems, ...displayOptionItems]
 
     const hasTileStyleActions = !!(showCompactTile && toggleShowDescription && insight.description) || !!updateColor
     const canShowCopyToDashboardTile = showCompactTile && !!copyToDashboard && canViewInsight
@@ -551,7 +549,12 @@ export function InsightMeta({
                                 Alerts
                             </LemonButton>
                         ) : null}
-                        {showDisplayOptionsMenu && <DashboardInsightDisplayOptions items={displayMenuItems} />}
+                        {showDisplayOptionsMenu && (
+                            <DashboardInsightDisplayOptions
+                                visualizationItems={visualizationItems}
+                                tabs={displayOptionTabs}
+                            />
+                        )}
 
                         {canShowCopyToDashboardTile && !canEditDashboard && (
                             <>
