@@ -107,11 +107,7 @@ def _add_query_cost_headers(response: HttpResponseBase, bytes_read: int, remaini
 
 
 def _scan_extra(error: Exception) -> dict[str, Any]:
-    """The scan a stopped run left on the exception, as the error serializer's ``extra``.
-
-    The killed-run path sets these as plain attributes, so an error that skips this reaches the
-    caller without them.
-    """
+    """The scan a stopped run left on the exception, for the error body's ``extra``."""
     return {key: value for key in ("cache_key", "query_scan") if (value := getattr(error, key, None)) is not None}
 
 
@@ -219,8 +215,7 @@ def required_scopes_for_query_payload(query: object) -> list[str] | None:
 
 
 class QueryScanFindingSerializer(serializers.Serializer):
-    """One finding from a query scan. Mirrors the `QueryScanWarning` schema model the same
-    findings use when they ride on a query response's `warnings`."""
+    """One finding, the same shape as `QueryScanWarning`."""
 
     type = serializers.CharField(help_text="Always `query_scan`, which tells this apart from the other warning kinds.")
     kind = serializers.CharField(

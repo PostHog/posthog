@@ -1461,19 +1461,18 @@ export const QueryScanStatusApi = {
 } as const
 
 export interface QueryScanSummaryApi {
-    /** ClickHouse time for the last fresh run, summed over every ClickHouse query the run made. */
+    /** ClickHouse time for the last fresh run, summed over its ClickHouse queries. */
     duration_ms: number
     /** True when ClickHouse stopped the run instead of finishing it. */
     killed?: boolean | null
-    /** What clients may show for this response. The server evaluated the flag once for this query; clients and the assistant read this field and never evaluate the flag themselves. */
     mode: QueryScanModeApi
     /** How much of all the project's events the query read, 0 to 1. Set once the analysis is done. */
     project_share?: number | null
     /** How much of the project's events in the query's date range the query read, 0 to 1. Set once the analysis is done. */
     range_share?: number | null
-    /** Rows ClickHouse read for the last fresh run of this query, all tables included. */
+    /** Rows ClickHouse read for the last fresh run, all tables included. */
     rows_read: number
-    /** Where the analysis of this query stands, see `QueryScanStatus`. The analysis only runs when `duration_ms` is over the threshold in the flag's payload, so the field is absent for a fast query. */
+    /** Absent when the run was too fast to analyze. */
     status?: QueryScanStatusApi | null
 }
 
@@ -1629,20 +1628,19 @@ export const QueryScanFindingReasonApi = {
 } as const
 
 export interface QueryScanWarningApi {
-    /** The offending condition printed back as HogQL, when there is one */
+    /** The condition at fault, as HogQL. */
     clause?: string | null
     duration_ms: number
-    /** The fact the finding rests on, in one sentence: what the plan reported, or the setting that caused it. */
+    /** The one fact the finding rests on. */
     evidence?: string | null
-    /** The instruction "Fix with AI" and the assistant get for this finding. */
+    /** What "Fix with AI" and the assistant are told to do. */
     fix: string
     kind: QueryScanFindingKindApi
-    /** Shown to the person. Sentence case, says what happened and what to do. */
+    /** Shown to the person: what happened and what to do. */
     message: string
-    /** Why the filter the query has did not narrow the read. Only on no_event_filter and no_start_date. */
+    /** Only with `no_event_filter` and `no_start_date`. */
     reason?: QueryScanFindingReasonApi | null
     rows_read: number
-    /** Tells warning kinds apart in the shared `warnings` list */
     type?: 'query_scan'
 }
 
@@ -1671,7 +1669,7 @@ export interface AccountsTableQueryResponseApi {
     timings?: QueryTimingApi[] | null
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
-    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. Also carries query scan findings, see `QueryScanWarning`. */
     warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | QueryScanWarningApi)[] | null
 }
 

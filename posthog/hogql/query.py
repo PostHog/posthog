@@ -808,9 +808,7 @@ class HogQLQueryExecutor:
                     external_tables=list(clickhouse_context.external_tables.values()) or None,
                 )
 
-            # Record this execution for the slow-query analysis when a scope is active. Snapshot
-            # the scope's rows before the run so a run ClickHouse kills is still recorded with what
-            # it read: `sync_execute` adds its rows to the scope before the error propagates.
+            # Rows are snapshotted before the run so a run ClickHouse stops is still recorded with what it read.
             stats = get_active_query_stats()
             rows_before = stats.rows_read if stats is not None else 0
             try:

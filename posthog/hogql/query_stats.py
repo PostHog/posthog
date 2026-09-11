@@ -26,11 +26,7 @@ if TYPE_CHECKING:
 
 @frozen
 class RecordedExecution:
-    """One ClickHouse execution inside a scope, kept for the analysis to explain later.
-
-    The tree and context are the same objects the executor printed from, held by reference so
-    nothing is serialized on the request path. ``rows_read`` is what this one execution read.
-    """
+    """One ClickHouse execution inside a scope, held by reference for the job to explain later."""
 
     tree: ast.Expr
     context: HogQLContext
@@ -45,8 +41,7 @@ class QueryStats:
     duration_ms: float = 0.0
     # Runners that record from several threads share one QueryStats.
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
-    # Every execution the scope saw, so the slow-query analysis can explain each without rerunning
-    # it. References only; the executor fills this, raw `sync_execute` callers do not.
+    # References only, filled by the executor, so the job can explain each execution without rerunning it.
     executions: list[RecordedExecution] = field(default_factory=list, repr=False, compare=False)
 
     def add(self, *, rows_read: int, duration_ms: float) -> None:

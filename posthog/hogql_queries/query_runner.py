@@ -2283,9 +2283,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         )
                         if results:
                             cache_tracking_props = {}
-                            # Cached from the fresh run that produced these results, so the numbers
-                            # describe that run rather than this one, which touched no ClickHouse.
-                            # Read before serving, which can take the field off the response.
+                            # The numbers describe the fresh run that filled the cache, not this hit. Read before serving,
+                            # which can take the field off the response.
                             cached_query_scan = getattr(results, "query_scan", None)
                             if isinstance(results, CachedResponse):
                                 if (not trigger or not trigger.startswith("warming")) and results.query_metadata:
@@ -2530,8 +2529,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
             # Stored with the results, so a cache hit carries the numbers of the run that produced
             # them. Guarded like `warnings` above.
-            # Skipped entirely for an unflagged team, which keeps the query serialization the
-            # enqueue needs off every other team's path.
             scan = QUERY_SCAN_FLAG_OFF
             if query_scan_flag is not None and query_stats is not None and "query_scan" in CachedResponse.model_fields:
                 if not is_analyzable_principal(user):
@@ -2604,11 +2601,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return CachedResponse(**fresh_response_dict)
 
     def _serve_query_scan(self, response: Any, user: Optional[User]) -> None:
-        """Fold the stored analysis into an outgoing response, or take the field off it for a
-        reader the run was not analyzed for.
-
-        A cached body written for a real user still carries the summary, so a shared-link viewer
-        of the same insight would otherwise be served the project's data volume from the cache.
+        """Fold the stored analysis into a response, or take the field off for a shared-link viewer, who
+        must not see the project's data volume from the cache.
         """
         if is_analyzable_principal(user):
             attach_scan_slot(self.team, response)
@@ -2626,11 +2620,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         dashboard_id: Optional[int],
         user: Optional[User],
     ) -> None:
-        """Enqueue the analysis for a run ClickHouse stopped, and put the scan summary on the
-        exception so the API layers above can serve it with the error.
-
-        The error is re-raised unchanged whatever happens here, so nothing in this method may
-        replace the failure the person needs to see.
+        """Enqueue the analysis for a run ClickHouse stopped and put the summary on the exception. The
+        error is re-raised unchanged; nothing here may replace it.
         """
         if not is_analyzable_principal(user):
             # Same gate as the fresh path: the summary must not ride out on an error body a

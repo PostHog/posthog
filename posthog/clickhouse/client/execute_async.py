@@ -312,10 +312,8 @@ def execute_process_query(
         is_user_safe_error = isinstance(
             err, APIException | ExposedHogQLError | ExposedCHQueryError | UserAccessControlError
         )
-        # A run ClickHouse stopped carries its scan, so a dead tile can show the advice next to
-        # the failure. The job finishes after this status is stored, so the cache key rides along
-        # for the reader to poll the slot with. Only for a run a real user made: a shared link is
-        # read from outside the project, and the scan describes the project's own data volume.
+        # A stopped run's scan rides on the status so a dead tile can show the advice, with the cache key
+        # for polling. Only for a real user: a shared link must not see the project's data volume.
         if user_id:
             query_status.cache_key = getattr(err, "cache_key", None)
             query_status.query_scan = _query_scan_from_error(err)

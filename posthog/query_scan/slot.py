@@ -1,11 +1,7 @@
-"""The scan slot: what the analysis job found for one query, keyed by its cache key.
+"""The scan slot: what the job found for one query, keyed by its cache key.
 
-The slot lives in the same Redis as the query cache. It is written once by the job and read
-by every response served for that cache key, so an unchanged query is analyzed once a month
-however often it is refreshed.
-
-Neither a read nor a write may change what the person gets. A read returns None on any Redis
-or JSON failure, and a write logs and swallows.
+Written once by the job, read by every response for that cache key, in the query cache's Redis. A
+read returns None on any Redis or JSON failure, and a write logs and swallows.
 """
 
 from __future__ import annotations
@@ -64,11 +60,8 @@ def enqueue_counter_key(team_id: int) -> str:
 
 
 def get(team_id: int, cache_key: str, *, thresholds: str | None = None) -> QueryScanSlot | None:
-    """The stored slot, or None when there is none to serve.
-
-    ``thresholds`` is the fingerprint of the gates in force now. A done slot analyzed under other
-    gates reads as absent, so the next slow run analyzes again; omit it to read the slot as
-    stored. A pending slot is never rejected, because the job reads the current gates itself.
+    """The stored slot, or None. A done slot analyzed under other gates than ``thresholds`` reads as
+    absent, so the next slow run analyzes again; a pending slot is never rejected.
     """
     try:
         # The primary, not the read replica the query cache reads through. The response that
@@ -89,11 +82,7 @@ def get(team_id: int, cache_key: str, *, thresholds: str | None = None) -> Query
 
 
 def set_pending(team_id: int, cache_key: str, *, killed: bool = False) -> bool:
-    """Claim the slot for one job, and report whether this call is the one that claimed it.
-
-    The write is conditional, so two slow runs of the same query that both pass the read test
-    still enqueue one job: the loser is told the slot already exists.
-    """
+    """Claim the slot for one job. The write is conditional, so two slow runs of one query enqueue one job."""
     value: dict[str, Any] = {"status": "pending", "enqueued_at": _now()}
     if killed:
         # The scan endpoint answers from this slot until the job finishes, so a run ClickHouse
@@ -107,11 +96,8 @@ def set_done(team_id: int, cache_key: str, slot: QueryScanSlot) -> None:
 
 
 def clear(team_id: int, cache_key: str) -> None:
-    """Drop the slot, for a claim no job is coming to fill.
-
-    A pending slot nobody answers reads as an analysis in flight for its whole TTL, so the
-    response reports `pending`, the scan endpoint reports `pending`, and the next slow run of
-    the same query is told the slot already exists.
+    """Drop the slot, for a claim no job is coming to fill; a pending slot nobody answers reads as in
+    flight for its whole TTL.
     """
     try:
         query_cache_raw_client().delete(slot_key(team_id, cache_key))
@@ -120,11 +106,9 @@ def clear(team_id: int, cache_key: str) -> None:
 
 
 def claim_enqueue_budget(team_id: int) -> bool:
-    """Whether this project may enqueue another scan in the current window.
-
-    One dashboard refresh can produce hundreds of distinct slow queries, so without a cap one
-    project can take the whole analytics queue. A Redis failure allows the enqueue, because the
-    slot claim that follows reads the same client and stops there instead.
+    """Whether this project may enqueue another scan in the window. One dashboard refresh can produce
+    hundreds of slow queries. A Redis failure allows the enqueue; the slot claim that follows stops
+    there instead.
     """
     try:
         client = query_cache_raw_client()

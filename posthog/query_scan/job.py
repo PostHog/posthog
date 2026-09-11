@@ -1,8 +1,7 @@
 """The query scan job, kept out of Celery so a test can call it directly.
 
-The trigger printed the run's SQL; this asks ClickHouse how it planned to read it, reads the
-findings and granule shares off the plan, and stores the result in the scan slot. It runs on the
-offline pool, once per query per slot lifetime, and runs EXPLAINs only.
+It asks ClickHouse how it planned the run's SQL, reads findings and shares off the plan, and stores
+the result in the scan slot. It runs EXPLAINs only, on the offline pool.
 """
 
 from __future__ import annotations
@@ -32,8 +31,7 @@ from posthog.query_scan.slot import QueryScanSlot, set_done
 
 logger = structlog.get_logger(__name__)
 
-# `EXPLAIN` runs each `IN (subquery)` to build its set before planning; this aborts such a read at
-# once so the stubbed SQL can be tried instead. ClickHouse reports it as code 158.
+# Aborts an EXPLAIN that starts reading an IN subquery (code 158), so the stubbed SQL is tried instead.
 EXPLAIN_MAX_ROWS = 1000
 EXPLAIN_MAX_SECONDS = 10
 TOO_MANY_ROWS_CODE = 158
@@ -186,9 +184,8 @@ def _range_granules(
     team_granules: int | None,
     cache: dict[tuple[int | None, int | None], int | None],
 ) -> int | None:
-    """The team's granules over the run's date range, cached per distinct bounds.
-
-    With no timestamp bound the range is all time, so the range denominator is the team denominator.
+    """The team's granules over the run's date range, cached per distinct bounds. With no bound the
+    range is all time, so it equals the team denominator.
     """
     events_read = outer.events_read() if outer is not None else None
     bounds = events_read.timestamp_bounds() if events_read is not None else TimestampBounds(lower=None, upper=None)
@@ -221,9 +218,9 @@ def _denominator_granules(explained: tuple[list[Any] | None, bool]) -> int | Non
 
 
 def _explain(sql: str, values: dict[str, Any], team_id: int) -> tuple[list[Any] | None, bool]:
-    """EXPLAIN the SQL on the offline pool. Returns the rows and whether it aborted on the row
-    limit (code 158); rows is None on that abort and on every other failure, which reads as
-    "the plan told us nothing" and fails the analysis closed."""
+    """EXPLAIN on the offline pool. Returns the rows, None on any failure, and whether the failure was
+    the row-limit abort (code 158).
+    """
     try:
         with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.QUERY_SCAN):
             # nosemgrep: clickhouse-fstring-param-audit - sql is compiled from the HogQL AST by the printer, and its values stay parameterized
@@ -274,8 +271,9 @@ def _heaviest_result(results: list[QueryScanResult], executions: tuple[Execution
 
 
 def _report(job: QueryScanJob, merged: _Merged, *, flag_event_ratio: float, job_ms: int) -> None:
-    """Send `query scan analyzed`, findings or not. A run with no findings records an expensive
-    query no check explains yet, which is what says which check to write next."""
+    """Send `query scan analyzed`, findings or not: a run with no findings is what says which check to
+    write next.
+    """
     properties = {
         "cache_key": job.cache_key,
         "insight_id": job.insight_id,

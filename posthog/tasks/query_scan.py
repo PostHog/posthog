@@ -13,12 +13,9 @@ from posthog.scoping_audit import skip_team_scope_audit
 logger = structlog.get_logger(__name__)
 
 
-# The queue cache warming and lazy precompute use, so a burst of analyses cannot overwhelm
-# ClickHouse. The job is advisory, so a lost run costs nothing and there is no retry.
-#
-# `expires` matches the pending slot's lifetime. A task outliving its claim would let the next
-# slow run enqueue a second copy, and a backlog would collect one per query per claim lifetime.
-# The time limits are well inside `expires`, so a job that runs long is stopped before its slot.
+# The queue cache warming uses, so a burst of analyses cannot overwhelm ClickHouse. Advisory, so
+# no retry. `expires` matches the pending slot's lifetime, and the time limits sit inside it, so a
+# job never outlives its claim.
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.ANALYTICS_LIMITED.value,

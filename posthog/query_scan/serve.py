@@ -1,11 +1,7 @@
 """Put the stored analysis on a response, on a cache hit and on a fresh run alike.
 
-The stored analysis (the slot, see ``slot.py``) is read only for a response whose ClickHouse time
-reached the flag's ``floor_ms``, because no slot exists for a faster run. That keeps a fleet-wide
-Redis read off every fast query.
-
-Nothing here may change the response beyond the scan fields: a Redis failure drops the advice,
-never the results.
+The slot is read only for a response over the flag's ``floor_ms``, since none exists below it; that
+keeps a Redis read off every fast query. A Redis failure drops the advice, never the results.
 """
 
 from __future__ import annotations
@@ -27,9 +23,9 @@ logger = structlog.get_logger(__name__)
 
 @frozen(eq=False)
 class _SlotLookup:
-    """``over_floor`` says whether the response is one a slot could exist for, which is what
-    tells an absent slot apart from a query that was never a candidate. ``flag`` is the state
-    in force now, which a cached response cannot know."""
+    """``over_floor``: whether a slot could exist for this response. ``flag``: the state in force now,
+    which a cached response cannot know.
+    """
 
     flag: QueryScanFlag | None
     over_floor: bool
@@ -73,10 +69,8 @@ def attach_scan_slot(team: Team, response: Any) -> None:
 
 
 def scan_summary_with_findings(team: Team, summary: dict[str, Any], cache_key: str | None) -> dict[str, Any] | None:
-    """The same fold for a surface that carries plain dicts rather than the response model.
-
-    Dashboard tiles never see the response's ``warnings`` list, so the findings ride on the
-    summary itself. None when the flag is off, which is how the tile shows nothing.
+    """The same fold for a surface of plain dicts. Dashboard tiles never see the response's ``warnings``,
+    so the findings ride on the summary. None when the flag is off.
     """
     try:
         lookup = _look_up(team, summary.get("duration_ms"), cache_key)

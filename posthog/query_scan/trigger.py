@@ -1,11 +1,8 @@
-"""Decide whether a finished run gets analyzed, print its SQL, and enqueue the job.
+"""Decide whether a run gets analyzed, print its SQL, and enqueue the job.
 
-The runner calls this once per blocking run. Everything before the enqueue is cheap; the run's SQL
-is printed only once a run's ClickHouse time reaches the flag's ``floor_ms``, or ClickHouse stopped
-the run, which costs a few milliseconds.
-
-Nothing here may change what the person gets. The analysis is advice, so a printer, broker or Redis
-failure drops the enqueue and reports a skip, never the query result.
+The runner calls this once per blocking run. The SQL is printed only for a run over the flag's
+``floor_ms`` or one ClickHouse stopped. A printer, broker or Redis failure drops the enqueue, never
+the query result.
 """
 
 from __future__ import annotations
@@ -75,11 +72,8 @@ NO_PRINCIPAL = QueryScanTrigger(triggered=False, skipped_reason="no_principal")
 
 
 def is_analyzable_principal(user: object) -> TypeGuard[User]:
-    """Whether the response may carry the scan summary.
-
-    Only a real user row identifies a member of the project. A shared-link viewer reads the insight
-    from outside it and must not be shown the project's data volume, so the summary stays off their
-    response. The job itself no longer runs as any user.
+    """Whether the response may carry the scan summary. Only a real user row is a member of the project;
+    a shared-link viewer must not see the project's data volume.
     """
     return isinstance(user, User)
 
@@ -98,11 +92,7 @@ def maybe_trigger_query_scan(
     killed: bool = False,
     error_type: str | None = None,
 ) -> QueryScanTrigger:
-    """Enqueue the analysis job for this run, unless one of the skip tests holds.
-
-    The run's SQL is printed only on the enqueue path, because the runner calls this for every
-    blocking run and most of them stop at the floor.
-    """
+    """Enqueue the analysis for this run, unless a skip test holds."""
     if flag is None or stats is None:
         return FLAG_OFF
 
@@ -167,11 +157,8 @@ def maybe_trigger_query_scan(
 
 
 def _print_executions(stats: QueryStats) -> tuple[list[dict[str, Any]], bool]:
-    """Print the heaviest executions of the run for the job to EXPLAIN.
-
-    Each is printed as the original SQL, the same query with its ``IN`` subqueries stubbed, and each
-    of those subqueries stubbed on its own, so the job can explain a run whose cost sits in a
-    subquery. Returns the executions to enqueue and whether any was dropped for being too large.
+    """Print the heaviest executions for the job to EXPLAIN: each as the original SQL, with its ``IN``
+    subqueries stubbed, and each subquery on its own. Also returns whether any was dropped as too large.
     """
     heaviest = sorted(stats.executions, key=lambda execution: execution.rows_read, reverse=True)[:MAX_EXECUTIONS]
     printed: list[dict[str, Any]] = []
@@ -238,20 +225,17 @@ def _json_default(value: Any) -> Any:
 
 def _open_filters_placeholder(query: BaseModel, query_kind: str | None) -> bool:
     """Whether a HogQLQuery left its date range to a ``{filters}`` placeholder that expanded to no
-    bound, so the missing start date is on the insight rather than in the SQL. Every other kind
-    carries no raw SQL, so this is false for them."""
+    bound. False for every other kind, which carries no raw SQL.
+    """
     if query_kind != _SQL_QUERY_KIND:
         return False
     return _has_open_filters_placeholder(getattr(query, "query", "") or "", getattr(query, "filters", None))
 
 
 def _has_open_filters_placeholder(query: str, filters: HogQLFilters | None) -> bool:
-    """Whether the query asks for a date range through ``{filters}`` and nobody supplied one.
-
-    The placeholder then expands to no bound at all, so the missing start date is on the insight
-    rather than in the SQL. Only the predicate forms count: ``{filters.interval(...)}`` and
-    ``{filters.breakdown(...)}`` substitute a value, so no date range can bound the query through
-    them.
+    """Whether the query asks for a date range through ``{filters}`` and nobody supplied one. Only the
+    predicate forms count: ``{filters.interval(...)}`` and ``{filters.breakdown(...)}`` substitute a
+    value and cannot bound the query.
     """
     try:
         if not find_placeholders(parse_select(query)).has_date_filters:
