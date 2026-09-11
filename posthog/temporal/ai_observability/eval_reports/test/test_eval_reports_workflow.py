@@ -875,13 +875,19 @@ async def test_batched_count_check_aggregates_across_groups_and_isolates_group_f
             "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
             new=fake_execute_activity,
         ),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.record_coordinator_budget_state") as budget,
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.record_coordinator_check_count") as checked,
         patch("posthog.temporal.ai_observability.eval_reports.workflow.record_coordinator_reports_found") as record,
         patch("posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.logger") as logger,
     ):
-        due_reports = await _check_count_triggered_eval_report_candidates_batched([["due", "skip"], ["boom1", "boom2"]])
+        due_reports = await _check_count_triggered_eval_report_candidates_batched(
+            [["due", "skip"], ["boom1", "boom2"]], metrics_region="eu"
+        )
 
     assert due_reports.report_ids == ["due"]
+    checked.assert_called_once_with(4, "count_triggered")
     record.assert_called_once_with(1, "count_triggered")
+    budget.assert_called_once_with(0, "count_triggered", "eu")
     logger.warning.assert_called_once()
     assert logger.warning.call_args.kwargs["extra"]["failed_count"] == 2
     assert logger.info.call_args_list == [
@@ -931,12 +937,14 @@ async def test_batched_count_check_emits_completed_window_telemetry_before_cance
             new=fake_check_window,
         ),
         patch("posthog.temporal.ai_observability.eval_reports.workflow.COUNT_TRIGGER_MAX_CONCURRENT_CHECKS", 1),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.record_coordinator_check_count") as checked,
         patch("posthog.temporal.ai_observability.eval_reports.workflow.record_coordinator_reports_found") as record,
         patch("posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.logger") as logger,
         pytest.raises(asyncio.CancelledError),
     ):
         await _check_count_triggered_eval_report_candidates_batched([["first"], ["second"]])
 
+    checked.assert_called_once_with(1, "count_triggered")
     record.assert_called_once_with(1, "count_triggered")
     logger.warning.assert_called_once_with(
         "count_triggered_eval_report_check.activity_errors",
@@ -1004,15 +1012,20 @@ async def test_batched_count_check_does_not_start_a_window_without_phase_headroo
             check_window,
         ),
         patch("posthog.temporal.ai_observability.eval_reports.workflow.COUNT_TRIGGER_MAX_CONCURRENT_CHECKS", 1),
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.record_coordinator_budget_state") as budget,
+        patch("posthog.temporal.ai_observability.eval_reports.workflow.record_coordinator_check_count") as checked,
         patch("posthog.temporal.ai_observability.eval_reports.workflow.record_coordinator_reports_found"),
         patch("posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.logger"),
     ):
         await _check_count_triggered_eval_report_candidates_batched(
             [["first"], ["second"]],
             run_deadline=started_at + COUNT_TRIGGERED_COORDINATOR_RUN_BUDGET,
+            metrics_region="eu",
         )
 
     check_window.assert_awaited_once_with([["first"]], None)
+    checked.assert_called_once_with(1, "count_triggered")
+    budget.assert_called_once_with(1, "count_triggered", "eu")
 
 
 @pytest.mark.asyncio

@@ -355,12 +355,8 @@ async def fetch_count_triggered_eval_report_candidates_activity(
         limited_by=limited_by,
         region=region,
     )
-    from posthog.temporal.ai_observability.eval_reports.metrics import (
-        record_coordinator_candidate_inventory,
-        record_coordinator_check_count,
-    )
+    from posthog.temporal.ai_observability.eval_reports.metrics import record_coordinator_candidate_inventory
 
-    record_coordinator_check_count(len(report_ids), "count_triggered")
     record_scheduler_metrics_safely(
         lambda: record_coordinator_candidate_inventory(
             candidates.items_lower_bound,

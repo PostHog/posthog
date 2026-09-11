@@ -59,7 +59,11 @@ from posthog.temporal.ai_observability.eval_reports.emit_signal import (
     EmitEvalReportSignalInputs,
     EmitEvalReportSignalWorkflow,
 )
-from posthog.temporal.ai_observability.eval_reports.metrics import record_coordinator_reports_found
+from posthog.temporal.ai_observability.eval_reports.metrics import (
+    record_coordinator_budget_state,
+    record_coordinator_check_count,
+    record_coordinator_reports_found,
+)
 from posthog.temporal.ai_observability.eval_reports.types import (
     AckEvalReportCursorRowsInput,
     AckEvalReportCursorsInput,
@@ -118,6 +122,7 @@ def _emit_count_triggered_window_telemetry(result: _CountCheckWindowResult, tota
             "skipped_not_deliverable": result.skipped_counts.get("not_deliverable", 0),
         },
     )
+    record_coordinator_check_count(total_checked, "count_triggered")
     record_coordinator_reports_found(len(result.due_report_ids), "count_triggered")
 
 
@@ -263,6 +268,7 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
                 activity_schedule_to_close_timeout=activity_schedule_to_close_timeout,
                 incremental_ack=incremental_ack,
                 run_deadline=run_deadline,
+                metrics_region=inputs.region,
             )
         else:
             due_reports = await _check_count_triggered_eval_report_candidates(result.report_ids)
@@ -334,6 +340,7 @@ async def _check_count_triggered_eval_report_candidates(report_ids: list[str]) -
             "skipped_not_deliverable": skipped_counts["not_deliverable"],
         },
     )
+    record_coordinator_check_count(len(report_ids), "count_triggered")
     record_coordinator_reports_found(len(due_report_ids), "count_triggered")
     return _DueReportCandidates(due_report_ids, occurrence_keys)
 
@@ -345,6 +352,7 @@ async def _check_count_triggered_eval_report_candidates_batched(
     activity_schedule_to_close_timeout: timedelta | None = None,
     incremental_ack: _IncrementalCursorAck | None = None,
     run_deadline: datetime | None = None,
+    metrics_region: str | None = None,
 ) -> _DueReportCandidates:
     due_report_ids: list[str] = []
     occurrence_keys: dict[str, str] = {}
@@ -354,6 +362,7 @@ async def _check_count_triggered_eval_report_candidates_batched(
         "not_deliverable": 0,
     }
     checked_report_count = 0
+    budget_deferred_groups = 0
 
     # Each group holds one team's reports capped at COUNT_TRIGGER_QUERY_WIDTH, so one
     # activity runs one count query under its own timeout and Temporal retry policy, and
@@ -361,9 +370,10 @@ async def _check_count_triggered_eval_report_candidates_batched(
     # COUNT_TRIGGER_MAX_CONCURRENT_CHECKS count queries in flight — the legacy path's ceiling.
     for index in range(0, len(report_id_groups), COUNT_TRIGGER_MAX_CONCURRENT_CHECKS):
         if run_deadline is not None and temporalio.workflow.now() + COUNT_TRIGGERED_WINDOW_PHASE_BUDGET > run_deadline:
+            budget_deferred_groups = len(report_id_groups) - index
             temporalio.workflow.logger.info(
                 "llma_eval_reports_coordinator_count_triggered_budget_exhausted",
-                extra={"remaining_groups": len(report_id_groups) - index},
+                extra={"remaining_groups": budget_deferred_groups},
             )
             break
         window = report_id_groups[index : index + COUNT_TRIGGER_MAX_CONCURRENT_CHECKS]
@@ -417,6 +427,8 @@ async def _check_count_triggered_eval_report_candidates_batched(
             "skipped_not_deliverable": skipped_counts["not_deliverable"],
         },
     )
+    if metrics_region is not None:
+        record_coordinator_budget_state(budget_deferred_groups, "count_triggered", metrics_region)
     return _DueReportCandidates(due_report_ids, occurrence_keys)
 
 

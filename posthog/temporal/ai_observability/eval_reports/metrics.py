@@ -165,6 +165,28 @@ def record_coordinator_candidate_inventory(count: int, trigger_type: str, region
     ).set(int(time.time()))
 
 
+def record_coordinator_budget_state(remaining_groups: int, trigger_type: str, region: str) -> None:
+    """Expose whether a coordinator left check groups behind when its run budget closed."""
+
+    if remaining_groups < 0:
+        raise ValueError("remaining_groups must not be negative")
+    if not activity.in_activity() and not workflow.in_workflow():
+        return
+    meter = get_metric_meter({"trigger_type": trigger_type, "region": region})
+    meter.create_gauge(
+        "llma_eval_reports_coordinator_budget_exhausted",
+        "One when the coordinator run budget deferred check groups to a later poll",
+    ).set(int(remaining_groups > 0))
+    meter.create_gauge(
+        "llma_eval_reports_coordinator_unchecked_groups",
+        "Check groups deferred when the coordinator run budget closed",
+    ).set(remaining_groups)
+    meter.create_gauge(
+        "llma_eval_reports_coordinator_budget_snapshot_unixtime",
+        "Unix time when this worker sampled count-triggered coordinator budget state",
+    ).set(int(time.time()))
+
+
 # ---------------------------------------------------------------------------
 # Interceptor — automatic timing for activities and workflows
 # ---------------------------------------------------------------------------
