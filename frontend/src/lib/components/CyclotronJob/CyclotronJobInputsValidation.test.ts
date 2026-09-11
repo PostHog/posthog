@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process'
+
 import { CyclotronJobInputSchemaType, CyclotronJobInputType } from '~/types'
 
 import { CyclotronJobInputsValidation, TEMPLATING_MISMATCH_WARNINGS } from './CyclotronJobInputsValidation'
@@ -438,6 +440,162 @@ describe('CyclotronJobInputsValidation', () => {
                 { key: 'identifier_value', type: 'string', label: 'Identifier value', templating: templating as any },
             ]
 
+            it('finishes malformed and long template warnings in a bounded child process', () => {
+                const result = spawnSync(
+                    process.execPath,
+                    [
+                        '-e',
+                        `
+                        const { readFileSync } = require('node:fs')
+                        const { strict: assert } = require('node:assert')
+                        const ts = require(${JSON.stringify(require.resolve('typescript'))})
+                        const source = readFileSync(${JSON.stringify(require.resolve('./CyclotronJobInputsValidation'))}, 'utf8')
+                        const output = ts.transpileModule(
+                            source.slice(source.indexOf('const GLOBAL_ROOTS ='), source.indexOf('const detectInputWarning =')) +
+                                '\\nexport { detectTemplatingMismatch }',
+                            { compilerOptions: { module: ts.ModuleKind.CommonJS } }
+                        ).outputText
+                        const exports = {}
+                        new Function('exports', 'RE2JS', output)(exports, require(${JSON.stringify(require.resolve('re2js'))}).RE2JS)
+                        const detect = exports.detectTemplatingMismatch
+                        const warnings = exports.TEMPLATING_MISMATCH_WARNINGS
+                        assert.equal(detect('{'.repeat(32000) + 'event.', 'hog'), undefined)
+                        for (const language of ['hog', 'liquid']) {
+                            for (const value of ['text '.repeat(6400), '{{'.repeat(16000), '{%'.repeat(16000)]) {
+                                assert.equal(detect(value, language), undefined)
+                            }
+                            assert.equal(detect('{{%}{'.repeat(6400), language), language === 'hog' ? warnings.liquidSyntaxInHogField : undefined)
+                        }
+                        assert.equal(detect('{'.repeat(32000) + 'event.}}', 'hog'), warnings.liquidSyntaxInHogField)
+                        assert.equal(detect(' '.repeat(32000) + 'person.email', 'hog'), warnings.unbracedExpressionInHogField('person.email'))
+                        console.log('bounded template cases passed')
+                        `,
+                    ],
+                    { encoding: 'utf8', timeout: 1500, killSignal: 'SIGKILL', maxBuffer: 4096 }
+                )
+
+                expect({ error: result.error?.message, signal: result.signal, stderr: result.stderr }).toEqual({
+                    error: undefined,
+                    signal: null,
+                    stderr: '',
+                })
+                expect(result.status).toBe(0)
+                expect(result.stdout.trim()).toBe('bounded template cases passed')
+            })
+
+            it.each([
+                ['{{{event.}}', 'hog', W.liquidSyntaxInHogField],
+                ['{{event.}x}}', 'hog', undefined],
+                ['{{{x|}}', 'hog', W.liquidSyntaxInHogField],
+                ['{{x{|}}', 'hog', undefined],
+                ['{\ud800event.}', 'liquid', W.hogSyntaxInLiquidField],
+                ['{{\ud800}}{event.}\udc00', 'liquid', W.hogSyntaxInLiquidField],
+                ['{{😀event.}}', 'hog', W.liquidSyntaxInHogField],
+                ['{éevent.}', 'liquid', W.hogSyntaxInLiquidField],
+                ['{_event.}', 'liquid', undefined],
+                ['{event\u0085.}', 'liquid', undefined],
+                ['{event\u180e.}', 'liquid', undefined],
+                ['{event{{x}}.}', 'liquid', W.hogSyntaxInLiquidField],
+                ['{event{%x%}.}', 'liquid', W.hogSyntaxInLiquidField],
+                ['{%{{x}}%}{event.}', 'liquid', W.hogSyntaxInLiquidField],
+                ['{{{%x%}{event.}', 'liquid', W.hogSyntaxInLiquidField],
+                ['person[\ud800]', 'hog', W.unbracedExpressionInHogField('person[\ud800]')],
+                ['person[x]tail', 'hog', undefined],
+            ] as const)('preserves delimiter and boundary semantics for %j in %s', (value, templating, expected) => {
+                expect(
+                    CyclotronJobInputsValidation.validate(
+                        { identifier_value: { value, templating } },
+                        stringSchema(templating)
+                    ).warnings.identifier_value
+                ).toBe(expected)
+            })
+
+            it.each(
+                Array.from(
+                    '\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff'
+                )
+            )('preserves JavaScript whitespace %j in global references', (space) => {
+                for (const templating of ['hog', 'liquid'] as const) {
+                    const value = templating === 'hog' ? `{{event${space}.}}` : `{event${space}.}`
+                    expect(
+                        CyclotronJobInputsValidation.validate(
+                            { identifier_value: { value, templating } },
+                            stringSchema(templating)
+                        ).warnings.identifier_value
+                    ).toBe(templating === 'hog' ? W.liquidSyntaxInHogField : W.hogSyntaxInLiquidField)
+                }
+            })
+
+            it('preserves warning results across a short seeded delimiter corpus', () => {
+                const roots = 'event|person|groups|inputs|source|project'
+                const reference = `\\b(${roots})\\s*[.\\[]`
+                const oldWarning = (value: string, language: 'hog' | 'liquid'): string | undefined => {
+                    if (
+                        !value.includes('{') &&
+                        new RegExp(`^(${roots})(\\.[\\w$]+|\\[[^\\]]+\\])+$`).test(value.trim())
+                    ) {
+                        return language === 'liquid'
+                            ? W.unbracedExpressionInLiquidField(value.trim())
+                            : W.unbracedExpressionInHogField(value.trim())
+                    }
+                    if (language === 'liquid') {
+                        const stripped = value.replace(/\{\{[\s\S]*?\}\}/g, '').replace(/\{%[\s\S]*?%\}/g, '')
+                        return new RegExp(`\\{[^{}]*${reference}[^{}]*\\}`).test(stripped)
+                            ? W.hogSyntaxInLiquidField
+                            : undefined
+                    }
+                    return new RegExp(`\\{\\{[^}]*${reference}[^}]*\\}\\}`).test(value) ||
+                        /\{\{[^{}]*\|[^{}]*\}\}/.test(value) ||
+                        /\{%[\s\S]*?%\}/.test(value)
+                        ? W.liquidSyntaxInHogField
+                        : undefined
+                }
+                const tokens = [
+                    '{',
+                    '}',
+                    '{{',
+                    '}}',
+                    '{%',
+                    '%}',
+                    '|',
+                    'event',
+                    'person',
+                    'groups',
+                    'inputs',
+                    'source',
+                    'project',
+                    '.',
+                    '[x]',
+                    '$',
+                    '_',
+                    'é',
+                    '\ud800',
+                    '\udc00',
+                    '\n',
+                    '\ufeff',
+                    '\u0085',
+                    ' ',
+                ]
+                let seed = 0x11c0ffee
+                for (let sample = 0; sample < 1000; sample++) {
+                    let value = ''
+                    for (let token = 0; token < 16; token++) {
+                        seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
+                        value += tokens[seed % tokens.length]
+                    }
+                    for (const templating of ['hog', 'liquid'] as const) {
+                        expect({
+                            value,
+                            templating,
+                            warning: CyclotronJobInputsValidation.validate(
+                                { identifier_value: { value, templating } },
+                                stringSchema(templating)
+                            ).warnings.identifier_value,
+                        }).toEqual({ value, templating, warning: oldWarning(value, templating) })
+                    }
+                }
+            })
+
             it.each<{ name: string; value: string; templating?: 'hog' | 'liquid'; expected: string | undefined }>([
                 // Bare global path with no braces — literal in both engines, only the suggested brace style differs.
                 {
@@ -588,15 +746,18 @@ describe('CyclotronJobInputsValidation', () => {
                 expect(result.warnings.identifier_value).toBeUndefined()
             })
 
-            it('detects mismatches inside dictionary values', () => {
-                const result = CyclotronJobInputsValidation.validate(
-                    { attributes: { value: { email: 'person.properties.email' } } },
-                    [{ key: 'attributes', type: 'dictionary', label: 'Attributes' }]
-                )
+            it.each([
+                [
+                    { email: 'person.properties.email', other: '{{event.}}' },
+                    W.unbracedExpressionInHogField('person.properties.email'),
+                ],
+                [{ other: '{{event.}}', email: 'person.properties.email' }, W.liquidSyntaxInHogField],
+            ])('detects the first mismatch inside dictionary values %j', (value, warning) => {
+                const result = CyclotronJobInputsValidation.validate({ attributes: { value } }, [
+                    { key: 'attributes', type: 'dictionary', label: 'Attributes' },
+                ])
 
-                expect(result.warnings.attributes).toBe(
-                    TEMPLATING_MISMATCH_WARNINGS.unbracedExpressionInHogField('person.properties.email')
-                )
+                expect(result).toEqual({ valid: true, errors: {}, warnings: { attributes: warning } })
             })
         })
     })

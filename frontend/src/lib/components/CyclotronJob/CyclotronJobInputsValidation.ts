@@ -1,3 +1,5 @@
+import { RE2JS } from 're2js'
+
 import { tryJsonParse } from 'lib/utils/json'
 import { LiquidRenderer } from 'lib/utils/liquid'
 import { type EmailTemplate, MAX_WORKFLOW_EMAIL_SENDERS } from 'scenes/hog-functions/email-templater/types'
@@ -18,7 +20,18 @@ const GLOBAL_ROOTS = 'event|person|groups|inputs|source|project'
 // A global root immediately followed by property access (`.field` or `[…]`). Requiring the
 // access form is what distinguishes a real expression (`person.properties.email`) from a
 // literal JSON key that happens to be named after a global (`{"event": "pageview"}`).
-const GLOBAL_REFERENCE = `\\b(${GLOBAL_ROOTS})\\s*[.\\[]`
+// RE2's whitespace class omits JavaScript whitespace such as NBSP and BOM.
+const JAVASCRIPT_WHITESPACE =
+    '[\\t-\\r \\x{a0}\\x{1680}\\x{2000}-\\x{200a}\\x{2028}\\x{2029}\\x{202f}\\x{205f}\\x{3000}\\x{feff}]'
+const GLOBAL_REFERENCE = `\\b(${GLOBAL_ROOTS})${JAVASCRIPT_WHITESPACE}*[.\\[]`
+
+// Fixed RE2 patterns bound the work even when a value contains many unmatched opening braces.
+const BARE_GLOBAL_PATH = RE2JS.compile(`(${GLOBAL_ROOTS})(\\.[\\w$]+|\\[[^\\]]+\\])+`)
+const LIQUID_EXPRESSION = RE2JS.compile('\\{\\{[\\s\\S]*?\\}\\}')
+const LIQUID_TAG = RE2JS.compile('\\{%[\\s\\S]*?%\\}')
+const HOG_GLOBAL_EXPRESSION = RE2JS.compile(`\\{[^{}]*${GLOBAL_REFERENCE}[^{}]*\\}`)
+const LIQUID_GLOBAL_EXPRESSION = RE2JS.compile(`\\{\\{[^}]*${GLOBAL_REFERENCE}[^}]*\\}\\}`)
+const LIQUID_PIPE_EXPRESSION = RE2JS.compile('\\{\\{[^{}]*\\|[^{}]*\\}\\}')
 
 export const TEMPLATING_MISMATCH_WARNINGS = {
     // Hog single-brace expression authored in a Liquid field — rendered literally.
@@ -48,7 +61,7 @@ const detectTemplatingMismatch = (value: unknown, language: 'hog' | 'liquid'): s
 
     // A bare global path with no braces at all is literal in BOTH engines, so check it
     // regardless of language — only the suggested brace style differs.
-    if (!value.includes('{') && new RegExp(`^(${GLOBAL_ROOTS})(\\.[\\w$]+|\\[[^\\]]+\\])+$`).test(value.trim())) {
+    if (!value.includes('{') && BARE_GLOBAL_PATH.matcher(value.trim()).matches()) {
         return language === 'liquid'
             ? TEMPLATING_MISMATCH_WARNINGS.unbracedExpressionInLiquidField(value.trim())
             : TEMPLATING_MISMATCH_WARNINGS.unbracedExpressionInHogField(value.trim())
@@ -57,8 +70,8 @@ const detectTemplatingMismatch = (value: unknown, language: 'hog' | 'liquid'): s
     if (language === 'liquid') {
         // Strip valid Liquid ({{ }} / {% %}) first, then look for leftover hog-style
         // single-brace expressions referencing a global — those render literally.
-        const withoutLiquid = value.replace(/\{\{[\s\S]*?\}\}/g, '').replace(/\{%[\s\S]*?%\}/g, '')
-        if (new RegExp(`\\{[^{}]*${GLOBAL_REFERENCE}[^{}]*\\}`).test(withoutLiquid)) {
+        const withoutLiquid = LIQUID_TAG.matcher(LIQUID_EXPRESSION.matcher(value).replaceAll('')).replaceAll('')
+        if (HOG_GLOBAL_EXPRESSION.matcher(withoutLiquid).find()) {
             return TEMPLATING_MISMATCH_WARNINGS.hogSyntaxInLiquidField
         }
         return
@@ -68,9 +81,9 @@ const detectTemplatingMismatch = (value: unknown, language: 'hog' | 'liquid'): s
     // or a `{% … %}` tag is unambiguously Liquid regardless of what it references — Hog has no
     // single-pipe operator and no percent tags, so these fail Hog compilation at activation.
     if (
-        new RegExp(`\\{\\{[^}]*${GLOBAL_REFERENCE}[^}]*\\}\\}`).test(value) ||
-        /\{\{[^{}]*\|[^{}]*\}\}/.test(value) ||
-        /\{%[\s\S]*?%\}/.test(value)
+        LIQUID_GLOBAL_EXPRESSION.matcher(value).find() ||
+        LIQUID_PIPE_EXPRESSION.matcher(value).find() ||
+        LIQUID_TAG.matcher(value).find()
     ) {
         return TEMPLATING_MISMATCH_WARNINGS.liquidSyntaxInHogField
     }
