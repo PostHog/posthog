@@ -16,7 +16,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status, test
 
-from posthog.api.project import ProjectBackwardCompatSerializer
+from posthog.api.project import ProjectBackwardCompatSerializer, log_activity
 from posthog.api.team import (
     TEAM_CONFIG_FIELDS_SET,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
@@ -3164,6 +3164,8 @@ class TestChangeOrganizationConcurrency(TransactionTestCase):
 
     def setUp(self):
         self.org_a = Organization.objects.create(name="Org A")
+        # A previous failed run can leave this user behind: the test database survives between runs.
+        User.objects.filter(email="mover@example.com").delete()
         self.user = User.objects.create_and_join(
             organization=self.org_a, email="mover@example.com", password=None, level=OrganizationMembership.Level.ADMIN
         )
@@ -3198,39 +3200,43 @@ class TestChangeOrganizationConcurrency(TransactionTestCase):
         errors: list[Exception] = []
         results: dict[str, int] = {}
         counter_lock = threading.Lock()
-        call_count = [0]
+        select_calls = [0]
+        log_calls = [0]
         first_request_locked = threading.Event()
         second_request_at_lock = threading.Event()
         release_first_request = threading.Event()
 
         real_select_for_update = Project.objects.select_for_update
+        real_log_activity = log_activity
 
         def traced_select_for_update(*args: Any, **kwargs: Any):
             with counter_lock:
-                call_count[0] += 1
-                call_number = call_count[0]
-            if call_number > 2:
-                errors.append(AssertionError(f"Unexpected select_for_update call #{call_number}"))
-                return real_select_for_update(*args, **kwargs)
-            queryset = real_select_for_update(*args, **kwargs)
-            if call_number == 1:
-                # The first request signals only once it holds the row lock, and keeps holding
-                # it until the second request has reached the lock, so both reads overlap.
-                real_get = queryset.get
-
-                def get_after_lock(*get_args: Any, **get_kwargs: Any):
-                    project = real_get(*get_args, **get_kwargs)
-                    first_request_locked.set()
-                    if not release_first_request.wait(self.LOCK_WAIT_TIMEOUT):
-                        errors.append(AssertionError("Second request never reached the project lock"))
-                    return project
-
-                queryset.get = get_after_lock
-            else:
+                select_calls[0] += 1
+                call_number = select_calls[0]
+            if call_number == 2:
+                # The second request has built its locking queryset; its get() now blocks on the
+                # row lock the first request still holds.
                 second_request_at_lock.set()
-            return queryset
+            return real_select_for_update(*args, **kwargs)
 
-        with patch.object(Project.objects, "select_for_update", traced_select_for_update):
+        def traced_log_activity(**kwargs: Any):
+            with counter_lock:
+                log_calls[0] += 1
+                call_number = log_calls[0]
+            result = real_log_activity(**kwargs)
+            if call_number == 1:
+                # The first request signals once it holds the project row lock and has started
+                # writing, and keeps its transaction open until the second request has reached
+                # the lock, so both reads provably overlap.
+                first_request_locked.set()
+                if not release_first_request.wait(self.LOCK_WAIT_TIMEOUT):
+                    errors.append(AssertionError("Second request never reached the project lock"))
+            return result
+
+        with (
+            patch.object(Project.objects, "select_for_update", traced_select_for_update),
+            patch("posthog.api.project.log_activity", traced_log_activity),
+        ):
             first = threading.Thread(target=self._move, args=(self.org_b, results, errors))
             first.start()
             assert first_request_locked.wait(self.LOCK_WAIT_TIMEOUT), "First request never acquired the project lock"
