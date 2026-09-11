@@ -113,7 +113,7 @@ Keep the `actor_access` filter. It stops people without write access to the repo
 | `issue_comment` | `created`, `edited`, `deleted`                                                                                                                                                                    |
 | `push`          | none, `push` has no actions                                                                                                                                                                       |
 
-Slack message in one or more channels. `channel` is required and takes channel IDs:
+Slack message in one or more channels. `channel` is required and takes channel IDs. Resolve a name to its id with `integrations-channels-retrieve` for the project's Slack integration (`integrations-list`, kind `slack`). Never guess an id:
 
 ```json
 {
@@ -173,7 +173,7 @@ Create it with `workflows-schedule-create` after the workflow exists, with the w
 
 The task's result reaches the notify step through the `output_variable` on the task step: `{variables.task_final_message}` is the agent's closing message. Add `{ "key": "task_pr_urls", "result_path": "pr_urls" }` to the list, and a matching `variables` entry, when the message should link the pull request.
 
-Slack, `template_id` `template-slack`. `slack_workspace` is the Slack integration id from `integrations-list`:
+Slack, `template_id` `template-slack`. `slack_workspace` is the Slack integration id from `integrations-list`. Resolve `channel` with `integrations-channels-retrieve` and read that channel's `is_member` before you summarize. False means the PostHog Slack app is not in the channel: the first real run fails to post and the result reaches nobody, so ask the user to invite the app rather than building the loop:
 
 ```json
 {
@@ -211,7 +211,7 @@ When the notify step or the user needs a specific field from the task, such as a
 
 ## Test run
 
-Test the draft before you schedule or enable it. `workflows-test-run` runs one step at a time and mocks the task, so nothing real is created.
+Test the draft before you schedule or enable it. `workflows-test-run` runs one step at a time and mocks every outbound call, so nothing real is created. That covers the notify step as well as the task, so a passing test run says the graph is wired up, not that Slack or email delivery works.
 
 1. Run with no `current_action_id` and `globals` `{ "event": { "event": "$scheduled", "properties": {} } }` for a schedule loop. For a GitHub or Slack loop, send the trigger's event name with properties that match the filters, and no person. For a PostHog event loop, send that event with a person.
 2. Expect `nextActionId` = `create_task`. Run again with `current_action_id: "create_task"`.
