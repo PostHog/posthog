@@ -273,13 +273,13 @@ tools:
             `experiment_targeting` to `{"experiment_id": <id>, "variant": null}` (or one variant key) and leave exposure
             out of `query`: the API derives the person-scoped exposure filter server-side, and rejects an
             `experiment_exposure` filter set directly in `query`. Pass the same `experiment_targeting` to
-            `vision-scanners-estimate-create`, so the estimate counts only exposed sessions. Create with
-            `enabled: false`, so you can preview the prompt on real sessions first. The
-            `scanning-experiments-with-replay-vision` skill carries the full flow (status guards, prompt templates,
-            sizing). It is a built-in PostHog skill, not a team skill in the skills store, so do not fetch it with
-            `skill-get`. Load it with `learn posthog:scanning-experiments-with-replay-vision` when the `learn` command
-            is available, or read it from your installed PostHog skills (`.agents/skills/`). If you have neither, the
-            facts above are sufficient to continue.
+            `vision-scanners-estimate-create`, so the estimate counts only exposed sessions. Create with `enabled:
+            false`, so you can preview the prompt on real sessions first. The `scanning-experiments-with-replay-vision`
+            skill carries the full flow (status guards, prompt templates, sizing). It is a built-in PostHog skill, not a
+            team skill in the skills store, so do not fetch it with `skill-get`. Load it with `learn
+            posthog:scanning-experiments-with-replay-vision` when the `learn` command is available, or read it from your
+            installed PostHog skills (`.agents/skills/`). If you have neither, the facts above are sufficient to
+            continue.
         agent_note: >
             A new scanner runs the prompt as written, and the first sweep is where its weaknesses show. Tell the person
             that rating its results thumbs up or down turns into a config recommendation they can review, and that
