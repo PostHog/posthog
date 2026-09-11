@@ -412,13 +412,18 @@ class EndpointMaterializationService:
                 return MaterializationPreview.cant_materialize(var_reason)
 
             if variable_infos:
-                transformed = transform_query_for_materialization(
-                    hogql_query,
-                    variable_infos,
-                    self.team,
-                    bucket_overrides=bucket_overrides,
-                    user=self.user,
-                )
+                try:
+                    transformed = transform_query_for_materialization(
+                        hogql_query,
+                        variable_infos,
+                        self.team,
+                        bucket_overrides=bucket_overrides,
+                        user=self.user,
+                    )
+                except MaterializationNotSupportedError as e:
+                    # A query limitation the pre-flight analysis missed, not a system fault.
+                    # Report it the same way as a pre-flight rejection instead of raising.
+                    return MaterializationPreview.cant_materialize(str(e))
                 transformed_query_str = transformed.get("query")
 
                 # Extract range pairs grouped by column

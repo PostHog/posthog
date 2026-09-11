@@ -1054,6 +1054,12 @@ class VariablePlaceholderFinder(TraversingVisitor):
             self.variable_placeholders.append(node)
 
 
+def _contains_variable_placeholder(node: ast.Expr) -> bool:
+    finder = VariablePlaceholderFinder()
+    finder.visit(node)
+    return bool(finder.variable_placeholders)
+
+
 def _contains_placeholder(node: ast.Expr) -> bool:
     found = find_placeholders(node)
     return bool(found.has_filters or found.placeholder_fields or found.placeholder_expressions)
@@ -1394,16 +1400,29 @@ class MaterializationTransformer(CloningVisitor):
         super().__init__()
         self.variable_infos = variable_infos
         self._current_cte_name: Optional[str] = None
+        self._nesting_depth = 0
 
     def visit_select_query(self, node: ast.SelectQuery):
+        # A context root is the top-level query or a CTE body. Only it carries that context's
+        # variables. A nested query shares the same _current_cte_name, so without this guard a
+        # subquery in WHERE, FROM or a JOIN also gets variable columns and loses its own WHERE.
+        is_context_root = self._nesting_depth == 0
+
         new_ctes = self._process_ctes(node)
 
         # Visit the select query itself (without re-visiting CTEs)
         original_ctes = node.ctes
         node.ctes = None
-        new_node = super().visit_select_query(node)
+        self._nesting_depth += 1
+        try:
+            new_node = super().visit_select_query(node)
+        finally:
+            self._nesting_depth -= 1
         node.ctes = original_ctes  # Restore original
         new_node.ctes = new_ctes
+
+        if not is_context_root:
+            return new_node
 
         # Add variable columns + remove variable WHERE clauses for current context
         vars_for_context = self._vars_for_current_context()
@@ -1605,7 +1624,9 @@ class MaterializationTransformer(CloningVisitor):
                 return filtered_exprs[0]
             return ast.And(exprs=filtered_exprs)
 
-        if isinstance(where_node, ast.Or):
+        # Matches the pre-flight gate in _usage_rejection: an OR is only a problem when a variable
+        # sits inside it. An OR of plain predicates stays as it is.
+        if isinstance(where_node, ast.Or) and _contains_variable_placeholder(where_node):
             raise MaterializationNotSupportedError("Variables in OR conditions not supported")
 
         return where_node
