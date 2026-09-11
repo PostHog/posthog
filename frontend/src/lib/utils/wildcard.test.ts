@@ -1,3 +1,5 @@
+import { itWithDeadline } from '~/test/itWithDeadline'
+
 import { createWildcardMatcher } from './wildcard'
 
 describe('createWildcardMatcher', () => {
@@ -34,8 +36,11 @@ describe('createWildcardMatcher', () => {
         ['a\n*', 'a\nb', true],
         ['**a***b**', 'ab', true],
         ['*\ud83d*', '\ud83d\ude00', true],
-        ['*a'.repeat(24) + 'b', 'a'.repeat(2000), false],
     ])('matches %p against %p', (pattern, value, expected) => {
         expect(createWildcardMatcher(pattern)(value)).toBe(expected)
+    })
+
+    itWithDeadline('rejects repeated wildcard nonmatches', () => {
+        expect(createWildcardMatcher('*a'.repeat(24) + 'b')('a'.repeat(2000))).toBe(false)
     })
 })

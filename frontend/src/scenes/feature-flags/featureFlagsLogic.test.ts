@@ -22,6 +22,7 @@ import { urls } from 'scenes/urls'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { itWithDeadline } from '~/test/itWithDeadline'
 import { FeatureFlagType } from '~/types'
 
 jest.mock('scenes/approvals/ApprovalRequiredBanner', () => ({
@@ -36,7 +37,7 @@ function capturesOf(event: string): any[][] {
 describe('flagMatchesSearch', () => {
     const flag = { ...NEW_FLAG, id: 1, key: 'my-feature', name: 'My Feature Flag' } as FeatureFlagType
 
-    it('rejects repeated separator nonmatches', () => {
+    itWithDeadline('rejects repeated separator nonmatches', () => {
         expect(flagMatchesSearch({ ...flag, key: '-'.repeat(2000), name: '' }, '- '.repeat(24) + 'b')).toBe(false)
     })
 

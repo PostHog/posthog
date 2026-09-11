@@ -1,3 +1,5 @@
+import { itWithDeadline } from '~/test/itWithDeadline'
+
 import {
     asNonEmptyString,
     containsUnstableGeneratedId,
@@ -10,7 +12,7 @@ import {
 
 describe('utils', () => {
     describe('stepMatchesHref', () => {
-        it('rejects repeated wildcard nonmatches', () => {
+        itWithDeadline('rejects repeated wildcard nonmatches', () => {
             expect(stepMatchesHref({ url_matching: 'contains', url: '%a'.repeat(24) + 'b' }, 'a'.repeat(2000))).toBe(
                 false
             )

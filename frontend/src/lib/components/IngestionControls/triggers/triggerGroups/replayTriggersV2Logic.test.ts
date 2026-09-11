@@ -24,6 +24,10 @@ describe('replayTriggersV2Logic', () => {
         logic.mount()
     })
 
+    afterEach(() => {
+        logic.unmount()
+    })
+
     describe('previewLegacyGroups selector', () => {
         it.each([
             [
@@ -161,19 +165,22 @@ describe('replayTriggersV2Logic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.deleteTriggerGroup('group-1')
-            }).toMatchValues({
-                triggerGroupsConfig: {
-                    version: 2,
-                    groups: [
-                        {
-                            id: expect.any(String),
-                            name: 'Record all sessions',
-                            sampleRate: 1,
-                            conditions: { matchType: 'all' },
-                        },
-                    ],
-                },
             })
+                .toDispatchActions(['saveConfigSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    triggerGroupsConfig: {
+                        version: 2,
+                        groups: [
+                            {
+                                id: expect.any(String),
+                                name: 'Record all sessions',
+                                sampleRate: 1,
+                                conditions: { matchType: 'all' },
+                            },
+                        ],
+                    },
+                })
         })
 
         it('deleting one of several groups keeps the rest', async () => {
@@ -198,12 +205,15 @@ describe('replayTriggersV2Logic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.deleteTriggerGroup('group-1')
-            }).toMatchValues({
-                triggerGroupsConfig: {
-                    version: 2,
-                    groups: [group2],
-                },
             })
+                .toDispatchActions(['saveConfigSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    triggerGroupsConfig: {
+                        version: 2,
+                        groups: [group2],
+                    },
+                })
         })
     })
 })

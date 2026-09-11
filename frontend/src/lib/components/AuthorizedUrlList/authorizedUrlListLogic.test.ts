@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { itWithDeadline } from '~/test/itWithDeadline'
 
 import {
     AuthorizedUrlListType,
@@ -143,7 +144,7 @@ describe('the authorized urls list logic', () => {
     })
 
     describe('checkUrlIsAuthorized', () => {
-        it('rejects a five-wildcard nonmatch', () => {
+        itWithDeadline('rejects a five-wildcard nonmatch', () => {
             expect(
                 checkUrlIsAuthorized(`https://${'a'.repeat(2000)}.example`, [`https://${'*a'.repeat(5)}b.example`])
             ).toBe(false)

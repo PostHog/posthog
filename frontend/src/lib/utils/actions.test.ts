@@ -1,5 +1,6 @@
 import { elementToSelector, matchesDataAttribute } from 'lib/utils/actions'
 
+import { itWithDeadline } from '~/test/itWithDeadline'
 import { ElementType } from '~/types'
 
 describe('elementToSelector', () => {
@@ -25,7 +26,7 @@ describe('elementToSelector', () => {
         expect(matchesDataAttribute({} as ElementType, ['*'])).toBeUndefined()
     })
 
-    it('rejects repeated wildcard nonmatches', () => {
+    itWithDeadline('rejects repeated wildcard nonmatches', () => {
         const element = { attributes: { [`attr__${'a'.repeat(2000)}`]: 'value' } } as unknown as ElementType
         expect(matchesDataAttribute(element, ['*a'.repeat(24) + 'b'])).toBeUndefined()
     })

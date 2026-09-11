@@ -1,5 +1,26 @@
 # Regex execution limits
 
+## Authorized URL wildcards
+
+Authorized URL entries support `*` as a wildcard.
+All other punctuation is literal, including `+`, `?`, parentheses, and brackets.
+These entries do not support regular expression operators.
+If an entry relied on those operators, replace it with explicit authorized URLs or wildcard URLs such as `https://*.example.com`.
+Check each intended origin after updating the entry.
+
+Implementation: [authorized URL matching](../../frontend/src/lib/components/AuthorizedUrlList/authorizedUrlListLogic.ts).
+
+## Desktop Git exclude patterns
+
+The desktop app reads `.worktreeinclude` and `.worktreelink` to copy or link ignored paths into a worktree.
+Its exclude matcher uses Git's existing parser fallback when a character class is ambiguous for its fast matcher.
+Git can interpret these patterns differently, and the fallback can take longer to traverse ignored directory trees.
+If copied or linked paths change or worktree setup slows down, simplify the character classes in these files.
+Use explicit path patterns where practical.
+Check Git's interpretation with `git ls-files --ignored --others --directory --exclude-from=.worktreeinclude`, or substitute `.worktreelink`, before creating another worktree.
+
+Implementation: [desktop exclude patterns](../../products/desktop/packages/git/src/exclude-patterns.ts).
+
 ## Legacy language URL splitter
 
 The legacy language URL splitter accepts native JavaScript regular expressions, including lookarounds and backreferences. Matching and replacement each have a 50 ms engine execution limit for custom patterns. A limit failure raises an error through the existing transformation executor; it is not reported as a non-match and is not retried on the main execution context.
