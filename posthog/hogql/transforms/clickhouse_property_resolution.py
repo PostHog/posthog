@@ -368,7 +368,7 @@ def _json_subcolumn_access(
     return value
 
 
-def _json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.Expr:
+def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.Expr:
     # Inspect the per-row variant only to choose its string format. Every branch casts the
     # whole Dynamic value, so mixed numeric variants are never filtered by a typed projection.
     dynamic_type = ast.Call(
@@ -443,7 +443,7 @@ def _json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.Expr:
     )
 
 
-def _json_object_string_expr(
+def _dynamic_json_object_string_expr(
     field_type: ast.FieldType,
     keys: list[str],
     *,
@@ -472,7 +472,7 @@ def _json_subcolumn_value_expr(
     as_json: bool = False,
 ) -> ast.Expr:
     value = _json_subcolumn_access(field_type, keys, source=source, is_nullable=True)
-    scalar_value = _json_scalar_string_expr(value, as_json=as_json)
+    scalar_value = _dynamic_json_scalar_string_expr(value, as_json=as_json)
     scalar_or_null = ast.Call(
         name="if",
         args=[
@@ -489,7 +489,7 @@ def _json_subcolumn_value_expr(
     )
     if any(isinstance(key, int) for key in keys):
         return scalar_or_null
-    object_value = _json_object_string_expr(field_type, list(cast(Sequence[str], keys)), source=source)
+    object_value = _dynamic_json_object_string_expr(field_type, list(cast(Sequence[str], keys)), source=source)
     return ast.Call(
         name="if",
         args=[_call("notEquals", [clone_expr(object_value), _sentinel("{}")]), object_value, scalar_or_null],

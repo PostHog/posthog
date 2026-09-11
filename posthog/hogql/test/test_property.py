@@ -2727,8 +2727,9 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
 
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-# $exception_types is a native Array(String) subcolumn. Execute the arrayExists filters against ClickHouse
-# to verify their null and negation semantics.
+# $exception_types is a native Array(String) subcolumn on the new events schema, so its negative
+# multi-value filters compile through the arrayExists optimizer rather than a scalar comparison. These
+# execute against ClickHouse to prove the optimized path returns the right rows, not only the right SQL.
 class TestNegativeArrayOperatorNullParityWithData(APIBaseTest):
     EVENT = "purchase"
 

@@ -460,21 +460,21 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             fingerprint="fingerprint_DatabaseNotFoundX",
             distinct_ids=[self.distinct_id_one],
             exception_list=[{"type": "DatabaseNotFoundX", "value": "this is the same error message"}],
-            additional_properties={"$exception_types": ["DatabaseNotFoundX"]},
+            additional_properties={"$exception_types": "['DatabaseNotFoundX']"},
         )
         self.create_events_and_issue(
             issue_id="01936e81-f5ce-79b1-99f1-f0e9675fcfef",
             fingerprint="fingerprint_DatabaseNotFoundY",
             distinct_ids=[self.distinct_id_one],
             exception_list=[{"type": "DatabaseNotFoundY", "value": "this is the same error message"}],
-            additional_properties={"$exception_types": ["DatabaseNotFoundY"]},
+            additional_properties={"$exception_types": "['DatabaseNotFoundY']"},
         )
         self.create_events_and_issue(
             issue_id="01936e82-241e-7e27-b47d-6659c54eb0be",
             fingerprint="fingerprint_xyz",
             distinct_ids=[self.distinct_id_two],
             exception_list=[{"type": "xyz", "value": "this is the same error message"}],
-            additional_properties={"$exception_types": ["xyz"]},
+            additional_properties={"$exception_types": "['xyz']"},
         )
         flush_persons_and_events()
 
@@ -513,9 +513,9 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             fingerprint="fingerprint_DatabaseNotFoundX",
             distinct_ids=[self.distinct_id_one],
             additional_properties={
-                "$exception_types": ["DatabaseNotFoundX"],
-                "$exception_values": ["this is the same error message"],
-                "$exception_sources": ["posthog/clickhouse/client/execute.py"],
+                "$exception_types": "['DatabaseNotFoundX']",
+                "$exception_values": "['this is the same error message']",
+                "$exception_sources": "['posthog/clickhouse/client/execute.py']",
             },
         )
 
@@ -524,9 +524,9 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             fingerprint="fingerprint_DatabaseNotFoundY",
             distinct_ids=[self.distinct_id_two],
             additional_properties={
-                "$exception_types": ["DatabaseNotFoundY"],
-                "$exception_values": ["this is the same error message"],
-                "$exception_sources": ["posthog/clickhouse/client/execute.py"],
+                "$exception_types": "['DatabaseNotFoundY']",
+                "$exception_values": "['this is the same error message']",
+                "$exception_sources": "['posthog/clickhouse/client/execute.py']",
             },
         )
         flush_persons_and_events()
