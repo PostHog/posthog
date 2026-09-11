@@ -489,6 +489,30 @@ export function isLoopShapedHogFlow(flow: LoopHogFlowSource): boolean {
   );
 }
 
+/** The notify step as the notification summary the list and detail views read.
+ * A Slack channel is stored as its id, so the name is only known when the step
+ * carries the picker's `C123|#name` form. */
+function notificationsFromNotify(
+  notify: LoopAction | null,
+): LoopSchemas.LoopNotifications {
+  const off = (): LoopSchemas.LoopNotificationChannel => ({
+    enabled: false,
+    events: [],
+    params: {},
+  });
+  const notifications = { push: off(), email: off(), slack: off() };
+  if (!notify) return notifications;
+  if (notify.type === "function_email") {
+    notifications.email.enabled = true;
+    return notifications;
+  }
+  const inputs = isRecord(notify.config.inputs) ? notify.config.inputs : {};
+  const channelName = readString(inputValue(inputs, "channel")).split("|")[1];
+  notifications.slack.enabled = true;
+  if (channelName) notifications.slack.params = { channel_name: channelName };
+  return notifications;
+}
+
 /**
  * Projects a workflow onto the loop shape the list and detail views render. A
  * flow the form did not build still maps (name, status, dates) with no
@@ -506,7 +530,6 @@ export function hogFlowToLoop(
   const reasoningEffort = isRecord(model)
     ? readString(model.reasoning_effort)
     : "";
-  const off = { enabled: false, events: [], params: {} };
   return {
     id: flow.id,
     team_id: context.projectId,
@@ -529,7 +552,7 @@ export function hogFlowToLoop(
     overlap_policy: "skip",
     behaviors: defaultLoopBehaviors(),
     connectors: { mcp_installation_ids: [], posthog_mcp_scopes: "read_only" },
-    notifications: { push: { ...off }, email: { ...off }, slack: { ...off } },
+    notifications: notificationsFromNotify(parsed?.actions.notify ?? null),
     context_target: null,
     internal: false,
     origin_product: LOOPS_ORIGIN_PRODUCT,

@@ -1,5 +1,6 @@
 import type { Schemas } from "@posthog/api-client/generated";
 import { describe, expect, it } from "vitest";
+import { summarizeNotificationDestinations } from "./loopDisplay";
 import {
   emptyLoopFormValues,
   type LoopFormValues,
@@ -517,6 +518,59 @@ describe("loopHogFlowMapping", () => {
     ]);
     expect(flow.actions[2]).toEqual(notify);
     expect(flow.edges).toEqual(existing.edges);
+  });
+
+  it.each([
+    [
+      "a Slack step",
+      {
+        type: "function",
+        config: {
+          template_id: "template-slack",
+          inputs: { channel: { value: "C123|#releases" } },
+        },
+      },
+      ["Slack \u00b7 #releases"],
+    ],
+    [
+      "a Slack step with only a channel id",
+      {
+        type: "function",
+        config: {
+          template_id: "template-slack",
+          inputs: { channel: { value: "C123" } },
+        },
+      },
+      ["Slack"],
+    ],
+    [
+      "an email step",
+      { type: "function_email", config: { template_id: "template-email" } },
+      ["Email"],
+    ],
+  ])(
+    "reports %s as the loop's notification destination",
+    (_label, step, expected) => {
+      const existing = flowFromWrite(scheduleValues());
+      const actions = existing.actions as Array<Record<string, unknown>>;
+      actions.splice(2, 0, { id: "notify", name: "Notify", ...step });
+      existing.edges = [
+        { from: "trigger", to: "create_task", type: "continue" },
+        { from: "create_task", to: "notify", type: "continue" },
+        { from: "notify", to: "exit", type: "continue" },
+      ];
+
+      const loop = hogFlowToLoop(existing, { projectId: PROJECT_ID });
+      expect(summarizeNotificationDestinations(loop.notifications)).toEqual(
+        expected,
+      );
+    },
+  );
+
+  it("reports no notification destination for a loop with no notify step", () => {
+    const flow = flowFromWrite(scheduleValues());
+    const loop = hogFlowToLoop(flow, { projectId: PROJECT_ID });
+    expect(summarizeNotificationDestinations(loop.notifications)).toEqual([]);
   });
 
   it("marks a flow with a staged draft as foreign until it is published or discarded", () => {
