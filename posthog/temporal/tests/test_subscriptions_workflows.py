@@ -44,6 +44,7 @@ from posthog.temporal.scheduler.admission import (
     SchedulerClaimInvariantError,
     SchedulerClaimRequest,
     SchedulerClaimReservation,
+    quarantine_scheduler_claim,
 )
 from posthog.temporal.scheduler.payload import PayloadSelection
 from posthog.test.insight_queries import default_pageview_query
@@ -4115,7 +4116,9 @@ async def test_claimed_subscription_page_refills_after_payload_trim_and_admissio
             short_id=f"refill-{index}",
             name=f"Refill insight {index}",
         )
-        subscriptions.append(await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user))
+        subscriptions.append(
+            await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+        )
     await sync_to_async(Subscription.objects.filter(id__in=[item.id for item in subscriptions]).update)(
         next_delivery_date=due_at
     )
@@ -4177,6 +4180,54 @@ async def test_claimed_subscription_page_refills_after_payload_trim_and_admissio
     assert reservation_calls == 2
     assert len(page.subscriptions) == 2
     assert [item.subscription_id for item in page.subscriptions] == [subscriptions[0].id, subscriptions[2].id]
+
+
+async def test_claimed_subscription_page_refills_past_a_quarantined_occurrence(team, user):
+    due_at = datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+    subscriptions: list[Subscription] = []
+    for index in range(2):
+        insight = await sync_to_async(Insight.objects.create)(
+            team=team,
+            short_id=f"qrefill-{index}",
+            name=f"Quarantine refill insight {index}",
+        )
+        subscriptions.append(await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user))
+    await sync_to_async(Subscription.objects.filter(id__in=[item.id for item in subscriptions]).update)(
+        next_delivery_date=due_at
+    )
+
+    first_page = await ActivityEnvironment().run(
+        fetch_claimed_due_subscriptions_activity,
+        FetchDueSubscriptionsActivityInputs(
+            buffer_minutes=15,
+            max_subscriptions_per_run=1,
+            region="quarantine-refill",
+            use_durable_claims=True,
+            claim_token_seed="quarantine-first",
+        ),
+    )
+    first = first_page.subscriptions[0]
+    assert first.subscription_id == subscriptions[0].id
+    assert first.scheduler_claim_id is not None
+    assert first.scheduler_claim_token is not None
+    assert await sync_to_async(quarantine_scheduler_claim)(
+        uuid.UUID(first.scheduler_claim_id),
+        uuid.UUID(first.scheduler_claim_token),
+        error="poison occurrence",
+    )
+
+    refilled_page = await ActivityEnvironment().run(
+        fetch_claimed_due_subscriptions_activity,
+        FetchDueSubscriptionsActivityInputs(
+            buffer_minutes=15,
+            max_subscriptions_per_run=1,
+            region="quarantine-refill",
+            use_durable_claims=True,
+            claim_token_seed="quarantine-second",
+        ),
+    )
+
+    assert [item.subscription_id for item in refilled_page.subscriptions] == [subscriptions[1].id]
 
 
 async def test_claimed_subscription_refill_does_not_move_tenant_cursor_backwards(team, user):
