@@ -3048,13 +3048,13 @@ describe('PersonhogPersonsStore', () => {
             })
             // Only the redirect's single-key resolve parks; the merge's own
             // resolve of its named ids must still answer.
-            repository.resolvePersonsByDistinctIds.mockImplementation(((keys: { distinctId: string }[]) =>
-                keys.length === 1
-                    ? (announceRedirect(),
-                      resolving.then(() => [{ teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } }]))
-                    : Promise.resolve(
-                          keys.map(({ distinctId }) => ({ teamId: 1, distinctId, person: { ...person } }))
-                      )) as never)
+            repository.resolvePersonsByDistinctIds.mockImplementation(((keys: { distinctId: string }[]) => {
+                if (keys.length === 1) {
+                    announceRedirect()
+                    return resolving.then(() => [{ teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } }])
+                }
+                return Promise.resolve(keys.map(({ distinctId }) => ({ teamId: 1, distinctId, person: { ...person } })))
+            }) as never)
             repository.updatePersonProperties.mockRejectedValue(new NoRowsUpdatedError('merged away') as never)
             repository.mergePersons = jest.fn().mockResolvedValue(merged())
 

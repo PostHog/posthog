@@ -114,6 +114,14 @@ pub struct Config {
     #[envconfig(default = "0")]
     pub max_concurrent_requests: usize,
 
+    /// Leader property writes in flight per get-or-create batch (0 acts as 1).
+    #[envconfig(default = "8")]
+    pub property_write_concurrency: usize,
+
+    /// Leader calls in flight per lifecycle saga step (0 acts as 1).
+    #[envconfig(default = "8")]
+    pub lifecycle_leader_call_concurrency: usize,
+
     /// How long one claim of a lifecycle op lasts before another instance
     /// may steal it (seconds).
     #[envconfig(default = "15")]

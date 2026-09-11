@@ -42,9 +42,6 @@ use crate::lifecycle::engine::{
 };
 use crate::storage::postgres::begin_timed;
 
-/// Bound on concurrent leader calls per step, matching the merge driver.
-const LEADER_CALL_CONCURRENCY: usize = 8;
-
 // Derived from the shared enum so the op-type string cannot drift from
 // the leader's fence records or the lifecycle_op CHECK constraint.
 pub const OP_TYPE_DELETE: &str = LifecycleOpType::Delete.as_op_type_str();
@@ -147,12 +144,22 @@ fn record_outcomes(outcome: &Value) {
 pub struct DeleteDriver {
     leader: Arc<dyn LifecycleLeader>,
     tables: IdentityTables,
+    leader_call_concurrency: usize,
 }
 
 impl DeleteDriver {
-    pub fn new(leader: Arc<dyn LifecycleLeader>, tables: IdentityTables) -> Self {
+    pub fn new(
+        leader: Arc<dyn LifecycleLeader>,
+        tables: IdentityTables,
+        leader_call_concurrency: usize,
+    ) -> Self {
         tables.validate().expect("invalid identity table set");
-        Self { leader, tables }
+        Self {
+            leader,
+            tables,
+            // Clamped to 1: a zero-width buffered stream never polls.
+            leader_call_concurrency: leader_call_concurrency.max(1),
+        }
     }
 }
 
@@ -175,9 +182,13 @@ impl OpDriver for DeleteDriver {
         })?;
         match step {
             DeleteStep::Started => mark(pool, &self.tables.person, op).await,
-            DeleteStep::Marked => seal(pool, self.leader.as_ref(), op).await,
+            DeleteStep::Marked => {
+                seal(pool, self.leader.as_ref(), self.leader_call_concurrency, op).await
+            }
             DeleteStep::Sealed => unmap(pool, &self.tables, op).await,
-            DeleteStep::Unmapped => complete(pool, self.leader.as_ref(), op).await,
+            DeleteStep::Unmapped => {
+                complete(pool, self.leader.as_ref(), self.leader_call_concurrency, op).await
+            }
         }
     }
 }
@@ -372,7 +383,12 @@ async fn mark(pool: &PgPool, person_table: &str, op: &OpRow) -> Result<(), SagaE
 /// op; unlike the merge driver's pre-flip abort, delete has no abort path
 /// past `started`, and a parked delete is an operator signal, not a stuck
 /// customer flow.
-async fn seal(pool: &PgPool, leader: &dyn LifecycleLeader, op: &OpRow) -> Result<(), SagaError> {
+async fn seal(
+    pool: &PgPool,
+    leader: &dyn LifecycleLeader,
+    leader_call_concurrency: usize,
+    op: &OpRow,
+) -> Result<(), SagaError> {
     let victims = sqlx::query!(
         r#"
         SELECT person_id FROM lifecycle_op_person
@@ -398,7 +414,7 @@ async fn seal(pool: &PgPool, leader: &dyn LifecycleLeader, op: &OpRow) -> Result
         })
         .collect();
     let fence_results: Vec<_> = stream::iter(fence_calls)
-        .buffer_unordered(LEADER_CALL_CONCURRENCY)
+        .buffer_unordered(leader_call_concurrency)
         .collect()
         .await;
 
@@ -649,6 +665,7 @@ async fn unmap(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(),
 async fn complete(
     pool: &PgPool,
     leader: &dyn LifecycleLeader,
+    leader_call_concurrency: usize,
     op: &OpRow,
 ) -> Result<(), SagaError> {
     let request = parse_request(op)?;
@@ -682,7 +699,7 @@ async fn complete(
         })
         .collect();
     let release_results: Vec<_> = stream::iter(release_calls)
-        .buffer_unordered(LEADER_CALL_CONCURRENCY)
+        .buffer_unordered(leader_call_concurrency)
         .collect()
         .await;
     for result in release_results {

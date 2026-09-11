@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import quote
@@ -60,8 +62,10 @@ _PERMANENT_SLACK_ERROR_CODES = frozenset(
 # with one of these when it cannot reach one. Neither code is permanent, so a chart Slack cannot
 # fetch would otherwise retry and then drop a report that used to post as text.
 _BLOCK_REJECTION_ERROR_CODES = frozenset({"invalid_blocks", "invalid_blocks_format"})
+_SCOUT_SLACK_REPLY_PACE_SECONDS = 1
 
 ScoutSlackOutputType = Literal["finding", "report"]
+ScoutSlackReplyRetryScheduler = Callable[[int, list[list[dict]], int, str, str], None]
 
 # Each member gets an individual DM (a group DM would need the `mpim:write` scope the Slack app
 # doesn't request), so this bounds the per-output Slack API fan-out.
@@ -87,7 +91,7 @@ class ScoutSlackDestination:
     # or one or more members to DM individually (`U…|@name`) — Slack's chat.postMessage accepts
     # either id as its `channel` argument, opening the DM for a member id.
     targets: tuple[str, ...]
-    thread_reports: bool = False
+    thread_reports: bool = True
 
 
 class ScoutSlackPermanentDeliveryError(RuntimeError):
@@ -106,7 +110,8 @@ def get_scout_slack_destination(output_destinations: object) -> ScoutSlackDestin
     integration_id = slack.get("integration_id")
     if not isinstance(integration_id, int) or isinstance(integration_id, bool) or integration_id < 1:
         return None
-    thread_reports = slack.get("thread_reports") is True
+    # Threading is the default, so only an explicit `false` turns it off.
+    thread_reports = slack.get("thread_reports") is not False
     channel = slack.get("channel")
     if isinstance(channel, str) and channel.strip():
         return ScoutSlackDestination(
@@ -128,6 +133,19 @@ def get_scout_slack_destination(output_destinations: object) -> ScoutSlackDestin
 def slack_api_error_code(exc: SlackApiError) -> str | None:
     error_code = exc.response.get("error") if exc.response else None
     return error_code if isinstance(error_code, str) else None
+
+
+def _slack_retry_after_seconds(exc: Exception) -> int | None:
+    """Return Slack's retry delay, bounded by the delivery task's one-hour limit."""
+    if not isinstance(exc, SlackApiError) or slack_api_error_code(exc) != "ratelimited" or exc.response is None:
+        return None
+    headers = exc.response.headers or {}
+    raw_value = headers.get("Retry-After") or headers.get("retry-after")
+    try:
+        retry_after = int(raw_value) if raw_value is not None else None
+    except (TypeError, ValueError):
+        return None
+    return min(retry_after, 3600) if retry_after is not None and retry_after > 0 else None
 
 
 def _post_scout_slack_reply(
@@ -529,6 +547,8 @@ def _post_scout_report_thread_replies(
     delivery_id: str,
     reply_blocks: list[list[dict]],
     fallback: str,
+    schedule_retry: ScoutSlackReplyRetryScheduler,
+    chunk_offset: int = 0,
 ) -> None:
     """Post the remaining summary chunks as threaded replies under an already-delivered lead.
 
@@ -536,29 +556,50 @@ def _post_scout_report_thread_replies(
     delivery still succeeds rather than re-posting the lead on retry."""
     if not isinstance(thread_ts, str) or not thread_ts:
         return
+
+    def _post_reply(index: int, blocks: list[dict]) -> None:
+        client.chat_postMessage(  # type: ignore[attr-defined]
+            channel=channel_id,
+            thread_ts=thread_ts,
+            blocks=blocks,
+            text=fallback,
+            # Slack rejects a client_msg_id that is not a UUID, and this loop swallows the
+            # error, so a plain `id:index` string costs every reply silently. The `reply`
+            # infix keeps the derivation clear of the one the DM fan-out uses for extra
+            # recipients (`<delivery_id>:<index>`), which would otherwise collide.
+            client_msg_id=str(uuid.uuid5(uuid.NAMESPACE_OID, f"{delivery_id}:reply:{index}")),
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+
     for index, blocks in enumerate(reply_blocks):
+        chunk_index = chunk_offset + index
+        if index:
+            # Slack allows roughly one message per second per channel. Keep the bounded reply fan-out
+            # in this worker, but do not send it as one burst that consumes a retry per section.
+            time.sleep(_SCOUT_SLACK_REPLY_PACE_SECONDS)
         try:
-            client.chat_postMessage(  # type: ignore[attr-defined]
-                channel=channel_id,
-                thread_ts=thread_ts,
-                blocks=blocks,
-                text=fallback,
-                # Slack rejects a client_msg_id that is not a UUID, and this loop swallows the
-                # error, so a plain `id:index` string costs every reply silently. The `reply`
-                # infix keeps the derivation clear of the one the DM fan-out uses for extra
-                # recipients (`<delivery_id>:<index>`), which would otherwise collide.
-                client_msg_id=str(uuid.uuid5(uuid.NAMESPACE_OID, f"{delivery_id}:reply:{index}")),
-                unfurl_links=False,
-                unfurl_media=False,
-            )
-        except Exception:
+            _post_reply(chunk_index, blocks)
+        except Exception as exc:
+            error_code = slack_api_error_code(exc) if isinstance(exc, SlackApiError) else None
             logger.warning(
                 "scout_slack_report_thread_reply_failed",
                 channel=channel_id,
                 delivery_id=delivery_id,
-                chunk_index=index,
+                chunk_index=chunk_index,
+                error_code=error_code,
                 exc_info=True,
             )
+            if error_code in _PERMANENT_SLACK_ERROR_CODES:
+                continue
+            schedule_retry(
+                _slack_retry_after_seconds(exc) or 60,
+                reply_blocks[index:],
+                chunk_index,
+                thread_ts,
+                fallback,
+            )
+            return
 
 
 def _post_scout_report_lead_message(
@@ -607,6 +648,7 @@ def post_scout_report_to_slack(
     delivery_id: str,
     integration_id: int,
     channel: str,
+    schedule_thread_reply_retry: ScoutSlackReplyRetryScheduler,
     edit_note: str | None = None,
     thread_reports: bool = False,
 ) -> None:
@@ -723,6 +765,7 @@ def post_scout_report_to_slack(
             delivery_id=delivery_id,
             reply_blocks=messages.reply_blocks,
             fallback=messages.fallback,
+            schedule_retry=schedule_thread_reply_retry,
         )
 
     _post_scout_slack_reply(

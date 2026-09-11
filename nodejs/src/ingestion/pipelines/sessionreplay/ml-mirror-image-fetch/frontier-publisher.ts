@@ -12,6 +12,7 @@ import {
 } from './collected-urls-record'
 import type { ImageFetchResult } from './image-fetcher'
 import { ImageFetchRequestMetrics, RepublishTopic } from './metrics'
+import { ImageFetchProcessingMetrics } from './processing-metrics'
 
 export interface DelayTier {
     topic: string
@@ -117,16 +118,21 @@ export class FrontierPublisher {
         if (result.contentEncoding) {
             headers['content-encoding'] = result.contentEncoding
         }
-        await this.imagePublishes.run({
-            debugTag: candidate.registrableDomain,
-            fn: () =>
-                this.producer.produce({
-                    topic: this.options.scrubTopic,
-                    key: Buffer.from(candidate.originalRef),
-                    value: bytes,
-                    headers,
-                }),
-        })
+        await ImageFetchProcessingMetrics.runLimited(
+            this.imagePublishes,
+            'image_publish_admission',
+            'image_publish_delivery',
+            {
+                debugTag: candidate.registrableDomain,
+                fn: () =>
+                    this.producer.produce({
+                        topic: this.options.scrubTopic,
+                        key: Buffer.from(candidate.originalRef),
+                        value: bytes,
+                        headers,
+                    }),
+            }
+        )
     }
 }
 

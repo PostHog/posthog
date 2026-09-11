@@ -96,6 +96,9 @@ class _VisionAPITestCase(APIBaseTest):
         defaults.update(overrides)
         return ReplayScanner.objects.create(**defaults)
 
+    def _captured(self, capture: Any, event: str) -> list[dict[str, Any]]:
+        return [call.kwargs["properties"] for call in capture.call_args_list if call.kwargs.get("event") == event]
+
 
 class TestReplayScannerViewSet(_VisionAPITestCase):
     def test_create_minimal(self) -> None:
