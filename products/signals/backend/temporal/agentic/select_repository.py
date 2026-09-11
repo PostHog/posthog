@@ -113,21 +113,12 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             previous = await aretry_on_db_connection_drop(
                 lambda: database_sync_to_async(persisted_repo_selection, thread_sensitive=False)(input.report_id)
             )
-            if previous is not None and previous.repository is not None:
-                logger.info(
-                    "signals repo selection reused from previous run",
-                    report_id=input.report_id,
-                    repository=previous.repository,
-                )
-                _capture_repo_research_event(
-                    "signals_repo_research_completed",
-                    team,
-                    team.organization,
-                    input.report_id,
-                    result="reused",
-                )
-                return previous
 
+            # A GitHub integration is required to select a repository and, later, for the research
+            # step to reach it. Resolve it up front so a persisted selection is only reused while
+            # the integration still holds. If it lapsed since the earlier run (deleted, token
+            # refresh failing, installation unavailable, repo cache synced empty), fall through to
+            # the no-repo prompt instead of handing a stale repo to research, which would crash.
             user_id = await database_sync_to_async(_resolve_sandbox_user_id, thread_sensitive=False)(input.team_id)
             if user_id is None:
                 logger.info(
@@ -147,6 +138,22 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                     result="no_repo",
                 )
                 return no_repo_result
+
+            if previous is not None and previous.repository is not None:
+                logger.info(
+                    "signals repo selection reused from previous run",
+                    report_id=input.report_id,
+                    repository=previous.repository,
+                )
+                _capture_repo_research_event(
+                    "signals_repo_research_completed",
+                    team,
+                    team.organization,
+                    input.report_id,
+                    result="reused",
+                )
+                return previous
+
             sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
                 input.team_id,
                 SIGNALS_REPO_DISCOVERY_ENV_NAME,
