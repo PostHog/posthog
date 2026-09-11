@@ -416,12 +416,16 @@ export const nativeAlertEditorLogic = kea<nativeAlertEditorLogicType>([
                 if (draft.triggers.length === 0) {
                     return 'Pick at least one event that starts a thread'
                 }
-                // A half-filled row would be dropped from the payload without a word, so block on it.
-                const halfFilled = draft.destinations.some(
-                    (destination) =>
-                        (destination.integrationId === null) !== (splitChannel(destination.channel) === null)
-                )
-                if (halfFilled) {
+                // An incomplete row would be dropped from the payload without a word, so block on it.
+                // The one exception is a single untouched row: that is the fresh-alert state and
+                // gets the plainer message below.
+                const rows = draft.destinations.map((destination) => ({
+                    hasWorkspace: destination.integrationId !== null,
+                    hasChannel: splitChannel(destination.channel) !== null,
+                }))
+                const incomplete = rows.some((row) => !row.hasWorkspace || !row.hasChannel)
+                const halfFilled = rows.some((row) => row.hasWorkspace !== row.hasChannel)
+                if (incomplete && (rows.length > 1 || halfFilled)) {
                     return 'Pick a channel for every Slack destination, or remove the empty one'
                 }
                 if (payloadFromDraft(draft).destinations.length === 0) {

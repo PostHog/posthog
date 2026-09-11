@@ -139,10 +139,12 @@ function Section({ openAlert }: { openAlert?: ErrorTrackingAlertApi }): JSX.Elem
         },
     })
     useLayoutEffect(() => {
-        if (openAlert) {
-            nativeAlertEditorLogic.mount()
-            nativeAlertEditorLogic.actions.openEditor(openAlert)
+        if (!openAlert) {
+            return
         }
+        const unmount = nativeAlertEditorLogic.mount()
+        nativeAlertEditorLogic.actions.openEditor(openAlert)
+        return unmount
     }, [openAlert])
     return (
         <div className="w-[900px] p-4">

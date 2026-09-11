@@ -118,6 +118,13 @@ describe('nativeAlertEditorLogic', () => {
         )
         logic.actions.updateDestination(0, { channel: 'C0456|#spikes' })
         expect(logic.values.saveDisabledReason).toBeNull()
+        // An added row left empty would also vanish silently; it blocks until filled or removed.
+        logic.actions.addDestination()
+        expect(logic.values.saveDisabledReason).toEqual(
+            'Pick a channel for every Slack destination, or remove the empty one'
+        )
+        logic.actions.removeDestination(1)
+        expect(logic.values.saveDisabledReason).toBeNull()
 
         mockCreate.mockResolvedValue(existingAlert)
         await expectLogic(logic, () => logic.actions.saveAlert()).toDispatchActions([
