@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef } from 'react'
 
 import { TZLabelProps } from 'lib/components/TZLabel'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { UniversalFiltersGroup } from '~/types'
@@ -20,6 +21,7 @@ import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsVi
 import { logsExportLogic } from 'products/logs/frontend/components/LogsViewer/logsExportLogic'
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
+import { logsRangeBeyondRetention, resolveLogsRetentionDays } from 'products/logs/frontend/logsRetentionWindow'
 
 import { LogDetailsModal } from './LogDetailsModal'
 import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
@@ -136,12 +138,18 @@ function LogsViewerContent({
         totalLogsMatchingFilters,
     } = useValues(logsViewerDataLogic)
     const { refreshQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
+    const { dateRange } = useValues(logsViewerFiltersLogic)
     const { setDateRange, zoomDateRange } = useActions(logsViewerFiltersLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ id }))
     const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ id }))
     const messageScrollLeft = cellScrollLefts['message'] ?? 0
     const scrollLeftRef = useRef(messageScrollLeft)
     scrollLeftRef.current = messageScrollLeft
+
+    const retentionDays = resolveLogsRetentionDays(currentTeam?.logs_settings)
+    // Only reached when the list resolves to nothing, where it separates "deleted" from "never logged".
+    const retention = logsRangeBeyondRetention(dateRange, retentionDays, timezone)
 
     const scrollIntervalRef = useRef<number | null>(null)
 
@@ -352,6 +360,8 @@ function LogsViewerContent({
                 hasMoreLogsToLoad={hasMoreLogsToLoad}
                 onLoadMore={fetchNextLogsPage}
                 onExpandTimeRange={() => zoomDateRange(2)}
+                retention={retention}
+                onSearchRetainedRange={() => setDateRange({ date_from: `-${retentionDays}d`, date_to: null })}
                 orderBy={orderBy}
                 onChangeOrderBy={(newOrderBy) => setOrderBy(newOrderBy, 'header')}
             />
