@@ -5,7 +5,7 @@ from parameterized import parameterized
 from posthog.models import Comment, Organization, OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
 
-from products.canvas.backend.models import Canvas
+from products.canvas.backend.facade import testing as canvas_testing
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Channel, Task, TaskActivity, TaskCommentActivity, TaskRun
 
@@ -69,14 +69,14 @@ class TestCommentActivity(CommentActivityTestCase):
         assert TaskCommentActivity.objects.filter(team=self.team, user=self.author, task=self.task).exists()
 
     def test_canvas_comment_uses_its_generation_task(self):
-        canvas = Canvas.objects.create(
-            team=self.team,
-            channel=self.channel,
+        canvas_id = canvas_testing.create_canvas(
+            team_id=self.team.id,
+            channel_id=self.channel.id,
             name="Launch canvas",
-            created_by=self.peer,
+            created_by_id=self.peer.id,
             generation_task_id=self.task.id,
         )
-        comment = self._comment(scope="desktop_canvas", item_id=str(canvas.id))
+        comment = self._comment(scope="desktop_canvas", item_id=str(canvas_id))
 
         self._record_activity(comment, [self.author.id])
 

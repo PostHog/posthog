@@ -24,8 +24,9 @@ from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.annotations.backend.models.annotation import Annotation
-from products.canvas.backend import activity_visibility, build_service
+from products.canvas.backend import build_service
 from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSerializer
+from products.canvas.backend.facade import api as canvas_facade
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
 from products.tasks.backend.facade.access import DesktopAccessDecision
@@ -1310,8 +1311,8 @@ class TestCanvasActivityVisibility(CanvasAPIBaseTest):
         public_id = self._create_canvas(name="Public")
         notebook_widget = self._notebook_widget()
 
-        owner_visible = activity_visibility.visible_canvas_ids(self.team.id, self.user)
-        other_visible = activity_visibility.visible_canvas_ids(self.team.id, other)
+        owner_visible = canvas_facade.visible_canvas_ids(self.team.id, self.user)
+        other_visible = canvas_facade.visible_canvas_ids(self.team.id, other)
 
         assert {public_id, str(private.id)} <= owner_visible
         assert public_id in other_visible
@@ -1324,10 +1325,10 @@ class TestCanvasActivityVisibility(CanvasAPIBaseTest):
         private = self._personal_canvas(self.user)
         notebook_widget = self._notebook_widget()
 
-        assert str(private.id) not in activity_visibility.hidden_canvas_ids_for_org(self.organization.id, self.user)
-        assert str(private.id) in activity_visibility.hidden_canvas_ids_for_org(self.organization.id, other)
-        assert str(notebook_widget.id) in activity_visibility.hidden_canvas_ids_for_org(self.organization.id, self.user)
-        assert str(notebook_widget.id) in activity_visibility.hidden_canvas_ids_for_org(self.organization.id, other)
+        assert str(private.id) not in canvas_facade.hidden_canvas_ids_for_org(self.organization.id, self.user)
+        assert str(private.id) in canvas_facade.hidden_canvas_ids_for_org(self.organization.id, other)
+        assert str(notebook_widget.id) in canvas_facade.hidden_canvas_ids_for_org(self.organization.id, self.user)
+        assert str(notebook_widget.id) in canvas_facade.hidden_canvas_ids_for_org(self.organization.id, other)
 
     def test_team_activity_feed_hides_notebook_widget_rows(self):
         public_id = self._create_canvas(name="Public")

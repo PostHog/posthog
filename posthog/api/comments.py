@@ -196,7 +196,7 @@ def _record_task_comment_activity(
         )
 
         if comment.scope == "desktop_canvas" and comment.item_id:
-            from products.canvas.backend.comment_access import canvas_owner_id  # noqa: PLC0415
+            from products.canvas.backend.facade.api import canvas_owner_id  # noqa: PLC0415
 
             owner_id = canvas_owner_id(team_id=comment.team_id, canvas_id=comment.item_id)
 

@@ -36,7 +36,7 @@ from products.annotations.backend.models.annotation import Annotation
 from products.autoresearch.backend.facade import testing as autoresearch_testing
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource
 from products.business_knowledge.backend.models.constants import SourceStatus, SourceType
-from products.canvas.backend.models import Canvas
+from products.canvas.backend.facade import testing as canvas_testing
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort
@@ -776,10 +776,10 @@ def _create_task(team: Team, label: str) -> Task:
     )
 
 
-def _create_canvas(team: Team, label: str) -> Canvas:
+def _create_canvas(team: Team, label: str) -> uuid.UUID:
     with team_scope(team.pk):
         channel = _create_public_task_channel(team, f"canvas_{label}")
-        return Canvas.objects.create(team=team, channel=channel, name=f"canvas_{label}")
+    return canvas_testing.create_canvas(team_id=team.pk, channel_id=channel.id, name=f"canvas_{label}")
 
 
 def _create_task_run(team: Team, label: str) -> TaskRun:
@@ -1093,14 +1093,16 @@ class TestSystemTablesCanvasDeletedExclusionIsolation(NonAtomicBaseTest):
     def test_deleted_canvases_excluded(self):
         with team_scope(self.team.pk):
             channel = Channel.objects.create(team=self.team, name="canvas-exclusion-channel")
-            live_canvas = Canvas.objects.create(team=self.team, channel=channel, name="live")
-            deleted_canvas = Canvas.objects.create(team=self.team, channel=channel, name="deleted", deleted=True)
+        live_canvas_id = canvas_testing.create_canvas(team_id=self.team.pk, channel_id=channel.id, name="live")
+        deleted_canvas_id = canvas_testing.create_canvas(
+            team_id=self.team.pk, channel_id=channel.id, name="deleted", deleted=True
+        )
 
         response = execute_hogql_query("SELECT id FROM system.canvases", team=self.team, user=self.user)
         ids = {str(row[0]) for row in response.results}
 
-        assert str(live_canvas.pk) in ids
-        assert str(deleted_canvas.pk) not in ids
+        assert str(live_canvas_id) in ids
+        assert str(deleted_canvas_id) not in ids
 
 
 class TestSystemTablesActivityLogsCanvasIdCoercion(NonAtomicBaseTest):
@@ -1114,7 +1116,7 @@ class TestSystemTablesActivityLogsCanvasIdCoercion(NonAtomicBaseTest):
         # ClickHouse coerced every row's item_id to UUID and the whole table failed to read.
         with team_scope(self.team.pk):
             channel = Channel.objects.create(team=self.team, name="activity-log-canvas-channel")
-            Canvas.objects.create(team=self.team, channel=channel, name="live")
+        canvas_testing.create_canvas(team_id=self.team.pk, channel_id=channel.id, name="live")
         ActivityLog.objects.create(
             team_id=self.team.pk,
             organization_id=self.organization.id,
@@ -1191,9 +1193,11 @@ class TestSystemTablesTaskSpaceVisibilityIsolation(NonAtomicBaseTest):
                 created_by=self.user,
             )
             deleted_channel = Channel.objects.create(team=self.team, name="deleted-space", deleted=True)
-            public_canvas = Canvas.objects.create(team=self.team, channel=public_channel, name="public")
-            Canvas.objects.create(team=self.team, channel=private_channel, name="private")
-            Canvas.objects.create(team=self.team, channel=deleted_channel, name="deleted")
+        public_canvas_id = canvas_testing.create_canvas(
+            team_id=self.team.pk, channel_id=public_channel.id, name="public"
+        )
+        canvas_testing.create_canvas(team_id=self.team.pk, channel_id=private_channel.id, name="private")
+        canvas_testing.create_canvas(team_id=self.team.pk, channel_id=deleted_channel.id, name="deleted")
 
         public_task = Task.objects.create(
             team=self.team,
@@ -1237,7 +1241,7 @@ class TestSystemTablesTaskSpaceVisibilityIsolation(NonAtomicBaseTest):
 
         assert {str(row[0]) for row in task_response.results} == {str(public_task.id)}
         assert {str(row[0]) for row in run_response.results} == {str(public_run.id)}
-        assert {str(row[0]) for row in canvas_response.results} == {str(public_canvas.id)}
+        assert {str(row[0]) for row in canvas_response.results} == {str(public_canvas_id)}
 
 
 class TestSystemTablesNotebookMarkdown(NonAtomicBaseTest):

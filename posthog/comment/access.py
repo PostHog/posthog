@@ -32,7 +32,7 @@ def task_comment_target_is_accessible(
     if not item_id:
         return False
 
-    from products.canvas.backend.comment_access import (
+    from products.canvas.backend.facade.api import (
         canvas_belongs_to_task,  # noqa: PLC0415  # Import lazily because non-canvas comments do not need Canvas models.
     )
 
