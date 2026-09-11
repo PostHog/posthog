@@ -1,6 +1,13 @@
 import { ShieldWarning } from "@phosphor-icons/react";
-import { Spinner } from "@posthog/ui/primitives/Spinner";
-import { Button, Dialog, Flex, Text } from "@radix-ui/themes";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+} from "@posthog/quill";
 import { logger } from "../../../shell/logger";
 import { useAuthStateValue } from "../store";
 import { useLoginMutation, useLogoutMutation } from "../useAuthMutations";
@@ -27,45 +34,41 @@ export function ScopeReauthPrompt() {
   };
 
   return (
-    <Dialog.Root open={needsScopeReauth}>
-      <Dialog.Content
-        maxWidth="360px"
-        onEscapeKeyDown={(e) => e.preventDefault()}
-        onInteractOutside={(e) => e.preventDefault()}
-      >
-        <Flex direction="column" gap="3">
-          <Flex align="center" gap="2">
-            <ShieldWarning size={20} weight="bold" color="var(--gray-11)" />
-            <Dialog.Title className="mb-0">
+    <AlertDialog open={needsScopeReauth}>
+      <AlertDialogContent className="max-w-[360px]">
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            <span className="flex items-center gap-2">
+              <ShieldWarning weight="bold" />
               Re-authentication required
-            </Dialog.Title>
-          </Flex>
-          <Dialog.Description>
-            <Text color="gray" className="text-sm">
-              PostHog has been updated with new features that require additional
-              permissions. Please sign in again to continue.
-            </Text>
-          </Dialog.Description>
-          <Flex justify="between" mt="2">
-            <Button
-              type="button"
-              variant="soft"
-              color="gray"
-              onClick={() => logoutMutation.mutate()}
-            >
-              Log out
-            </Button>
-            <Button
-              type="button"
-              onClick={handleSignIn}
-              disabled={!cloudRegion || loginMutation.isPending}
-            >
-              {loginMutation.isPending && <Spinner size="sm" />}
-              Sign in
-            </Button>
-          </Flex>
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+            </span>
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            PostHog has been updated with new features that require additional
+            permissions. Please sign in again to continue.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter className="sm:justify-between">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => logoutMutation.mutate()}
+            loading={logoutMutation.isPending}
+            disabled={loginMutation.isPending}
+          >
+            Log out
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            onClick={handleSignIn}
+            loading={loginMutation.isPending}
+            disabled={!cloudRegion || logoutMutation.isPending}
+          >
+            Sign in
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

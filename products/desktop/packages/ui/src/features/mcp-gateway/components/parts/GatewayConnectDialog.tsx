@@ -8,11 +8,28 @@ import {
 import {
   Button,
   Dialog,
-  Flex,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Field,
+  FieldDescription,
+  FieldLabel,
+  Input,
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
   Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Text,
-  TextField,
-} from "@radix-ui/themes";
+} from "@posthog/quill";
 import { type FormEvent, useState } from "react";
 
 interface GatewayConnectDialogProps {
@@ -66,63 +83,70 @@ export function GatewayConnectDialog({
   };
 
   return (
-    <Dialog.Root open={open} onOpenChange={(next) => !next && onClose()}>
-      <Dialog.Content maxWidth="480px">
-        <Dialog.Title>Connect {serverName}</Dialog.Title>
-        <Dialog.Description color="gray" className="text-sm">
-          {memberChooses
-            ? "Choose how this server authenticates, then enter your personal credentials."
-            : values.authType === "api_key"
-              ? "This server uses an API key. Enter your own key to connect."
-              : "Enter the credentials for your personal connection."}
-        </Dialog.Description>
-        <form onSubmit={submit}>
-          <Flex direction="column" gap="3" mt="4">
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="sm:max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle>Connect {serverName}</DialogTitle>
+          <DialogDescription>
+            {memberChooses
+              ? "Choose how this server authenticates, then enter your personal credentials."
+              : values.authType === "api_key"
+                ? "This server uses an API key. Enter your own key to connect."
+                : "Enter the credentials for your personal connection."}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="contents">
+          <DialogBody viewportClassName="flex flex-col gap-3">
             {memberChooses && (
-              <Field label="Authentication">
-                <Select.Root
+              <Field>
+                <FieldLabel htmlFor="gateway-authentication">
+                  Authentication
+                </FieldLabel>
+                <Select
                   value={values.authType}
                   onValueChange={(value) =>
                     set("authType", value as McpAuthType)
                   }
                 >
-                  <Select.Trigger />
-                  <Select.Content>
-                    <Select.Item value="oauth">
+                  <SelectTrigger id="gateway-authentication" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="oauth">
                       OAuth — sign in with the provider
-                    </Select.Item>
-                    <Select.Item value="api_key">API key</Select.Item>
-                  </Select.Content>
-                </Select.Root>
+                    </SelectItem>
+                    <SelectItem value="api_key">API key</SelectItem>
+                  </SelectContent>
+                </Select>
               </Field>
             )}
 
             {values.authType === "api_key" ? (
-              <Field
-                label="API key"
-                hint="Encrypted at rest and never logged or exposed."
-              >
-                <TextField.Root
-                  value={values.apiKey}
-                  onChange={(e) => set("apiKey", e.target.value)}
-                  type={showKey ? "text" : "password"}
-                  placeholder="Enter API key"
-                  spellCheck={false}
-                  autoFocus
-                  className="font-mono"
-                >
-                  <TextField.Slot side="right">
-                    <Button
+              <Field>
+                <FieldLabel htmlFor="gateway-api-key">API key</FieldLabel>
+                <FieldDescription>
+                  Encrypted at rest and never logged or exposed.
+                </FieldDescription>
+                <InputGroup>
+                  <InputGroupInput
+                    id="gateway-api-key"
+                    value={values.apiKey}
+                    onChange={(event) => set("apiKey", event.target.value)}
+                    type={showKey ? "text" : "password"}
+                    placeholder="Enter API key"
+                    spellCheck={false}
+                    autoFocus
+                    className="font-mono"
+                  />
+                  <InputGroupAddon align="inline-end">
+                    <InputGroupButton
                       type="button"
-                      variant="ghost"
-                      color="gray"
-                      size="1"
                       onClick={() => setShowKey((value) => !value)}
                     >
                       {showKey ? "Hide" : "Show"}
-                    </Button>
-                  </TextField.Slot>
-                </TextField.Root>
+                    </InputGroupButton>
+                  </InputGroupAddon>
+                </InputGroup>
               </Field>
             ) : (
               isCustomServer && (
@@ -137,78 +161,62 @@ export function GatewayConnectDialog({
                       weight="bold"
                       className={`shrink-0 text-gray-10 transition-transform ${optionalOpen ? "rotate-90" : ""}`}
                     />
-                    <Text className="font-medium text-sm">Optional</Text>
-                    <Text color="gray" className="text-xs">
+                    <Text render={<span />} size="sm" weight="medium">
+                      Optional
+                    </Text>
+                    <Text render={<span />} size="xs" variant="muted">
                       Client ID &amp; secret — only if the provider doesn't
                       support dynamic client registration
                     </Text>
                   </button>
                   {optionalOpen && (
-                    <Flex gap="3" className="px-3 pb-3">
-                      <Field label="Client ID" className="flex-1">
-                        <TextField.Root
+                    <div className="flex gap-3 px-3 pb-3">
+                      <Field className="flex-1">
+                        <FieldLabel htmlFor="gateway-client-id">
+                          Client ID
+                        </FieldLabel>
+                        <Input
+                          id="gateway-client-id"
                           value={values.clientId}
-                          onChange={(e) => set("clientId", e.target.value)}
+                          onChange={(event) =>
+                            set("clientId", event.target.value)
+                          }
                           placeholder="mcp-gateway-client"
                           spellCheck={false}
                           className="font-mono"
                         />
                       </Field>
-                      <Field label="Client secret" className="flex-1">
-                        <TextField.Root
+                      <Field className="flex-1">
+                        <FieldLabel htmlFor="gateway-client-secret">
+                          Client secret
+                        </FieldLabel>
+                        <Input
+                          id="gateway-client-secret"
                           value={values.clientSecret}
-                          onChange={(e) => set("clientSecret", e.target.value)}
+                          onChange={(event) =>
+                            set("clientSecret", event.target.value)
+                          }
                           type="password"
                           placeholder="••••••••••••"
                           className="font-mono"
                         />
                       </Field>
-                    </Flex>
+                    </div>
                   )}
                 </div>
               )
             )}
-
-            <Flex justify="end" gap="3" mt="2">
-              <Button
-                type="button"
-                variant="soft"
-                color="gray"
-                onClick={onClose}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={!canSubmit}>
-                <Key size={12} /> Connect
-              </Button>
-            </Flex>
-          </Flex>
+          </DialogBody>
+          <DialogFooter>
+            <DialogClose render={<Button type="button" variant="outline" />}>
+              Cancel
+            </DialogClose>
+            <Button type="submit" variant="primary" disabled={!canSubmit}>
+              <Key /> Connect
+            </Button>
+          </DialogFooter>
         </form>
-      </Dialog.Content>
-    </Dialog.Root>
-  );
-}
-
-function Field({
-  label,
-  hint,
-  className,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Flex direction="column" gap="1" className={className}>
-      <Text className="font-medium text-sm">{label}</Text>
-      {hint && (
-        <Text color="gray" className="text-[13px]">
-          {hint}
-        </Text>
-      )}
-      {children}
-    </Flex>
+      </DialogContent>
+    </Dialog>
   );
 }

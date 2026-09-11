@@ -4,6 +4,15 @@ import {
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
 import { useService } from "@posthog/di/react";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  Text,
+} from "@posthog/quill";
 import { isRasterImageFile, parseImageDataUrl } from "@posthog/shared";
 import {
   getAuthIdentity,
@@ -14,7 +23,6 @@ import { MentionChip } from "@posthog/ui/features/sessions/components/session-up
 import type { UserMessageAttachment } from "@posthog/ui/features/sessions/userMessageTypes";
 import { useSessionTaskId } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { SafeImagePreview } from "@posthog/ui/primitives/SafeImagePreview";
-import { Dialog, Text } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
 
 function attachmentFilePath(id: string): string | null {
@@ -77,47 +85,51 @@ function ImageAttachment({
   }
 
   return (
-    <Dialog.Root>
-      <Dialog.Trigger>
-        <button
-          type="button"
-          className="group relative h-16 w-20 overflow-hidden rounded-md border border-gray-6 bg-gray-3"
-          aria-label={`Preview ${attachment.label}`}
-        >
-          <img
-            src={previewUrl}
-            alt={attachment.label}
-            className="size-full object-cover transition-transform group-hover:scale-105"
+    <Dialog>
+      <DialogTrigger
+        render={
+          <button
+            type="button"
+            className="group relative h-16 w-20 overflow-hidden rounded-md border border-gray-6 bg-gray-3"
+            aria-label={`Preview ${attachment.label}`}
           />
-          <span className="absolute inset-x-0 bottom-0 truncate bg-black/60 px-1.5 py-0.5 text-left text-[10px] text-white">
-            {attachment.label}
-          </span>
-        </button>
-      </Dialog.Trigger>
-      <Dialog.Content maxWidth="85vw" className="w-fit p-[16px]">
-        <Dialog.Title mb="2" className="text-sm">
+        }
+      >
+        <img
+          src={previewUrl}
+          alt={attachment.label}
+          className="size-full object-cover transition-transform group-hover:scale-105"
+        />
+        <span className="absolute inset-x-0 bottom-0 truncate bg-black/60 px-1.5 py-0.5 text-left text-[10px] text-white">
           {attachment.label}
-        </Dialog.Title>
-        {parsedImage ? (
-          <SafeImagePreview
-            base64={parsedImage.base64}
-            mimeType={parsedImage.mimeType}
-            alt={attachment.label}
-            className="max-h-[75vh] max-w-[80vw]"
-          />
-        ) : previewUrl.startsWith("data:") ? (
-          <Text color="gray" className="text-sm">
-            Unable to load image preview
-          </Text>
-        ) : (
-          <img
-            src={previewUrl}
-            alt={attachment.label}
-            className="max-h-[75vh] max-w-[80vw] object-contain"
-          />
-        )}
-      </Dialog.Content>
-    </Dialog.Root>
+        </span>
+      </DialogTrigger>
+      <DialogContent className="w-fit max-w-[85vw]" showCloseButton={false}>
+        <DialogHeader>
+          <DialogTitle>{attachment.label}</DialogTitle>
+        </DialogHeader>
+        <DialogBody>
+          {parsedImage ? (
+            <SafeImagePreview
+              base64={parsedImage.base64}
+              mimeType={parsedImage.mimeType}
+              alt={attachment.label}
+              className="max-h-[75vh] max-w-[80vw]"
+            />
+          ) : previewUrl.startsWith("data:") ? (
+            <Text size="sm" variant="muted">
+              Unable to load image preview
+            </Text>
+          ) : (
+            <img
+              src={previewUrl}
+              alt={attachment.label}
+              className="max-h-[75vh] max-w-[80vw] object-contain"
+            />
+          )}
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   );
 }
 

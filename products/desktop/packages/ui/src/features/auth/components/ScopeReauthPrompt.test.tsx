@@ -94,7 +94,10 @@ describe("ScopeReauthPrompt", () => {
 
     renderWithTheme(<ScopeReauthPrompt />);
 
-    expect(screen.getByRole("button", { name: "Sign in" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Sign in" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
   });
 
   it("enables Sign in button when cloudRegion is set", () => {
@@ -103,7 +106,10 @@ describe("ScopeReauthPrompt", () => {
 
     renderWithTheme(<ScopeReauthPrompt />);
 
-    expect(screen.getByRole("button", { name: "Sign in" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Sign in" })).not.toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
   });
 
   it("shows Log out button as an escape hatch when cloudRegion is null", () => {
@@ -113,7 +119,7 @@ describe("ScopeReauthPrompt", () => {
 
     const logoutButton = screen.getByRole("button", { name: "Log out" });
     expect(logoutButton).toBeInTheDocument();
-    expect(logoutButton).not.toBeDisabled();
+    expect(logoutButton).not.toHaveAttribute("aria-disabled", "true");
   });
 
   it("calls logout when Log out button is clicked", async () => {

@@ -7,16 +7,25 @@ import {
   Trash,
   UploadSimple,
 } from "@phosphor-icons/react";
-import { MAX_CUSTOM_SOUND_SECONDS } from "@posthog/ui/utils/customSound";
 import {
   Button,
   Card,
   Dialog,
-  Flex,
-  IconButton,
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Field,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+  Input,
   Text,
-  TextField,
-} from "@radix-ui/themes";
+} from "@posthog/quill";
+import { MAX_CUSTOM_SOUND_SECONDS } from "@posthog/ui/utils/customSound";
 import { useRef } from "react";
 import { useCustomSoundCapture } from "./useCustomSoundCapture";
 
@@ -31,46 +40,39 @@ export function AddCustomSoundDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   return (
-    <Dialog.Root open={open} onOpenChange={sound.handleOpenChange}>
-      <Dialog.Content maxWidth="420px">
-        <Dialog.Title>Add custom sound</Dialog.Title>
-        <Dialog.Description size="2" color="gray" mb="4">
-          Record a clip or import an audio file, then give it a name. Clips must
-          be {MAX_CUSTOM_SOUND_SECONDS}s or shorter.
-        </Dialog.Description>
+    <Dialog open={open} onOpenChange={sound.handleOpenChange}>
+      <DialogContent className="max-w-[420px]">
+        <DialogHeader>
+          <DialogTitle>Add custom sound</DialogTitle>
+          <DialogDescription>
+            Record a clip or import an audio file, then give it a name. Clips
+            must be {MAX_CUSTOM_SOUND_SECONDS}s or shorter.
+          </DialogDescription>
+        </DialogHeader>
 
-        <Flex direction="column" gap="4">
-          <Flex direction="column" gap="1">
-            <Text
-              as="label"
-              htmlFor="custom-sound-name"
-              size="2"
-              weight="medium"
-            >
-              Name
-            </Text>
-            <TextField.Root
+        <DialogBody viewportClassName="flex flex-col gap-4">
+          <Field>
+            <FieldLabel htmlFor="custom-sound-name">Name</FieldLabel>
+            <Input
               id="custom-sound-name"
               value={sound.name}
               onChange={(event) => sound.setName(event.target.value)}
               placeholder="e.g. My ding"
               maxLength={60}
             />
-          </Flex>
+          </Field>
 
-          <Flex direction="column" gap="2">
-            <Text as="div" size="2" weight="medium">
-              Sound
-            </Text>
+          <FieldSet className="gap-2">
+            <FieldLegend variant="label">Sound</FieldLegend>
 
-            <Flex gap="2" align="center" wrap="wrap">
+            <div className="flex flex-wrap items-center gap-2">
               {sound.isRecording ? (
-                <Button color="red" onClick={sound.stopRecording}>
+                <Button variant="destructive" onClick={sound.stopRecording}>
                   <StopCircle weight="fill" /> Stop ({sound.elapsedLabel})
                 </Button>
               ) : (
                 <Button
-                  variant="soft"
+                  variant="secondary"
                   onClick={sound.startRecording}
                   disabled={!sound.recordingSupported}
                   title={
@@ -83,7 +85,7 @@ export function AddCustomSoundDialog({
                 </Button>
               )}
               <Button
-                variant="soft"
+                variant="secondary"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={sound.isRecording}
               >
@@ -101,40 +103,39 @@ export function AddCustomSoundDialog({
                   event.target.value = "";
                 }}
               />
-            </Flex>
+            </div>
 
             {sound.hasClip && (
-              <Card size="1">
-                <Flex direction="column" gap="2">
-                  <Flex align="center" gap="2">
-                    <IconButton
-                      variant="soft"
-                      size="1"
+              <Card className="p-3">
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="secondary"
+                      size="icon-xs"
                       onClick={sound.playPreview}
                       aria-label="Preview clip"
                     >
                       <Play weight="fill" />
-                    </IconButton>
-                    <Text size="2" color="gray">
+                    </Button>
+                    <Text size="sm" variant="muted">
                       {sound.isTrimmed ? "Trimmed" : "Clip ready"} ·{" "}
                       {sound.clipDurationLabel}
                     </Text>
-                    <Flex flexGrow="1" />
-                    <IconButton
-                      variant="ghost"
-                      color="gray"
-                      size="1"
+                    <div className="flex-1" />
+                    <Button
+                      variant="link-muted"
+                      size="icon-xs"
                       onClick={sound.discardClip}
                       aria-label="Discard clip"
                     >
                       <Trash />
-                    </IconButton>
-                  </Flex>
+                    </Button>
+                  </div>
 
                   {sound.canOfferTrim && (
                     <Button
-                      variant={sound.isTrimmed ? "ghost" : "soft"}
-                      size="1"
+                      variant={sound.isTrimmed ? "link-muted" : "secondary"}
+                      size="xs"
                       className="self-start"
                       onClick={sound.toggleTrim}
                     >
@@ -149,29 +150,31 @@ export function AddCustomSoundDialog({
                       )}
                     </Button>
                   )}
-                </Flex>
+                </div>
               </Card>
             )}
 
             {sound.error && (
-              <Text size="2" color="red">
+              <Text size="sm" variant="destructive">
                 {sound.error}
               </Text>
             )}
-          </Flex>
-        </Flex>
+          </FieldSet>
+        </DialogBody>
 
-        <Flex gap="3" mt="4" justify="end">
-          <Dialog.Close>
-            <Button variant="soft" color="gray">
-              Cancel
-            </Button>
-          </Dialog.Close>
-          <Button onClick={sound.save} disabled={!sound.canSave}>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>
+            Cancel
+          </DialogClose>
+          <Button
+            variant="primary"
+            onClick={sound.save}
+            disabled={!sound.canSave}
+          >
             Save
           </Button>
-        </Flex>
-      </Dialog.Content>
-    </Dialog.Root>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

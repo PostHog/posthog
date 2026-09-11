@@ -1,4 +1,13 @@
-import { AlertDialog, Button, Flex } from "@radix-ui/themes";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+} from "@posthog/quill";
 
 interface ReplaceSkillDialogProps {
   open: boolean;
@@ -18,26 +27,28 @@ export function ReplaceSkillDialog({
   onConfirm,
 }: ReplaceSkillDialogProps) {
   return (
-    <AlertDialog.Root open={open} onOpenChange={onOpenChange}>
-      <AlertDialog.Content maxWidth="420px" size="2">
-        <AlertDialog.Title size="3">Replace local skill</AlertDialog.Title>
-        <AlertDialog.Description size="1">
-          A skill named "{skillName}" already exists in your skills. {verb} will
-          replace your local version, including any edits.
-        </AlertDialog.Description>
-        <Flex justify="end" gap="2" mt="4">
-          <AlertDialog.Cancel>
-            <Button size="1" variant="soft" color="gray">
-              Cancel
-            </Button>
-          </AlertDialog.Cancel>
-          <AlertDialog.Action>
-            <Button size="1" variant="solid" color="red" onClick={onConfirm}>
-              Replace
-            </Button>
-          </AlertDialog.Action>
-        </Flex>
-      </AlertDialog.Content>
-    </AlertDialog.Root>
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent className="max-w-[420px]">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Replace local skill</AlertDialogTitle>
+          <AlertDialogDescription>
+            A skill named "{skillName}" already exists in your skills. {verb}{" "}
+            will replace your local version, including any edits.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogClose render={<Button variant="outline" />}>
+            Cancel
+          </AlertDialogClose>
+          <AlertDialogClose
+            render={
+              <Button variant="destructive-outline" onClick={onConfirm} />
+            }
+          >
+            Replace
+          </AlertDialogClose>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

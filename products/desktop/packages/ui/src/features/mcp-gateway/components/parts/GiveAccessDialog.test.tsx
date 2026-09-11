@@ -86,6 +86,14 @@ function agentShare(accountId: string, userId: number) {
   } as McpGatewayServer["agents"][number];
 }
 
+async function chooseAgent(
+  user: ReturnType<typeof userEvent.setup>,
+  name: string,
+): Promise<void> {
+  await user.click(screen.getByRole("combobox"));
+  await user.click(screen.getByRole("option", { name: new RegExp(name) }));
+}
+
 describe("GiveAccessDialog", () => {
   it("only offers allow or block when configuring an agent", async () => {
     const user = userEvent.setup();
@@ -104,8 +112,7 @@ describe("GiveAccessDialog", () => {
       </Theme>,
     );
 
-    screen.getByRole("combobox").focus();
-    await user.keyboard("{ArrowDown}{Enter}");
+    await chooseAgent(user, "Support agent");
 
     expect(
       screen.getByRole("radio", { name: "Always Allow" }),
@@ -133,8 +140,7 @@ describe("GiveAccessDialog", () => {
       </Theme>,
     );
 
-    screen.getByRole("combobox").focus();
-    await user.keyboard("{ArrowDown}{Enter}");
+    await chooseAgent(user, "Support agent");
     await user.click(screen.getByRole("radio", { name: "Blocked" }));
     expect(screen.getByRole("radio", { name: "Blocked" })).toBeChecked();
 
@@ -159,8 +165,7 @@ describe("GiveAccessDialog", () => {
     expect(screen.getByRole("combobox")).toHaveTextContent("Choose an agent…");
     expect(screen.queryAllByRole("radio")).toHaveLength(0);
 
-    screen.getByRole("combobox").focus();
-    await user.keyboard("{ArrowDown}{Enter}");
+    await chooseAgent(user, "Support agent");
     expect(screen.getByRole("radio", { name: "Blocked" })).not.toBeChecked();
     expect(screen.getByRole("radio", { name: "Always Allow" })).toBeChecked();
   });
@@ -183,8 +188,7 @@ describe("GiveAccessDialog", () => {
       </Theme>,
     );
 
-    screen.getByRole("combobox").focus();
-    await user.keyboard("{ArrowDown}{Enter}");
+    await chooseAgent(user, "Support agent");
     await user.click(screen.getByRole("radio", { name: "Blocked" }));
     expect(screen.getByRole("radio", { name: "Blocked" })).toBeChecked();
 
@@ -218,8 +222,7 @@ describe("GiveAccessDialog", () => {
       </Theme>,
     );
 
-    screen.getByRole("combobox").focus();
-    await user.keyboard("{ArrowDown}{Enter}");
+    await chooseAgent(user, "Support agent");
     await user.click(
       screen.getByRole("radio", { name: "Everyone in this project" }),
     );
@@ -257,8 +260,7 @@ describe("GiveAccessDialog", () => {
 
     // agent-1 is already backed by the caller, so the first offered agent is
     // agent-2 even though a teammate already shared it.
-    screen.getByRole("combobox").focus();
-    await user.keyboard("{ArrowDown}{Enter}");
+    await chooseAgent(user, "Docs agent");
     await user.click(screen.getByRole("button", { name: "Share access" }));
 
     expect(onGrant).toHaveBeenCalledWith(
@@ -286,9 +288,12 @@ describe("GiveAccessDialog", () => {
     );
 
     const shareButton = screen.getByRole("button", { name: /Share access/ });
-    expect(shareButton).toBeDisabled();
+    expect(shareButton).toHaveAttribute("aria-disabled", "true");
     expect(shareButton.querySelector('[role="status"]')).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).not.toHaveBeenCalled();

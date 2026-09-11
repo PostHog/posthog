@@ -1,5 +1,14 @@
 import { GitBranch } from "@phosphor-icons/react";
-import { AlertDialog, Button, Code, Flex } from "@radix-ui/themes";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+} from "@posthog/quill";
 import { useRemoteBranchConfirmStore } from "../stores/remoteBranchConfirmStore";
 
 /**
@@ -14,38 +23,41 @@ export function RemoteBranchCheckoutDialog() {
   const cancel = useRemoteBranchConfirmStore((s) => s.cancel);
 
   return (
-    <AlertDialog.Root
+    <AlertDialog
       open={isOpen}
       onOpenChange={(open) => {
         if (!open) cancel();
       }}
     >
-      <AlertDialog.Content maxWidth="440px" size="2">
-        <AlertDialog.Title className="text-base">
-          <Flex align="center" gap="2">
-            <GitBranch size={18} weight="bold" color="var(--accent-9)" />
-            Check out remote branch?
-          </Flex>
-        </AlertDialog.Title>
-        <AlertDialog.Description className="text-sm">
-          {branch ? <Code>{branch}</Code> : "This branch"} doesn't exist locally
-          but was found on the remote. Check it out into a new worktree to
-          continue working on it?
-        </AlertDialog.Description>
-
-        <Flex justify="end" gap="2" mt="4">
-          <AlertDialog.Cancel>
-            <Button variant="soft" color="gray" size="1">
-              Cancel
-            </Button>
-          </AlertDialog.Cancel>
-          <AlertDialog.Action>
-            <Button variant="solid" size="1" onClick={accept}>
-              Check out branch
-            </Button>
-          </AlertDialog.Action>
-        </Flex>
-      </AlertDialog.Content>
-    </AlertDialog.Root>
+      <AlertDialogContent className="max-w-[440px]">
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            <span className="flex items-center gap-2">
+              <GitBranch size={18} weight="bold" color="var(--accent-9)" />
+              Check out remote branch?
+            </span>
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {branch ? (
+              <code className="font-mono text-foreground">{branch}</code>
+            ) : (
+              "This branch"
+            )}{" "}
+            doesn't exist locally but was found on the remote. Check it out into
+            a new worktree to continue working on it?
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogClose render={<Button variant="outline" />}>
+            Cancel
+          </AlertDialogClose>
+          <AlertDialogClose
+            render={<Button variant="primary" onClick={accept} />}
+          >
+            Check out branch
+          </AlertDialogClose>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

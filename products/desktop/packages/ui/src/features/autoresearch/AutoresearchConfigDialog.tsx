@@ -2,12 +2,15 @@ import type { AutoresearchDirection } from "@posthog/core/autoresearch/schemas";
 import {
   Button,
   Dialog,
-  Flex,
-  Select,
-  Text,
-  TextArea,
-  TextField,
-} from "@radix-ui/themes";
+  DialogBody,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@posthog/quill";
+import { Select, Text, TextArea, TextField } from "@radix-ui/themes";
 import { useState } from "react";
 import {
   type AutoresearchModelOption,
@@ -57,14 +60,12 @@ export function AutoresearchConfigDialog({
   onSubmit,
 }: AutoresearchConfigDialogProps) {
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content maxWidth="480px" size="2">
-        <Dialog.Title className="text-base">{title}</Dialog.Title>
-        <Dialog.Description className="text-sm" color="gray">
-          {description}
-        </Dialog.Description>
-        {/* Radix unmounts closed dialog content, so the form mounts fresh
-            (seeded from the current `initial`) on every open. */}
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent showCloseButton={false} className="sm:max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
         <ConfigForm
           submitLabel={submitLabel}
           showInstructions={showInstructions}
@@ -74,8 +75,8 @@ export function AutoresearchConfigDialog({
           onSubmit={onSubmit}
           onDone={() => onOpenChange(false)}
         />
-      </Dialog.Content>
-    </Dialog.Root>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -159,138 +160,150 @@ function ConfigForm({
 
   return (
     <>
-      <Flex direction="column" gap="3" mt="4">
-        <Flex gap="3">
-          <div className="flex-1">
-            <Text
-              as="label"
-              htmlFor="autoresearch-direction"
-              size="1"
-              weight="medium"
-              className="mb-1 block"
-            >
-              Direction
-            </Text>
-            <Select.Root
-              value={values.direction}
-              onValueChange={(value) =>
-                setField("direction", value as AutoresearchDirection)
-              }
-            >
-              <Select.Trigger id="autoresearch-direction" className="w-full" />
-              <Select.Content>
-                <Select.Item value="maximize">Maximize</Select.Item>
-                <Select.Item value="minimize">Minimize</Select.Item>
-              </Select.Content>
-            </Select.Root>
+      <DialogBody>
+        <div className="flex flex-col gap-3">
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <Text
+                as="label"
+                htmlFor="autoresearch-direction"
+                size="1"
+                weight="medium"
+                className="mb-1 block"
+              >
+                Direction
+              </Text>
+              <Select.Root
+                value={values.direction}
+                onValueChange={(value) =>
+                  setField("direction", value as AutoresearchDirection)
+                }
+              >
+                <Select.Trigger
+                  id="autoresearch-direction"
+                  className="w-full"
+                />
+                <Select.Content>
+                  <Select.Item value="maximize">Maximize</Select.Item>
+                  <Select.Item value="minimize">Minimize</Select.Item>
+                </Select.Content>
+              </Select.Root>
+            </div>
+            <div className="flex-1">
+              <Text
+                as="label"
+                htmlFor="autoresearch-target"
+                size="1"
+                weight="medium"
+                className="mb-1 block"
+              >
+                Target (optional)
+              </Text>
+              <TextField.Root
+                id="autoresearch-target"
+                value={values.targetValue}
+                onChange={(event) =>
+                  setField("targetValue", event.target.value)
+                }
+                placeholder="Stop early at…"
+                inputMode="decimal"
+              />
+            </div>
+            <div className="w-28">
+              <Text
+                as="label"
+                htmlFor="autoresearch-iterations"
+                size="1"
+                weight="medium"
+                className="mb-1 block"
+              >
+                Iterations
+              </Text>
+              <TextField.Root
+                id="autoresearch-iterations"
+                value={values.maxIterations}
+                onChange={(event) =>
+                  setField("maxIterations", event.target.value)
+                }
+                inputMode="numeric"
+              />
+            </div>
           </div>
-          <div className="flex-1">
-            <Text
-              as="label"
-              htmlFor="autoresearch-target"
-              size="1"
-              weight="medium"
-              className="mb-1 block"
-            >
-              Target (optional)
-            </Text>
-            <TextField.Root
-              id="autoresearch-target"
-              value={values.targetValue}
-              onChange={(event) => setField("targetValue", event.target.value)}
-              placeholder="Stop early at…"
-              inputMode="decimal"
-            />
-          </div>
-          <div className="w-28">
-            <Text
-              as="label"
-              htmlFor="autoresearch-iterations"
-              size="1"
-              weight="medium"
-              className="mb-1 block"
-            >
-              Iterations
-            </Text>
-            <TextField.Root
-              id="autoresearch-iterations"
-              value={values.maxIterations}
-              onChange={(event) =>
-                setField("maxIterations", event.target.value)
-              }
-              inputMode="numeric"
-            />
-          </div>
-        </Flex>
 
-        {modelOptions.length > 0 && (
-          <div className="flex flex-col gap-2">
-            <StageRow
-              legend="Implementation (ideate & build)"
-              idPrefix="autoresearch-implement"
-              model={values.implementModel}
-              effort={values.implementEffort}
-              modelOptions={modelOptions}
-              effortOptions={effortOptions}
-              onModelChange={(value) => setField("implementModel", value)}
-              onEffortChange={(value) => setField("implementEffort", value)}
-            />
-            <StageRow
-              legend="Experiment (measure)"
-              idPrefix="autoresearch-measure"
-              model={values.measureModel}
-              effort={values.measureEffort}
-              modelOptions={modelOptions}
-              effortOptions={effortOptions}
-              onModelChange={(value) => setField("measureModel", value)}
-              onEffortChange={(value) => setField("measureEffort", value)}
-            />
-            <Text as="div" size="1" color="gray">
-              Identical stages run each iteration as one turn. Different stages
-              split every iteration: build on the first, then measure on the
-              second. pick a cheap model or low effort for measuring.
+          {modelOptions.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <StageRow
+                legend="Implementation (ideate & build)"
+                idPrefix="autoresearch-implement"
+                model={values.implementModel}
+                effort={values.implementEffort}
+                modelOptions={modelOptions}
+                effortOptions={effortOptions}
+                onModelChange={(value) => setField("implementModel", value)}
+                onEffortChange={(value) => setField("implementEffort", value)}
+              />
+              <StageRow
+                legend="Experiment (measure)"
+                idPrefix="autoresearch-measure"
+                model={values.measureModel}
+                effort={values.measureEffort}
+                modelOptions={modelOptions}
+                effortOptions={effortOptions}
+                onModelChange={(value) => setField("measureModel", value)}
+                onEffortChange={(value) => setField("measureEffort", value)}
+              />
+              <Text as="div" size="1" color="gray">
+                Identical stages run each iteration as one turn. Different
+                stages split every iteration: build on the first, then measure
+                on the second. pick a cheap model or low effort for measuring.
+              </Text>
+            </div>
+          )}
+
+          {showInstructions && (
+            <div>
+              <Text
+                as="label"
+                htmlFor="autoresearch-instructions"
+                size="1"
+                weight="medium"
+                className="mb-1 block"
+              >
+                Optimization brief
+              </Text>
+              <TextArea
+                id="autoresearch-instructions"
+                value={values.instructions}
+                onChange={(event) =>
+                  setField("instructions", event.target.value)
+                }
+                placeholder="What to optimize, how to measure it, and any constraints to respect."
+                rows={4}
+              />
+            </div>
+          )}
+
+          {error && (
+            <Text size="1" color="red">
+              {error}
             </Text>
-          </div>
-        )}
+          )}
+        </div>
+      </DialogBody>
 
-        {showInstructions && (
-          <div>
-            <Text
-              as="label"
-              htmlFor="autoresearch-instructions"
-              size="1"
-              weight="medium"
-              className="mb-1 block"
-            >
-              Optimization brief
-            </Text>
-            <TextArea
-              id="autoresearch-instructions"
-              value={values.instructions}
-              onChange={(event) => setField("instructions", event.target.value)}
-              placeholder="What to optimize, how to measure it, and any constraints to respect."
-              rows={4}
-            />
-          </div>
-        )}
-
-        {error && (
-          <Text size="1" color="red">
-            {error}
-          </Text>
-        )}
-      </Flex>
-
-      <Flex justify="end" gap="2" mt="4">
-        <Dialog.Close>
-          <Button variant="soft" color="gray" size="1">
-            Cancel
-          </Button>
-        </Dialog.Close>
-        <Button size="1" onClick={handleSubmit} disabled={!canSubmit}>
+      <DialogFooter>
+        <DialogClose render={<Button variant="outline" size="sm" />}>
+          Cancel
+        </DialogClose>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+        >
           {submitLabel}
         </Button>
-      </Flex>
+      </DialogFooter>
     </>
   );
 }
@@ -319,7 +332,7 @@ function StageRow({
       <Text as="div" size="1" weight="medium" className="mb-1">
         {legend}
       </Text>
-      <Flex gap="2">
+      <div className="flex gap-2">
         <StageModelSelect
           id={`${idPrefix}-model`}
           ariaLabel={`${legend} model`}
@@ -339,7 +352,7 @@ function StageRow({
             onChange={onEffortChange}
           />
         )}
-      </Flex>
+      </div>
     </div>
   );
 }
