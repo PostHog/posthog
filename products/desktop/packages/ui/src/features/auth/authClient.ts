@@ -1,14 +1,9 @@
-import {
-  type ApiRequestMetricRecorder,
-  type ApiRequestMetricRequest,
-  PostHogAPIClient,
-} from "@posthog/api-client/posthog-client";
+import { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import type { AuthState } from "@posthog/core/auth/schemas";
 import type { HostTrpcClient } from "@posthog/host-router/client";
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import { getCloudUrlFromRegion, NotAuthenticatedError } from "@posthog/shared";
-import { getRouterOrNull } from "@posthog/ui/router/routerRef";
-import { recordApiRequest } from "@posthog/ui/shell/posthogAnalyticsImpl";
+import { recordApiRequestStart } from "@posthog/ui/shell/apiRequestMetrics";
 import { useMemo } from "react";
 import { useAuthStateValue } from "./store";
 
@@ -34,17 +29,6 @@ export function createAuthenticatedClient(
   }
 
   return client;
-}
-
-function recordApiRequestStart({
-  method,
-  path,
-}: ApiRequestMetricRequest): ApiRequestMetricRecorder {
-  const route = getRouterOrNull()?.state.matches.at(-1)?.routeId ?? "unknown";
-
-  return ({ durationMs, status, outcome }) => {
-    recordApiRequest(durationMs, route, method, path, status, outcome);
-  };
 }
 
 function tokenAccessors(hostClient: HostTrpcClient) {
