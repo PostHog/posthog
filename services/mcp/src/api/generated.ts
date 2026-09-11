@@ -1351,13 +1351,12 @@ export namespace Schemas {
     } as const;
 
     export interface QueryScanSummary {
-      /** ClickHouse time for the last fresh run, summed over every ClickHouse query the run made. */
+      /** ClickHouse time for the last fresh run, summed over its ClickHouse queries. */
       duration_ms: number;
-      /** What clients may show for this response. The server evaluated the flag once for this query; clients and the assistant read this field and never evaluate the flag themselves. */
       mode: QueryScanMode;
-      /** Rows ClickHouse read for the last fresh run of this query, all tables included. */
+      /** Rows ClickHouse read for the last fresh run, all tables included. */
       rows_read: number;
-      /** Where the analysis of this query stands, see `QueryScanStatus`. The analysis only runs when `duration_ms` is over the threshold in the flag's payload, so the field is absent for a fast query. */
+      /** Absent when the run was too fast to analyze. */
       status?: QueryScanStatus | null;
     }
 
