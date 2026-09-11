@@ -127,6 +127,7 @@ class TestMaterializeViewManagedWarehouseActivity:
             await activity_environment.run(materialize_view_duckgres_activity, inputs)
 
         mock_maybe_suspend.assert_awaited_once()
+        assert mock_maybe_suspend.await_args is not None
         assert mock_maybe_suspend.await_args.kwargs["engine"] == DataModelingJobEngine.LEGACY_DUCKGRES
 
 
