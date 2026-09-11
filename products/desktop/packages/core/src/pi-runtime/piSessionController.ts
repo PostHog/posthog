@@ -308,6 +308,7 @@ export class PiSessionController {
   disconnect(taskId: string): void {
     this.activeTaskIds.delete(taskId);
     this.disposeTask(taskId);
+    this.updateSession(taskId, { connectionState: "disconnected" });
   }
 
   disconnectAll(): void {
