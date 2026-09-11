@@ -2,6 +2,7 @@
 
 import json
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
@@ -933,36 +934,35 @@ class MarkReportFailedInput:
     source_products: list[str] = field(default_factory=list)
 
 
-@temporalio.activity.defn
-@scoped_temporal()
-@close_db_connections
-async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
-    """Mark a report as failed and store the error message."""
-    try:
+FAIL_REPORT_FAILED = "failed"
+FAIL_REPORT_ALREADY_FAILED = "already_failed"
+FAIL_REPORT_SKIPPED = "skipped"
 
-        @transaction.atomic
-        def do_update() -> tuple[int, bool]:
-            report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
-            if report.status == SignalReport.Status.FAILED:
-                return report.run_count, True
-            updated_fields = report.transition_to(SignalReport.Status.FAILED, error=input.error)
-            report.save(update_fields=updated_fields)
-            return report.run_count, False
 
-        run_count, was_already_failed = await database_sync_to_async(do_update, thread_sensitive=False)()
-    except Exception as e:
-        logger.exception(
-            f"Failed to mark report {input.report_id} as failed: {e}",
-            report_id=input.report_id,
-        )
-        raise
+async def fail_report(input: MarkReportFailedInput, *, guard: Callable[[SignalReport], bool] | None = None) -> str:
+    """Move a report to FAILED and report the pass as completed with `result="failed"`.
 
-    if was_already_failed:
-        logger.info(
-            f"Report {input.report_id} already in failed status, skipping duplicate transition",
-            report_id=input.report_id,
-        )
-        return
+    The transition, the analytics event and the `signals_reports_total{result=failed}` metric belong
+    together: a caller that does only the transition leaves a started pass that never completes in
+    the analytics, which is the same signature as a stranded report. `guard` runs on the locked row
+    and may veto the write, for callers whose evidence that the report should fail is external and
+    can go stale between reading it and taking the lock. Returns one of the FAIL_REPORT_* outcomes.
+    """
+
+    @transaction.atomic
+    def do_update() -> tuple[int, str]:
+        report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
+        if report.status == SignalReport.Status.FAILED:
+            return report.run_count, FAIL_REPORT_ALREADY_FAILED
+        if guard is not None and not guard(report):
+            return report.run_count, FAIL_REPORT_SKIPPED
+        updated_fields = report.transition_to(SignalReport.Status.FAILED, error=input.error)
+        report.save(update_fields=updated_fields)
+        return report.run_count, FAIL_REPORT_FAILED
+
+    run_count, outcome = await database_sync_to_async(do_update, thread_sensitive=False)()
+    if outcome != FAIL_REPORT_FAILED:
+        return outcome
 
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
     _capture_report_event(
@@ -976,6 +976,30 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
         result="failed",
         failure_reason=input.failure_reason,
     )
+    return outcome
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
+    """Mark a report as failed and store the error message."""
+    try:
+        outcome = await fail_report(input)
+    except Exception as e:
+        logger.exception(
+            f"Failed to mark report {input.report_id} as failed: {e}",
+            report_id=input.report_id,
+        )
+        raise
+
+    if outcome == FAIL_REPORT_ALREADY_FAILED:
+        logger.info(
+            f"Report {input.report_id} already in failed status, skipping duplicate transition",
+            report_id=input.report_id,
+        )
+        return
+
     logger.debug(
         f"Marked report {input.report_id} as failed",
         report_id=input.report_id,

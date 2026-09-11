@@ -124,6 +124,9 @@ from products.signals.backend.temporal.agentic.schedule import (
     create_scout_suggestions_coordinator_schedule,
     create_signals_scout_coordinator_schedule,
 )
+from products.signals.backend.temporal.stranded_reports_schedule import (
+    create_signals_stranded_report_reconciler_schedule,
+)
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
@@ -931,6 +934,7 @@ schedules = [
     create_cleanup_alert_checks_schedule,
     create_signals_scout_coordinator_schedule,
     create_scout_suggestions_coordinator_schedule,
+    create_signals_stranded_report_reconciler_schedule,
     create_support_reply_coordinator_schedule,
     create_channel_summary_coordinator_schedule,
     create_account_track_rule_coordinator_schedule,

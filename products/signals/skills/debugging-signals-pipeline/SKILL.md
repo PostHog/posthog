@@ -194,6 +194,28 @@ The `signal-emitter` completed but `buffer-signals` never got the `submit_signal
 This happens when the emitter sent the signal to a previous buffer run that then continued-as-new,
 and the new run started fresh without the pending signal. Re-emit the signal.
 
+### Report stuck in `in_progress` (stranded)
+
+The report shows `in_progress` in Postgres, but its summary workflow `signals-report:<team_id>:<report_id>` is `TIMED_OUT`, `TERMINATED`, or not found in Temporal.
+The workflow closed without running its own failure path, so the report never left `in_progress`, and no promotion rule picks that status up.
+Typical causes: the summary workflow hit its execution timeout mid-research, a worker deploy left an in-flight history that no longer replays, or a worker outage outlasted the timeout.
+Locally, a laptop that sleeps during a research pass does the same.
+
+`signal_pipeline_status --team-id N` lists these reports as stranded and stops waiting on them.
+
+The stranded report reconciler (`products/signals/backend/temporal/stranded_reports.py`) runs every 30 minutes.
+It marks each stranded report `failed` with an error naming the workflow status, and emits `signal_report_completed` with `result=failed` and `failure_reason=research_run_stranded`.
+The report does not research again on its own; a later matching signal starts a fresh report.
+
+To run the reconciler now:
+
+```bash
+docker exec posthog-temporal-admin-tools-1 temporal schedule trigger --address temporal:7233 --schedule-id signals-stranded-report-reconciler-schedule
+```
+
+Counter: `signals_stranded_reports_reconciled_total{outcome}` (`failed`, `skipped_running`, `skipped_changed`).
+Settings: `SIGNAL_STRANDED_REPORT_RECONCILER_ENABLED` (kill switch), `SIGNAL_STRANDED_REPORT_MIN_AGE_MINUTES`, `SIGNAL_STRANDED_REPORT_MAX_PER_TICK`.
+
 ### ClickHouse embedding tables "not found" during cleanup
 
 The tables exist in the `posthog` database but `sync_execute` queries the `default` database.
@@ -223,6 +245,7 @@ grep CLICKHOUSE_DATABASE .env
 - Buffer workflow: `products/signals/backend/temporal/buffer.py`
 - Grouping workflow: `products/signals/backend/temporal/grouping_v2.py`
 - Report summary workflow: `products/signals/backend/temporal/summary.py`
+- Stranded report reconciler: `products/signals/backend/temporal/stranded_reports.py`
 - Docker sandbox implementation: `products/tasks/backend/logic/services/docker_sandbox.py`
 - Sandbox Dockerfiles: `products/tasks/backend/sandbox/images/`
 - Agent log polling: `products/tasks/backend/logic/services/custom_prompt_internals.py`
