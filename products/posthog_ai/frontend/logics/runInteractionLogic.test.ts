@@ -45,6 +45,7 @@ jest.mock('./runStreamLogic', () => {
             handleTerminalStatus: (status: { status: string }) => status,
             setStubStatus: (status: string | null) => ({ status }),
             setStubThinking: (thinking: boolean) => ({ thinking }),
+            setStubReady: (ready: boolean) => ({ ready }),
             setStubClearSupported: (supported: boolean) => ({ supported }),
             ingestPermissionRequest: (record: PermissionRequestRecord) => ({ record }),
             markPermissionRequestResolved: (requestId: string) => ({ requestId }),
@@ -60,6 +61,8 @@ jest.mock('./runStreamLogic', () => {
             bootstrapRun: true,
         }),
         reducers({
+            runOpening: [false, {}],
+            runStarted: [true, { setStubReady: (_: boolean, { ready }: { ready: boolean }) => ready }],
             currentRunStatus: [
                 'in_progress',
                 {
@@ -217,6 +220,86 @@ describe('runInteractionLogic', () => {
         stream?.unmount()
         project?.unmount()
         toolEvents?.unmount()
+    })
+
+    it('keeps startup input and settings through attachment and sends the queue after the first turn', async () => {
+        const pending = runInteractionLogic({ taskId: '', runId: '', streamKey: RUN_ID, interactionKey: 'creation' })
+        const unmount = pending.mount()
+        const other = runInteractionLogic({
+            taskId: '',
+            runId: '',
+            streamKey: 'other-draft',
+            interactionKey: 'other-draft',
+        })
+        const unmountOther = other.mount()
+        const setReady = (ready: boolean): void =>
+            (stream.actions as unknown as { setStubReady: (ready: boolean) => void }).setStubReady(ready)
+        try {
+            other.actions.setComposerFormValues({ draft: 'another task follow-up' })
+            other.actions.submitComposerForm()
+            setStatus(null)
+            setReady(false)
+            pending.actions.setEffort('low')
+            pending.actions.setMode('plan')
+            pending.actions.setComposerFormValues({ draft: 'first follow-up' })
+            pending.actions.submitComposerForm()
+            pending.actions.setComposerFormValues({ draft: 'second follow-up' })
+            pending.actions.submitComposerForm()
+            pending.actions.setComposerFormValues({ draft: 'unfinished draft' })
+            pending.actions.handleEscape()
+            expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+            expect(tasksWarmResumeCreate).not.toHaveBeenCalled()
+            expect(pending.values.queuedMessages).toEqual([
+                { id: 'queued', content: 'first follow-up\n\nsecond follow-up' },
+            ])
+
+            const attached = runInteractionLogic({ ...pending.props, taskId: TASK_ID, runId: RUN_ID })
+            expect(attached).toBe(pending)
+            setStatus('queued')
+            attached.actions.steerQueue()
+            expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+            setThinking(true)
+            setReady(true)
+            stream.actions.setCurrentMode('default')
+            expect(attached.values.composerForm.draft).toBe('unfinished draft')
+            expect(attached.values.effortOverride).toBe('low')
+            expect(attached.values.selectedMode).toBe('plan')
+            expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+
+            setThinking(false)
+            await expectLogic(attached, () => stream.actions.markTurnComplete()).toFinishAllListeners()
+            expect(attached.values.queuedMessages).toEqual([])
+            expect(attached.values.composerForm.draft).toBe('unfinished draft')
+            const messages = (tasksRunsCommandCreate as jest.Mock).mock.calls.filter(
+                (call) => call[3].method === 'user_message'
+            )
+            expect(messages).toEqual([userMessageCommand('first follow-up\n\nsecond follow-up')])
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', TASK_ID, RUN_ID, {
+                jsonrpc: '2.0',
+                method: 'set_config_option',
+                params: { configId: 'mode', value: 'plan' },
+            })
+            expect(attached.values.selectedMode).toBe('plan')
+            stream.actions.setCurrentMode('auto')
+            expect(attached.values.selectedMode).toBe('auto')
+            expect(other.values.queuedMessages).toEqual([{ id: 'queued', content: 'another task follow-up' }])
+        } finally {
+            unmountOther()
+            unmount()
+        }
+    })
+
+    it('holds the queue after Stop until the user explicitly steers it', async () => {
+        setThinking(true)
+        logic.actions.enqueueMessage('keep this follow-up')
+        logic.actions.requestCancellation()
+        setThinking(false)
+        runCancellationLogic({ streamKey: RUN_ID }).actions.clearCancellation()
+        await expectLogic(logic, () => stream.actions.markTurnComplete()).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+        expect(logic.values.queuedMessages[0].content).toBe('keep this follow-up')
+        await expectLogic(logic, () => logic.actions.steerQueue()).toFinishAllListeners()
+        expect(logic.values.queuedMessages).toEqual([])
     })
 
     it('adopts the startup draft once and clears it after sending', async () => {

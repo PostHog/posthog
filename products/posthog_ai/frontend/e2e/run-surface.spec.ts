@@ -160,15 +160,26 @@ async function openRunDeepLink(page: Page, teamId: string): Promise<void> {
     })
 }
 
-async function acceptConsentInPage(page: Page): Promise<void> {
+async function prepareRunComposer(page: Page): Promise<void> {
     await page.addInitScript(() => {
-        let appContext: { current_user?: { organization?: { is_ai_data_processing_approved?: boolean } } }
+        let appContext: {
+            current_user?: {
+                organization?: { is_ai_data_processing_approved?: boolean }
+                has_seen_product_intro_for?: Record<string, boolean>
+            }
+        }
         Object.defineProperty(window, 'POSTHOG_APP_CONTEXT', {
             configurable: true,
             get: () => appContext,
             set: (value: typeof appContext) => {
                 if (value.current_user?.organization) {
                     value.current_user.organization.is_ai_data_processing_approved = true
+                }
+                if (value.current_user) {
+                    value.current_user.has_seen_product_intro_for = {
+                        ...value.current_user.has_seen_product_intro_for,
+                        posthog_ai_onboarding: true,
+                    }
                 }
                 appContext = value
             },
@@ -214,6 +225,8 @@ test.describe('Task run surface', () => {
     ]) {
         test(`new tasks start optimistically and recover from failure in the ${surface}`, async ({ page }) => {
             const message = 'Explain how to compare weekly activity.'
+            const followUp = 'Include a monthly comparison.'
+            const draft = 'Keep this unfinished draft.'
             let finishCreation!: (succeeded: boolean) => void
             let creationResponse = new Promise<boolean>((resolve) => {
                 finishCreation = resolve
@@ -226,7 +239,7 @@ test.describe('Task run surface', () => {
             const agentReady = new Promise<void>((resolve) => {
                 startAgent = resolve
             })
-            await acceptConsentInPage(page)
+            await prepareRunComposer(page)
             await mockFeatureFlags(page, {
                 [TASKS_FLAG]: true,
                 [TASKS_STREAM_VIA_PROXY_FLAG]: false,
@@ -254,6 +267,10 @@ test.describe('Task run surface', () => {
                     })
                 }
             )
+            await page.route(
+                (url) => url.pathname.endsWith(`/runs/${RUN_ID}/command/`),
+                fulfillJson({ jsonrpc: '2.0', result: { queued: true } })
+            )
             await page.route((url) => url.pathname.endsWith('/tasks/repositories/'), fulfillJson({ repositories: [] }))
             await page.route(
                 (url) => url.pathname.endsWith('/tasks/warm/'),
@@ -273,18 +290,18 @@ test.describe('Task run surface', () => {
                     await agentReady
                     await route.fulfill({
                         contentType: 'text/event-stream',
-                        body:
-                            toSse([
-                                {
-                                    type: 'notification',
-                                    notification: { method: '_posthog/run_started', params: { runId: RUN_ID } },
-                                },
-                                {
-                                    type: 'notification',
-                                    notification: { method: '_posthog/user_message', params: { content: message } },
-                                },
-                                agentMessageFrame('first-answer', 'Start by grouping activity by week.'),
-                            ]) + 'data: {"type":"task_run_state","status":"completed"}\n\n',
+                        body: toSse([
+                            {
+                                type: 'notification',
+                                notification: { method: '_posthog/run_started', params: { runId: RUN_ID } },
+                            },
+                            {
+                                type: 'notification',
+                                notification: { method: '_posthog/user_message', params: { content: message } },
+                            },
+                            agentMessageFrame('first-answer', 'Start by grouping activity by week.'),
+                            { type: 'notification', notification: { method: '_posthog/turn_complete', params: {} } },
+                        ]),
                     })
                 }
             )
@@ -298,25 +315,47 @@ test.describe('Task run surface', () => {
             await expect(page.getByText('Setting up sandbox', { exact: false })).toBeVisible()
             await expect(page.getByTestId('run-log-skeleton')).toHaveCount(0)
 
+            const followUpComposer = page.getByTestId('sandbox-composer-input')
+            await expect(followUpComposer).toBeVisible()
+            await expect(page.getByRole('combobox', { name: 'Mode', exact: true })).toBeVisible()
+            await followUpComposer.fill(followUp)
+            await followUpComposer.press('Enter')
+            await expect(page.getByText('Up next', { exact: true })).toBeVisible()
+            await expect(page.getByText(followUp, { exact: true })).toBeVisible()
+            await expect(page.getByTestId('run-queue-steer')).toBeDisabled()
+            await followUpComposer.fill(draft)
             finishCreation(false)
-            await expect(composer).toHaveValue(message)
+            await expect(composer).toHaveValue(`${message}\n\n${followUp}\n\n${draft}`)
+            await composer.fill(message)
             await expect(page.getByText('Setting up sandbox', { exact: false })).toHaveCount(0)
             creationResponse = new Promise<boolean>((resolve) => {
                 finishCreation = resolve
             })
             await composer.press('Enter')
             await expect(page.getByText(message, { exact: true })).toBeVisible()
+            await expect(followUpComposer).toBeVisible()
+            await followUpComposer.fill(followUp)
+            await followUpComposer.press('Enter')
+            await expect(page.getByText('Up next', { exact: true })).toBeVisible()
+            await followUpComposer.fill(draft)
             finishCreation(true)
 
             await expect(page.getByTestId('sandbox-composer-input')).toBeVisible()
             await expect(page.getByText(message, { exact: true })).toHaveCount(1)
             await expect(page.getByText('Setting up sandbox', { exact: false })).toBeVisible()
             await expect(page.getByTestId('run-log-skeleton')).toHaveCount(0)
+            await expect(followUpComposer).toHaveValue(draft)
+            await expect(followUpComposer).toBeFocused()
+            await expect(page.getByText('Up next', { exact: true })).toBeVisible()
+            await expect(page.getByTestId('run-queue-steer')).toBeDisabled()
             await page.screenshot({ path: test.info().outputPath('new-task-starting.png') })
 
             startAgent()
             await expect(page.getByText('Start by grouping activity by week.', { exact: true })).toBeVisible()
             await expect(page.getByText(message, { exact: true })).toHaveCount(1)
+            await expect(page.getByText('Up next', { exact: true })).toHaveCount(0)
+            await expect(page.getByText(followUp, { exact: true })).toHaveCount(1)
+            await expect(followUpComposer).toHaveValue(draft)
             revealMetadata()
             await expect(page.getByTestId('sandbox-composer-input')).toBeVisible()
             await expect(page.getByTestId('run-log-skeleton')).toHaveCount(0)
@@ -371,7 +410,7 @@ test.describe('Task run surface', () => {
             },
             stream: { mode: 'hang' },
         })
-        await acceptConsentInPage(page)
+        await prepareRunComposer(page)
         await page.route(
             (url) => url.pathname.endsWith(`/tasks/${TASK_ID}/`),
             fulfillJson({ ...makeTask('completed'), created_by: null })
