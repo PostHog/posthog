@@ -76,6 +76,10 @@ def stringify_numeric_comparison_values(apps, schema_editor):
     the stored value is a list rather than a number, and picking one entry from a list changes
     who the flag targets. That belongs with the flag's owner, not here.
 
+    `.update()` fires no post_save, so the flag-definitions cache keeps serving the number
+    until the hourly verification task repairs the drift. Local evaluation reads that cache,
+    so a .NET caller keeps matching everyone for up to an hour after this runs.
+
     Property values live in nested arrays that jsonb prefilters can't select cheaply, so this
     scans all flags read-only and writes only the ones that change. Soft-deleted and inactive
     flags included: their filters are blanked in the cached payload, but restoring or
