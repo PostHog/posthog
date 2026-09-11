@@ -206,8 +206,7 @@ def search_entities(
     rest of the search still answers.
     """
     counts: dict[str, int | None] = dict.fromkeys(entity_map) if include_counts else {}
-    # The merged page can take at most `cap` rows from any single entity, so capping each entity
-    # there costs no results while bounding the rows every entity has to return.
+    # The merged page takes at most `cap` rows from any one entity, so the cap costs no results.
     cap = offset + limit
     rows: list[dict[str, Any]] = []
     deadline = monotonic() + SEARCH_BUDGET_MS / 1000
@@ -262,8 +261,6 @@ def _run_bounded(entity: str, deadline: float, run: Callable[[], T]) -> T | None
         SEARCH_TIMED_OUT_COUNTER.labels(entity=entity).inc()
         return None
     try:
-        # The transaction it opens is what lets a cancelled query roll back to a savepoint, rather
-        # than leave the connection unusable for the entities that follow.
         with execute_with_timeout(budget_ms):
             return run()
     except OperationalError as error:
@@ -344,9 +341,8 @@ def class_queryset(
     if hasattr(klass, "created_by"):
         qs = qs.annotate(_created_by_id=F("created_by_id"))
     else:
-        # Explicitly cast rather than relying on Value(None, ...)'s output_field: Django renders
-        # an untyped None as a bare `NULL`, which Postgres resolves as `text` rather than as the
-        # integer the callers that read `_created_by_id` expect.
+        # Cast explicitly: Django renders an untyped None as a bare `NULL`, which Postgres types
+        # as `text` rather than the integer `_created_by_id` readers expect.
         qs = qs.annotate(_created_by_id=Cast(Value(None), output_field=BigIntegerField()))
 
     # Apply entity-specific filters

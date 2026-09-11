@@ -278,9 +278,6 @@ class TestSearch(APIBaseTest):
         return mock_view
 
     def test_counts_cost_no_extra_queries_when_entities_fit_the_page(self):
-        # Counts used to be a COUNT per entity plus a COUNT over the whole union, all under the one
-        # statement timeout the results were already spending. An entity that fits within the page
-        # has been counted by fetching it, so asking for counts must not add scans of its own.
         with CaptureQueriesContext(connection) as ctx_with:
             _, counts, total_count = search_entities(
                 entities=set(ENTITY_MAP.keys()),
@@ -307,8 +304,6 @@ class TestSearch(APIBaseTest):
         assert total_count == 4
 
     def test_a_cancelled_entity_drops_out_instead_of_failing_the_search(self):
-        # One entity hitting the statement timeout used to cancel the single union, so the user got
-        # an empty search box. Every other entity must still answer, and the slow one reports no count.
         def slow_insights(*args, **kwargs):
             qs, entity_name = class_queryset(*args, **kwargs)
             if entity_name == "insight":
@@ -333,8 +328,7 @@ class TestSearch(APIBaseTest):
         assert counts["dashboard"] == 1
 
     def test_the_callers_statement_timeout_survives_the_search(self):
-        # The per-entity budgets are `SET LOCAL`, which lasts until the caller's transaction ends.
-        # Left in place they would govern every later query the caller runs.
+        # `SET LOCAL` lasts until the caller's transaction ends, not until the search returns.
         with connection.cursor() as cursor:
             cursor.execute("SET LOCAL statement_timeout = '7331ms'")
 
