@@ -23,7 +23,7 @@ export function ReportChatToggle({ report }: { report: SignalReport }) {
   const { data: reportTasks } = useReportTasks(report.id, report.status);
   const hasConversation =
     findPendingStartedTaskId(reportTasks, startedTaskId) !== null ||
-    findContinuableImplementationTask(reportTasks) !== null ||
+    findContinuableImplementationTask(reportTasks, report) !== null ||
     findLatestDiscussionTask(reportTasks) !== null;
   const actionLabel = chatOpen
     ? "Close chat"

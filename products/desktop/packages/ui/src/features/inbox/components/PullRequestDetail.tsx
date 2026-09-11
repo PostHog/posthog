@@ -1,5 +1,9 @@
 import { GitPullRequestIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
+import {
+  primaryReportPullRequest,
+  reportPullRequests,
+} from "@posthog/core/inbox/reportPullRequests";
 import type { SignalReport } from "@posthog/shared/types";
 import { ReportFeedbackFooter } from "@posthog/ui/features/inbox/components/detail/ReportFeedbackFooter";
 import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDetailFrame";
@@ -14,6 +18,8 @@ import { ReportTrackerIssueLink } from "@posthog/ui/features/inbox/components/ut
 import { PrCommentsSection } from "@posthog/ui/features/pr-review/PrCommentsSection";
 import { PrDecisionBlock } from "@posthog/ui/features/pr-review/PrDecisionBlock";
 import { PrFilesChangedSection } from "@posthog/ui/features/pr-review/PrFilesChangedSection";
+import { useState } from "react";
+import { ReportPullRequestSelector } from "./ReportPullRequestSelector";
 
 interface PullRequestDetailProps {
   reportId: string;
@@ -45,10 +51,12 @@ export function PullRequestDetail({
  * from them into one line.
  */
 export function PullRequestDetailContent({ report }: { report: SignalReport }) {
-  const prRef = report.implementation_pr_url
-    ? parsePrUrl(report.implementation_pr_url)
-    : null;
-  const prUrl = prRef ? report.implementation_pr_url : null;
+  const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
+  const prs = reportPullRequests(report);
+  const selectedPr =
+    prs.find((pr) => pr.url === selectedUrl) ??
+    primaryReportPullRequest(report);
+  const prUrl = parsePrUrl(selectedPr.url) ? selectedPr.url : null;
 
   return (
     <ReportChatLayout report={report}>
@@ -59,7 +67,15 @@ export function PullRequestDetailContent({ report }: { report: SignalReport }) {
           prUrl ? (
             <>
               <InboxMetaSeparator />
-              <ReportImplementationPrLink prUrl={prUrl} size="md" />
+              {prs.length > 1 ? (
+                <ReportPullRequestSelector
+                  pullRequests={prs}
+                  value={prUrl}
+                  onValueChange={setSelectedUrl}
+                />
+              ) : (
+                <ReportImplementationPrLink prUrl={prUrl} size="md" />
+              )}
               <ReportTrackerIssueLink report={report} />
             </>
           ) : (
@@ -84,15 +100,17 @@ export function PullRequestDetailContent({ report }: { report: SignalReport }) {
                     <PrDiffStats prUrl={prUrl} hideWhileLoading />
                   </>
                 ),
-                content: <PrFilesChangedSection prUrl={prUrl} bare />,
+                content: (
+                  <PrFilesChangedSection key={prUrl} prUrl={prUrl} bare />
+                ),
               }
             : undefined
         }
         belowSummary={
           prUrl && (
             <>
-              <PrDecisionBlock prUrl={prUrl} />
-              <PrCommentsSection prUrl={prUrl} />
+              <PrDecisionBlock key={`decision:${prUrl}`} prUrl={prUrl} />
+              <PrCommentsSection key={`comments:${prUrl}`} prUrl={prUrl} />
             </>
           )
         }

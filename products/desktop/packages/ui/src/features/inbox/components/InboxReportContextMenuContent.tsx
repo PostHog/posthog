@@ -15,6 +15,7 @@ import {
   canCreateImplementationPr,
   canResolveReport,
 } from "@posthog/core/inbox/reportActions";
+import { hasActiveReportPullRequest } from "@posthog/core/inbox/reportPullRequests";
 import {
   ContextMenuContent,
   ContextMenuGroup,
@@ -73,7 +74,10 @@ export function InboxReportContextMenuContent({
     isLoading: reportTasksLoading,
     isError: reportTasksFailed,
   } = useReportTasks(report.id, report.status);
-  const continuableTask = findContinuableImplementationTask(reportTasks);
+  const continuableTask = findContinuableImplementationTask(
+    reportTasks,
+    report,
+  );
   const cloudRepository = extractRepoSelectionRepository(artefacts?.results);
   const { createPrReport, isCreatingPr } = useCreatePrReport({
     reportId: report.id,
@@ -85,9 +89,7 @@ export function InboxReportContextMenuContent({
   const isDismissed = report.status === "suppressed";
   const readOnly =
     report.status === "resolved" || (isDismissed && report.refund != null);
-  const hasOpenPr =
-    Boolean(report.implementation_pr_url) &&
-    report.implementation_pr_merged !== true;
+  const hasOpenPr = hasActiveReportPullRequest(report);
   const canCreatePr = canCreateImplementationPr(report, {
     hasLiveImplementationTask: continuableTask !== null,
     isTaskLookupPending: reportTasksLoading || reportTasksFailed,

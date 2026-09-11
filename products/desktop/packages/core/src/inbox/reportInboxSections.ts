@@ -1,3 +1,4 @@
+import { reportPullRequests } from "@posthog/core/inbox/reportPullRequests";
 import type { SignalReport } from "@posthog/shared/types";
 
 /**
@@ -13,7 +14,7 @@ export interface InboxReportSections {
 }
 
 function hasImplementationPr(report: SignalReport): boolean {
-  return !!report.implementation_pr_url?.trim();
+  return reportPullRequests(report).length > 0;
 }
 
 function isActionable(report: SignalReport): boolean {
