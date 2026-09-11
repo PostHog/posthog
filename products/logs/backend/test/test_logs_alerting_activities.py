@@ -2045,6 +2045,32 @@ class TestCohortManifest(unittest.TestCase):
 class TestDiscoverCohortsActivity(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
+    @time_machine.travel("2026-05-05T10:00:00Z", tick=False)
+    def test_limits_due_alerts_without_one_team_monopolizing_the_page(self):
+        from posthog.models import Team
+
+        from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
+
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        for index, team in enumerate((self.team, self.team, self.team, other_team)):
+            LogsAlertConfiguration.objects.create(
+                team=team,
+                name=f"due_{index}",
+                threshold_count=1,
+                threshold_operator="above",
+                window_minutes=5,
+                evaluation_periods=1,
+                filters={"serviceNames": [f"svc_{index}"]},
+                enabled=True,
+                next_check_at=datetime(2026, 5, 5, 9, 55, tzinfo=UTC),
+            )
+
+        result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput(max_alerts_per_run=2)))
+
+        selected = [(manifest.team_id, alert_id) for manifest in result.manifests for alert_id in manifest.alert_ids]
+        assert len(selected) == 2
+        assert {team_id for team_id, _ in selected} == {self.team.id, other_team.id}
+
     @time_machine.travel("2026-05-05T23:00:00Z", tick=False)
     def test_skips_alert_with_invalid_quiet_hours_and_discovers_healthy_alerts(self):
         from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
