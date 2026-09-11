@@ -242,6 +242,7 @@ async def fetch_due_eval_reports_activity(
             due_items_lower_bound=candidates.items_lower_bound,
             oldest_due_at_iso=candidates.oldest_due_at.isoformat() if candidates.oldest_due_at else None,
             cursor_before=candidates.team_cursor,
+            region=region,
         ),
         max_items=inputs.max_reports_per_run,
     )
@@ -289,6 +290,7 @@ async def fetch_due_eval_reports_activity(
         payload_bytes=selection.encoded_size_bytes,
         limited_by=limited_by,
         cursor_before=candidates.team_cursor,
+        region=region,
     )
 
 
@@ -333,6 +335,7 @@ async def fetch_count_triggered_eval_report_candidates_activity(
             rows,
             candidates.items_lower_bound,
             candidates.team_cursor,
+            region,
         ),
         max_items=inputs.max_reports_per_run,
     )
@@ -373,6 +376,7 @@ async def fetch_count_triggered_eval_report_candidates_activity(
         payload_bytes=selection.encoded_size_bytes,
         limited_by=limited_by,
         cursor_before=candidates.team_cursor,
+        region=region,
     )
 
 
@@ -424,6 +428,7 @@ def _count_triggered_payload(
     rows: Sequence[tuple[str, int]],
     items_lower_bound: int,
     cursor_before: str,
+    region: str,
 ) -> FetchDueEvalReportsOutput:
     return FetchDueEvalReportsOutput(
         report_ids=[report_id for report_id, _team_id in rows],
@@ -431,6 +436,7 @@ def _count_triggered_payload(
         team_by_report_id=dict(rows),
         due_items_lower_bound=items_lower_bound,
         cursor_before=cursor_before,
+        region=region,
     )
 
 

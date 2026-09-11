@@ -202,7 +202,7 @@ class ScheduleAllEvalReportsWorkflow(PostHogWorkflow):
             patch_id="eval-report-scheduled-coordinator-fire-and-forget-2026-09",
             occurrence_keys=result.report_occurrence_keys,
         )
-        await _ack_eval_report_cursors(result, "scheduled", inputs.region)
+        await _ack_eval_report_cursors(result, "scheduled", result.region or inputs.region)
 
 
 @temporalio.workflow.defn(name=CHECK_COUNT_TRIGGERED_REPORTS_WORKFLOW_NAME)
@@ -234,6 +234,7 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
             inputs,
             **discovery_options,
         )
+        resolved_region = result.region or inputs.region
         # Batched path: one check activity per team-group, each sharing one ClickHouse
         # count query, instead of one activity per report. Gated on the fetch output so
         # the decision is replay-deterministic: histories recorded before batching (and
@@ -254,7 +255,7 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
                 and temporalio.workflow.patched("eval-report-count-incremental-cursor-ack-2026-09")
             ):
                 incremental_ack = _IncrementalCursorAck(
-                    region=inputs.region,
+                    region=resolved_region,
                     cursor_before=result.cursor_before,
                     team_by_report_id=result.team_by_report_id,
                     use_snapshot_activity=temporalio.workflow.patched("eval-report-cursor-ack-snapshot-2026-09"),
@@ -268,7 +269,7 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
                 activity_schedule_to_close_timeout=activity_schedule_to_close_timeout,
                 incremental_ack=incremental_ack,
                 run_deadline=run_deadline,
-                metrics_region=inputs.region,
+                metrics_region=resolved_region,
             )
         else:
             due_reports = await _check_count_triggered_eval_report_candidates(result.report_ids)
@@ -286,7 +287,7 @@ class CheckCountTriggeredReportsWorkflow(PostHogWorkflow):
             await _ack_eval_report_cursors(
                 result,
                 "count_triggered",
-                inputs.region,
+                resolved_region,
                 activity_schedule_to_close_timeout=(
                     COUNT_TRIGGER_CURSOR_ACK_SCHEDULE_TO_CLOSE_TIMEOUT if bounded_phase_timeouts else None
                 ),

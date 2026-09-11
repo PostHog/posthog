@@ -84,6 +84,9 @@ class FetchDueEvalReportsOutput:
     # None preserves replay for fetch results written before cursor acknowledgement moved into
     # its own activity. An empty string is a valid first-page cursor.
     cursor_before: str | None = None
+    # Empty preserves replay for fetch results recorded before activities returned their
+    # deployment-resolved region. Workflows fall back to the input region for those histories.
+    region: str = ""
 
 
 @dataclasses.dataclass

@@ -189,7 +189,7 @@ async def test_scheduled_coordinator_acknowledges_cursor_after_child_starts() ->
 
     async def fake_execute_activity(activity, inputs, **_kwargs):
         if activity is fetch_due_eval_reports_activity:
-            return FetchDueEvalReportsOutput(report_ids=["report-a"], cursor_before="41")
+            return FetchDueEvalReportsOutput(report_ids=["report-a"], cursor_before="41", region="eu")
         if activity is ack_eval_report_cursors_activity:
             events.append("ack")
             acknowledged_inputs.append(inputs)
@@ -213,11 +213,12 @@ async def test_scheduled_coordinator_acknowledges_cursor_after_child_starts() ->
             return_value=True,
         ),
     ):
-        await ScheduleAllEvalReportsWorkflow().run(ScheduleAllEvalReportsWorkflowInputs(region="eu"))
+        await ScheduleAllEvalReportsWorkflow().run(ScheduleAllEvalReportsWorkflowInputs())
 
     assert events == ["start", "ack"]
     assert acknowledged_inputs[0].cursor_before == "41"
     assert acknowledged_inputs[0].report_ids == ["report-a"]
+    assert acknowledged_inputs[0].region == "eu"
 
 
 @pytest.mark.asyncio
@@ -233,6 +234,7 @@ async def test_count_coordinator_acknowledges_cursor_after_due_child_starts() ->
                 report_id_groups=[["report-a"]],
                 cursor_before="41",
                 team_by_report_id={"report-a": 42},
+                region="eu",
             )
         if activity is ack_eval_report_cursors_activity:
             events.append("ack")
@@ -280,7 +282,7 @@ async def test_count_coordinator_acknowledges_cursor_after_due_child_starts() ->
             return_value=True,
         ),
     ):
-        await CheckCountTriggeredReportsWorkflow().run(CheckCountTriggeredReportsWorkflowInputs(region="eu"))
+        await CheckCountTriggeredReportsWorkflow().run(CheckCountTriggeredReportsWorkflowInputs())
 
     assert events == ["check", "start"]
 
