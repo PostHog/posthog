@@ -155,10 +155,11 @@ describe('tasksLogic', () => {
             expect(logic.values.tasksNext).toBeNull()
         })
 
-        // Regression coverage: without clearing `tasksNext` on failure, `hasMore` stays true forever
-        // and the infinite-scroll spinner never goes away after a failed page load.
-        it('clears tasksNext on failure so the list stops reporting more pages', async () => {
-            logic.actions.setTasksNext('/api/projects/1/tasks/?cursor=page-2')
+        // Regression coverage: the cursor is what renders the manual "Load more" control, so dropping
+        // it on a transient failure would remove the only retry for the rest of the session.
+        it('keeps tasksNext on failure so the page can be retried', async () => {
+            const cursor = '/api/projects/1/tasks/?cursor=page-2'
+            logic.actions.setTasksNext(cursor)
             // Deliberate loader failure — kea-loaders would log it
             silenceKeaLoadersErrors()
             jest.spyOn(api, 'get').mockRejectedValueOnce(new Error('network error'))
@@ -166,8 +167,18 @@ describe('tasksLogic', () => {
             logic.actions.loadMoreTasks()
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.tasksNext).toBeNull()
+            expect(logic.values.tasksNext).toBe(cursor)
             expect(logic.values.tasksLoadingMore).toBe(false)
+
+            // The retry reuses the same cursor and succeeds.
+            resumeKeaLoadersErrors()
+            jest.spyOn(api, 'get').mockResolvedValueOnce({ results: [createMockTask('task-2')], next: null })
+
+            logic.actions.loadMoreTasks()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.tasks.map((t) => t.id)).toEqual(['task-2'])
+            expect(logic.values.tasksNext).toBeNull()
         })
     })
 

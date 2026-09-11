@@ -266,9 +266,9 @@ export const tasksLogic = kea<tasksLogicType>([
             {
                 loadTasks: () => null,
                 setTasksNext: (_, { next }) => next,
-                // Clear the cursor on failure too, otherwise `hasMore` stays true forever and the
-                // infinite-scroll spinner keeps spinning with no feedback that the request failed.
-                loadMoreTasksFailure: () => null,
+                // Deliberately survives `loadMoreTasksFailure`: the cursor is what renders the manual
+                // "Load more" control, so dropping it on a transient failure would take the retry away
+                // for the rest of the session. The failure listener raises a toast instead.
             },
         ],
         // Distinct from `tasksLoading` (which also flips for `loadMoreTasks`) so the infinite-scroll
