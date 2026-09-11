@@ -3082,7 +3082,7 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
     )
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=False)
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_quota_cron_reconciles_limiter_instead_of_replacing_it(
         self, _name, in_snapshot, score, expect_present, _feature_enabled, _capture
     ) -> None:
