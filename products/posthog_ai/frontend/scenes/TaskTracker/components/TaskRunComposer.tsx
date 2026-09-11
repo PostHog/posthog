@@ -18,8 +18,8 @@ import { AttachedContextBar } from '../../../components/composer/AttachedContext
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
 import { ComposerModePicker } from '../../../components/composer/ComposerModePicker'
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
-import { ContextUsageChip } from '../../../components/composer/ContextUsageChip'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
+import { ContextUsageChip } from '../../../components/ContextUsageChip'
 
 export function TaskRunComposer({
     logicProps,

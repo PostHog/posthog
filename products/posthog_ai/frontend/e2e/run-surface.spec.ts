@@ -572,7 +572,7 @@ test.describe('Task run surface', () => {
 
         await openRunDeepLink(page, workspace!.team_id)
         await expect(page.getByText('The earlier answer stays here.', { exact: true })).toBeVisible({ timeout: 30000 })
-        await expect(page.getByTestId('composer-context-usage')).toBeVisible()
+        await expect(page.getByTestId('max-sandbox-context-usage')).toBeVisible()
         await expect(page.getByText('Started agent', { exact: true })).toBeVisible()
         const composer = page.getByTestId('sandbox-composer-input')
         await composer.fill('Continue with the next step.')
@@ -580,7 +580,7 @@ test.describe('Task run surface', () => {
         await expect(page.getByText('Continue with the next step.', { exact: true })).toHaveCount(1)
         await expect(page.getByText('Setting up sandbox', { exact: false })).toBeVisible()
         await expect(composer).toHaveValue('')
-        await expect(page.getByTestId('composer-context-usage')).toBeVisible()
+        await expect(page.getByTestId('max-sandbox-context-usage')).toBeVisible()
         await expect(page.getByTestId('sandbox-composer-send')).toBeDisabled()
         await expect(page.getByTestId('run-log-skeleton')).toHaveCount(0)
 
@@ -588,7 +588,7 @@ test.describe('Task run surface', () => {
         acceptRun()
         await expect(page.getByTestId('sandbox-composer-send')).toBeEnabled()
         await expect(composer).toHaveValue('Keep this newer draft.')
-        await expect(page.getByTestId('composer-context-usage')).toBeVisible()
+        await expect(page.getByTestId('max-sandbox-context-usage')).toBeVisible()
         await expect(page.getByText('The earlier answer stays here.', { exact: true })).toBeVisible()
         await expect(page.getByText('Continue with the next step.', { exact: true })).toHaveCount(1)
         await expect(page.getByText('Setting up sandbox', { exact: false })).toBeVisible()

@@ -98,7 +98,7 @@ describe('ThreadView connection state', () => {
 
         act(() => logic.actions.rollbackOptimisticResume())
         await waitFor(() => expect(screen.getByTestId('max-sandbox-context-usage')).toBeVisible())
-        expect(screen.getByText('$0.04')).toBeVisible()
+        expect(screen.getByTestId('max-sandbox-context-usage')).toHaveTextContent('Context 1% · $0.04')
     })
 
     it('uses the startup activity as the state indicator and keeps completed steps expandable', async () => {

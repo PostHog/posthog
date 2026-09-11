@@ -10,7 +10,7 @@ import { groupThreadActivity, type ThreadDisplayItem } from '../utils/groupThrea
 import { getRandomThinkingMessage } from '../utils/thinkingMessages'
 import { resolveToolCall } from '../utils/toolResolver'
 import { type TurnTrailer, computeTurnTrailers } from '../utils/turnTrailers'
-import { ContextUsageBar } from './ContextUsageBar'
+import { ContextUsageChip } from './ContextUsageChip'
 import { PullRequestCard } from './PullRequestCard'
 import { RunAlertActivity } from './RunAlertActivity'
 import { RunContext } from './RunContext'
@@ -160,7 +160,7 @@ export function ThreadView({
     // Post-turn only: a reconnect refetch can fold in a pr_url mid-run, so gate on !isThinking.
     const pullRequestUrl = !isThinking ? runArtifacts.prUrl : undefined
     // Context usage rides the thread footer, but only between turns (idle) — never while the agent is
-    // working, where the thinking line takes the footer. `ContextUsageBar` self-hides without data.
+    // working, where the thinking line takes the footer. `ContextUsageChip` self-hides without data.
     const showContextUsageFooter = showContextUsage && streamPhase === 'idle' && !!contextUsage
     const footer = useMemo(
         () =>
@@ -327,7 +327,7 @@ const ThreadFooter = memo(function ThreadFooter({
                 />
             )}
             {pullRequestUrl && <PullRequestCard prUrl={pullRequestUrl} branch={prBranch} />}
-            {showContextUsage && <ContextUsageBar />}
+            {showContextUsage && <ContextUsageChip />}
             {extra}
         </div>
     )

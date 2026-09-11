@@ -7,7 +7,7 @@ import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { taskLogic } from '../logics/taskLogic'
 import { isPiTaskRuntime, OriginProduct } from '../types/taskTypes'
 import { type TurnTrailer } from '../utils/turnTrailers'
-import { ContextUsageBar } from './ContextUsageBar'
+import { ContextUsageChip } from './ContextUsageChip'
 import { FeedbackPromptTrailer } from './FeedbackPromptTrailer'
 import { PermissionInput } from './PermissionInput'
 import { QuestionInput } from './QuestionInput'
@@ -308,5 +308,5 @@ export const RunSurface = Object.assign(RunSurfaceRoot, {
     Root: RunSurfaceRoot,
     Thread: RunSurfaceThread,
     Composer: RunSurfaceComposer,
-    ContextUsage: ContextUsageBar,
+    ContextUsage: ContextUsageChip,
 })
