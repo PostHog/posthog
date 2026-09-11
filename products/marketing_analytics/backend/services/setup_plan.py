@@ -31,6 +31,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
+from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import math_sums_a_property
 from products.marketing_analytics.backend.services.attribution_health import (
     AttributionHealthResponse,
     get_attribution_health,
@@ -594,33 +595,61 @@ def _missing_flag_suggestion(
     Without `counts_as_revenue` there is no ROAS column, and without
     `counts_as_customer` there is no cost-per-customer — the goals exist but the
     two headline metrics stay empty, with nothing on the dashboard explaining why.
-    Which goal deserves the flag is a business call, so this links out rather than
-    picking one.
+
+    The revenue flag only means something on a goal that already sums an amount, and the
+    apply endpoint refuses it on any other goal. So the patch goes to a goal that sums,
+    and when no goal does, this links out to the goal editor instead of proposing a
+    change the endpoint would reject.
     """
+    kind = SuggestionKind.MARK_GOAL_AS_REVENUE if revenue else SuggestionKind.MARK_GOAL_AS_CUSTOMER
+    metric = "ROAS" if revenue else "cost per customer"
+    flag = "counts_as_revenue" if revenue else "counts_as_customer"
+    # The goal editor's own checkbox labels, so the evidence names what the user clicks.
+    label = "Each conversion is worth money" if revenue else "Counts as a new customer"
+
     candidate = max(goals, key=lambda g: g.last_30d_count, default=None)
     if candidate is None:
         return None
 
-    kind = SuggestionKind.MARK_GOAL_AS_REVENUE if revenue else SuggestionKind.MARK_GOAL_AS_CUSTOMER
-    metric = "ROAS" if revenue else "cost per customer"
-    flag = "counts_as_revenue" if revenue else "counts_as_customer"
+    flaggable: ConversionGoalSummary | None = candidate
+    if revenue:
+        summing = (g for g in goals if _goal_sums_an_amount(goal_flags.get(g.conversion_goal_id, {})))
+        flaggable = max(summing, key=lambda g: g.last_30d_count, default=None)
+
+    if flaggable is not None:
+        candidate = flaggable
+        evidence = (
+            f"{len(goals)} conversion goal(s) are configured but none is marked '{label}', so the "
+            f"{metric} column stays empty. '{candidate.name}' is the highest-volume candidate "
+            f"({candidate.last_30d_count:,} in 30 days)."
+        )
+        apply: ApplyOp = UpdateConversionGoal(conversion_goal_id=candidate.conversion_goal_id, patch={flag: True})
+    else:
+        evidence = (
+            f"{len(goals)} conversion goal(s) are configured but none sums a revenue amount, so the "
+            "ROAS column stays empty. Edit a goal, set its aggregation to sum, and pick the event "
+            f"property that holds the amount. '{candidate.name}' is the highest-volume candidate "
+            f"({candidate.last_30d_count:,} in 30 days)."
+        )
+        apply = OpenSettings(anchor=MARKETING_SETTINGS_ANCHOR)
+
     return Suggestion(
         id=f"{kind.value}:any",
         kind=kind,
         severity=Severity.WARNING,
         confidence=0.7,
         title=f"Mark a conversion goal as {'revenue-bearing' if revenue else 'customer-defining'}",
-        evidence=(
-            f"{len(goals)} conversion goal(s) are configured but none has `{flag}` set, so the "
-            f"{metric} column stays empty. '{candidate.name}' is the highest-volume candidate "
-            f"({candidate.last_30d_count:,} in 30 days)."
-        ),
+        evidence=evidence,
         unlocks=[Capability.ROAS if revenue else Capability.CAC],
-        # Which goal counts as revenue is a business decision, not a config fix.
-        apply=UpdateConversionGoal(conversion_goal_id=candidate.conversion_goal_id, patch={flag: True}),
+        apply=apply,
         safe_to_batch=False,
         event_volume=candidate.last_30d_count,
     )
+
+
+def _goal_sums_an_amount(goal: dict[str, Any]) -> bool:
+    """Whether `counts_as_revenue` would produce a ROAS column on this stored goal."""
+    return math_sums_a_property(goal.get("math")) and bool(goal.get("math_property"))
 
 
 # --- Readiness -------------------------------------------------------------

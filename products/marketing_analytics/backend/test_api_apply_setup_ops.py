@@ -394,6 +394,12 @@ class TestRevenueGoalConsistencyViaOps(APIBaseTest):
         # harmless-looking boolean.
         assert response.status_code == 400, response.json()
         assert self.config().conversion_goals[0].get("counts_as_revenue") is not True
+        # `detail` is what the setup tab puts in its toast, so it names the goal editor's
+        # own labels and the next step rather than the stored field names.
+        message = response.json()["detail"]
+        assert "counts_as_revenue" not in message
+        assert "Each conversion is worth money" in message
+        assert "marketing analytics settings" in message
 
     def test_a_rejected_goal_does_not_land_half_a_batch(self):
         # Batch atomicity has to hold for this rejection too, or a plausible-looking
