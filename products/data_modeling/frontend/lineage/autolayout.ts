@@ -1,10 +1,25 @@
-import { Edge, Position } from '@xyflow/react'
-import type { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
+import { Edge, Position, Node as ReactFlowNode } from '@xyflow/react'
+import type { ElkExtendedEdge, ElkNode } from 'elkjs'
 
 import { getElk } from 'lib/elk'
 
-import { LARGE_GRAPH_NODE_THRESHOLD, NODE_HEIGHT, NODE_WIDTH } from './constants'
-import type { ElkDirection, Node } from './types'
+export type ElkDirection = 'DOWN' | 'RIGHT'
+
+export interface NodeHandle {
+    id?: string
+    type: 'source' | 'target'
+    position: Position
+    x?: number
+    y?: number
+}
+
+// Above this node count, ELK's NETWORK_SIMPLEX node placement (which scales
+// super-linearly and runs on the main thread) becomes the dominant cost of
+// showing the graph. We switch to the much cheaper BRANDES_KOEPF placement for
+// large graphs; smaller graphs keep NETWORK_SIMPLEX for its tighter layout.
+export const LARGE_GRAPH_NODE_THRESHOLD = 150
+
+type LayoutNode = ReactFlowNode<{ handles?: NodeHandle[] } & Record<string, unknown>>
 
 const getElkPortSide = (position: Position): string => {
     switch (position) {
@@ -19,15 +34,16 @@ const getElkPortSide = (position: Position): string => {
     }
 }
 
-export const getFormattedNodes = async (nodes: Node[], edges: Edge[], direction?: ElkDirection): Promise<Node[]> => {
+export const getFormattedNodes = async <T extends LayoutNode>(
+    nodes: T[],
+    edges: Edge[],
+    direction?: ElkDirection
+): Promise<T[]> => {
     if (nodes.length === 0) {
         return []
     }
 
     direction ??= 'DOWN'
-    // NETWORK_SIMPLEX node placement gives the tightest layout but scales
-    // super-linearly; on large graphs it's the main reason the DAG takes
-    // seconds to appear. BRANDES_KOEPF is ~5x cheaper with a comparable result.
     const nodePlacementStrategy = nodes.length > LARGE_GRAPH_NODE_THRESHOLD ? 'BRANDES_KOEPF' : 'NETWORK_SIMPLEX'
     const elkOptions = {
         'elk.algorithm': 'layered',
@@ -62,8 +78,8 @@ export const getFormattedNodes = async (nodes: Node[], edges: Edge[], direction?
 
             return {
                 ...node,
-                width: node.width ?? NODE_WIDTH,
-                height: node.height ?? NODE_HEIGHT,
+                width: node.width,
+                height: node.height,
                 targetPosition: direction === 'DOWN' ? 'top' : 'left',
                 sourcePosition: direction === 'DOWN' ? 'bottom' : 'right',
                 ports: [...handles],
@@ -82,5 +98,5 @@ export const getFormattedNodes = async (nodes: Node[], edges: Edge[], direction?
     return (laidOutGraph.children?.map((node) => ({
         ...node,
         position: { x: node.x, y: node.y },
-    })) ?? []) as Node[]
+    })) ?? []) as unknown as T[]
 }
