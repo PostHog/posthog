@@ -1,3 +1,5 @@
+from collections.abc import Callable
+from concurrent.futures import Future
 from datetime import datetime, timedelta
 from functools import partial
 from typing import cast
@@ -5,14 +7,21 @@ from uuid import UUID
 
 import pytest
 import time_machine
-from unittest.mock import patch
+from unittest.mock import Mock, patch, sentinel
 
 from django.conf import settings as django_settings
 
 from clickhouse_driver import Client
-from dagster import build_op_context
+from dagster import OpExecutionContext, build_op_context
 
-from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner
+from posthog.clickhouse.cluster import (
+    ClickhouseCluster,
+    FuturesMap,
+    LightweightDeleteMutationRunner,
+    MutationWaiter,
+    MutationWaiters,
+    NodeRole,
+)
 from posthog.dags.deletes import (
     _DELETE_PREDICATE,
     AdhocEventDeletesDictionary,
@@ -28,6 +37,8 @@ from posthog.dags.deletes import (
     deletes_job,
     find_partitions_to_cleanup,
     monthly_old_events_cleanup_job,
+    wait_for_delete_mutations_in_all_hosts,
+    wait_for_delete_mutations_in_shards,
 )
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -369,6 +380,60 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
     assert not any(cluster.map_all_hosts(table.exists).result().values())
     deletes_dict = PendingDeletesDictionary(source=table)
     assert not any(cluster.map_all_hosts(deletes_dict.exists).result().values())
+
+
+@pytest.mark.parametrize(
+    "wait",
+    [
+        pytest.param(
+            lambda context, cluster, dictionary, mutation: wait_for_delete_mutations_in_shards(
+                context,
+                cluster,
+                (dictionary, {("posthog", NodeRole.DATA): {1: MutationWaiters(waiters=[mutation])}}),
+            ),
+            id="shards",
+        ),
+        pytest.param(
+            lambda context, cluster, dictionary, mutation: wait_for_delete_mutations_in_all_hosts(
+                context, cluster, (dictionary, mutation)
+            ),
+            id="all_hosts",
+        ),
+    ],
+)
+def test_a_delete_wait_polls_again_for_a_mutation_replication_lag_has_hidden(
+    wait: Callable[[OpExecutionContext, ClickhouseCluster, PendingDeletesDictionary, MutationWaiter], None],
+) -> None:
+    # The job enqueues a mutation on one host and then polls the others, so a host that has not
+    # pulled the entry yet reports it missing rather than pending. The retry that absorbs this lives
+    # in the cluster helpers, so the job is covered only while it keeps going through them. Waiting
+    # on the mutation directly fails the whole run over lag the next poll would have cleared.
+    lookups = iter([[], [("0000000042", 1)]])
+    client = Mock()
+    client.execute = Mock(side_effect=lambda *args, **kwargs: next(lookups))
+
+    def run_on_one_host(fn: Callable[[Client], object], *args: object, **kwargs: object) -> FuturesMap:
+        future: Future = Future()
+        future.set_result(fn(client))
+        return FuturesMap({sentinel.host: future})
+
+    def run_per_shard(fn_by_shard: dict[int, Callable[[Client], object]], *args: object) -> FuturesMap:
+        futures: dict[int, Future] = {}
+        for shard_num, fn in fn_by_shard.items():
+            futures[shard_num] = Future()
+            futures[shard_num].set_result(fn(client))
+        return FuturesMap(futures)
+
+    cluster = Mock(spec=ClickhouseCluster)
+    cluster.map_all_hosts = Mock(side_effect=run_on_one_host)
+    cluster.map_all_hosts_in_shards = Mock(side_effect=run_per_shard)
+    cluster.sibling = Mock(return_value=cluster)
+    dictionary = PendingDeletesDictionary(source=PendingDeletesTable(timestamp=datetime(2026, 1, 1)))
+
+    with build_op_context() as context, patch("posthog.clickhouse.cluster.time.sleep"):
+        wait(context, cluster, dictionary, MutationWaiter("table", {"0000000042"}))
+
+    assert next(lookups, None) is None  # polled again once the mutation became visible
 
 
 @pytest.mark.django_db
