@@ -15,7 +15,10 @@ def test_every_field_leaves_model_state():
     operation = untrack_field("mymodel", "owner", "other")
 
     assert isinstance(operation, migrations.SeparateDatabaseAndState)
-    assert [(op.model_name, op.name) for op in operation.state_operations] == [
+    removals = [op for op in operation.state_operations if isinstance(op, migrations.RemoveField)]
+
+    assert len(removals) == len(operation.state_operations)
+    assert [(op.model_name, op.name) for op in removals] == [
         ("mymodel", "owner"),
         ("mymodel", "other"),
     ]
