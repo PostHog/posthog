@@ -7,6 +7,7 @@ Each step validates its own output and re-prompts once on failure; required step
 """
 
 import re
+import math
 import time
 import asyncio
 import functools
@@ -50,6 +51,7 @@ from products.replay_vision.backend.temporal.metrics import (
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
     STEP_CORE,
+    STEP_SIGNALS,
     TIMESTAMP_CITATION_RE,
     BaseScanner,
     BaseScannerOutput,
@@ -57,6 +59,7 @@ from products.replay_vision.backend.temporal.scanners.base import (
     MissionStep,
     Segment,
     SignalFinding,
+    SignalsResponse,
     TextSegment,
 )
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierScanner
@@ -405,7 +408,17 @@ async def _run_mission(
         return dispatch_events_tool(call, events_index)
 
     cache = await _maybe_create_video_cache(cache_client, model, video_part, preamble_text)
-    steps = scanner.mission_steps()
+    steps = [
+        replace(
+            step,
+            validate=functools.partial(
+                _validate_signal_timestamps, duration_seconds=llm_inputs.metadata.duration_seconds
+            ),
+        )
+        if step.name == STEP_SIGNALS
+        else step
+        for step in scanner.mission_steps()
+    ]
     run = functools.partial(
         _run_steps,
         client=client,
@@ -524,6 +537,19 @@ def _remaining_verify_budget_seconds() -> float | None:
         return None
     elapsed = (timezone.now() - info.started_time).total_seconds()
     return info.start_to_close_timeout.total_seconds() - elapsed - _VERIFY_BUDGET_RESERVE_SECONDS
+
+
+def _validate_signal_timestamps(output: BaseModel, *, duration_seconds: float | None) -> str | None:
+    if not isinstance(output, SignalsResponse) or not output.signals:
+        return None
+    if duration_seconds is None or not math.isfinite(duration_seconds) or duration_seconds <= 0:
+        return "Recording duration is unavailable. Return an empty signals list."
+    if any(signal.end_time > duration_seconds for signal in output.signals):
+        return (
+            f"Signal timestamps must not exceed REC_T {math.floor(duration_seconds)}. "
+            "Use timestamps visible in the recording, or omit the finding. Do not clamp timestamps."
+        )
+    return None
 
 
 async def _run_mission_attempts(*, run: Any, cache: Any | None, model: str) -> dict[str, BaseModel]:
