@@ -544,8 +544,6 @@ class TestRelaySandboxEventsStreamUnavailable:
                 )
             )
 
-        # Retryable, so a worker that recovers reattaches the stream, and typed so the
-        # unlimited retry policy does not mint an error tracking issue per attempt.
         assert exc_info.value.non_retryable is not True
         assert exc_info.value.type in EXPECTED_CONTROL_FLOW_ERROR_TYPES
         relay_loop_mock.assert_not_awaited()

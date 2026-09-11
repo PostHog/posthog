@@ -41,10 +41,8 @@ TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS = 0.05
 TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS = 0.15
 TASK_RUN_STREAM_WAIT_MAX_DELAY_SECONDS = 2.0
 TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS = 120.0  # sandbox provisioning can be slow
-# Budget for absorbing a Redis connect blip on the stream's first command. The relay
-# activity retries forever on purpose, so letting a three-second connect timeout kill the
-# attempt instead costs a full activity prologue replay plus up to a minute of Temporal
-# backoff, and the run streams nothing for all of it.
+# The relay activity retries forever on purpose, so a connect blip that kills the attempt
+# instead costs a prologue replay plus up to a minute of Temporal backoff, streaming nothing.
 TASK_RUN_STREAM_CONNECT_RETRY_BUDGET_SECONDS = 30.0
 TASK_RUN_STREAM_CONNECT_RETRY_INITIAL_DELAY_SECONDS = 0.5
 TASK_RUN_STREAM_CONNECT_RETRY_MAX_DELAY_SECONDS = 5.0

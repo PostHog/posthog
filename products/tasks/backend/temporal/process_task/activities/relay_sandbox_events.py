@@ -166,10 +166,8 @@ async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stre
     except Exception as e:
         if not is_transient_redis_error(e):
             raise
-        # Redis stayed unreachable through the in-place retry budget. Retrying the
-        # activity is still right, so the failure stays retryable. It is marked expected
-        # control flow because the relay's retry policy is unlimited, so one Redis blip
-        # would otherwise mint an error tracking occurrence per attempt.
+        # Retryable, because Redis may still come back. Typed as expected control flow
+        # because the unlimited retry policy would otherwise report one issue per attempt.
         logger.warning("relay_sandbox_events_stream_unavailable", run_id=input.run_id, error=str(e))
         raise ApplicationError(f"Task run stream is unreachable: {e}", type="TransientRedisError") from e
 
