@@ -1,3 +1,4 @@
+import ssl
 import json
 import time
 import asyncio
@@ -52,13 +53,21 @@ TaskRunStreamEntry = tuple[str, dict]
 TaskRunStreamEntryOrKeepalive = TaskRunStreamEntry | None
 
 
-def is_transient_redis_error(error: BaseException) -> bool:
-    """Whether a Redis failure is a connect or socket blip that clears on its own.
+def is_redis_connect_error(error: BaseException) -> bool:
+    """Whether a Redis failure came from the connect or socket layer.
 
-    Authentication and authorization errors subclass ``ConnectionError`` but are config
-    defects that no amount of retrying resolves, so they are excluded.
+    True does not mean the failure clears on its own. redis-py wraps every ``OSError`` its
+    connect path raises into ``ConnectionError``, so a passing DNS stall and an unresolvable
+    host arrive identically. A caller that retries or suppresses on this must bound what it
+    does, because it cannot tell a blip from a permanent misconfiguration.
+
+    Excluded are the failures that provably never clear: bad credentials, missing permissions,
+    and a rejected certificate. redis-py drops the cause when it wraps the ``OSError``, so the
+    certificate check reads ``__context__``, which Python still sets.
     """
     if isinstance(error, redis_exceptions.AuthenticationError | redis_exceptions.AuthorizationError):
+        return False
+    if isinstance(error.__context__, ssl.SSLError):
         return False
     return isinstance(error, redis_exceptions.ConnectionError | redis_exceptions.TimeoutError)
 
@@ -206,8 +215,8 @@ class TaskRunRedisStream:
     async def initialize(self) -> None:
         """Set expiry on the stream key to prevent unbounded growth.
 
-        This is the stream's first Redis command, so it also opens the connection.
-        Transient connect failures are retried in place within
+        This is the stream's first Redis command, so it also opens the connection. A connect
+        failure and a stale pool left behind by a failover are both retried in place within
         ``TASK_RUN_STREAM_CONNECT_RETRY_BUDGET_SECONDS``.
         """
         deadline = asyncio.get_running_loop().time() + TASK_RUN_STREAM_CONNECT_RETRY_BUDGET_SECONDS
@@ -216,15 +225,18 @@ class TaskRunRedisStream:
             try:
                 await self._redis_client.expire(self._stream_key, self._timeout)
                 return
-            except Exception as e:
-                if not is_transient_redis_error(e) or asyncio.get_running_loop().time() >= deadline:
+            except redis_exceptions.ReadOnlyError:
+                # A failover can promote a new primary while the cached pool still holds a
+                # connection to the demoted node, and every write on it fails until the pool
+                # reconnects. Same fix as _write_with_stale_replica_retry in warehouse_sources.
+                if asyncio.get_running_loop().time() >= deadline:
                     raise
-                logger.warning(
-                    "task_run_stream_initialize_retry",
-                    stream_key=self._stream_key,
-                    error=str(e),
-                    delay=delay,
-                )
+                await self._redis_client.connection_pool.disconnect()
+                logger.warning("task_run_stream_initialize_stale_pool", stream_key=self._stream_key)
+            except Exception as e:
+                if not is_redis_connect_error(e) or asyncio.get_running_loop().time() >= deadline:
+                    raise
+                logger.warning("task_run_stream_initialize_retry", stream_key=self._stream_key, error=str(e))
             await asyncio.sleep(delay)
             delay = min(delay * 2, TASK_RUN_STREAM_CONNECT_RETRY_MAX_DELAY_SECONDS)
 

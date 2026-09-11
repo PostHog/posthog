@@ -35,7 +35,7 @@ from products.tasks.backend.logic.stream.agent_events import is_agent_command_di
 from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunRedisStream,
     get_task_run_stream_key,
-    is_transient_redis_error,
+    is_redis_connect_error,
 )
 from products.tasks.backend.models import (
     Task as TaskModel,
@@ -164,12 +164,14 @@ async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stre
     try:
         await redis_stream.initialize()
     except Exception as e:
-        if not is_transient_redis_error(e):
+        if not is_redis_connect_error(e):
             raise
-        # Retryable, because Redis may still come back. Typed as expected control flow
-        # because the unlimited retry policy would otherwise report one issue per attempt.
         logger.warning("relay_sandbox_events_stream_unavailable", run_id=input.run_id, error=str(e))
-        raise ApplicationError(f"Task run stream is unreachable: {e}", type="TransientRedisError") from e
+        # redis-py reports a passing blip and a permanent misconfiguration as the same
+        # ConnectionError, so the first attempt reports and only the repeats go quiet.
+        if activity.in_activity() and activity.info().attempt > 1:
+            raise ApplicationError(f"Task run stream is unreachable: {e}", type="TransientRedisError") from e
+        raise
 
     actor_user = await sync_to_async(get_task_run_credential_user)(task_run.task, task_run.state)
     if is_slack_interaction_state(task_run.state) and actor_user is None:

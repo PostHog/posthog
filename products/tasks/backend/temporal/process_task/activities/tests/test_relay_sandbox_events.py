@@ -1,6 +1,7 @@
 import json
 import asyncio
 import importlib
+import dataclasses
 from types import SimpleNamespace
 from typing import cast
 
@@ -12,6 +13,7 @@ import httpx_sse
 import redis.exceptions as redis_exceptions
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment
 
 from posthog.temporal.common.posthog_client import EXPECTED_CONTROL_FLOW_ERROR_TYPES
 
@@ -494,9 +496,13 @@ class TestRelaySandboxEventsMissingActor:
 
 
 class TestRelaySandboxEventsStreamUnavailable:
-    async def test_unreachable_redis_fails_retryably_as_expected_control_flow(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    """An unreachable Redis stream must stay retryable, report once, then go quiet.
+
+    The relay's retry policy is unlimited, so before this gate one connect blip produced an
+    identical error tracking occurrence on every attempt for as long as Redis was unreachable.
+    """
+
+    def _patch_prologue(self, monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
         class StubTaskRunRedisStream:
             def __init__(
                 self,
@@ -531,18 +537,37 @@ class TestRelaySandboxEventsStreamUnavailable:
         )
         monkeypatch.setattr(relay_sandbox_events_module, "validate_sandbox_url", lambda _url: None)
         monkeypatch.setattr(relay_sandbox_events_module, "_relay_loop", relay_loop_mock)
+        return relay_loop_mock
+
+    def _input(self) -> RelaySandboxEventsInput:
+        return RelaySandboxEventsInput(
+            run_id="run-id",
+            task_id="task-id",
+            sandbox_url="https://sandbox.example",
+            sandbox_connect_token=None,
+            team_id=1,
+            distinct_id="distinct-id",
+        )
+
+    async def test_first_attempt_reports_the_underlying_redis_error(
+        self, activity_environment: ActivityEnvironment, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        relay_loop_mock = self._patch_prologue(monkeypatch)
+        activity_environment.info = dataclasses.replace(activity_environment.info, attempt=1)
+
+        with pytest.raises(redis_exceptions.TimeoutError):
+            await activity_environment.run(relay_sandbox_events, self._input())
+
+        relay_loop_mock.assert_not_awaited()
+
+    async def test_repeat_attempt_fails_retryably_as_expected_control_flow(
+        self, activity_environment: ActivityEnvironment, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        relay_loop_mock = self._patch_prologue(monkeypatch)
+        activity_environment.info = dataclasses.replace(activity_environment.info, attempt=2)
 
         with pytest.raises(ApplicationError) as exc_info:
-            await relay_sandbox_events(
-                RelaySandboxEventsInput(
-                    run_id="run-id",
-                    task_id="task-id",
-                    sandbox_url="https://sandbox.example",
-                    sandbox_connect_token=None,
-                    team_id=1,
-                    distinct_id="distinct-id",
-                )
-            )
+            await activity_environment.run(relay_sandbox_events, self._input())
 
         assert exc_info.value.non_retryable is not True
         assert exc_info.value.type in EXPECTED_CONTROL_FLOW_ERROR_TYPES
