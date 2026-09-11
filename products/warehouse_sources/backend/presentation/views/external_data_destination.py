@@ -26,6 +26,7 @@ DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
     str(ExternalDataDestination.Type.POSTGRES): (str(Integration.IntegrationKind.POSTGRESQL),),
     str(ExternalDataDestination.Type.REDSHIFT): (str(Integration.IntegrationKind.AWS_REDSHIFT),),
     str(ExternalDataDestination.Type.SNOWFLAKE): (str(Integration.IntegrationKind.SNOWFLAKE),),
+    str(ExternalDataDestination.Type.DATABRICKS): (str(Integration.IntegrationKind.DATABRICKS),),
 }
 
 # Types a user may create. The PostHog warehouse row is created by the sync itself the first

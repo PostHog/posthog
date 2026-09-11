@@ -2647,18 +2647,20 @@ class TaskRun(models.Model):
     # expiry — user history must not silently vanish after 30 days.
     DEFAULT_LOG_TTL_DAYS = 30
 
-    def append_log(self, entries: list[dict], *, ttl_days: int | None = DEFAULT_LOG_TTL_DAYS):
+    def append_log(self, entries: list[dict], *, ttl_days: int | None = DEFAULT_LOG_TTL_DAYS, lock_attempts: int = 3):
         """Append log entries to S3 storage.
 
         `ttl_days` tags a newly-created log file for expiry; pass `None` to write a log that is
         never auto-expired. The tag is only applied on
         first write — re-tagging an existing log would not change a TTL already in flight.
+        `lock_attempts` is how often to wait for the per-log append lock before raising
+        TaskRunLogAppendUnserialized; a caller that retries the append itself passes 1.
         """
         entries = [e for e in entries if not self._is_agent_message_chunk(e)]
         if not entries:
             return
 
-        is_new_file = append_jsonl_object(self.log_url, entries)
+        is_new_file = append_jsonl_object(self.log_url, entries, lock_attempts=lock_attempts)
 
         self._mirror_logs_to_posthog_logs(entries)
 
@@ -2801,6 +2803,30 @@ class TaskRun(models.Model):
             props["benjamin_version"] = benjamin_version
         return props
 
+    def analytics_properties(self) -> dict:
+        """Run context shared by run events and GitHub PR attribution."""
+        return {
+            "task_id": str(self.task_id),
+            "run_id": str(self.id),
+            "team_id": self.team_id,
+            "repository": self.task.repository,
+            "repositories": (self.state or {}).get("repositories")
+            or self.task.repositories
+            or ([self.task.repository] if self.task.repository else []),
+            "origin_product": self.task.origin_product,
+            "title": self.task.title,
+            "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
+            "loop_id": (self.state or {}).get("loop_id"),
+            "loop_trigger_id": (self.state or {}).get("loop_trigger_id"),
+            "environment": self.environment,
+            # The bare `environment` property gets clobbered by the analytics
+            # client's deployment-region super-property, so ship the run's
+            # local/cloud value under an unclobbered name too.
+            "run_environment": self.environment,
+            "mode": self.mode,
+            **self._analytics_usage_properties(),
+        }
+
     def capture_event(
         self,
         event: str,
@@ -2821,27 +2847,7 @@ class TaskRun(models.Model):
                 if self.task.created_by_id and self.task.created_by
                 else str(self.team.uuid)
             )
-            all_properties: dict = {
-                "task_id": str(self.task_id),
-                "run_id": str(self.id),
-                "team_id": self.team_id,
-                "repository": self.task.repository,
-                "repositories": (self.state or {}).get("repositories")
-                or self.task.repositories
-                or ([self.task.repository] if self.task.repository else []),
-                "origin_product": self.task.origin_product,
-                "title": self.task.title,
-                "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
-                "loop_id": (self.state or {}).get("loop_id"),
-                "loop_trigger_id": (self.state or {}).get("loop_trigger_id"),
-                "environment": self.environment,
-                # The bare `environment` property gets clobbered by the analytics
-                # client's deployment-region super-property, so ship the run's
-                # local/cloud value under an unclobbered name too.
-                "run_environment": self.environment,
-                "mode": self.mode,
-                **self._analytics_usage_properties(),
-            }
+            all_properties = self.analytics_properties()
             if properties:
                 all_properties.update(properties)
             capture_kwargs: dict = {
