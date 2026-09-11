@@ -88,6 +88,11 @@ def deprecate_field(field_instance: object, raise_on_access: bool = False) -> ob
     migration drops the column with RunSQL. The risk analyzer validates that shape on its own,
     by finding the state removal among the drop migration's ancestors.
 
+    Not for a foreign key. Hiding one leaves its constraint in the database with no migration
+    to remove it, and Django then stops cascading into a relation it cannot see, so the
+    deferred constraint fails the parent delete at COMMIT. Retire a relation with
+    untrack_field() and DropForeignKey() instead.
+
     The field must already be null=True. Nothing writes the column once the field is hidden,
     so a NOT NULL column would reject every later insert. Declaring the nullability in the
     model keeps the ALTER TABLE it needs visible in review and scored by the risk analyzer.
@@ -97,6 +102,14 @@ def deprecate_field(field_instance: object, raise_on_access: bool = False) -> ob
         raise_on_access: Raise FieldDeprecatedError instead of logging a warning. Use it to
             prove no caller is left before the column is dropped.
     """
+    # remote_field covers ForeignKey, OneToOneField and ManyToManyField in one test, where an
+    # isinstance check on ForeignKey alone would let the other two through.
+    if getattr(field_instance, "remote_field", None) is not None:
+        raise FieldDeprecatedError(
+            "deprecate_field() cannot hide a relation. It writes no migration, so the foreign key "
+            "constraint would stay with nothing to remove it, and a parent delete would then fail "
+            "at COMMIT. Use untrack_field() with DropForeignKey() in a migration instead."
+        )
     if getattr(field_instance, "null", False) is not True:
         raise FieldDeprecatedError(
             "deprecate_field() needs a field that is already null=True, because nothing writes "

@@ -222,7 +222,6 @@ class ErrorTrackingIssueAssignment(UUIDTModel):
     team = models.ForeignKey("posthog.Team", null=True, on_delete=models.CASCADE, db_index=False, related_name="+")
     user = models.ForeignKey("posthog.User", null=True, on_delete=models.CASCADE, related_name="+")
     # DEPRECATED: issues can only be assigned to users or roles
-    user_group = deprecate_field(models.ForeignKey("posthog.UserGroup", null=True, on_delete=models.CASCADE))
     role = models.ForeignKey("ee.Role", null=True, on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -428,7 +427,6 @@ class ErrorTrackingAssignmentRule(UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     user = models.ForeignKey("posthog.User", null=True, on_delete=models.CASCADE, related_name="+")
     # DEPRECATED: issues can only be assigned to users or roles
-    user_group = deprecate_field(models.ForeignKey("posthog.UserGroup", null=True, on_delete=models.CASCADE))
     role = models.ForeignKey("ee.Role", null=True, on_delete=models.CASCADE, related_name="+")
     order_key = models.IntegerField(null=False, blank=False)
     bytecode = models.JSONField(null=False, blank=False)  # The bytecode of the rule
@@ -490,7 +488,6 @@ class ErrorTrackingGroupingRule(UUIDTModel):
     # in so far as we permit all of these to be null
     user = models.ForeignKey("posthog.User", null=True, on_delete=models.CASCADE, related_name="+")
     # DEPRECATED: issues can only be assigned to users or roles
-    user_group = deprecate_field(models.ForeignKey("posthog.UserGroup", null=True, on_delete=models.CASCADE))
     role = models.ForeignKey("ee.Role", null=True, on_delete=models.CASCADE, related_name="+")
 
     # Users will probably find it convenient to be able to add a short description to grouping rules

@@ -37,6 +37,18 @@ def test_a_migration_command_in_a_later_argument_does_not_count() -> None:
         assert isinstance(deprecate_field(models.CharField(max_length=8, null=True)), DeprecatedField)
 
 
+@parameterized.expand(
+    [
+        ("foreign_key", models.ForeignKey("posthog.Team", null=True, on_delete=models.CASCADE)),
+        ("one_to_one", models.OneToOneField("posthog.Team", null=True, on_delete=models.CASCADE)),
+        ("many_to_many", models.ManyToManyField("posthog.Team")),
+    ]
+)
+def test_a_relation_is_refused(_name: str, field: models.Field) -> None:
+    with pytest.raises(FieldDeprecatedError, match="untrack_field"):
+        deprecate_field(field)
+
+
 def test_a_non_nullable_field_is_refused() -> None:
     with pytest.raises(FieldDeprecatedError, match="null=True"):
         deprecate_field(models.CharField(max_length=8, null=False))
