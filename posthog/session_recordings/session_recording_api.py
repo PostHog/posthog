@@ -6,7 +6,7 @@ import time
 import struct
 import asyncio
 import builtins
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from json import JSONDecodeError
 from typing import Any, Literal, cast
@@ -686,18 +686,25 @@ def get_cached_org_tier(team_id: int) -> str:
 
 
 class _TierAwareReplayThrottle(PersonalApiKeyRateThrottle):
+    # `scope` gains the tier suffix once rates are applied, so the unsuffixed scope and the tier
+    # are kept separately for the throttle message.
+    limit_scope: str | None = None
+    limit_tier: str | None = None
+
     def _get_rates(self) -> dict[str, dict[str, str]]:
         raise NotImplementedError("Subclasses must implement _get_rates")
 
     def _apply_tier_rates(self, tier: str) -> None:
         if self.scope is None:
             raise ValueError("_TierAwareReplayThrottle subclasses must set scope")
-        base_scope = self.scope
+        base_scope = self.limit_scope or self.scope
         rates = self._get_rates()
         resolved_tier = tier if tier in rates else SNAPSHOT_DEFAULT_TIER
         self.rate = rates[resolved_tier][base_scope]
         self.num_requests, self.duration = self.parse_rate(self.rate)
         self.scope = f"{base_scope}_{resolved_tier}"
+        self.limit_scope = base_scope
+        self.limit_tier = resolved_tier
 
     def _is_personal_api_key_request(self, request) -> bool:
         return _request_auth_type(request) == "personal_api_key"
@@ -746,21 +753,62 @@ class ListingSustainedRateThrottle(_TierAwareReplayThrottle):
         return listing_rates()
 
 
+_THROTTLE_WINDOW_LABELS: dict[int | None, str] = {1: "second", 60: "minute", 3600: "hour", 86400: "day"}
+
+_THROTTLE_LIMIT_SUBJECTS = {
+    "clickhouse_burst": "Session recording API requests",
+    "clickhouse_sustained": "Session recording API requests",
+    "snapshots_burst": "Recording snapshot requests",
+    "snapshots_sustained": "Recording snapshot requests",
+    "listing_burst": "Recording list requests",
+    "listing_sustained": "Recording list requests",
+    "replay_sharing_token": "Shared recording requests",
+}
+
+
+def replay_throttle_detail(throttle: SimpleRateThrottle) -> str:
+    """Name the ceiling that blocked the request.
+
+    Several throttles stack on the replay endpoints and the plan tier picks two of them, so a 429
+    that names no limit leaves the caller guessing which ceiling to back off from.
+    """
+    scope = getattr(throttle, "limit_scope", None) or throttle.scope or ""
+    subject = _THROTTLE_LIMIT_SUBJECTS.get(scope, "Session recording API requests")
+    # SimpleRateThrottle sets both from its rate, but the DRF stubs do not declare them.
+    num_requests = getattr(throttle, "num_requests", None)
+    duration = getattr(throttle, "duration", None)
+    window = _THROTTLE_WINDOW_LABELS.get(duration, f"{duration} seconds")
+    tier = getattr(throttle, "limit_tier", None)
+    plan = f" on the {tier} plan" if tier else ""
+    return f"Rate limit exceeded. {subject} are limited to {num_requests} per {window}{plan}."
+
+
+def _select_reported_throttle(throttles: Iterable[SimpleRateThrottle], request, view) -> SimpleRateThrottle | None:
+    """Return the throttle to name back to the caller, or None when none of them block.
+
+    The 429 path and the dashboard widget path must name the same ceiling for the same caller state,
+    so the rule lives here instead of once in each of them.
+    """
+    # Every throttle is consulted, as DRF does, so each bucket still records the request.
+    blocked = [throttle for throttle in throttles if not throttle.allow_request(request, view)]
+    if not blocked:
+        return None
+    # The longest wait among the blocked throttles is the wait DRF already reports, so the message
+    # and Retry-After agree. Naming a shorter one would send the caller back for another 429.
+    # As in DRF, a throttle that allows this request and fills its own bucket is not counted, so a
+    # caller that crosses that boundary gets one more 429 before the reported wait settles.
+    return max(blocked, key=lambda throttle: throttle.wait() or 0)
+
+
 def get_replay_listing_throttle_error(request, view) -> str | None:
     """Return a client-facing error when replay listing throttles would block this request."""
-    auth_type = _request_auth_type(request)
-    for throttle_cls in (ListingBurstRateThrottle, ListingSustainedRateThrottle):
-        throttle = throttle_cls()
-        if throttle.allow_request(request, view):
-            continue
-        wait = throttle.wait()
-        scope = throttle.scope or "listing"
-        _count_session_recording_throttled(location=scope, auth_type=auth_type)
-        if wait:
-            return f"Rate limit exceeded. Expected available in {wait} seconds."
-        return "Rate limit exceeded. Try again later."
-    # None: both listing burst and sustained throttles allowed the request.
-    return None
+    throttle = _select_reported_throttle([ListingBurstRateThrottle(), ListingSustainedRateThrottle()], request, view)
+    if throttle is None:
+        # Both listing burst and sustained throttles allowed the request.
+        return None
+    _count_session_recording_throttled(location=throttle.scope or "listing", auth_type=_request_auth_type(request))
+    # Borrow DRF's wait sentence so the string matches a 429 body from the same throttle.
+    return str(Throttled(wait=throttle.wait(), detail=replay_throttle_detail(throttle)).detail)
 
 
 class SharingTokenReplayThrottle(SimpleRateThrottle):
@@ -887,6 +935,12 @@ class SessionRecordingViewSet(
         if self.action == "list":
             return [*super().get_throttles(), ListingBurstRateThrottle(), ListingSustainedRateThrottle()]
         return super().get_throttles()
+
+    def check_throttles(self, request: Request) -> None:
+        throttle = _select_reported_throttle(self.get_throttles(), request, self)
+        if throttle is None:
+            return
+        raise Throttled(wait=throttle.wait(), detail=replay_throttle_detail(throttle))
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
