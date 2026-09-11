@@ -488,11 +488,11 @@ jobs:
             - name: Identify release commit
               id: release-metadata
               env:
-                  GH_TOKEN: \${{ github.token }}
+                  GH_TOKEN: ${{ github.token }}
                   RELEASE_APP: releaser-posthog-cli[bot]
                   RELEASE_BRANCH: chore/release-posthog-cli
-                  RELEASE_COMMIT: \${{ github.sha }}
-                  REPOSITORY: \${{ github.repository }}
+                  RELEASE_COMMIT: ${{ github.sha }}
+                  REPOSITORY: ${{ github.repository }}
               run: |
                   release_prs=$(gh api --paginate "repos/$REPOSITORY/commits/$RELEASE_COMMIT/pulls" \
                       --jq '.[] | select(.merged_at != null and .base.ref == "master" and .head.ref == "chore/release-posthog-cli") | .number')
