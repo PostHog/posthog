@@ -1523,11 +1523,11 @@ class ExternalDataSchemaSyncType(models.TextChoices):
 
 
 class IncrementalSyncBlockedReason(models.TextChoices):
-    """Why a sync run proved a schema's incremental sync can never succeed.
+    """Why the last sync run could not merge rows on a schema's primary key.
 
-    An incremental sync merges rows on a primary key. Without a key, or with a key that does not
-    identify one row, the merge fails the same way on every run. The customer resolves it by
-    choosing a unique key, changing the sync type, or fixing the table at the source.
+    A missing key is a configuration state and stays until someone picks one. A duplicate key is a
+    data state: it can appear on a table that merged cleanly for months, and it clears when the
+    source stops repeating the key. Neither resolves by retrying the same run.
     """
 
     MISSING_PRIMARY_KEY = "missing_primary_key", "Missing primary key"

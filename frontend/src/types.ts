@@ -93,6 +93,7 @@ import type { CommentSlackThreadRefApi } from 'products/platform_features/fronte
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import type { IncrementalSyncBlockedReasonEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
@@ -6656,8 +6657,8 @@ export interface ExternalDataSourceSyncSchema {
     row_filters?: RowFilter[] | null
 }
 
-/** Why a sync run proved a table's incremental sync can never succeed. */
-export type IncrementalSyncBlockedReason = 'missing_primary_key' | 'duplicate_primary_key'
+/** Why the last sync run could not merge rows on a table's primary key. */
+export type IncrementalSyncBlockedReason = IncrementalSyncBlockedReasonEnumApi
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
