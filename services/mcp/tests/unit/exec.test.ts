@@ -898,7 +898,6 @@ describe('exec tool', () => {
                 [
                     'No skill named "missing-skill" in this project\'s skills store.',
                     'Run `call skill-list` to see the skills that are available.',
-                    'Skills in the repository under .agents/skills are read from disk, not through skill-get.',
                 ].join('\n')
             )
         })
