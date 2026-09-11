@@ -68,8 +68,8 @@ const ROOTS = [
         label: 'logged-out boot: index + App + bootApp (preloaded by every page, including /login)',
         // The backend preloads the App closure for logged-out pages too (preload-manifest.json
         // `js`), so this is the whole JS cost of /login. 2026-09-11: 3.51 MiB eager output = 2.14 MiB
-        // JS (608 files) + the 1.36 MiB linked stylesheet, after moving the boot-time tool registration
-        // onto the light `api/toolRegistry` facade and taking the taxonomy JSON off the boot path.
+        // JS (608 files) + the 1.36 MiB linked stylesheet, after taking the tool cards and the taxonomy
+        // JSON off the boot path.
         // ~15% headroom so routine churn doesn't trip the warn; ratchet down on a split win.
         budgetBytes: 4_225_000,
         forbidden: [
@@ -79,8 +79,8 @@ const ROOTS = [
             'src/layout/navigation-3000/navigationLogic.tsx',
             'src/scenes/dashboard/dashboardLogic.tsx',
             // Nothing a logged-out page renders shows markdown, rich text or a code block. A hit means a
-            // boot-time registration (bootApp) or a shared logic has grown a static import into a card
-            // component; register through the light `api/toolRegistry` facade instead.
+            // tool declaration list or a shared logic has grown a static import into a card component;
+            // keep declaration lists on type-only `api/tools` imports and lazy renderers instead.
             'src/lib/lemon-ui/LemonMarkdown/',
             'src/lib/components/RichContentEditor/',
             'src/lib/components/CodeSnippet/',
