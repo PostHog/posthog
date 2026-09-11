@@ -2947,6 +2947,24 @@ EVENTS_RETENTION_READ_ONLY_MESSAGES = {
 }
 
 
+# A form-encoded PATCH delivers every value as a string, so the no-op carve-off below has to parse a value the
+# way DRF would before it compares. Without this, "84" does not equal 84 and "false" does not equal False, so a
+# caller that repeats the current value gets the 400 that is meant for a real change.
+EVENTS_RETENTION_FIELD_PARSERS: dict[str, type[serializers.Field]] = {
+    "event_retention_months": serializers.IntegerField,
+    "events_retention_enforced": serializers.BooleanField,
+}
+
+
+def _events_retention_field_changed(field: str, value: Any, current: Any) -> bool:
+    try:
+        return EVENTS_RETENTION_FIELD_PARSERS[field]().to_internal_value(value) != current
+    except exceptions.ValidationError:
+        # A value that does not parse cannot be the current value, so the caller gets the read-only message
+        # instead of a type error about a field they cannot set.
+        return True
+
+
 def validate_events_retention_read_only(initial_data: Any, instance: "Team | Project | None") -> None:
     """Reject a write that would change a plan-derived retention field, ignoring a no-op round trip.
 
@@ -2965,7 +2983,7 @@ def validate_events_retention_read_only(initial_data: Any, instance: "Team | Pro
     errors = {
         field: message
         for field, message in EVENTS_RETENTION_READ_ONLY_MESSAGES.items()
-        if field in initial_data and initial_data[field] != current[field]
+        if field in initial_data and _events_retention_field_changed(field, initial_data[field], current[field])
     }
     if errors:
         raise exceptions.ValidationError(errors)
