@@ -1,11 +1,11 @@
 {
     "$schema": "./node_modules/oxlint/configuration_schema.json",
-    "plugins": ["typescript"],
+    "plugins": ["typescript", "unicorn"],
     "jsPlugins": [
         "eslint-plugin-no-only-tests",
         {
-            "name": "posthog",
-            "specifier": "./bin/oxlint-plugin.cjs"
+            "name": "eslint-js",
+            "specifier": "oxlint-plugin-eslint"
         }
     ],
     "categories": {
@@ -25,12 +25,20 @@
         "**/dev/**",
         // Match ESLint's default file extensions and hidden-file exclusions.
         "**/.*",
+        "!.eslintrc.js",
         "**/*.mjs",
         "**/*.cjs",
         "**/*.jsx"
     ],
     "rules": {
-        "posthog/no-json-parse": "error",
+        "eslint-js/no-restricted-syntax": [
+            "error",
+            {
+                "selector": "CallExpression[callee.object.name=\"JSON\"][callee.property.name=\"parse\"]",
+                "message": "Use parseJSON from src/common/utils/json-parse instead of JSON.parse for better performance"
+            }
+        ],
+        "unicorn/no-abusive-eslint-disable": "error",
         "no-only-tests/no-only-tests": "error",
         "eslint/no-constant-binary-expression": "error",
         "eslint/no-unused-vars": [
@@ -86,10 +94,6 @@
                 ]
             }
         ],
-        "posthog/disable-enable-pair": "error",
-        "posthog/no-aggregating-enable": "error",
-        "posthog/no-duplicate-disable": "error",
-        "posthog/no-unused-enable": "error",
         "typescript/ban-ts-comment": "error",
         "eslint/no-array-constructor": "error",
         "typescript/no-duplicate-enum-values": "error",
