@@ -2059,6 +2059,47 @@ def team_api_test_factory():
             self.assertEqual(self.team.timezone, "Europe/Lisbon")
             self.assertEqual(self.team.session_recording_opt_in, True)
 
+        @parameterized.expand(
+            [
+                ("event_retention_months", 12),
+                ("events_retention_enforced", True),
+            ]
+        )
+        def test_changing_a_read_only_retention_field_is_rejected(self, field: str, value: Any) -> None:
+            response = self.client.patch("/api/environments/@current/", {field: value})
+
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+            detail = response.json()["detail"]
+            self.assertIn("read-only", detail)
+            self.assertIn("github.com/PostHog/posthog/issues/17031", detail)
+
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.event_retention_months, 84)
+
+        @parameterized.expand([("native types", False), ("string values", True)])
+        def test_patch_echoing_back_current_retention_values_is_accepted(self, _name: str, as_strings: bool) -> None:
+            """A client that GETs the project and PATCHes the whole body back isn't trying to change anything.
+
+            A form-encoded request delivers both values as strings, so those have to compare equal too.
+            """
+            months: Any = self.team.event_retention_months
+            enforced: Any = False
+            if as_strings:
+                months, enforced = str(months), "false"
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {
+                    "event_retention_months": months,
+                    "events_retention_enforced": enforced,
+                    "timezone": "Europe/Lisbon",
+                },
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.timezone, "Europe/Lisbon")
+
         def _get_model_for_name_field(self):
             """Returns the model whose 'name' field is updated by the current endpoint.
 
