@@ -1,5 +1,5 @@
 import { CyclotronV2BatchLimit, CyclotronV2WorkerConfig } from './types'
-import { CyclotronV2Worker } from './worker'
+import { CyclotronV2Worker, PollPlan } from './worker'
 
 /**
  * Variant of CyclotronV2Worker that consults a per-poll rate-limit hook before
@@ -22,17 +22,17 @@ export class CyclotronV2RateLimitedWorker extends CyclotronV2Worker {
         super(config)
     }
 
-    protected override async planPoll(): Promise<{ dequeue: number } | { skip: true; sleepMs?: number }> {
+    protected override async planPoll(): Promise<PollPlan> {
         const visibleRows = await this.countWork(this.batchMaxSize)
         if (visibleRows === 0) {
-            return { skip: true }
+            return { skip: true, reason: 'empty' }
         }
 
         const decision = await this.getBatchLimit(visibleRows)
         // === 0 (not <=) so a future bug returning a negative limit surfaces as a
         // SQL LIMIT error instead of silently sleeping.
         if (decision && decision.limit === 0) {
-            return { skip: true, sleepMs: decision.sleepMs }
+            return { skip: true, reason: 'throttled', sleepMs: decision.sleepMs }
         }
         return { dequeue: decision ? Math.min(decision.limit, this.batchMaxSize) : this.batchMaxSize }
     }

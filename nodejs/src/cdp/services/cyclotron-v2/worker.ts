@@ -36,6 +36,14 @@ export interface RawJobRow {
     lock_id: string
 }
 
+/**
+ * A poll either dequeues a batch or skips. `empty` means the queue had no ready row, so the
+ * skip reports an empty batch (utilization 0) and lets KEDA scale idle workers down. `throttled`
+ * means a rate limiter refused rows that were ready — the worker is not idle, so it must not
+ * report utilization 0; the denied claim stays visible on the rate-limiter metric instead.
+ */
+export type PollPlan = { dequeue: number } | { skip: true; reason: 'empty' | 'throttled'; sleepMs?: number }
+
 // Read off the row the dequeue already returns, so tracking churn costs no extra query.
 const highTransitionDequeuesCounter = new Counter({
     name: 'cdp_cyclotron_v2_high_transition_dequeues',
@@ -269,7 +277,10 @@ export class CyclotronV2Worker {
 
                 const plan = await this.planPoll()
                 if ('skip' in plan) {
-                    if (this.includeEmptyBatches) {
+                    // Only an empty queue reports an empty batch. A throttled skip is holding
+                    // ready rows, so reporting utilization 0 would read as idle and let KEDA
+                    // scale the workers down mid-backlog.
+                    if (plan.reason === 'empty' && this.includeEmptyBatches) {
                         await processBatch([])
                     }
                     // A limiter-supplied delay is authoritative; otherwise back off.
@@ -308,9 +319,9 @@ export class CyclotronV2Worker {
      *
      * Rate-limited subclasses override this to gate the claim behind their token bucket.
      */
-    protected async planPoll(): Promise<{ dequeue: number } | { skip: true; sleepMs?: number }> {
+    protected async planPoll(): Promise<PollPlan> {
         if ((await this.countWork(1)) === 0) {
-            return { skip: true }
+            return { skip: true, reason: 'empty' }
         }
         return { dequeue: this.batchMaxSize }
     }

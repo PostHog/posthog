@@ -1444,6 +1444,32 @@ describe('Cyclotron V2', () => {
                 expect(await countByStatus('running')).toBe(0)
             })
 
+            // A throttle is not idleness: countWork found a backlog but the bucket granted zero.
+            // The skip must not deliver an empty batch even with includeEmptyBatches on, or
+            // observeConsumedBatch would set utilization to 0 and KEDA would read a backlogged
+            // queue as idle and scale the workers down. The denied claim stays visible on the
+            // rate-limiter metric instead.
+            it('does not report an empty batch while throttled with a backlog', async () => {
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+
+                // eslint-disable-next-line @typescript-eslint/require-await
+                const worker = createRateLimitedWorker(async () => ({ limit: 0, sleepMs: 5 }))
+                let emptyBatches = 0
+                // eslint-disable-next-line @typescript-eslint/require-await
+                await worker.connect(async (batch) => {
+                    if (batch.length === 0) {
+                        emptyBatches++
+                    }
+                })
+                await sleep(100)
+                await worker.stopConsuming()
+
+                expect(emptyBatches).toBe(0)
+                // The dequeue write still never fires while throttled.
+                expect(await countByStatus('available')).toBe(2)
+            })
+
             it('falls back to batchMaxSize when the hook returns undefined', async () => {
                 await manager.bulkCreateJobs(Array.from({ length: 5 }, () => ({ teamId: 1, queueName: QUEUE })))
 
