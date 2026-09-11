@@ -395,22 +395,7 @@ export const WEBSITE_METRICS_METRIC_CARD_TILES: DashboardTemplateStoredInsightTi
                     explicitDate: false,
                     excludeIncompletePeriods: false,
                 },
-                properties: {
-                    type: 'AND',
-                    values: [
-                        {
-                            type: 'AND',
-                            values: [
-                                {
-                                    key: '$current_url',
-                                    type: 'event',
-                                    value: '?',
-                                    operator: 'not_icontains',
-                                },
-                            ],
-                        },
-                    ],
-                },
+                properties: [],
                 trendsFilter: {
                     display: 'ActionsBarValue',
                     showLegend: false,
