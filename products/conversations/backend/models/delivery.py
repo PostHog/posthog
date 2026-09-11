@@ -70,6 +70,16 @@ def _processing_lease_constraint(*, name: str) -> models.CheckConstraint:
 
 
 _TERMINAL_STATUS_VALUES = ["accepted", "delivered", "failed"]
+_OPEN_STATUS_VALUES = ["pending", "processing"]
+
+
+def _terminal_at_constraint(*, name: str) -> models.CheckConstraint:
+    # Also rejects any status outside the two lists.
+    return models.CheckConstraint(
+        condition=models.Q(status__in=_TERMINAL_STATUS_VALUES, terminal_at__isnull=False)
+        | models.Q(status__in=_OPEN_STATUS_VALUES, terminal_at__isnull=True),
+        name=name,
+    )
 
 
 def _snapshot_gc_condition() -> models.Q:
@@ -109,7 +119,7 @@ class DeliveryQueueRowMixin(models.Model):
 
     def save(
         self,
-        *args: object,
+        *,
         force_insert: bool | tuple[ModelBase, ...] = False,
         force_update: bool = False,
         using: str | None = None,
@@ -189,17 +199,7 @@ class ConversationDelivery(DeliveryQueueRowMixin, TeamScopedRootMixin, UUIDModel
             _snapshot_size_constraint("route", name="delivery_route_size"),
             _snapshot_size_constraint("payload", name="delivery_payload_size"),
             _processing_lease_constraint(name="delivery_processing_has_lease"),
-            models.CheckConstraint(
-                condition=models.Q(
-                    status__in=_TERMINAL_STATUS_VALUES,
-                    terminal_at__isnull=False,
-                )
-                | models.Q(
-                    status__in=["pending", "processing"],
-                    terminal_at__isnull=True,
-                ),
-                name="delivery_terminal_at",
-            ),
+            _terminal_at_constraint(name="delivery_terminal_at"),
         ]
         indexes = [
             models.Index(
@@ -235,13 +235,12 @@ class ConversationDeliveryPart(DeliveryQueueRowMixin, TeamScopedRootMixin, UUIDM
     ``fallback``). Attachment bytes stay in object storage; ``payload`` holds a
     reference, never the bytes. Claim, lease, and fencing live on this row so a
     failed image cannot resend an accepted body.
+    ``delivery.parts`` is fail-closed like every other queryset on this model;
+    workers without team context must use ``objects.unscoped()``.
     """
 
-    # db_constraint=False: a real FK constraint would take SHARE ROW EXCLUSIVE on the
-    # hot posthog_team table on CreateModel. App-level enforcement is enough here.
-    # Keep the team_id index: unique (delivery, part_key) does not lead with team,
-    # and for_team() lookups need it. ConversationDelivery.team can omit the index
-    # because unique (team, channel, comment_id) already covers team_id.
+    # db_constraint=False: same hot-table reason as ConversationDelivery.team. The
+    # team_id index stays because unique (delivery, part_key) does not lead with team.
     team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
@@ -249,8 +248,6 @@ class ConversationDeliveryPart(DeliveryQueueRowMixin, TeamScopedRootMixin, UUIDM
         related_name="+",
     )
     # db_index=False: unique (delivery, part_key) already leads with delivery_id.
-    # Related managers are fail-closed; workers without team context must query
-    # ConversationDeliveryPart.objects.unscoped().
     delivery = models.ForeignKey(
         ConversationDelivery,
         on_delete=models.CASCADE,
@@ -264,9 +261,8 @@ class ConversationDeliveryPart(DeliveryQueueRowMixin, TeamScopedRootMixin, UUIDM
         db_table = "posthog_conversations_delivery_part"
         constraints = [
             models.UniqueConstraint(
-                # Identity is the parent plus part_key. Including team would let a
-                # mismatched team_id insert a second body. Team match is the composite
-                # FK (delivery_id, team_id) on this table, not this unique key.
+                # No team here: a mismatched team_id must not insert a second body.
+                # The composite FK (delivery_id, team_id) in 0069 enforces team match.
                 fields=["delivery", "part_key"],
                 name="unique_delivery_part_per_key",
             ),
@@ -277,17 +273,7 @@ class ConversationDeliveryPart(DeliveryQueueRowMixin, TeamScopedRootMixin, UUIDM
             _snapshot_size_constraint("route", name="delivery_part_route_size"),
             _snapshot_size_constraint("payload", name="delivery_part_payload_size"),
             _processing_lease_constraint(name="delivery_part_processing_has_lease"),
-            models.CheckConstraint(
-                condition=models.Q(
-                    status__in=_TERMINAL_STATUS_VALUES,
-                    terminal_at__isnull=False,
-                )
-                | models.Q(
-                    status__in=["pending", "processing"],
-                    terminal_at__isnull=True,
-                ),
-                name="delivery_part_terminal_at",
-            ),
+            _terminal_at_constraint(name="delivery_part_terminal_at"),
         ]
         indexes = [
             models.Index(
