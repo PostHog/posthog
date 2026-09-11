@@ -116,6 +116,12 @@ import {
   type FetchImplementation,
   requestErrorStatus,
 } from "./fetcher";
+
+export type {
+  ApiRequestMetricRecorder,
+  ApiRequestMetricRequest,
+} from "./fetcher";
+
 import { type ResolvedPerson, targetedDistinctIds } from "./flag-audience";
 import { createApiClient, type Schemas } from "./generated";
 import type {
