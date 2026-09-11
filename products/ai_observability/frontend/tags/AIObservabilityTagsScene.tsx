@@ -37,7 +37,6 @@ import { Tagger } from './types'
 
 export const scene: SceneExport = {
     component: AIObservabilityTagsScene,
-    logic: llmTaggersLogic,
     productKey: ProductKey.AI_OBSERVABILITY,
 }
 
@@ -318,7 +317,15 @@ function AIObservabilityTagsContent(): JSX.Element {
 
 export function AIObservabilityTagsScene(): JSX.Element {
     const { searchParams } = useValues(router)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+
+    if (!receivedFeatureFlags) {
+        return (
+            <SceneContent>
+                <LemonSkeleton className="w-full h-96" />
+            </SceneContent>
+        )
+    }
 
     if (!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TAGS]) {
         return (
