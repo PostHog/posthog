@@ -19,6 +19,28 @@ These choices follow the native Codex 0.144.0 approval dialog.
 They preserve the current session permission mode and do not enable automatic approval review or remove sandbox limits.
 Compare clients with the same workspace, permission settings, saved rules, and approval reviewer.
 
+## The app made a sound and nothing was waiting
+
+Every notification writes one line before anything rings, at info level, so it is in packaged builds too. The log file is `~/.posthog-code/logs/main.log` (`logs-dev` for a dev build, `logs-test` for a test build).
+
+```bash
+grep -E "Notification|Playing completion sound|Speech notification" ~/.posthog-code/logs/main.log | tail -20
+```
+
+Read the fields in this order:
+
+- `reason` — what raised it: `task_completed`, `task_needs_input`, `canvas_generation`, `image_build`, `error`, `settings_test`.
+- `context.trigger` — for task notifications, the exact code path: a local prompt response, a cloud turn complete, or a local, cloud or pi permission request.
+- `channel` — `native` (app unfocused), `toast` (focused, looking elsewhere) or `suppress` (looking at the target, so nothing rings).
+- `soundPlayed` — whether the app played its own completion sound. A following `Completion sound failed to play` warning means it did not reach the speakers after all.
+- `osChimePlayed` — whether the operating system rang its own notification chime instead. This is what happens when the chosen sound is `none` or no longer resolves, so a `soundPlayed: false` line can still be the source of a noise.
+- `resolvedSound` on the `Playing completion sound` line — the concrete sound, which is the only way to identify one of the `random-*` modes. A `reason: settings_preview` on that line is the user pressing preview in settings, not a notification.
+- `target` and `viewingTarget` — the task or canvas the notification is about, and the one on screen. Equal targets are what makes `channel` suppress.
+
+The line carries no titles or message text on purpose, so identify the notification from `reason` and `target` rather than from what it said.
+
+A sound with no notification the user was waiting on shows up as a `reason`/`trigger` pair that does not match what they were doing. Take the task id from `target` and the `context.taskRunId` from the line and follow that run.
+
 ## Black screen during development
 
 If the app launches but renders a blank/black screen, it's almost always a stale Vite cache.
