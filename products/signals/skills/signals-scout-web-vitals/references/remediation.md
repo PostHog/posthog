@@ -41,6 +41,8 @@ video poster) renders. Bands: good ≤ 2500ms, poor > 4000ms.
   mistake, so it isn't fetched until late).
 - Client-side rendering: the hero is painted by JS after hydration rather than in the HTML.
 - A web font blocking text render of an LCP text element.
+- The route boots a client-side application whose entry statically imports code the route
+  never uses, so first paint waits on megabytes the page does not need.
 
 **Remediations**
 
@@ -50,6 +52,10 @@ video poster) renders. Bands: good ≤ 2500ms, poor > 4000ms.
 - Serve responsive, modern-format (WebP/AVIF), correctly sized images.
 - Defer or `async` non-critical JS; inline critical CSS; remove render-blocking resources.
 - `preconnect` to the origin serving the LCP asset.
+- Measure the boot entry's eager import closure and sever the highest-leverage static
+  edges — see [`critical-path-source-read.md`](critical-path-source-read.md). Reach for
+  this first when the markup is nearly empty; the five remediations above assume a
+  server-rendered document and will not move a bundle-bound paint.
 
 ## INP — Interaction to Next Paint (interactivity)
 
@@ -107,14 +113,17 @@ poor > 3000ms. A poor FCP usually drags LCP with it; fix FCP first.
 - Slow TTFB (same root as LCP — the document is late).
 - Render-blocking CSS/JS in the critical path.
 - Slow font loading blocking text paint.
-- Heavy client-side bootstrapping before anything renders.
+- Heavy client-side bootstrapping before anything renders — most often the boot entry's
+  eager import graph rather than the framework itself.
 
 **Remediations**
 
 - Reduce TTFB (edge cache, faster origin, SSR).
 - Eliminate render-blocking resources; inline critical CSS; defer the rest.
 - `preconnect`/`dns-prefetch` to critical third-party origins.
-- Ship less critical-path JS; prefer server-rendered first paint over CSR.
+- Ship less critical-path JS; prefer server-rendered first paint over CSR. "Less" has to
+  name the imports it means: [`critical-path-source-read.md`](critical-path-source-read.md)
+  turns the eager closure into a ranked list of severable edges.
 
 ## A note on percentiles
 
