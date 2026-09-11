@@ -2563,8 +2563,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             retry_after_seconds=status.retry_after_seconds,
             outcome=outcome,
         )
-        # One analytics event per team-hour over budget, for insights and outreach workflows. The
-        # organization and project ride along as groups, so no join is needed to name the org.
         if claim_limited_event(str(self.team.pk)):
             try:
                 access_method = get_query_tag_value("access_method")
