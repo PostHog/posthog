@@ -4110,7 +4110,7 @@ async def test_claimed_subscription_refill_does_not_move_tenant_cursor_backwards
     for index, subscription_team in enumerate(teams):
         insight = await sync_to_async(Insight.objects.create)(
             team=subscription_team,
-            short_id=f"refill-cursor-{index}",
+            short_id=f"refill-{index}",
             name=f"Refill cursor insight {index}",
         )
         subscriptions = [
@@ -4180,6 +4180,7 @@ async def test_claimed_subscription_dispatch_ignores_duplicate_occurrences() -> 
     with (
         patch("temporalio.workflow.start_child_workflow", new_callable=AsyncMock) as start_child,
         patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as execute_activity,
+        patch("temporalio.workflow.logger.info"),
         patch("temporalio.workflow.logger.warning"),
         patch("products.exports.backend.temporal.subscriptions.workflows._record_subscription_dispatch_outcome"),
     ):
