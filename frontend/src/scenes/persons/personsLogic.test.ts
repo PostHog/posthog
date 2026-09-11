@@ -80,12 +80,18 @@ describe('personsLogic', () => {
             })
         })
 
-        it('captures once the person has loaded', async () => {
+        it.each([
+            ['stays mounted', false],
+            ['unmounts inside the delay', true],
+        ])('captures once the person has loaded when the logic %s', async (_name, unmount) => {
             const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
 
             await expectLogic(logic, () => {
                 logic.actions.loadPerson('test@test.com')
             }).toDispatchActions(['reportPersonDetailViewed'])
+            if (unmount) {
+                logic.unmount()
+            }
             await new Promise((resolve) => setTimeout(resolve, 600))
 
             expect(capture).toHaveBeenCalledWith('person viewed', expect.objectContaining({ properties_count: 0 }))

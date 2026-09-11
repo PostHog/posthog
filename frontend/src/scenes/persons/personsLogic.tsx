@@ -10,6 +10,7 @@ import { FEATURE_FLAGS, PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { delay } from 'lib/utils/async'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { isAbortedRequest } from 'lib/utils/requests'
@@ -680,12 +681,18 @@ export const personsLogic = kea<personsLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
-        reportPersonDetailViewed: async ({ person }, breakpoint) => {
-            await breakpoint(500)
+    listeners(({ actions, values, cache }) => ({
+        reportPersonDetailViewed: async ({ person }) => {
+            // Not a kea breakpoint: kea cancels breakpoints when the logic unmounts, so a user who leaves the
+            // page inside the delay would never be counted. The token keeps the debounce without that coupling.
+            const token = Symbol('person viewed')
+            cache.personViewedToken = token
+            await delay(500)
+            if (cache.personViewedToken !== token) {
+                return
+            }
             // Not a module-scope import: the taxonomy JSON is a quarter-MiB table, so load it only once a person is viewed.
             const { PROPERTY_KEYS } = await import('~/taxonomy/taxonomy')
-            breakpoint()
             posthog.capture('person viewed', personViewedProperties(person, PROPERTY_KEYS))
         },
         resetEventsQuery: () => {
