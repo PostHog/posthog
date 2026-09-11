@@ -83,6 +83,24 @@ pub struct SymbolSetRecord {
     pub last_used: Option<DateTime<Utc>>,
 }
 
+// The stored row for a record's (team_id, ref), as the guarded upserts see it. Unlike `load`,
+// this does not hide the row of an in-progress upload: that row has a storage pointer, so the
+// guard refuses to overwrite it and a write would do nothing.
+#[derive(Debug, sqlx::FromRow)]
+struct StoredSymbolSet {
+    storage_ptr: Option<String>,
+    failure_reason: Option<String>,
+    last_used: Option<DateTime<Utc>>,
+}
+
+// How long a `last_used` value stays fresh enough that another refresh is only churn.
+// `last_used` is a column of a functional index, so a refresh can never take a HOT update.
+const LAST_USED_THROTTLE_HOURS: i64 = 12;
+
+fn last_used_is_fresh(last_used: Option<DateTime<Utc>>) -> bool {
+    last_used.is_some_and(|l| Utc::now() - l < Duration::hours(LAST_USED_THROTTLE_HOURS))
+}
+
 // This is the "intermediate" symbol set data. Rather than a simple `Bytes`, the saving layer
 // has to return this from calls to `fetch`, and accept it in calls to `parse`, so that it can
 // pass the information necessary to store the underlying data between the fetch and parse stages,
@@ -506,12 +524,8 @@ impl SymbolSetRecord {
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
-        // If the elapsed time is less than 12 hours, do nothing
-        if self
-            .last_used
-            .map(|l| Utc::now() - l < Duration::hours(12))
-            .unwrap_or_default()
-        {
+        // If the elapsed time is less than the throttle window, do nothing
+        if last_used_is_fresh(self.last_used) {
             record_symbol_set_write(
                 SymbolSetWritePurpose::LastUsed,
                 SymbolSetWriteOutcome::Skipped,
@@ -593,11 +607,54 @@ impl SymbolSetRecord {
         Ok(())
     }
 
-    pub async fn save_data_if_missing<'c, E>(&mut self, e: E) -> Result<bool, UnhandledError>
-    where
-        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
-    {
+    // Read the stored row for this record's (team_id, ref). The guarded upserts below use it to
+    // skip a write that would do nothing: `ON CONFLICT` always attempts the insert, so the
+    // `WHERE storage_ptr IS NULL` guard stops the update but still leaves a dead tuple, index
+    // maintenance and a row lock behind on every no-op call.
+    async fn load_stored(
+        pool: &PgPool,
+        team_id: i32,
+        truncated_ref: &str,
+    ) -> Result<Option<StoredSymbolSet>, sqlx::Error> {
+        sqlx::query_as::<_, StoredSymbolSet>(
+            r#"SELECT storage_ptr, failure_reason, last_used
+            FROM posthog_errortrackingsymbolset
+            WHERE team_id = $1 AND ref = $2"#,
+        )
+        .bind(team_id)
+        .bind(truncated_ref)
+        .fetch_optional(pool)
+        .await
+    }
+
+    pub async fn save_data_if_missing(&mut self, pool: &PgPool) -> Result<bool, UnhandledError> {
         let truncated_ref = truncate_ref(&self.set_ref);
+
+        let stored = match Self::load_stored(pool, self.team_id, truncated_ref).await {
+            Ok(stored) => stored,
+            Err(error) => {
+                record_symbol_set_write(
+                    SymbolSetWritePurpose::Data,
+                    SymbolSetWriteOutcome::Error,
+                    PostgresMutation::Upsert,
+                    0,
+                );
+                return Err(error.into());
+            }
+        };
+
+        if stored.is_some_and(|stored| stored.storage_ptr.is_some()) {
+            record_symbol_set_write(
+                SymbolSetWritePurpose::Data,
+                SymbolSetWriteOutcome::Skipped,
+                PostgresMutation::Upsert,
+                0,
+            );
+            return Ok(false);
+        }
+
+        // The guard stays on the statement: another writer can store data between the read above
+        // and this write.
         let id = sqlx::query_scalar::<_, Uuid>(
             r#"
             INSERT INTO posthog_errortrackingsymbolset (id, team_id, ref, storage_ptr, failure_reason, created_at, content_hash, last_used)
@@ -616,7 +673,7 @@ impl SymbolSetRecord {
         .bind(self.created_at)
         .bind(&self.content_hash)
         .bind(self.last_used)
-        .fetch_optional(e)
+        .fetch_optional(pool)
         .await;
 
         let id = match id {
@@ -654,16 +711,57 @@ impl SymbolSetRecord {
         Ok(false)
     }
 
-    // Returns whether a failure row was actually written. The upsert is a no-op (returns
-    // `false`) when a row already exists with a `storage_ptr` — i.e. real symbol data is present
-    // — because the `WHERE storage_ptr IS NULL` guard refuses to clobber it. Callers must not
-    // treat a no-op as a stored failure (e.g. must not cache it), since the DB source of truth
-    // still holds usable data for that ref.
-    pub async fn save_failure<'c, E>(&mut self, e: E) -> Result<bool, UnhandledError>
-    where
-        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
-    {
+    // Returns whether this failure is stored for the ref, either because we wrote it or because
+    // the same failure is already there. It returns `false` when a row already exists with a
+    // `storage_ptr` — i.e. real symbol data is present — because the `WHERE storage_ptr IS NULL`
+    // guard refuses to clobber it. Callers must not treat that as a stored failure (e.g. must
+    // not cache it), since the DB source of truth still holds usable data for that ref.
+    pub async fn save_failure(&mut self, pool: &PgPool) -> Result<bool, UnhandledError> {
         let truncated_ref = truncate_ref(&self.set_ref);
+
+        let stored = match Self::load_stored(pool, self.team_id, truncated_ref).await {
+            Ok(stored) => stored,
+            Err(error) => {
+                record_symbol_set_write(
+                    SymbolSetWritePurpose::AutomaticFailure,
+                    SymbolSetWriteOutcome::Error,
+                    PostgresMutation::Upsert,
+                    0,
+                );
+                return Err(error.into());
+            }
+        };
+
+        if let Some(stored) = &stored {
+            if stored.storage_ptr.is_some() {
+                record_symbol_set_write(
+                    SymbolSetWritePurpose::AutomaticFailure,
+                    SymbolSetWriteOutcome::Skipped,
+                    PostgresMutation::Upsert,
+                    0,
+                );
+                return Ok(false);
+            }
+
+            // A repeat of a failure we already stored writes the same `failure_reason` back and
+            // refreshes `last_used`. Throttle that refresh the way `set_last_used` does, so a
+            // burst of events for one bad ref writes the row once. `fetch` retries a stored
+            // failure after a day, which is longer than the throttle window, so the retry
+            // cadence does not change.
+            if stored.failure_reason == self.failure_reason && last_used_is_fresh(stored.last_used)
+            {
+                record_symbol_set_write(
+                    SymbolSetWritePurpose::AutomaticFailure,
+                    SymbolSetWriteOutcome::Skipped,
+                    PostgresMutation::Upsert,
+                    0,
+                );
+                return Ok(true);
+            }
+        }
+
+        // The guard stays on the statement: another writer can store data between the read above
+        // and this write.
         let id = sqlx::query_scalar::<_, Uuid>(
             r#"
             INSERT INTO posthog_errortrackingsymbolset (id, team_id, ref, storage_ptr, failure_reason, created_at, content_hash, last_used)
@@ -680,7 +778,7 @@ impl SymbolSetRecord {
         .bind(&self.failure_reason)
         .bind(self.created_at)
         .bind(self.last_used)
-        .fetch_optional(e)
+        .fetch_optional(pool)
         .await;
 
         let id = match id {
@@ -764,7 +862,7 @@ mod test {
     use std::sync::Arc;
 
     use bytes::Bytes;
-    use chrono::Utc;
+    use chrono::{Duration, Utc};
     use httpmock::MockServer;
     use mockall::predicate;
     use posthog_symbol_data::write_symbol_data;
@@ -775,7 +873,9 @@ mod test {
     use crate::{
         core::config::ResolverConfig,
         symbolication::symbol_store::{
-            saving::{truncate_ref, Saving, SymbolSetRecord, MAX_REF_BYTES},
+            saving::{
+                truncate_ref, Saving, SymbolSetRecord, LAST_USED_THROTTLE_HOURS, MAX_REF_BYTES,
+            },
             sourcemap::SourcemapProvider,
             MockS3Client, Provider,
         },
@@ -1107,6 +1207,65 @@ mod test {
 
         assert_eq!(record.storage_ptr.as_deref(), Some(storage_ptr.as_str()));
         assert!(record.failure_reason.is_none());
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_repeat_failure_only_writes_once_the_throttle_window_passes(db: PgPool) {
+        let set_ref = "https://example.com/app.js".to_string();
+        let failure_reason = Some("{\"NoSourcemap\":\"app.js\"}".to_string());
+
+        let mut stored = SymbolSetRecord {
+            id: Uuid::now_v7(),
+            team_id: 0,
+            set_ref: set_ref.clone(),
+            storage_ptr: None,
+            failure_reason: failure_reason.clone(),
+            created_at: Utc::now(),
+            content_hash: None,
+            last_used: Some(Utc::now()),
+        };
+        stored.save(&db).await.unwrap();
+        let first = SymbolSetRecord::load(&db, 0, &set_ref)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let mut repeat = SymbolSetRecord {
+            id: Uuid::now_v7(),
+            team_id: 0,
+            set_ref: set_ref.clone(),
+            storage_ptr: None,
+            failure_reason: failure_reason.clone(),
+            created_at: Utc::now(),
+            content_hash: None,
+            last_used: Some(Utc::now()),
+        };
+        // The same failure is already stored and `last_used` is fresh, so the caller is told the
+        // failure is stored without the row being written again.
+        assert!(repeat.save_failure(&db).await.unwrap());
+        let after_repeat = SymbolSetRecord::load(&db, 0, &set_ref)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(after_repeat.id, first.id);
+        assert_eq!(after_repeat.last_used, first.last_used);
+
+        let stale = Utc::now() - Duration::hours(LAST_USED_THROTTLE_HOURS + 1);
+        sqlx::query!(
+            "UPDATE posthog_errortrackingsymbolset SET last_used = $2 WHERE id = $1",
+            first.id,
+            stale
+        )
+        .execute(&db)
+        .await
+        .unwrap();
+
+        assert!(repeat.save_failure(&db).await.unwrap());
+        let after_stale = SymbolSetRecord::load(&db, 0, &set_ref)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(after_stale.last_used.unwrap() > stale);
     }
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
