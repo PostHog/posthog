@@ -50811,6 +50811,18 @@ export namespace Schemas {
       notes: string;
     }
 
+    /**
+     * * `above` - Above the band
+     * * `below` - Below the band
+     */
+    export type LogsSeriesBandVerdictEnum = typeof LogsSeriesBandVerdictEnum[keyof typeof LogsSeriesBandVerdictEnum];
+
+
+    export const LogsSeriesBandVerdictEnum = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
     export interface LogsSeriesBandBucket {
       /** Start of the display bucket (UTC). */
       time: string;
@@ -50826,6 +50838,11 @@ export namespace Schemas {
          * @nullable
          */
       upper: number | null;
+      /** Where the observed count sits against the band: above when it exceeds upper, below when it falls under lower. Null while it sits inside the band, or while the band is not ready.
+       *
+       * * `above` - Above the band
+       * * `below` - Below the band */
+      verdict: LogsSeriesBandVerdictEnum | null;
     }
 
     export interface LogsSeriesBandSeries {
