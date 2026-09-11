@@ -8,6 +8,7 @@ import pyarrow.compute as pc
 import posthoganalytics
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
@@ -301,6 +302,12 @@ async def _run_delta_maintenance(
                 logger.exception(f"Compaction failed: {e}", exc_info=e)
 
 
+@frozen
+class PublishedFiles:
+    folder: str
+    file_count: int
+
+
 async def _publish_queryable_files(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
@@ -308,7 +315,7 @@ async def _publish_queryable_files(
     resource_name: str,
     is_cdc_companion: bool,
     logger: FilteringBoundLogger,
-) -> str:
+) -> PublishedFiles:
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 
     if is_cdc_companion:
@@ -341,7 +348,7 @@ async def _publish_queryable_files(
     file_uris = await delta_table_ref.get_file_uris()
     logger.debug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
     with POST_LOAD_DURATION_SECONDS.labels(operation="prepare_s3").time():
-        return await prepare_s3_files_for_querying(
+        folder = await prepare_s3_files_for_querying(
             await database_sync_to_async_pool(job.folder_path)(),
             resource_name,
             file_uris,
@@ -350,6 +357,7 @@ async def _publish_queryable_files(
             logger=logger,
             refresh_file_uris=delta_table_ref.get_file_uris,
         )
+    return PublishedFiles(folder=folder, file_count=len(file_uris))
 
 
 async def _finalize_sync_bookkeeping(
@@ -381,7 +389,7 @@ async def _register_table(
     row_count: int,
     table_schema_dict: dict[str, str],
     resource: "Optional[SourceResponse]",
-    queryable_folder: str,
+    published: PublishedFiles,
     logger: FilteringBoundLogger,
 ) -> None:
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
@@ -396,9 +404,10 @@ async def _register_table(
             schema_id=schema.id,
             table_schema_dict=table_schema_dict,
             row_count=row_count,
-            queryable_folder=queryable_folder,
+            queryable_folder=published.folder,
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
             primary_keys=resource.primary_keys if resource is not None else None,
+            published_file_count=published.file_count,
         )
     logger.debug("Finished validating schema and updating table")
 
@@ -634,17 +643,20 @@ async def run_post_load_operations(
     is_initial_load = not schema.initial_sync_complete
 
     # Zero rows means the Delta table is untouched: nothing to compact, and republishing
-    # would only orphan a fresh copy of every parquet file. Registration already no-ops at
-    # zero rows. Bookkeeping and POST_LOAD_STEPS still run below, because those repair
-    # managed views and watermarks rather than describing what this run wrote. Opt-in
-    # because only the v2 pipeline's row_count is ground truth for what the run wrote; the
-    # v3 consumer's can read 0 for a batch that did write data.
+    # would only orphan a fresh copy of every parquet file. A schema with a linked table
+    # has nothing to repoint either. Bookkeeping and POST_LOAD_STEPS still run below,
+    # because those repair managed views and watermarks rather than describing what this
+    # run wrote. Opt-in because only the v2 pipeline's row_count is ground truth for what
+    # the run wrote; the v3 consumer's can read 0 for a batch that did write data.
     if (
         allow_zero_row_skip
         and row_count == 0
         and not is_cdc_schema
         and not is_cdc_companion
         and schema.initial_sync_complete
+        # An unlinked schema has nothing queryable, and skipping registration strands it: the next
+        # zero-row run skips again.
+        and schema.table_id is not None
         and schema.repartition_pending is None
         and schema.repartition_swap is None
         and schema.delta_revive_required is None
@@ -657,9 +669,8 @@ async def run_post_load_operations(
 
     await _run_delta_maintenance(schema, delta_table_ref, is_cdc_companion, logger)
 
-    queryable_folder = await _publish_queryable_files(
-        job, schema, delta_table_ref, resource_name, is_cdc_companion, logger
-    )
+    published = await _publish_queryable_files(job, schema, delta_table_ref, resource_name, is_cdc_companion, logger)
+    queryable_folder = published.folder
 
     await _finalize_sync_bookkeeping(job, schema, resource, last_incremental_field_value, logger)
 
@@ -669,7 +680,7 @@ async def run_post_load_operations(
     is_cdc_only_initial = cdc_write_mode is None and is_cdc_schema and schema.cdc_table_mode == "cdc_only"
 
     if not is_cdc_companion and not is_cdc_only_initial:
-        await _register_table(job, schema, row_count, table_schema_dict, resource, queryable_folder, logger)
+        await _register_table(job, schema, row_count, table_schema_dict, resource, published, logger)
 
     if is_cdc_companion or is_cdc_schema:
         await _run_cdc_post_load(

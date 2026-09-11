@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -85,6 +86,40 @@ describe('materializationJobsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess']).toFinishAllListeners()
         expect(checkCalls).toBe(1)
     })
+
+    // Regression: a rejected eligibility check used to surface as a "Load incremental check failed"
+    // toast on a healthy materialized view. A 4xx is an expected refusal and is not retried; a 5xx is
+    // ours to record, and the next savedQuery reload (every jobs poll) retries it.
+    it.each([
+        [400, { type: 'validation_error', detail: 'Query is not valid.' }, 0, 1],
+        [500, { type: 'server_error', detail: 'Something went wrong.' }, 1, 2],
+    ])(
+        'treats a %s from the eligibility check as "no incremental option" instead of failing',
+        async (status, body, captured, checksAfterReload) => {
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => {})
+            let checkCalls = 0
+            const mocks = apiMocks({ isMaterialized: true })
+            mocks.post = {
+                '/api/environments/:team_id/warehouse_saved_queries/check_incremental/': () => {
+                    checkCalls += 1
+                    return [status, body]
+                },
+            }
+            useMocks(mocks)
+            logic = materializationJobsLogic({ viewId: 'view-1' })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions(['loadIncrementalCheck', 'loadIncrementalCheckSuccess'])
+                .toNotHaveDispatchedActions(['loadIncrementalCheckFailure'])
+            expect(logic.values.incrementalCheck).toBeNull()
+            expect(captureException).toHaveBeenCalledTimes(captured)
+
+            logic.actions.loadSavedQuery()
+            await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess']).toFinishAllListeners()
+            expect(checkCalls).toBe(checksAfterReload)
+        }
+    )
 
     it.each([
         ['the surface is an endpoint', { kind: 'endpoint' as const, flag: true }],
