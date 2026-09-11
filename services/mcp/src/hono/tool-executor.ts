@@ -35,6 +35,7 @@ import {
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import { skillAnalyticsProperties } from '@/tools/skills/analytics'
+import { formatSkillLookupMiss } from '@/tools/skills/notFound'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import {
@@ -63,6 +64,11 @@ interface ExecMetricState {
     innerToolName: string | undefined
     /** What the agent asked for, merged onto the event whichever verb ran. */
     commandMeta: ExecCommandMeta | undefined
+    /**
+     * The inner call's failure when the dispatcher recovered from it and returned
+     * a normal result, so the canonical event still records the failure.
+     */
+    innerFailure: { error: unknown } | undefined
 }
 
 /**
@@ -411,6 +417,17 @@ export class ToolExecutor {
                 input: validation.data,
             })
 
+            // A skill lookup that misses is not a failure the agent should read as
+            // one. The exec dispatcher rewrites the same miss, and a tools-mode
+            // client reaching this path must get the same answer — otherwise the
+            // behavior changes with the client. Telemetry above already recorded
+            // the 404, and `handleToolError` adds nothing to a 4xx that is lost
+            // here: no recovery hint, no exception capture.
+            const lookupMiss = formatSkillLookupMiss(tool.name, error, validation.data as Record<string, unknown>)
+            if (lookupMiss) {
+                return { content: [{ type: 'text', text: lookupMiss }] }
+            }
+
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
             return handleToolError(error, tool.name, state.distinctId, sessionUuid)
         }
@@ -421,7 +438,11 @@ export class ToolExecutor {
         state: ResolvedState,
         analyticsMeta?: ToolCallAnalyticsMeta
     ): Promise<unknown> {
-        const execMetrics: ExecMetricState = { innerToolName: undefined, commandMeta: undefined }
+        const execMetrics: ExecMetricState = {
+            innerToolName: undefined,
+            commandMeta: undefined,
+            innerFailure: undefined,
+        }
         const resolved = this.resolveExecTool(state, execMetrics, analyticsMeta)
 
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
@@ -470,14 +491,23 @@ export class ToolExecutor {
                       distinctId: undefined,
                   })
 
+            // A handler can return normally for a call that failed: a skill lookup
+            // miss is rewritten so the agent does not read it as an outage. The
+            // canonical event still records the failure, and must not stamp a skill
+            // the store never delivered — a miss is not a read.
+            const innerFailure = execMetrics.innerFailure
+            const failureShape = innerFailure
+                ? errorAnalyticsProperties(classifyToolError(innerFailure.error, execToolName()), innerFailure.error)
+                : undefined
+
             void trackToolCall(
                 execToolName(),
                 duration,
-                false,
+                failureShape !== undefined,
                 state,
                 {
                     ...execShape,
-                    ...execSkillShape,
+                    ...(failureShape ?? execSkillShape),
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
                     ...execMetrics.commandMeta,
@@ -547,6 +577,9 @@ export class ToolExecutor {
             // event (now relabelled to the inner tool name, with the inner tool's category
             // derived from it) already carries this call, so a second emit would double-count.
             execMetrics.innerToolName = toolName
+            if (!properties.success) {
+                execMetrics.innerFailure = { error: properties.error }
+            }
             const status = properties.success ? 'success' : properties.validation_error ? 'validation_error' : 'error'
             toolCallsTotal.inc({ tool: toolName, status })
             // Mirror the native path: schema rejections never start a handler, so
