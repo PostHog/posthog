@@ -20,7 +20,7 @@ import { SessionReplayHeaders } from './pipeline-types'
 const lz4: { decodeBlock(input: Buffer, output: Buffer): number } = require('lz4')
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
-const CLOCK_SKEW_QUANTUM_MS = 5 * 60 * 1000
+export const CLOCK_SKEW_DEADBAND_MS = 150 * 1000
 const GZIP_HEADER = Uint8Array.from([0x1f, 0x8b, 0x08, 0x00])
 // Compression-bomb cap (mirrors the Rust addon): ~6x the 10 MB largest payload in a production
 // sample; exceeding it DLQs instead of risking an unclassifiable OOM.
@@ -93,15 +93,17 @@ function rawClockSkewMs(sentAt: string | undefined, now: string | undefined): nu
     return sentAtMs - nowMs
 }
 
-// The raw skew includes per-request network latency. Rounding to a coarse quantum gives every
-// message of a session the same correction, so latency cannot reorder events the player sorts by
-// timestamp, and a well-behaved clock rounds to zero.
-function quantizedClockSkewMs(sentAt: string | undefined, now: string | undefined): number {
+// The raw skew includes per-request network latency. Keeping only what exceeds the deadband leaves a
+// well-behaved clock untouched, and moves the correction by no more than a change in latency, so
+// latency cannot reorder the events the player sorts by timestamp. Capture applies the same deadband
+// to the same measurement for the event timestamp (`correctable_clock_skew` in
+// rust/common/types/src/timestamp.rs), so the two must stay equal.
+function correctableClockSkewMs(sentAt: string | undefined, now: string | undefined): number {
     const rawSkew = rawClockSkewMs(sentAt, now)
     if (rawSkew === null) {
         return 0
     }
-    return Math.round(rawSkew / CLOCK_SKEW_QUANTUM_MS) * CLOCK_SKEW_QUANTUM_MS
+    return Math.sign(rawSkew) * Math.max(Math.abs(rawSkew) - CLOCK_SKEW_DEADBAND_MS, 0)
 }
 
 function getValidEvents(
@@ -221,7 +223,7 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(): Proce
 
         const sessionId = normalizeSessionId($session_id)
 
-        const clockSkewMs = quantizedClockSkewMs(messageResult.data.sent_at, messageResult.data.now)
+        const clockSkewMs = correctableClockSkewMs(messageResult.data.sent_at, messageResult.data.now)
         if (clockSkewMs !== 0) {
             SessionRecordingIngesterMetrics.observeClockSkewCorrection(clockSkewMs)
         }

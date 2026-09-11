@@ -23,9 +23,13 @@ pub fn report_internal_error_metrics(err_type: &'static str, stage_tag: &'static
     counter!("capture_error_by_stage_and_type", &tags).increment(1);
 }
 
-pub fn report_clock_skew(skew: chrono::Duration) {
-    let skew_seconds = skew.num_milliseconds().saturating_abs() as f64 / 1000.0;
-    metrics::histogram!("capture_client_clock_skew_seconds").record(skew_seconds);
+pub fn report_clock_skew(measured: chrono::Duration, applied: chrono::Duration) {
+    metrics::histogram!("capture_client_clock_skew_seconds").record(abs_seconds(measured));
+    metrics::histogram!("capture_client_clock_skew_applied_seconds").record(abs_seconds(applied));
+}
+
+pub fn abs_seconds(duration: chrono::Duration) -> f64 {
+    duration.num_milliseconds().saturating_abs() as f64 / 1000.0
 }
 
 pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> PrometheusHandle {
@@ -191,6 +195,11 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
         )
         .unwrap()
         .set_buckets_for_metric(
+            Matcher::Full("capture_client_clock_skew_applied_seconds".to_string()),
+            CLOCK_SKEW_SECONDS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
             Matcher::Full("capture_kafka_produce_ack_duration_ms".to_string()),
             KAFKA_PRODUCE_ACK_MS,
         )
@@ -218,6 +227,11 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
         .unwrap()
         .set_buckets_for_metric(
             Matcher::Full("capture_v1_clock_skew_seconds".to_string()),
+            CLOCK_SKEW_SECONDS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("capture_v1_clock_skew_applied_seconds".to_string()),
             CLOCK_SKEW_SECONDS,
         )
         .unwrap()

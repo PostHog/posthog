@@ -22,6 +22,7 @@ import { createMockKeyStore, createMockSessionKey } from '~/ingestion/pipelines/
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
+import { CLOCK_SKEW_DEADBAND_MS } from './parse-message-step'
 import { createSessionReplayPipeline, runSessionReplayPipeline } from './session-replay-pipeline'
 
 jest.mock('~/ingestion/common/steps/event-preprocessing', () => ({
@@ -336,7 +337,7 @@ describe('session-replay-pipeline', () => {
             )
 
             const recorded = (mockBatchRecorder.record as jest.Mock).mock.calls[0][0].message
-            expect(recorded.eventsRange.start.toMillis()).toBe(now.toMillis())
+            expect(recorded.eventsRange.start.toMillis()).toBe(now.toMillis() + CLOCK_SKEW_DEADBAND_MS)
         })
 
         it('passes through messages when no restrictions apply', async () => {
