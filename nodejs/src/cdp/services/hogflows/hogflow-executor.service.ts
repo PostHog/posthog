@@ -139,6 +139,14 @@ export class HogFlowExecutorService {
             'email',
             usageReporter
         )
+        const hogFunctionSmsHandler = new HogFunctionHandler(
+            hogFlowFunctionsService,
+            recipientPreferencesService,
+            emailValidationService,
+            'sms',
+            usageReporter,
+            options
+        )
         const hogFunctionPushHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
             recipientPreferencesService,
@@ -155,7 +163,7 @@ export class HogFlowExecutorService {
             wait_until_time_window: new WaitUntilTimeWindowHandler(),
             random_cohort_branch: new RandomCohortBranchHandler(),
             function: hogFunctionHandler,
-            function_sms: hogFunctionHandler,
+            function_sms: hogFunctionSmsHandler,
             function_push: hogFunctionPushHandler,
             function_email: hogFunctionEmailHandler,
             exit: new ExitHandler(),

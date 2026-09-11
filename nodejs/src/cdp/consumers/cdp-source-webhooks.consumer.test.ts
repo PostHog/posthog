@@ -538,12 +538,26 @@ describe('SourceWebhooksConsumer', () => {
                         metric_name: 'triggered',
                         count: 1,
                     }),
-                    expect.objectContaining({
-                        metric_kind: 'billing',
-                        metric_name: 'billable_invocation',
-                        count: 1,
-                    }),
                 ])
+            })
+
+            it('does not report a workflow trigger as CDP usage', async () => {
+                const reportBillableInvocation = jest.spyOn(
+                    api['cdpSourceWebhooksConsumer']['cdpUsageReporter'],
+                    'reportBillableInvocation'
+                )
+
+                const res = await doPostRequest({
+                    webhookId: hogFlow.id,
+                    body: {
+                        event: 'my-event',
+                        distinct_id: 'test-distinct-id',
+                    },
+                })
+
+                expect(res.status).toEqual(201)
+                await waitForBackgroundTasks()
+                expect(reportBillableInvocation).not.toHaveBeenCalled()
             })
 
             it('does not report usage when queueing the workflow fails', async () => {
