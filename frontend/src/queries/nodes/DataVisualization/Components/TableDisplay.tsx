@@ -4,7 +4,7 @@ import { IconGraph, IconLifecycle, IconPieChart, IconScatter, IconTrends } from 
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Icon123, IconAreaChart, IconHeatmap, IconTableChart, IconTrendingUp } from 'lib/lemon-ui/icons'
+import { Icon123, IconAreaChart, IconDonutChart, IconHeatmap, IconTableChart, IconTrendingUp } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ChartDisplayType } from '~/types'
@@ -133,6 +133,11 @@ export function getTableDisplayOptions(
                     value: ChartDisplayType.ActionsPie,
                     icon: <IconPieChart />,
                     label: 'Pie chart',
+                },
+                {
+                    value: ChartDisplayType.ActionsDonut,
+                    icon: <IconDonutChart />,
+                    label: 'Donut chart',
                 },
                 {
                     value: ChartDisplayType.ScatterPlot,

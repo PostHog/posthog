@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -276,10 +276,10 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         sync_execute(f"TRUNCATE TABLE {EVENTS_DATA_TABLE()}")
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             sync_execute(f"TRUNCATE TABLE {EVENTS_JSON_DATA_TABLE}")
-        with freeze_time("2012-01-01T03:21:34.000Z"):
+        with time_machine.travel("2012-01-01T03:21:34.000Z", tick=False):
             funnel = self._basic_funnel()
 
-        with freeze_time("2012-01-01T03:21:35.000Z"):
+        with time_machine.travel("2012-01-01T03:21:35.000Z", tick=False):
             # events
             stopped_after_signup_person_id = uuid.uuid4()
             _create_person(distinct_ids=["stopped_after_signup"], team_id=self.team.pk)
@@ -288,49 +288,49 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
                 person_id=stopped_after_signup_person_id,
             )
 
-        with freeze_time("2012-01-01T03:21:36.000Z"):
+        with time_machine.travel("2012-01-01T03:21:36.000Z", tick=False):
             stopped_after_pay_person_id = uuid.uuid4()
             _create_person(distinct_ids=["stopped_after_pay"], team_id=self.team.pk)
             self._signup_event(
                 distinct_id="stopped_after_pay",
                 person_id=stopped_after_pay_person_id,
             )
-        with freeze_time("2012-01-01T03:21:37.000Z"):
+        with time_machine.travel("2012-01-01T03:21:37.000Z", tick=False):
             self._pay_event(
                 distinct_id="stopped_after_pay",
                 person_id=stopped_after_pay_person_id,
             )
 
-        with freeze_time("2012-01-01T03:21:38.000Z"):
+        with time_machine.travel("2012-01-01T03:21:38.000Z", tick=False):
             had_anonymous_id_person_id = uuid.uuid4()
             _create_person(
                 distinct_ids=["had_anonymous_id", "completed_movie"],
                 team_id=self.team.pk,
             )
             self._signup_event(distinct_id="had_anonymous_id", person_id=had_anonymous_id_person_id)
-        with freeze_time("2012-01-01T03:21:39.000Z"):
+        with time_machine.travel("2012-01-01T03:21:39.000Z", tick=False):
             self._pay_event(distinct_id="completed_movie", person_id=had_anonymous_id_person_id)
-        with freeze_time("2012-01-01T03:21:40.000Z"):
+        with time_machine.travel("2012-01-01T03:21:40.000Z", tick=False):
             self._movie_event(distinct_id="completed_movie", person_id=had_anonymous_id_person_id)
 
-        with freeze_time("2012-01-01T03:21:41.000Z"):
+        with time_machine.travel("2012-01-01T03:21:41.000Z", tick=False):
             just_did_movie_person_id = uuid.uuid4()
             _create_person(distinct_ids=["just_did_movie"], team_id=self.team.pk)
             self._movie_event(distinct_id="just_did_movie", person_id=just_did_movie_person_id)
 
-        with freeze_time("2012-01-01T03:21:42.000Z"):
+        with time_machine.travel("2012-01-01T03:21:42.000Z", tick=False):
             wrong_order_person_id = uuid.uuid4()
             _create_person(distinct_ids=["wrong_order"], team_id=self.team.pk)
             self._pay_event(distinct_id="wrong_order", person_id=wrong_order_person_id)
-        with freeze_time("2012-01-01T03:21:43.000Z"):
+        with time_machine.travel("2012-01-01T03:21:43.000Z", tick=False):
             self._signup_event(distinct_id="wrong_order", person_id=wrong_order_person_id)
-        with freeze_time("2012-01-01T03:21:44.000Z"):
+        with time_machine.travel("2012-01-01T03:21:44.000Z", tick=False):
             self._movie_event(distinct_id="wrong_order", person_id=wrong_order_person_id)
 
-        with freeze_time("2012-01-01T03:21:45.000Z"):
+        with time_machine.travel("2012-01-01T03:21:45.000Z", tick=False):
             create_person_id_override_by_distinct_id("stopped_after_signup", "stopped_after_pay", self.team.pk)
 
-        with freeze_time("2012-01-01T03:21:46.000Z"):
+        with time_machine.travel("2012-01-01T03:21:46.000Z", tick=False):
             result = funnel.calculate().results
             self.assertEqual(result[0]["name"], "user signed up")
 
@@ -1564,7 +1564,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        with freeze_time("2020-01-03"):
+        with time_machine.travel("2020-01-03", tick=False):
             # event
             person1_stopped_after_two_signups = _create_person(
                 distinct_ids=["stopped_after_signup1"], team_id=self.team.pk
@@ -3163,10 +3163,10 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
     def test_same_event_same_timestamp(self):
         _create_person(distinct_ids=["test"], team_id=self.team.pk)
-        with freeze_time("2024-01-10T12:01:00"):
+        with time_machine.travel("2024-01-10T12:01:00", tick=False):
             for _ in range(20):
                 _create_event(team=self.team, event="step one", distinct_id="test")
-        with freeze_time("2024-01-11T12:01:00"):
+        with time_machine.travel("2024-01-11T12:01:00", tick=False):
             _create_event(team=self.team, event="step two", distinct_id="test")
         query = FunnelsQuery(
             dateRange=DateRange(
@@ -4529,14 +4529,14 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
     def test_multiple_events_same_timestamp_exclusions(self):
         _create_person(distinct_ids=["test"], team_id=self.team.pk)
-        with freeze_time("2024-01-10T12:00:00"):
+        with time_machine.travel("2024-01-10T12:00:00", tick=False):
             _create_event(team=self.team, event="step zero", distinct_id="test")
-        with freeze_time("2024-01-10T12:01:00"):
+        with time_machine.travel("2024-01-10T12:01:00", tick=False):
             for _ in range(30):
                 _create_event(team=self.team, event="step one", distinct_id="test")
             _create_event(team=self.team, event="exclusion", distinct_id="test")
             _create_event(team=self.team, event="step two", distinct_id="test")
-        with freeze_time("2024-01-10T12:02:00"):
+        with time_machine.travel("2024-01-10T12:02:00", tick=False):
             _create_event(team=self.team, event="step three", distinct_id="test")
         query = FunnelsQuery(
             dateRange=DateRange(
@@ -5418,7 +5418,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
     def test_events_same_timestamp_no_exclusions(self):
         _create_person(distinct_ids=["test"], team_id=self.team.pk)
-        with freeze_time("2024-01-10T12:01:00"):
+        with time_machine.travel("2024-01-10T12:01:00", tick=False):
             _create_event(team=self.team, event="step one, ten", distinct_id="test")
             _create_event(team=self.team, event="step two, three, seven", distinct_id="test")
             _create_event(team=self.team, event="step two, three, seven", distinct_id="test")
@@ -5867,7 +5867,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["count"], 2)
         self.assertEqual(result[1]["count"], 1)
 
-    @freeze_time("2024-01-02T00:00:00Z")
+    @time_machine.travel("2024-01-02T00:00:00Z", tick=False)
     def test_funnel_same_event_different_property_filters(self):
         _create_person(distinct_ids=["user_both"], team_id=self.team.pk)
         _create_event(
@@ -5956,7 +5956,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    @freeze_time("2024-01-02T00:00:00Z")
+    @time_machine.travel("2024-01-02T00:00:00Z", tick=False)
     def test_funnel_breakdown_value_boxing(self, _name, breakdown_type, breakdown_prop, group_type_index, needs_groups):
         if needs_groups:
             self._create_groups()
@@ -6019,7 +6019,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         else:
             assert isinstance(bv, list), f"Expected boxed breakdown_value for {breakdown_type}, got {type(bv)}"
 
-    @freeze_time("2024-01-02T00:00:00Z")
+    @time_machine.travel("2024-01-02T00:00:00Z", tick=False)
     def test_funnel_session_breakdown_groups_results_by_session_property(self):
         # Three sessions across three users — two from google.com (one converts, one doesn't),
         # one from bing.com (converts). The funnel groups by session.$entry_referring_domain,

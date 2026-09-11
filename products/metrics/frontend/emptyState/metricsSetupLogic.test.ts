@@ -33,4 +33,26 @@ describe('metricsSetupLogic', () => {
         await expectLogic(metricsSetupLogic).toFinishAllListeners()
         expect(productSetupStatusLogic({ productKey: ProductKey.METRICS }).values.status).toBe(expected)
     })
+
+    it('treats a flag-gated 403 as unknown, so a fresh alpha enrollment never surfaces an error', async () => {
+        // The enrollment person property takes seconds to ingest after the user turns the
+        // preview on; until then the API denies with the feature_flag_required code. That
+        // window is not a detection failure, and the poll answers properly once it closes.
+        ;(canViewMetrics as jest.Mock).mockReturnValue(true)
+        ;(metricsHasMetricsRetrieve as jest.Mock).mockRejectedValue({ status: 403, code: 'feature_flag_required' })
+        metricsSetupLogic.mount()
+        await expectLogic(metricsSetupLogic).toFinishAllListeners()
+        expect(productSetupStatusLogic({ productKey: ProductKey.METRICS }).values.status).toBe('unknown')
+        // A clean `unknown` answer, not a detection failure: the loader's failure path would
+        // also land on `unknown`, but only after filing an error.
+        expect(metricsSetupLogic.values.detectedStatus).toBe('unknown')
+    })
+
+    it('still fails open on other errors', async () => {
+        ;(canViewMetrics as jest.Mock).mockReturnValue(true)
+        ;(metricsHasMetricsRetrieve as jest.Mock).mockRejectedValue(new Error('network down'))
+        metricsSetupLogic.mount()
+        await expectLogic(metricsSetupLogic).toFinishAllListeners()
+        expect(productSetupStatusLogic({ productKey: ProductKey.METRICS }).values.status).toBe('unknown')
+    })
 })
