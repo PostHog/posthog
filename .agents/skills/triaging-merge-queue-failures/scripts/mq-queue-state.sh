@@ -7,8 +7,8 @@
 # envelope authentication a check run's app.slug gave.
 #
 # The comment body is free text, so its wording never reaches the agent: this helper classifies
-# it and emits only regex-validated fields. Anything that fails validation is dropped, not
-# printed. The one field carrying the wording itself is base64, for the reason fingerprint() gives.
+# it and emits only regex-validated fields, plus a one-way digest of an unrecognized wording.
+# Anything that fails validation is dropped, not printed. fingerprint() gives the reasoning.
 #
 # A failed GitHub read exits 5 and never comes back as an empty result. An empty result has to
 # mean "GitHub answered, and there is nothing there", or a sweep reports success while blind.
