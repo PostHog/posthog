@@ -179,6 +179,9 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
         related_name="+",
     )
     issue_tracking_config = models.JSONField(default=dict, db_default={}, blank=True)
+    # Off by default, because a ready pull request runs the full CI matrix on every push, which is
+    # runner spend a team has to choose. Read only for a reviewer with no preference of their own.
+    default_open_pull_request_ready = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -223,6 +226,10 @@ class SignalUserAutonomyConfig(UUIDModel):
     # Off by default because assignment is visible to everyone on the pull request, so a reviewer
     # has to ask for it rather than be volunteered.
     github_assign_on_pull_request = models.BooleanField(default=False, db_default=False)
+    # Null follows `SignalTeamConfig.default_open_pull_request_ready`, because the right answer
+    # differs per person: a reviewer who reads their inbox pull requests anyway gains nothing from
+    # the draft state and pays a round trip for it.
+    github_open_pull_request_ready = models.BooleanField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

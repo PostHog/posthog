@@ -18,6 +18,7 @@ from posthog.models.user import User
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import InvalidStatusTransition, SignalReport, SignalReportAssignment
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
+from products.signals.backend.reviewer_pr_ready import schedule_open_pull_request_ready
 
 logger = structlog.get_logger(__name__)
 
@@ -299,6 +300,12 @@ def sync_task_pull_request_to_assignments(
                     pr_url=pr_url,
                     pr_state=assignment_state,
                 )
+                schedule_open_pull_request_ready(
+                    team_id=team_id,
+                    report_id=str(report_id),
+                    pr_url=pr_url,
+                    pr_state=assignment_state,
+                )
             updated += 1
     return updated
 
@@ -417,6 +424,12 @@ def claim_report(
                 pr_url=assignment.pr_url,
                 pr_state=assignment.pr_state,
             )
+            schedule_open_pull_request_ready(
+                team_id=locked_report.team_id,
+                report_id=str(locked_report.id),
+                pr_url=assignment.pr_url,
+                pr_state=assignment.pr_state,
+            )
         return assignment
 
 
@@ -482,6 +495,12 @@ def update_assignments_for_pull_request(
             _apply_pr_report_state(report, pr_state)
             if missing_pr:
                 schedule_reviewer_pr_assignment(
+                    team_id=report.team_id,
+                    report_id=str(report.id),
+                    pr_url=assignment.pr_url,
+                    pr_state=pr_state,
+                )
+                schedule_open_pull_request_ready(
                     team_id=report.team_id,
                     report_id=str(report.id),
                     pr_url=assignment.pr_url,
