@@ -125,11 +125,24 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
                     ],
                 ),
             )
-            # Active children keep their old due time until completion, so they deliberately retain
-            # a team slot on later sweeps and bound concurrent work for that team.
-            .filter(_team_rank__lte=inputs.max_alerts_per_team_per_run)
+            .annotate(
+                # Give every due team its configured fair share before overdue overflow fills any
+                # remaining global capacity. Active children keep their old due time until completion,
+                # so they retain their place in the ordering and deterministic workflow IDs prevent duplicates.
+                _fair_share_order=Case(
+                    When(_team_rank__lte=inputs.team_fair_share_per_run, then=Value(0)),
+                    default=Value(1),
+                    output_field=IntegerField(),
+                ),
+                _fair_share_rank=Case(
+                    When(_team_rank__lte=inputs.team_fair_share_per_run, then=F("_team_rank")),
+                    default=Value(None),
+                    output_field=IntegerField(),
+                ),
+            )
             .order_by(
-                "_team_rank",
+                "_fair_share_order",
+                F("_fair_share_rank").asc(nulls_last=True),
                 "_aging_order",
                 F("_aged_next_check_at").asc(nulls_first=True),
                 "_interval_order",
