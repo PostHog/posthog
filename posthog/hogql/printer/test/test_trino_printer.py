@@ -564,6 +564,8 @@ def test_tracks_every_registered_function_without_a_trino_mapping(snapshot: Snap
         ),
         ("replaceRegexpOne(user_id, 'a', user_id)", "TRINO_REGEX_CONSTANT_REQUIRED"),
         ("cityHash64(user_id)", "TRINO_FUNCTION_UNSUPPORTED"),
+        ("toTypeName(user_id)", "TRINO_FUNCTION_UNSUPPORTED"),
+        ("bitNot(id)", "TRINO_FUNCTION_UNSUPPORTED"),
     ],
 )
 def test_rejects_unsupported_printer_function_variants(expression: str, feature_code: str) -> None:
@@ -1690,7 +1692,7 @@ def test_prints_additional_semantics_safe_trino_expressions(expression: str, exp
         ("make_timestamp(2024, 1, 2, 3, 4, 5.25)", "CAST(truncate(5.25) AS BIGINT)"),
         (
             "make_timestamptz(2024, 1, 2, 3, 4, 5, 'America/New_York')",
-            "with_timezone(CAST(format(",
+            "with_timezone(IF(TRY_CAST(format(",
         ),
         ("sortablesemver('v1.2.3-beta')", "ARRAY[CAST(NULL AS BIGINT)]"),
         ("pointInEllipses(5.0, 5.0, 0.0, 0.0, 1.0, 1.0, 5.0, 5.0, 2.0, 2.0)", " OR power(("),
@@ -1700,7 +1702,7 @@ def test_prints_additional_semantics_safe_trino_expressions(expression: str, exp
         ("hasAnyTokens('foo bar', ['x', 'bar'])", "any_match(__hogql_token_array_args[2]"),
         ("mapPopulateSeries(map(1, 10, 3, 30), 5)", "map_from_entries(transform("),
         ("extractIPv4Substrings('a 1.2.3.4 b 999.2.3.4')", "25[0-5]"),
-        ("indexHint(1 = 1)", "SELECT (1 = 1)"),
+        ("indexHint(1 = 1)", "SELECT 1"),
         ("accurateCast(255, 'UInt8')", "DECIMAL '255'"),
         ("accurateCastOrNull(1.5, 'Int64')", "= truncate("),
         ("base58Encode('PostHog')", "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"),
@@ -1800,6 +1802,44 @@ def test_prints_type_aware_and_search_rewrites(expression: str, expected: str) -
 
 
 @pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        ("arrayStringConcat(['a', 'b'])", "array_join(ARRAY["),
+        ("endsWith(user_id, '1')", "substr("),
+        ("appendTrailingCharIfAbsent(user_id, '/')", "substr("),
+        ("tryBase64Decode(user_id)", "mod(length("),
+        ("reinterpretAsUUID(id)", "format('%016x0000000000000000'"),
+        ("cutToFirstSignificantSubdomain(user_id)", "cardinality("),
+        ("path(user_id)", "strpos("),
+        ("pathFull(user_id)", "strpos(__hogql_url, '/') = 0"),
+        ("indexHint(id)", "SELECT 1 FROM"),
+        ("JSONExtractInt(user_id)", "coalesce(TRY(CAST(json_extract_scalar("),
+        ("JSONExtractKeys(user_id)", "coalesce(TRY(map_keys("),
+        ("JSON_VALUE(user_id, '$.key')", "coalesce(TRY(json_value("),
+        ("make_date(2, 2, 2)", "DATE '1970-01-01'"),
+        ("make_timestamp(2, 2, 2, 2, 2, 2)", "TIMESTAMP '1970-01-01 00:00:00'"),
+        ("stddevSamp(id)", "coalesce(stddev_samp("),
+        ("toStartOfYear(created_at)", "CAST(date_trunc('year'"),
+        (
+            "mapApply((key, value) -> (concat(key, 'x'), value + 1), map('a', 1))",
+            "map_from_entries(transform(map_entries(transform_values(",
+        ),
+        ("percentile_cont(0.5) WITHIN GROUP (ORDER BY id)", "__hogql_percentile_values"),
+        ("percentile_disc(0.5) WITHIN GROUP (ORDER BY id)", "greatest(CAST(ceil("),
+    ],
+)
+def test_prints_live_parity_regressions(expression: str, expected: str) -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"SELECT {expression} FROM users"), _context_with_trino_table(), "trino"
+    )
+    assert expected in sql
+
+
+def test_preserves_array_reverse_sort_for_clickhouse() -> None:
+    assert HOGQL_CLICKHOUSE_FUNCTIONS["arrayReverseSort"].clickhouse_name == "arrayReverseSort"
+
+
+@pytest.mark.parametrize(
     "name",
     sorted(name for name in TRINO_AGGREGATE_COMBINATORS if name.startswith("median")),
 )
@@ -1829,7 +1869,7 @@ def test_prints_all_median_aggregate_combinators(name: str, window: str) -> None
 @pytest.mark.parametrize(
     ("expression", "expected"),
     [
-        ("endsWith(user_id, '1')", 'ends_with("users"."user_id", %(hogql_val_0)s)'),
+        ("endsWith(user_id, '1')", 'substr("users"."user_id", -length(%(hogql_val_0)s)) = %(hogql_val_0)s'),
         ("mapFromArrays(['a'], [1])", "map(ARRAY[%(hogql_val_0)s], ARRAY[1])"),
         (
             "mapUpdate(mapFromArrays(['a'], [1]), mapFromArrays(['a'], [2]))",

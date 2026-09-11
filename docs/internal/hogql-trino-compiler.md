@@ -170,6 +170,15 @@ The registry has 1,180 names. Trino mode maps 850 of these names. The explicit
 gap inventory has 330 names: 149 scalar functions, 155 aggregate functions, and
 26 PostHog functions. Aliases count as separate names.
 
+A live differential QA pass used one typed fixture for each mapped name. ClickHouse
+and Trino returned equal results for 836 names. Seven time-dependent, random, or
+unordered results were not directly comparable. `toTypeName`, `bitNot`, and
+`cityHash64` now return explicit errors because the prior rewrites changed results.
+Trino-only checks cover `percentile_cont` and `percentile_disc`, because ClickHouse
+rejects this syntax. The ordered funnel rewrite ran on Trino, but the local
+ClickHouse shell UDF was not available. ClickHouse also rejects the registered
+`toIntervalQuarter` function because that function does not exist in ClickHouse.
+
 Some workarounds need additional rules. `arrayResize` supports an explicit fill
 value. Its two-argument form uses the resolved array item type to supply the default value.
 Unknown item types keep an explicit error. `generateSeries` stays unsupported because it is

@@ -681,6 +681,18 @@ class TrinoPrinter(PostgresPrinter):
                 f"{node.name} has no semantics-preserving Trino implementation.",
                 node,
             )
+        if name == "totypename":
+            self._unsupported(
+                "TRINO_FUNCTION_UNSUPPORTED",
+                "toTypeName depends on ClickHouse physical types and has no semantics-preserving Trino implementation.",
+                node,
+            )
+        if name == "bitnot":
+            self._unsupported(
+                "TRINO_FUNCTION_UNSUPPORTED",
+                "bitNot depends on the signed width of its ClickHouse argument.",
+                node,
+            )
         if name == "domain":
             value = self._visit_unary_arg(node)
             return f"IF({value} IS NULL, NULL, coalesce(TRY(url_extract_host(CAST({value} AS VARCHAR))), ''))"
@@ -692,11 +704,27 @@ class TrinoPrinter(PostgresPrinter):
             return f"coalesce(TRY_CAST({binary_args.left} AS UUID), TRY_CAST({binary_args.right} AS UUID))"
         if name == "reinterpretasuuid":
             value = self._visit_unary_arg(node)
-            return f"TRY_CAST(CAST({value} AS VARCHAR) AS UUID)"
+            value_type = self._resolve_type(node.args[0])
+            if not isinstance(value_type, ast.IntegerType):
+                self._invalid_function_arguments(node, "reinterpretAsUUID requires an integer argument in Trino mode.")
+            hexadecimal = f"format('%016x0000000000000000', CAST({value} AS BIGINT))"
+            formatted = (
+                f"concat(substr({hexadecimal}, 1, 8), '-', substr({hexadecimal}, 9, 4), '-', "
+                f"substr({hexadecimal}, 13, 4), '-', substr({hexadecimal}, 17, 4), '-', "
+                f"substr({hexadecimal}, 21, 12))"
+            )
+            return f"CAST({formatted} AS UUID)"
         if name == "cuttofirstsignificantsubdomain":
             value = self._visit_unary_arg(node)
             labels = f"filter(split(lower(trim(TRAILING '.' FROM {value})), '.'), __hogql_label -> __hogql_label <> '')"
-            return f"array_join(slice({labels}, greatest(cardinality({labels}) - 1, 1), 2), '.')"
+            return f"IF(cardinality({labels}) < 2, '', array_join(slice({labels}, cardinality({labels}) - 1, 2), '.'))"
+        if name in {"stddevsamp", "stddevsampif", "varsamp", "varsampif", "covarsamp", "covarsampif", "corr"}:
+            return self._visit_sample_statistic(node)
+        if name in {"percentile_cont", "percentile_disc"}:
+            return self._visit_percentile_within_group(node, continuous=name == "percentile_cont")
+        if name in {"tostartofyear", "tostartofquarter"}:
+            unit = "year" if name == "tostartofyear" else "quarter"
+            return f"CAST(date_trunc('{unit}', {self._visit_unary_arg(node)}) AS DATE)"
         if name in {"floor", "ceil"} and len(node.args) == 2:
             binary_args = self._visit_binary_args(node)
             scale = f"power(10, {binary_args.right})"
@@ -978,7 +1006,26 @@ class TrinoPrinter(PostgresPrinter):
         if name in {"datetrunc", "date_trunc"} and len(node.args) == 3:
             unit, value, timezone = (self.visit(arg) for arg in node.args)
             zoned_value = f"at_timezone(with_timezone(CAST({value} AS TIMESTAMP), 'UTC'), {timezone})"
-            return f"date_trunc({unit}, {zoned_value})"
+            truncated = f"date_trunc({unit}, {zoned_value})"
+            if isinstance(node.args[0], ast.Constant) and str(node.args[0].value).lower() in {
+                "year",
+                "quarter",
+                "month",
+                "week",
+            }:
+                return f"CAST({truncated} AS DATE)"
+            return truncated
+        if name in {"datetrunc", "date_trunc"} and len(node.args) == 2:
+            unit, value = (self.visit(arg) for arg in node.args)
+            truncated = f"date_trunc({unit}, {value})"
+            if isinstance(node.args[0], ast.Constant) and str(node.args[0].value).lower() in {
+                "year",
+                "quarter",
+                "month",
+                "week",
+            }:
+                return f"CAST({truncated} AS DATE)"
+            return truncated
         if name == "tostartofday" and len(node.args) == 2:
             value, timezone = (self.visit(arg) for arg in node.args)
             zoned_value = f"at_timezone(with_timezone(CAST({value} AS TIMESTAMP), 'UTC'), {timezone})"
@@ -1628,16 +1675,36 @@ class TrinoPrinter(PostgresPrinter):
             )
         return f"CAST(({self.visit(node.args[0])} / {self.visit(node.args[1])}) AS DECIMAL(38, {scale.value}))"
 
+    def _json_default(self, node: ast.Call, expression: str, default: str) -> str:
+        result = f"coalesce(TRY({expression}), {default})"
+        source_type = self._resolve_type(node.args[0])
+        if source_type is not None and source_type.nullable:
+            return f"IF({self.visit(node.args[0])} IS NULL, NULL, {result})"
+        return result
+
+    @staticmethod
+    def _json_type_default(target: str) -> str:
+        if target.startswith("ARRAY"):
+            return f"CAST(ARRAY[] AS {target})"
+        if target.startswith("MAP"):
+            return f"CAST(map(ARRAY[], ARRAY[]) AS {target})"
+        if target == "VARCHAR":
+            return "''"
+        if target == "BOOLEAN":
+            return "false"
+        return f"CAST(0 AS {target})"
+
     def _visit_json_extract(self, node: ast.Call) -> str:
         name = node.name.lower()
         path: str | None
         if name == "jsonextractarrayraw" and len(node.args) == 1:
             source = self.visit(node.args[0])
             value = self._print_identifier("__hogql_json_value")
-            return (
+            extracted = (
                 f"transform(CAST(json_parse(CAST({source} AS VARCHAR)) AS ARRAY(JSON)), "
                 f"{value} -> json_format({value}))"
             )
+            return self._json_default(node, extracted, "CAST(ARRAY[] AS ARRAY(VARCHAR))")
         if not node.args or (name == "jsonextract" and len(node.args) < 2):
             self._invalid_function_arguments(node, f"{node.name} expects a JSON expression and key path in Trino mode.")
         if name == "jsonextract":
@@ -1654,7 +1721,7 @@ class TrinoPrinter(PostgresPrinter):
                         path = self._dynamic_json_key_path(key)
                     extracted = f"json_extract({extracted}, {path})"
             if name == "jsonextractraw":
-                return f"json_format({extracted})"
+                return self._json_default(node, f"json_format({extracted})", "''")
             scalar = f"json_extract_scalar({extracted}, '$')"
             casts = {
                 "jsonextractint": "BIGINT",
@@ -1663,7 +1730,9 @@ class TrinoPrinter(PostgresPrinter):
                 "jsonextractbool": "BOOLEAN",
             }
             target_type = casts.get(name)
-            return scalar if target_type is None else f"CAST({scalar} AS {target_type})"
+            if target_type is None:
+                return self._json_default(node, scalar, "''")
+            return self._json_default(node, f"CAST({scalar} AS {target_type})", self._json_type_default(target_type))
         path_members: list[str | int] = []
         for key in node.args[1:]:
             if not isinstance(key, ast.Constant) or not isinstance(key.value, (str, int)):
@@ -1681,9 +1750,10 @@ class TrinoPrinter(PostgresPrinter):
         )
         if name == "jsonextractarrayraw":
             value = self._print_identifier("__hogql_json_value")
-            return f"transform(CAST({extracted} AS ARRAY(JSON)), {value} -> json_format({value}))"
+            converted = f"transform(CAST({extracted} AS ARRAY(JSON)), {value} -> json_format({value}))"
+            return self._json_default(node, converted, "CAST(ARRAY[] AS ARRAY(VARCHAR))")
         if name == "jsonextractraw":
-            return f"json_format({extracted})"
+            return self._json_default(node, f"json_format({extracted})", "''")
         scalar = (
             f"json_extract_scalar({extracted}, '$')" if has_array_index else f"json_extract_scalar({source}, {path})"
         )
@@ -1694,7 +1764,9 @@ class TrinoPrinter(PostgresPrinter):
             "jsonextractbool": "BOOLEAN",
         }
         target_type = casts.get(name)
-        return scalar if target_type is None else f"CAST({scalar} AS {target_type})"
+        if target_type is None:
+            return self._json_default(node, scalar, "''")
+        return self._json_default(node, f"CAST({scalar} AS {target_type})", self._json_type_default(target_type))
 
     def _visit_typed_json_extract(self, node: ast.Call) -> str:
         type_arg = node.args[-1]
@@ -1740,12 +1812,14 @@ class TrinoPrinter(PostgresPrinter):
                 if "nullable(" not in type_arg.value.lower():
                     default = "''" if value_type == "VARCHAR" else "false" if value_type == "BOOLEAN" else "0"
                     converted = f"coalesce({converted}, CAST({default} AS {value_type}))"
-                return f"transform_values({raw}, (__hogql_json_key, __hogql_json_value) -> {converted})"
+                result = f"transform_values({raw}, (__hogql_json_key, __hogql_json_value) -> {converted})"
+                return self._json_default(node, result, self._json_type_default(target))
         if extracted:
             value = extracted if target.startswith(("ARRAY", "MAP")) else f"json_extract_scalar({extracted}, '$')"
-            return f"CAST({value} AS {target})"
+            return self._json_default(node, f"CAST({value} AS {target})", self._json_type_default(target))
         extractor = "json_extract" if target.startswith(("ARRAY", "MAP")) else "json_extract_scalar"
-        return f"CAST({extractor}({source}, {path}) AS {target})"
+        converted = f"CAST({extractor}({source}, {path}) AS {target})"
+        return self._json_default(node, converted, self._json_type_default(target))
 
     def _trino_json_type(self, type_name: str, node: ast.Call) -> str:
         normalized = " ".join(type_name.strip().lower().split())
@@ -1802,7 +1876,8 @@ class TrinoPrinter(PostgresPrinter):
             else:
                 raw = f"CAST(json_parse(CAST({source} AS VARCHAR)) AS MAP(VARCHAR, JSON))"
             entry = self._print_identifier("__hogql_json_entry")
-            return f"transform(map_entries({raw}), {entry} -> ROW({entry}[1], json_format({entry}[2])))"
+            result = f"transform(map_entries({raw}), {entry} -> ROW({entry}[1], json_format({entry}[2])))"
+            return self._json_default(node, result, "CAST(ARRAY[] AS ARRAY(ROW(VARCHAR, VARCHAR)))")
         if not node.args:
             self._invalid_function_arguments(node, f"{node.name} expects a JSON expression in Trino mode.")
         source = self.visit(node.args[0])
@@ -1861,8 +1936,8 @@ class TrinoPrinter(PostgresPrinter):
             return f"(json_extract({source}, {path}) IS NOT NULL)"
         if name == "jsonlength":
             if extracted:
-                return f"json_size({extracted}, '$')"
-            return f"json_size({source}, {path})"
+                return self._json_default(node, f"json_size({extracted}, '$')", "0")
+            return self._json_default(node, f"json_size({source}, {path})", "0")
         if name == "jsonextractkeysandvalues":
             raw = (
                 f"CAST({extracted} AS MAP(VARCHAR, JSON))"
@@ -1872,16 +1947,18 @@ class TrinoPrinter(PostgresPrinter):
             value = "__hogql_json_value"
             assert target_type is not None
             converted = self._convert_json_scalar(value, target_type)
-            return (
+            result = (
                 f"filter(map_entries(transform_values({raw}, (__hogql_json_key, {value}) -> {converted})), "
                 "__hogql_entry -> __hogql_entry[2] IS NOT NULL)"
             )
+            default = f"CAST(ARRAY[] AS ARRAY(ROW(VARCHAR, {target_type})))"
+            return self._json_default(node, result, default)
         raw = (
             f"CAST({extracted} AS MAP(VARCHAR, JSON))"
             if extracted
             else f"CAST(json_extract({source}, {path}) AS MAP(VARCHAR, JSON))"
         )
-        return f"map_keys({raw})"
+        return self._json_default(node, f"map_keys({raw})", "CAST(ARRAY[] AS ARRAY(VARCHAR))")
 
     def _visit_json_type(self, node: ast.Call) -> str:
         if not 1 <= len(node.args) <= 6:
@@ -2222,10 +2299,11 @@ class TrinoPrinter(PostgresPrinter):
             }
             origin = origins[normalized_unit]
         if normalized_unit in calendar_units:
-            return (
+            bucket = (
                 f"date_add('month', CAST(floor(date_diff('month', {origin}, {value}) / {width}e0) AS BIGINT) * "
                 f"{width}, {origin})"
             )
+            return f"CAST({bucket} AS DATE)"
         return (
             f"date_add('second', CAST(floor(date_diff('second', {origin}, {value}) / {width}e0) AS BIGINT) * "
             f"{width}, {origin})"
@@ -3170,6 +3248,79 @@ class TrinoPrinter(PostgresPrinter):
             result = f"IF(cardinality(__hogql_weighted_rows) = 0, NULL, {result})"
         return f"element_at(transform(ARRAY[{rows}], __hogql_weighted_rows -> {result}), 1)"
 
+    def _visit_percentile_within_group(self, node: ast.Call, *, continuous: bool) -> str:
+        if (
+            len(node.params or []) != 1
+            or node.args
+            or len(node.within_group or []) != 1
+            or node.distinct
+            or node.order_by
+        ):
+            self._invalid_function_arguments(node, f"{node.name} requires one percentile and one ordering expression.")
+        percentile = (node.params or [])[0]
+        if (
+            not isinstance(percentile, ast.Constant)
+            or isinstance(percentile.value, bool)
+            or not isinstance(percentile.value, (int, float))
+            or not 0 <= percentile.value <= 1
+        ):
+            self._invalid_function_arguments(node, f"{node.name} requires a constant percentile between zero and one.")
+        ordering = (node.within_group or [])[0]
+        value = self.visit(ordering.expr)
+        aggregate_filter = (
+            f" FILTER (WHERE {self._visit_predicate(node.filter_expr)})" if node.filter_expr is not None else ""
+        )
+        item = f"CAST({value} AS DOUBLE)" if continuous else value
+        values = f"filter(array_agg({item}){aggregate_filter}, __hogql_percentile_value -> __hogql_percentile_value IS NOT NULL)"
+        values = f"array_sort({values})"
+        if ordering.order == "DESC":
+            values = f"reverse({values})"
+        count = "cardinality(__hogql_percentile_values)"
+        if continuous:
+            position = f"DOUBLE '{percentile.value}' * ({count} - 1) + 1"
+            lower = f"element_at(__hogql_percentile_values, CAST(floor({position}) AS BIGINT))"
+            upper = f"element_at(__hogql_percentile_values, CAST(ceil({position}) AS BIGINT))"
+            result = f"{lower} + ({position} - floor({position})) * ({upper} - {lower})"
+        else:
+            index = f"greatest(CAST(ceil(DOUBLE '{percentile.value}' * {count}) AS BIGINT), 1)"
+            result = f"element_at(__hogql_percentile_values, {index})"
+        return (
+            f"element_at(transform(ARRAY[{values}], __hogql_percentile_values -> IF({count} = 0, NULL, {result})), 1)"
+        )
+
+    def _visit_sample_statistic(self, node: ast.Call) -> str:
+        name = node.name.lower()
+        filtered = name.endswith("if")
+        base_name = name[:-2] if filtered else name
+        targets = {
+            "stddevsamp": "stddev_samp",
+            "varsamp": "var_samp",
+            "covarsamp": "covar_samp",
+            "corr": "corr",
+        }
+        argument_count = 2 if base_name in {"covarsamp", "corr"} else 1
+        if len(node.args) != argument_count + int(filtered) or node.params or node.distinct or node.order_by:
+            self._invalid_function_arguments(node, f"{node.name} has unsupported arguments in Trino mode.")
+        value_nodes = node.args[:argument_count]
+        value_types = [self._resolve_type(argument) for argument in value_nodes]
+        if any(not isinstance(value_type, (ast.IntegerType, ast.FloatType)) for value_type in value_types):
+            self._invalid_function_arguments(node, f"{node.name} requires numeric arguments in Trino mode.")
+        values = [self.visit(argument) for argument in value_nodes]
+        predicates = [self._visit_predicate(node.args[-1])] if filtered else []
+        if node.filter_expr is not None:
+            predicates.append(self._visit_predicate(node.filter_expr))
+        filter_sql = (
+            f" FILTER (WHERE {' AND '.join(f'({predicate})' for predicate in predicates)})" if predicates else ""
+        )
+        result = f"{targets[base_name]}({', '.join(values)}){filter_sql}"
+        result = f"coalesce({result}, CAST('NaN' AS DOUBLE))"
+        if any(value_type.nullable for value_type in value_types if value_type is not None):
+            present = " AND ".join(f"{value} IS NOT NULL" for value in values)
+            if predicates:
+                present += " AND " + " AND ".join(f"({predicate})" for predicate in predicates)
+            result = f"IF(count_if({present}) = 0, NULL, {result})"
+        return result
+
     def _visit_statistical_aggregate(self, node: ast.Call, *, over: str = "") -> str:
         name = node.name.lower()
         filtered = name.endswith("if")
@@ -3731,7 +3882,8 @@ class TrinoPrinter(PostgresPrinter):
             )
         path_value = path.value if path.value.lstrip().startswith(("lax ", "strict ")) else f"lax {path.value}"
         path_literal = "'" + path_value.replace("'", "''") + "'"
-        return f"json_value({self.visit(node.args[0])}, {path_literal})"
+        result = f"json_value({self.visit(node.args[0])}, {path_literal})"
+        return self._json_default(node, result, "''")
 
     def _print_table_sql(self, table: "Table") -> str:
         return self._print_table(table)
