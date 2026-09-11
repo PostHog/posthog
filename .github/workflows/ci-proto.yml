@@ -43,7 +43,7 @@ jobs:
                         - 'proto/**'
                         - 'posthog/personhog_client/proto/generated/**'
                         - 'bin/generate_personhog_proto.sh'
-                        - 'bin/relativize_proto_imports.py'
+                        - 'bin/helpers/relativize_proto_imports.py'
                         - 'nodejs/src/common/generated/personhog/**'
                         - 'nodejs/src/common/generated/ingestion-worker/**'
                         - 'nodejs/buf.gen.yaml'
@@ -125,10 +125,7 @@ jobs:
                   enable-cache: 'false'
 
             - name: Install codegen tools from the lock
-              run: |
-                  uv export --frozen --no-hashes --no-emit-project --all-groups --output-file /tmp/locked.txt
-                  grep -E '^(grpcio|grpcio-tools|protobuf|ruff)==' /tmp/locked.txt > /tmp/codegen.txt
-                  pip install -r /tmp/codegen.txt
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --no-install-project --only-group proto-codegen
 
             - name: Regenerate Python proto stubs
               run: bash bin/generate_personhog_proto.sh

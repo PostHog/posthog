@@ -5831,6 +5831,10 @@ dev = [
 hogql-parser-parity = [
     { name = "shrinkray" },
 ]
+proto-codegen = [
+    { name = "grpcio-tools" },
+    { name = "ruff" },
+]
 sentiment = [
     { name = "optimum", extra = ["onnxruntime"] },
     { name = "torch" },
@@ -6109,6 +6113,10 @@ dev = [
     { name = "watchdog", specifier = "==5.0.3" },
 ]
 hogql-parser-parity = [{ name = "shrinkray", specifier = "==26.4.14.0" }]
+proto-codegen = [
+    { name = "grpcio-tools", specifier = "~=1.71.0" },
+    { name = "ruff", specifier = "~=0.15.20" },
+]
 sentiment = [
     { name = "optimum", extras = ["onnxruntime"], specifier = "~=1.25.0" },
     { name = "torch", specifier = "~=2.9.0" },

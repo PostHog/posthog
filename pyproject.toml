@@ -295,6 +295,10 @@ sentiment = [
 hogql-parser-parity = [
     "shrinkray==26.4.14.0",
 ]
+proto-codegen = [
+    "grpcio-tools~=1.71.0",
+    "ruff~=0.15.20",
+]
 
 [tool.uv]
 required-version = ">=0.10.2"

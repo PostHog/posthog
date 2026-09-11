@@ -6,12 +6,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROTO_DIR="$REPO_ROOT/proto"
 OUT_DIR="$REPO_ROOT/posthog/personhog_client/proto/generated"
 
-for cmd in grpc_tools; do
-    if ! python -c "import $cmd" &>/dev/null; then
-        echo "Error: $cmd is not installed. Run: uv sync" >&2
-        exit 1
-    fi
-done
+python -c "import grpc_tools" 2>/dev/null || { echo "Error: grpcio-tools is not installed. Run: uv sync" >&2; exit 1; }
 
 echo "Cleaning old generated files..."
 rm -rf "$OUT_DIR"
@@ -28,7 +23,7 @@ python -m grpc_tools.protoc \
     "${PROTO_FILES[@]}"
 
 echo "Rewriting imports as relative..."
-python "$SCRIPT_DIR/relativize_proto_imports.py" "$OUT_DIR"
+python "$SCRIPT_DIR/helpers/relativize_proto_imports.py" "$OUT_DIR"
 
 echo "Linting and formatting generated files..."
 ruff check --fix --quiet "$OUT_DIR"
