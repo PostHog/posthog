@@ -65,7 +65,7 @@ _SHARED_NOTEBOOK_MARKDOWN_COMPONENT_PROP_TYPES: dict[str, dict[str, type | tuple
 }
 
 _MARKDOWN_COMPONENT_START_REGEX = re.compile(r"^<[A-Z][A-Za-z0-9]*(\s|>|/)")
-_MARKDOWN_COMPONENT_TAG_REGEX = re.compile(r"^<([A-Z][A-Za-z0-9]*)([\s\S]*?)(?:/>|>[\s\S]*</\1>)$")
+_MARKDOWN_COMPONENT_TAG_NAME_REGEX = re.compile(r"<([A-Z][A-Za-z0-9]*)")
 _MARKDOWN_COMPONENT_PROP_NAME_REGEX = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)")
 _MARKDOWN_COMPONENT_RAW_PROP_VALUE_REGEX = re.compile(r"^([^\s/>]+)")
 _MARKDOWN_COMPONENT_NUMBER_REGEX = re.compile(r"^-?\d+(\.\d+)?$")
@@ -405,7 +405,7 @@ def _read_markdown_component_block(lines: list[str], line_index: int) -> tuple[s
     if recover_escaped_source and scan.next_line_index <= line_index + 1:
         return None
     if not scan.found_terminator:
-        if _MARKDOWN_COMPONENT_TAG_REGEX.match(first_line):
+        if _extract_markdown_component_prop_source(first_line) is not None:
             return tag_name, first_line, line_index + 1
         return None
 
@@ -546,13 +546,36 @@ def _advance_markdown_component_expression(state: _MarkdownComponentScanState, c
         state.expression_depth -= 1
 
 
+def _extract_markdown_component_prop_source(raw: str) -> str | None:
+    # A final newline is allowed by the component grammar's end anchor.
+    raw = raw.removesuffix("\n")
+    match = _MARKDOWN_COMPONENT_TAG_NAME_REGEX.match(raw)
+    if match is None:
+        return None
+    if raw.endswith("/>"):
+        return raw[match.end() : -2]
+    if not raw.endswith(">"):
+        return None
+    closing_start = raw.rfind("</")
+    if closing_start == -1:
+        return None
+    closing_name = raw[closing_start + 2 : -1]
+    # Malformed tags can end the opening name early when the closing name is a prefix.
+    if not closing_name or not match.group(1).startswith(closing_name):
+        return None
+    props_start = 1 + len(closing_name)
+    opening_end = raw.find(">", props_start, closing_start)
+    if opening_end == -1:
+        return None
+    return raw[props_start:opening_end]
+
+
 def _parse_markdown_component_props(raw: str) -> dict[str, Any]:
-    match = _MARKDOWN_COMPONENT_TAG_REGEX.match(raw)
-    if not match:
+    source = _extract_markdown_component_prop_source(raw)
+    if source is None:
         return {}
 
     props: dict[str, Any] = {}
-    source = match.group(2) or ""
     index = 0
     while index < len(source):
         index = _skip_markdown_component_whitespace(source, index)
