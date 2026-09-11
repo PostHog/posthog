@@ -24894,6 +24894,10 @@ class AccountsQuery(BaseModel):
         default=None,
         description="Match accounts with no active relationship of any definition.",
     )
+    assignedOnly: bool | None = Field(
+        default=None,
+        description=("Match accounts with at least one active relationship of any definition."),
+    )
     assignedToUserIds: list[int] | None = Field(
         default=None,
         description=(
