@@ -7,6 +7,7 @@ import {
     deriveRunOutcome,
     expensiveRunCostThreshold,
     formatRunCost,
+    filedOrAddedLabel,
     groupScoutRuns,
     mostRecentEmittedRuns,
     rosterRunCosts,
@@ -208,6 +209,12 @@ describe('scoutRunsWindow report channel', () => {
             ['no report activity', {}, null],
         ])('%s', (_name, overrides, expected) => {
             expect(scoutRunReportLabel(makeRun(overrides))).toEqual(expected)
+        })
+
+        // The header strip shares this label, and hands it the rollup's deduped id sets rather
+        // than one run's arrays.
+        it('takes id sets, and drops a filed report from the added-to count', () => {
+            expect(filedOrAddedLabel(new Set(['r-1']), new Set(['r-1', 'r-2']))).toEqual('Filed 1 · added to 1')
         })
     })
 

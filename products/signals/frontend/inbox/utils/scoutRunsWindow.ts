@@ -355,16 +355,15 @@ export function scoutRunOutcomeLabel(run: SignalScoutRunSummary, now: Date): str
 }
 
 /**
- * How a run touched reports, in the words the page uses everywhere else: "Filed 1 report",
- * "Filed 1 · added to 4", "Added to 2 reports". Returns null when the run touched no report.
+ * How reports were touched, in the words the page uses everywhere else: "Filed 1 report",
+ * "Filed 1 · added to 4", "Added to 2 reports". Returns null when no report was touched.
  *
- * A report the run both filed and later edited counts once, as filed — the same derivation the
- * header health strip uses, so a row and the strip never disagree.
+ * A report both filed and later edited counts once, as filed. The run rows and the header health
+ * strip both come through here, so the two cannot word the same activity differently.
  */
-export function scoutRunReportLabel(run: SignalScoutRunSummary): string | null {
-    const { authored, edited } = runReportActivity(run)
+export function filedOrAddedLabel(authored: Iterable<string>, edited: Iterable<string>): string | null {
     const authoredIds = new Set(authored)
-    const addedTo = edited.filter((id) => !authoredIds.has(id))
+    const addedTo = [...edited].filter((id) => !authoredIds.has(id))
     if (authoredIds.size === 0) {
         return addedTo.length > 0 ? `Added to ${pluralize(addedTo.length, 'report')}` : null
     }
@@ -372,6 +371,12 @@ export function scoutRunReportLabel(run: SignalScoutRunSummary): string | null {
         return `Filed ${pluralize(authoredIds.size, 'report')}`
     }
     return `Filed ${authoredIds.size} · added to ${addedTo.length}`
+}
+
+/** What one run did in the report channel. */
+export function scoutRunReportLabel(run: SignalScoutRunSummary): string | null {
+    const { authored, edited } = runReportActivity(run)
+    return filedOrAddedLabel(authored, edited)
 }
 
 /**

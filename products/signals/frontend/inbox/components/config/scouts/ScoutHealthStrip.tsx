@@ -10,7 +10,7 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutCostLineParts, scoutCostWindowLabel } from '../../../utils/scoutCosts'
 import { nextRunAt, scoutGroup } from '../../../utils/scoutGroups'
-import { ScoutRollup, SCOUT_RUNS_PER_SCOUT_LABEL } from '../../../utils/scoutRunsWindow'
+import { filedOrAddedLabel, ScoutRollup, SCOUT_RUNS_PER_SCOUT_LABEL } from '../../../utils/scoutRunsWindow'
 import { ScoutStatusTag } from './ScoutBadges'
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
@@ -59,10 +59,8 @@ export function ScoutHealthStrip({
     const runs = rollup?.runs ?? []
     const failed = rollup?.failedCount ?? 0
     const costRollup = scoutCostRollups.get(config.skill_name)
-    // A report the scout filed and later edited counts once, as filed — adding it to both reads as
-    // two reports.
-    const authoredIds = rollup?.authoredReportIds ?? new Set<string>()
-    const addedTo = [...(rollup?.editedReportIds ?? [])].filter((id) => !authoredIds.has(id)).length
+    // Shared with the run rows, so the strip cannot word the same report activity differently.
+    const reportLabel = filedOrAddedLabel(rollup?.authoredReportIds ?? [], rollup?.editedReportIds ?? [])
     // Only an enabled scout has a next run; a paused one would otherwise carry an empty dash.
     const hasNextRun = nextRunAt(config, currentTeam?.timezone ?? 'UTC', now) !== null
 
@@ -97,15 +95,11 @@ export function ScoutHealthStrip({
                 )}
             </Segment>
 
-            {(authoredIds.size > 0 || addedTo > 0) && (
+            {reportLabel && (
                 <Segment
                     tooltip={`Inbox reports this scout filed or added to in the ${SCOUT_RUNS_PER_SCOUT_LABEL}. A report it filed and later edited counts once, as filed.`}
                 >
-                    <span className="whitespace-nowrap tabular-nums">
-                        {authoredIds.size > 0 && `${pluralize(authoredIds.size, 'report')} filed`}
-                        {authoredIds.size > 0 && addedTo > 0 && ' · '}
-                        {addedTo > 0 && `${addedTo} added to`}
-                    </span>
+                    <span className="whitespace-nowrap tabular-nums">{reportLabel}</span>
                 </Segment>
             )}
 
