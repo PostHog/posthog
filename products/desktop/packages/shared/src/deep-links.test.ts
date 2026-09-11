@@ -3,11 +3,39 @@ import {
   buildInboxDeeplink,
   buildLoopDeeplink,
   buildScoutDeeplink,
+  buildTaskShareUrl,
   decodePlanBase64,
   getDeeplinkProtocol,
   isPostHogCodeDeeplink,
   parseGitHubIssueUrl,
 } from "./deep-links";
+
+describe("buildTaskShareUrl", () => {
+  it.each([
+    [
+      "https://us.posthog.com",
+      "task-1",
+      "https://us.posthog.com/code/task/task-1",
+    ],
+    [
+      "https://eu.posthog.com/",
+      "task-2",
+      "https://eu.posthog.com/code/task/task-2",
+    ],
+    [
+      "http://localhost:8000/",
+      "task/3",
+      "http://localhost:8000/code/task/task%2F3",
+    ],
+    [undefined, "task-1", null],
+    ["https://us.posthog.com", undefined, null],
+    ["not a URL", "task-1", null],
+    ["javascript:alert(1)", "task-1", null],
+    ["https://user:secret@example.com", "task-1", null],
+  ])("builds a share link from %s and %s", (apiHost, taskId, expected) => {
+    expect(buildTaskShareUrl(apiHost, taskId)).toBe(expected);
+  });
+});
 
 describe("getDeeplinkProtocol", () => {
   it("returns the dev or production scheme", () => {

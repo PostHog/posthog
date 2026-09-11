@@ -2,6 +2,26 @@ const DEEPLINK_PROTOCOL_PRODUCTION = "posthog-code";
 const DEEPLINK_PROTOCOL_DEVELOPMENT = "posthog-code-dev";
 const DEEPLINK_PROTOCOL_TEST = "posthog-code-test";
 
+export function buildTaskShareUrl(
+  apiHost: string | null | undefined,
+  taskId: string | null | undefined,
+): string | null {
+  if (!apiHost || !taskId) return null;
+  try {
+    const base = new URL(apiHost);
+    if (
+      !["https:", "http:"].includes(base.protocol) ||
+      base.username ||
+      base.password
+    ) {
+      return null;
+    }
+    return new URL(`/code/task/${encodeURIComponent(taskId)}`, base).href;
+  } catch {
+    return null;
+  }
+}
+
 // The renderer cannot see app.isPackaged, so the test channel rides in the
 // baked vite env. In plain node (harness, tests) import.meta.env is unset.
 function isTestChannelBuild(): boolean {

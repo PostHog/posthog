@@ -96,6 +96,11 @@ posthog-code://task/abc123?comment=thread-1&scope=desktop_canvas&item=canvas-9
 
 An **https** bridge also exists for links sent outside the app (e.g. comment Slack DMs): `<instance>/code/task/<taskId>` resolves to a web interstitial in PostHog Cloud, which fires this scheme — forwarding the `comment`, `scope`, and `item` params — or offers the desktop-app download.
 
+Pull request attribution links use `<instance>/code/task/<taskId>` when the task and instance are known.
+This applies to agent-created pull requests and the desktop pull request action.
+Slack thread and inbox report links keep their existing destinations.
+The product website remains the fallback when no task link is available.
+
 ### `posthog-code://inbox[/<reportId>]`
 
 Open Self-driving, or a specific report inside it.
