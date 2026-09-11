@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { type ComponentProps } from 'react'
 
 import { IconChevronDown, IconClock } from '@posthog/icons'
 import { LemonTag, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
@@ -12,38 +12,18 @@ import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api
 
 import { scratchpadLogic } from '../../logics/scratchpadLogic'
 import { stripScoutPrefix } from '../../utils/scoutRunsWindow'
-
-type LemonTagType = ComponentProps<typeof LemonTag>['type']
-
-// The key prefix (everything before the first colon) encodes the note's *kind* — what the scout
-// was doing when it wrote it. Surface it as a colored tag so the list scans at a glance.
-const KIND_TAG_TYPE: Record<string, LemonTagType> = {
-    pattern: 'highlight',
-    dedupe: 'muted',
-    noise: 'muted',
-    baseline: 'success',
-    watch: 'warning',
-    watchlist: 'warning',
-    coverage: 'completion',
-    emerging: 'primary',
-    explore: 'option',
-    tags: 'option',
-    recheck: 'caution',
-}
-
-function splitKey(key: string): { kind: string | null; body: string } {
-    const idx = key.indexOf(':')
-    return idx > 0 ? { kind: key.slice(0, idx), body: key.slice(idx + 1) } : { kind: null, body: key }
-}
+import { KIND_TAG_TYPE, scratchpadKindOf } from '../../utils/scratchpadKeys'
 
 /**
- * One scratchpad entry the scout fleet has written about this project. Shares the collapse/expand
- * grammar of the scout emission cards: a header (chevron · kind · key · updated time) that stays
- * visible, a 2-line raw-text preview when collapsed, the full body plus an attribution footer
- * (which scout created it, when, and how long it's been carried forward) when open.
+ * One scratchpad entry, as the scout page's memory panel shows it. Shares the collapse/expand
+ * grammar of the scout emission cards: a header (chevron · kind · key · expiry · updated time) that
+ * stays visible, a 2-line preview when collapsed, the full body plus an attribution footer (which
+ * scout created it, when, and how long it's been carried forward) when open.
  *
  * The list only carries previews, so a long entry's tail arrives on expand — until it lands, the
  * preview stays on screen with a skeleton under it rather than the card going blank.
+ *
+ * The fleet-wide panel uses a ledger table instead; this card is the compact per-scout shape.
  */
 export function ScratchpadEntryCard({ entry }: { entry: ScratchpadEntryApi }): JSX.Element {
     const { expandedKeys, fullContentByKey, loadingContentKeys } = useValues(scratchpadLogic)
@@ -54,7 +34,8 @@ export function ScratchpadEntryCard({ entry }: { entry: ScratchpadEntryApi }): J
     // `hasOwn` guards against a key like `constructor` resolving to an inherited prototype value.
     const content = Object.hasOwn(fullContentByKey, entry.key) ? fullContentByKey[entry.key] : entry.content
 
-    const { kind, body } = splitKey(entry.key)
+    const kind = scratchpadKindOf(entry.key)
+    const body = kind ? entry.key.slice(kind.length + 1) : entry.key
     const scoutName = entry.created_by_skill ? stripScoutPrefix(entry.created_by_skill) : null
 
     // How long the note has been carried forward: a fresh creation reads ~0 days; a large gap
@@ -80,6 +61,13 @@ export function ScratchpadEntryCard({ entry }: { entry: ScratchpadEntryApi }): J
                 )}
                 <span className="truncate font-mono text-xs text-primary">{body}</span>
                 <span className="flex-1" />
+                {/* Most memories are durable, so an expiry is the exception worth calling out on the
+                    row itself — a memory about to lapse should not look identical to one that holds. */}
+                {entry.expires_at && (
+                    <span className="whitespace-nowrap text-[11px] text-warning">
+                        exp {dayjs(entry.expires_at).format('D MMM')}
+                    </span>
+                )}
                 {entry.updated_at && (
                     <span className="flex items-center gap-1 whitespace-nowrap text-[11px] text-muted">
                         <IconClock className="size-3" />
@@ -90,11 +78,13 @@ export function ScratchpadEntryCard({ entry }: { entry: ScratchpadEntryApi }): J
 
             <div className="px-3 pb-2 pl-9">
                 {content ? (
-                    <pre
-                        className={`m-0 whitespace-pre-wrap break-words font-mono text-xs text-primary ${expanded ? '' : 'line-clamp-2'}`}
+                    <LemonMarkdown
+                        lowKeyHeadings
+                        disableImages="all"
+                        className={`text-xs ${expanded ? '' : 'line-clamp-2'}`}
                     >
                         {content}
-                    </pre>
+                    </LemonMarkdown>
                 ) : (
                     <span className="text-xs italic text-muted">No content.</span>
                 )}
@@ -107,9 +97,11 @@ export function ScratchpadEntryCard({ entry }: { entry: ScratchpadEntryApi }): J
                         {maintainedDays >= 1 && (
                             <span>· carried forward {maintainedDays === 1 ? '1 day' : `${maintainedDays} days`}</span>
                         )}
-                        {/* Most memories are durable, so an expiry is the exception worth calling out —
-                            without it a reader can't tell why an entry they remember has stopped showing up. */}
-                        {entry.expires_at && <span>· expires {humanFriendlyDetailedTime(entry.expires_at)}</span>}
+                        {entry.expires_at ? (
+                            <span>· expires {humanFriendlyDetailedTime(entry.expires_at)}</span>
+                        ) : (
+                            <span>· durable, no expiry</span>
+                        )}
                         <span className="flex-1" />
                         {(scoutName || entry.created_by_run_id) && (
                             <span className="shrink-0">
