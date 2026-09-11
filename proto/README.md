@@ -45,7 +45,7 @@ proto/
 bin/generate_personhog_proto.sh
 ```
 
-Only needed when `personhog/` protos change. Requires `grpcio-tools` and `protoletariat` (`uv sync`).
+Only needed when `personhog/` protos change. Requires `grpcio-tools` (`uv sync`).
 
 If you added or removed **message types**, update the re-exports in `posthog/personhog_client/proto/__init__.py`.
 If you added or removed **RPCs**, update the wrapper methods in `posthog/personhog_client/client.py`.

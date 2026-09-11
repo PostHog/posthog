@@ -1038,6 +1038,10 @@ tools:
         bin_script: generate_personhog_proto.sh
         description: 'TODO: add description for generate_personhog_proto.sh'
         hidden: true
+    relativize_proto_imports:
+        bin_script: relativize_proto_imports.py
+        description: 'Rewrite protoc output to relative imports and add package inits'
+        hidden: true
     phrocs:build:
         cmd: cd tools/phrocs && make build
         description: Build the phrocs binary from source

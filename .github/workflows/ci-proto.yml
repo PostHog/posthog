@@ -120,7 +120,7 @@ jobs:
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install codegen tools
-              run: pip install grpcio-tools protoletariat ruff
+              run: pip install grpcio-tools ruff
 
             - name: Regenerate Python proto stubs
               run: bash bin/generate_personhog_proto.sh

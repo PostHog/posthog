@@ -6,7 +6,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROTO_DIR="$REPO_ROOT/proto"
 OUT_DIR="$REPO_ROOT/posthog/personhog_client/proto/generated"
 
-for cmd in grpc_tools protoletariat; do
+for cmd in grpc_tools; do
     if ! python -c "import $cmd" &>/dev/null; then
         echo "Error: $cmd is not installed. Run: uv sync" >&2
         exit 1
@@ -27,19 +27,8 @@ python -m grpc_tools.protoc \
     --grpc_python_out="$OUT_DIR" \
     "${PROTO_FILES[@]}"
 
-echo "Rewriting imports with protoletariat..."
-FDSET=$(mktemp)
-python -m grpc_tools.protoc \
-    --proto_path="$PROTO_DIR" \
-    --descriptor_set_out="$FDSET" \
-    --include_imports \
-    "${PROTO_FILES[@]}"
-protol \
-    --create-package \
-    --in-place \
-    --python-out "$OUT_DIR" \
-    raw "$FDSET"
-rm -f "$FDSET"
+echo "Rewriting imports as relative..."
+python "$SCRIPT_DIR/relativize_proto_imports.py" "$OUT_DIR"
 
 echo "Linting and formatting generated files..."
 ruff check --fix --quiet "$OUT_DIR"

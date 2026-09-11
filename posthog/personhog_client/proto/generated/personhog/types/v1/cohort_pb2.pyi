@@ -23,7 +23,6 @@ class CohortMembership(_message.Message):
     IS_MEMBER_FIELD_NUMBER: _ClassVar[int]
     cohort_id: int
     is_member: bool
-
     def __init__(self, cohort_id: _Optional[int] = ..., is_member: bool = ...) -> None: ...
 
 class CheckCohortMembershipRequest(_message.Message):
@@ -34,7 +33,6 @@ class CheckCohortMembershipRequest(_message.Message):
     person_id: int
     cohort_ids: _containers.RepeatedScalarFieldContainer[int]
     read_options: _common_pb2.ReadOptions
-
     def __init__(
         self,
         person_id: _Optional[int] = ...,
@@ -46,7 +44,6 @@ class CohortMembershipResponse(_message.Message):
     __slots__ = ("memberships",)
     MEMBERSHIPS_FIELD_NUMBER: _ClassVar[int]
     memberships: _containers.RepeatedCompositeFieldContainer[CohortMembership]
-
     def __init__(self, memberships: _Optional[_Iterable[_Union[CohortMembership, _Mapping]]] = ...) -> None: ...
 
 class CountCohortMembersRequest(_message.Message):
@@ -55,7 +52,6 @@ class CountCohortMembersRequest(_message.Message):
     READ_OPTIONS_FIELD_NUMBER: _ClassVar[int]
     cohort_ids: _containers.RepeatedScalarFieldContainer[int]
     read_options: _common_pb2.ReadOptions
-
     def __init__(
         self,
         cohort_ids: _Optional[_Iterable[int]] = ...,
@@ -66,7 +62,6 @@ class CountCohortMembersResponse(_message.Message):
     __slots__ = ("count",)
     COUNT_FIELD_NUMBER: _ClassVar[int]
     count: int
-
     def __init__(self, count: _Optional[int] = ...) -> None: ...
 
 class DeleteCohortMemberRequest(_message.Message):
@@ -75,14 +70,12 @@ class DeleteCohortMemberRequest(_message.Message):
     PERSON_ID_FIELD_NUMBER: _ClassVar[int]
     cohort_id: int
     person_id: int
-
     def __init__(self, cohort_id: _Optional[int] = ..., person_id: _Optional[int] = ...) -> None: ...
 
 class DeleteCohortMemberResponse(_message.Message):
     __slots__ = ("deleted",)
     DELETED_FIELD_NUMBER: _ClassVar[int]
     deleted: bool
-
     def __init__(self, deleted: bool = ...) -> None: ...
 
 class DeleteCohortMembersBulkRequest(_message.Message):
@@ -91,14 +84,12 @@ class DeleteCohortMembersBulkRequest(_message.Message):
     BATCH_SIZE_FIELD_NUMBER: _ClassVar[int]
     cohort_ids: _containers.RepeatedScalarFieldContainer[int]
     batch_size: int
-
     def __init__(self, cohort_ids: _Optional[_Iterable[int]] = ..., batch_size: _Optional[int] = ...) -> None: ...
 
 class DeleteCohortMembersBulkResponse(_message.Message):
     __slots__ = ("deleted_count",)
     DELETED_COUNT_FIELD_NUMBER: _ClassVar[int]
     deleted_count: int
-
     def __init__(self, deleted_count: _Optional[int] = ...) -> None: ...
 
 class InsertCohortMembersRequest(_message.Message):
@@ -109,7 +100,6 @@ class InsertCohortMembersRequest(_message.Message):
     cohort_id: int
     person_ids: _containers.RepeatedScalarFieldContainer[int]
     version: int
-
     def __init__(
         self,
         cohort_id: _Optional[int] = ...,
@@ -121,7 +111,6 @@ class InsertCohortMembersResponse(_message.Message):
     __slots__ = ("inserted_count",)
     INSERTED_COUNT_FIELD_NUMBER: _ClassVar[int]
     inserted_count: int
-
     def __init__(self, inserted_count: _Optional[int] = ...) -> None: ...
 
 class ListCohortMemberIdsRequest(_message.Message):
@@ -134,7 +123,6 @@ class ListCohortMemberIdsRequest(_message.Message):
     cursor: int
     limit: int
     read_options: _common_pb2.ReadOptions
-
     def __init__(
         self,
         cohort_id: _Optional[int] = ...,
@@ -149,5 +137,4 @@ class ListCohortMemberIdsResponse(_message.Message):
     NEXT_CURSOR_FIELD_NUMBER: _ClassVar[int]
     person_ids: _containers.RepeatedScalarFieldContainer[int]
     next_cursor: int
-
     def __init__(self, person_ids: _Optional[_Iterable[int]] = ..., next_cursor: _Optional[int] = ...) -> None: ...
