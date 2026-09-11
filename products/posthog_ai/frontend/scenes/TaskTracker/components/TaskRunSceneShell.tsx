@@ -124,6 +124,7 @@ export function TaskRunSceneShell({
 
                     <header className={cn('flex flex-col gap-y-2', taskError && 'mt-4')}>
                         <SceneTitleSection
+                            className="-mt-2"
                             name={task?.title || 'Task'}
                             description={null}
                             resourceType={{ type: 'task' }}
