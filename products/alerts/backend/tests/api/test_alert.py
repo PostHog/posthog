@@ -1151,6 +1151,41 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 "alert name",
                 True,
             ),
+            (
+                "unchanged_interval_preserves_schedule",
+                {"calculation_interval": "weekly"},
+                status.HTTP_200_OK,
+                "weekly",
+                "alert name",
+                False,
+            ),
+            (
+                "condition_change_resets_schedule",
+                {
+                    "condition": {"type": AlertConditionType.RELATIVE_INCREASE},
+                    "threshold": {"configuration": {"type": InsightThresholdType.PERCENTAGE, "bounds": {"upper": 100}}},
+                },
+                status.HTTP_200_OK,
+                "weekly",
+                "alert name",
+                True,
+            ),
+            (
+                "config_change_resets_schedule",
+                {"config": {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": True}},
+                status.HTTP_200_OK,
+                "weekly",
+                "alert name",
+                True,
+            ),
+            (
+                "skip_weekend_change_resets_schedule",
+                {"skip_weekend": True},
+                status.HTTP_200_OK,
+                "weekly",
+                "alert name",
+                True,
+            ),
         ]
     )
     def test_patch_calculation_interval(
@@ -1171,6 +1206,12 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "name": "alert name",
             "calculation_interval": "weekly",
         }
+        if "condition" in patch_payload:
+            time_series_insight_data = deepcopy(self.default_insight_data)
+            time_series_insight_data["query"]["trendsFilter"] = {"display": "ActionsLineGraph"}
+            creation_request["insight"] = self.client.post(
+                f"/api/projects/{self.team.id}/insights", data=time_series_insight_data
+            ).json()["id"]
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
         assert alert["calculation_interval"] == "weekly"
         scheduled_check = datetime(2027, 1, 1, tzinfo=UTC)
@@ -1187,7 +1228,11 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             assert response.json()["name"] == expected_name
 
         persisted_alert = AlertConfiguration.objects.get(id=alert["id"])
-        assert persisted_alert.next_check_at == (None if clears_next_check else scheduled_check)
+        if clears_next_check:
+            assert persisted_alert.next_check_at is not None
+            assert persisted_alert.next_check_at <= datetime.now(UTC)
+        else:
+            assert persisted_alert.next_check_at == scheduled_check
 
     @parameterized.expand(
         [
