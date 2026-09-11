@@ -25,11 +25,18 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_trino_identifier
+from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.helpers.timestamp_visitor import is_time_or_interval_constant
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.printer.trino_functions import (
+    TRINO_FUNCTION_HANDLERS_LOWER,
+    TRINO_FUNCTION_RENAMES_LOWER,
+    TRINO_PASSTHROUGH_FUNCTIONS,
+)
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.transpiler import TrinoTranspilerInput, transpile_prepared_hogql_to_trino
+from posthog.hogql.transforms.trino.validate import _SPECIAL_CALLS
 from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
 from posthog.schema_enums import PersonsOnEventsMode
@@ -397,6 +404,73 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("_toUInt64(created_at)", 'CAST(to_unixtime("users"."created_at") AS BIGINT)'),
         ("encodeURLComponent(user_id)", 'url_encode("users"."user_id")'),
         ("in(user_id, tuple('one'))", '("users"."user_id" IN (%(hogql_val_0)s))'),
+        ("max2(1, 2)", "greatest(1, 2)"),
+        ("min2(1, 2)", "least(1, 2)"),
+        ("positiveModulo(-3, 2)", "mod(mod(-3, 2) + 2, 2)"),
+        ("arrayPopFront([1, 2])", "slice(ARRAY[1, 2], 2, greatest(cardinality(ARRAY[1, 2]) - 1, 0))"),
+        ("arrayPopBack([1, 2])", "slice(ARRAY[1, 2], 1, greatest(cardinality(ARRAY[1, 2]) - 1, 0))"),
+        ("arrayPushFront([1], 2)", "concat(ARRAY[2], ARRAY[1])"),
+        ("arrayPushBack([1], 2)", "concat(ARRAY[1], ARRAY[2])"),
+        ("arrayDifference([1, 3])", "ARRAY[1, 3][__hogql_index] - ARRAY[1, 3][__hogql_index - 1]"),
+        ("arrayUniq([1, 1, 2])", "cardinality(array_distinct(ARRAY[1, 1, 2]))"),
+        ("arrayWithConstant(2, 7)", "repeat(7, CAST(2 AS BIGINT))"),
+        ("base64Encode(user_id)", 'to_base64(to_utf8("users"."user_id"))'),
+        ("base64Decode(user_id)", 'from_utf8(from_base64("users"."user_id"))'),
+        ("ascii(user_id)", 'from_base(to_hex(substr(to_utf8("users"."user_id"), 1, 1)), 16)'),
+        ("left(user_id, 2)", 'substr("users"."user_id", 1, 2)'),
+        ("mapContains(mapFromArrays(['a'], [1]), 'a')", "contains(map_keys(map(ARRAY["),
+        ("json_agg(user_id)", 'json_format(CAST(array_agg("users"."user_id") AS JSON))'),
+        ("string_agg(user_id, ',')", 'array_join(array_agg("users"."user_id"),'),
+        ("every(length(user_id) > 0)", "bool_and(CAST((length("),
+        ("stddevPop(length(user_id))", 'stddev_pop(length("users"."user_id"))'),
+        ("varSamp(length(user_id))", 'var_samp(length("users"."user_id"))'),
+        ("monthName(created_at)", 'date_format("users"."created_at", \'%M\')'),
+        ("toUnixTimestamp64Milli(created_at)", 'CAST(to_unixtime("users"."created_at") * 1000 AS BIGINT)'),
+        ("isValidJSON(user_id)", 'TRY(json_parse(CAST("users"."user_id" AS VARCHAR))) IS NOT NULL'),
+        ("exp2(3)", "power(2, 3)"),
+        ("log1p(3)", "ln(1 + 3)"),
+        ("bitAnd(3, 1)", "bitwise_and(3, 1)"),
+        ("arrayAvg([1, 2, 3])", "reduce(ARRAY[1, 2, 3], DOUBLE '0'"),
+        ("arrayCompact([1, 1, 2])", "element_at(__hogql_result, -1) IS DISTINCT FROM __hogql_value"),
+        (
+            "arrayEnumerateDense([10, 20, 10])",
+            "array_position(transform(array_distinct(slice(ARRAY[10, 20, 10]",
+        ),
+        (
+            "arrayEnumerateUniq([10, 20, 10], [1, 1, 1])",
+            "cardinality(filter(slice(zip(ARRAY[10, 20, 10], ARRAY[1, 1, 1])",
+        ),
+        ("arrayFirstIndex(x -> x > 1, [1, 2])", 'coalesce(array_position(transform(ARRAY[1, 2], "x" ->'),
+        (
+            "arrayLastIndex(x -> x > 1, [1, 2])",
+            'IF(array_position(reverse(transform(ARRAY[1, 2], "x" ->',
+        ),
+        ("arrayRotateLeft([1, 2, 3], 1)", "concat(slice(ARRAY[1, 2, 3]"),
+        ("arrayRotateRight([1, 2, 3], 1)", "mod(mod(-(1), cardinality(ARRAY[1, 2, 3]))"),
+        ("hasSubstr([1, 2, 3], [2, 3])", "contains_sequence(ARRAY[1, 2, 3], ARRAY[2, 3])"),
+        (
+            "appendTrailingCharIfAbsent(user_id, '/')",
+            "fail('appendTrailingCharIfAbsent expects one character')",
+        ),
+        ("countMatches(user_id, 'a')", 'cardinality(regexp_extract_all("users"."user_id"'),
+        ("countSubstrings(user_id, 'a')", 'length(replace("users"."user_id"'),
+        ("splitByRegexp('-', user_id)", 'regexp_split("users"."user_id"'),
+        ("mapContainsKeyLike(mapFromArrays(['a'], [1]), 'a%')", "cardinality(map_filter(map(ARRAY["),
+        ("bitTest(4, 2)", "bitwise_and(4, bitwise_left_shift(BIGINT '1', 2)) <> 0"),
+        ("bitTestAll(6, 1, 2)", "bitwise_and(6, bitwise_left_shift(BIGINT '1', 1)) <> 0 AND"),
+        ("bitShiftRight(-8, 1)", "bitwise_right_shift_arithmetic(-8, 1)"),
+        ("bitHammingDistance(5, 1)", "bit_count(bitwise_xor(5, 1), 64)"),
+        ("L2Distance([1, 2], [3, 4])", "euclidean_distance(ARRAY[1, 2], ARRAY[3, 4])"),
+        ("port('https://example.com', 443)", "coalesce(url_extract_port("),
+        ("age('day', created_at, created_at)", "date_diff("),
+        ("arrayResize([1, 2], -3, 0)", "concat(repeat(0, greatest(-("),
+        ("groupBitAnd(length(user_id))", 'bitwise_and_agg(length("users"."user_id"))'),
+        ("domainWithoutWWW('https://www.example.com')", "regexp_replace(coalesce(url_extract_host("),
+        ("topLevelDomain('https://www.example.com')", "element_at(split(coalesce(url_extract_host("),
+        ("L1Distance([1, 2], [3, 5])", "reduce(zip_with(ARRAY[1, 2], ARRAY[3, 5]"),
+        ("L2Norm([3, 4])", "sqrt(dot_product(ARRAY[3, 4], ARRAY[3, 4]))"),
+        ("toModifiedJulianDay(created_at)", "date_diff('day', DATE '1858-11-17'"),
+        ("fromModifiedJulianDay(60000)", "date_add('day', CAST(60000 AS BIGINT), DATE '1858-11-17')"),
     ],
 )
 def test_prints_core_trino_expression_mappings(expression: str, expected: str) -> None:
@@ -405,6 +479,47 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
     sql, _ = prepare_and_print_ast(parse_select(f"SELECT {expression} FROM users"), context, "trino")
 
     assert expected in sql
+
+
+def test_drops_clickhouse_global_distribution_modifiers() -> None:
+    membership_query = parse_select("SELECT user_id FROM users WHERE user_id IN ['a']")
+    assert isinstance(membership_query.where, ast.CompareOperation)
+    membership_query.where.op = ast.CompareOperationOp.GlobalIn
+    membership_sql, _ = prepare_and_print_ast(
+        membership_query,
+        _context_with_trino_table(),
+        "trino",
+    )
+    assert "GLOBAL" not in membership_sql
+    assert '"users"."user_id" IN (%(hogql_val_0)s)' in membership_sql
+
+    query = parse_select("SELECT users.user_id FROM users LEFT JOIN users AS other ON users.user_id = other.user_id")
+    assert isinstance(query.select_from, ast.JoinExpr)
+    assert query.select_from.next_join is not None
+    query.select_from.next_join.join_type = "GLOBAL LEFT JOIN"
+    join_sql, _ = prepare_and_print_ast(query, _context_with_trino_table(), "trino")
+    assert "GLOBAL" not in join_sql
+    assert "LEFT JOIN" in join_sql
+
+
+def test_tracks_every_registered_function_without_a_trino_mapping(snapshot: SnapshotAssertion) -> None:
+    supported = {
+        *TRINO_FUNCTION_HANDLERS_LOWER,
+        *TRINO_FUNCTION_RENAMES_LOWER,
+        *TRINO_PASSTHROUGH_FUNCTIONS,
+        *_SPECIAL_CALLS,
+    }
+    registries = {
+        "scalar": HOGQL_CLICKHOUSE_FUNCTIONS,
+        "aggregate": HOGQL_AGGREGATIONS,
+        "posthog": HOGQL_POSTHOG_FUNCTIONS,
+    }
+    unsupported = {
+        group: sorted(name for name in registry if name.lower() not in supported)
+        for group, registry in registries.items()
+    }
+
+    assert unsupported == snapshot
 
 
 @pytest.mark.parametrize(

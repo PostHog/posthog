@@ -156,6 +156,28 @@ Aliases inside expressions are omitted from SQL; projection aliases are retained
 String inputs to `toInt` use `TRY_CAST`, returning NULL for strings that do not
 represent an integer. Numeric aggregate-filter conditions are cast to BOOLEAN.
 
+Additional mappings cover common mathematical functions, array transforms,
+base64 strings, maps, URLs, date arithmetic, vector operations, and statistical
+aggregates. The printer removes ClickHouse `GLOBAL` distribution modifiers from
+joins and membership tests. Trino plans data distribution for these operations.
+
+`test_tracks_every_registered_function_without_a_trino_mapping` snapshots every
+registered function that has no Trino mapping. The snapshot separates scalar,
+aggregate, and PostHog functions. A new registry function must receive a mapping
+or appear in this explicit gap inventory.
+
+The registry has 1,180 names. Trino mode maps 441 of these names. The explicit
+gap inventory has 739 names: 283 scalar functions, 429 aggregate functions, and
+27 PostHog functions. Aliases count as separate names.
+
+Some workarounds need additional rules. `arrayResize` supports an explicit fill
+value. Its two-argument form stays unsupported because the default fill value
+depends on the array item type. `generateSeries` stays unsupported because it is
+a table function, while a scalar `sequence` result would change the row shape.
+Array index functions apply their predicate with `transform` because Trino does
+not have `find_first_index` or `find_last_index`. Bit shifts use Trino's two-
+argument signatures, and signed right shifts use the arithmetic variant.
+
 `JSONExtractKeysAndValues` converts values individually and excludes entries that
 cannot be converted, so a mixed JSON object does not fail a numeric extraction.
 Typed `JSONExtract` maps convert individual scalar values too, but retain keys
@@ -181,9 +203,9 @@ at 0.5, following the existing approximate `quantile` translation; the algorithm
 do not guarantee identical estimates between engines.
 
 `extractURLParameter` preserves encoded values and returns the first matching
-parameter, or an empty string when absent. `arrayZip` supports two to five explicit arrays of
-equal length; dynamic arrays remain rejected rather than receiving Trino's NULL
-padding. `extractAllGroups` supports constant patterns with 1–5 capture groups,
+parameter, or an empty string when absent. `arrayZip` supports two to five arrays.
+Dynamic arrays receive an equal-length guard instead of Trino's NULL padding.
+`extractAllGroups` supports constant patterns with 1–5 capture groups,
 returning one array of captures per match. `replaceRegexpOne` supports constant
 patterns and replacements, including numbered replacement captures. Lookarounds,
 inline flags, and pattern backreferences remain rejected for first-only replacement.
@@ -207,6 +229,28 @@ query is re-resolved. Dynamic `mapFromArrays` inputs retain their original keys 
 fail when Trino cannot represent duplicate or null keys. `quantileExact`,
 `cityHash64`, `ngramDistance`, and `aggregate_funnel_trends` remain unsupported
 because the available Trino functions do not preserve their semantics.
+
+The remaining function gaps fall into these groups:
+
+- ClickHouse aggregate states, combinators, bitmap aggregates, and specialized
+  estimators have no portable Trino state format.
+- H3, bitmap, IP, and block-level functions need connector functions or target
+  types that the compiler manifest does not guarantee.
+- Tuple, map, and array functions that depend on a dynamic return type need
+  type-aware AST lowering. A string-only function handler cannot preserve them.
+- Table functions, including `generateSeries`, need relational lowering. A
+  scalar array workaround would change the number of result rows.
+- PostHog display functions produce HogQLX output instead of relational values.
+  Other PostHog functions must expand before the detached Trino compiler runs.
+- Exact hashes, quantiles, regex engines, and public-suffix functions stay blocked
+  when a similar Trino function has different results.
+
+The remaining syntax gaps also keep explicit errors. `PIVOT`, `UNPIVOT`, `LIMIT
+PERCENT`, and set operations by name need new relational wrappers. ASOF, SEMI,
+ANTI, POSITIONAL, and unsupported ANY joins need deterministic row-selection
+rewrites. `WITH FILL`, `INTERPOLATE`, `FINAL`, nontrivial `SAMPLE`, and recursive
+`USING KEY` have no general Trino equivalent. The compiler does not remove these
+forms because a silent rewrite could change query results.
 
 Run the Trino printer, semantic expansion, and parameter-helper tests. Run the existing printer/resolver and direct-adapter tests to check shared behavior, and the startup-import guards to check initialization. Do not regenerate existing dialect snapshots simply to make a regression pass.
 
