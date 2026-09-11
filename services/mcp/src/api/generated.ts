@@ -22707,6 +22707,7 @@ export namespace Schemas {
     /**
      * * `table` - table
      * * `view` - view
+     * * `metric` - metric
      */
     export type SubjectTypeEnum = typeof SubjectTypeEnum[keyof typeof SubjectTypeEnum];
 
@@ -22714,6 +22715,7 @@ export namespace Schemas {
     export const SubjectTypeEnum = {
       Table: 'table',
       View: 'view',
+      Metric: 'metric',
     } as const;
 
     /**
@@ -22737,13 +22739,14 @@ export namespace Schemas {
       name?: string;
       /** Why this check exists and what a failure means. */
       description?: string;
-      /** Kind of catalog object being checked: 'table' (a synced warehouse table) or 'view' (a saved query).
+      /** Kind of catalog object being checked: 'table', 'view', or 'metric'.
        *
        * * `table` - table
-       * * `view` - view */
+       * * `view` - view
+       * * `metric` - metric */
       readonly subject_type: SubjectTypeEnum;
       /**
-         * Id of the table or view being checked -- the parent resource in the URL.
+         * Id of the table, view, or metric being checked, from the parent resource in the URL.
          * @nullable
          */
       readonly subject_uuid: string | null;
@@ -22940,13 +22943,14 @@ export namespace Schemas {
       name?: string;
       /** Why this check exists and what a failure means. */
       description?: string;
-      /** Kind of catalog object being checked: 'table' (a synced warehouse table) or 'view' (a saved query).
+      /** Kind of catalog object being checked: 'table', 'view', or 'metric'.
        *
        * * `table` - table
-       * * `view` - view */
+       * * `view` - view
+       * * `metric` - metric */
       readonly subject_type: SubjectTypeEnum;
       /**
-         * Id of the table or view being checked -- the parent resource in the URL.
+         * Id of the table, view, or metric being checked, from the parent resource in the URL.
          * @nullable
          */
       readonly subject_uuid: string | null;
@@ -23043,6 +23047,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly subject_schema_id: string | null;
+      /**
+         * Current metric name for opening its Tests tab, or null for other subjects.
+         * @nullable
+         */
+      readonly subject_metric_name: string | null;
     }
 
     /**
@@ -23057,9 +23066,9 @@ export namespace Schemas {
      * Per-subject rollup, the same rule the information_schema.data_quality_health table uses.
      */
     export interface DataQualitySubjectHealth {
-      /** 'table' or 'view'. */
+      /** 'table', 'view', or 'metric'. */
       subject_type: string;
-      /** Id of the table or view. */
+      /** Id of the table, view, or metric. */
       subject_uuid: string;
       /** failing (an error-severity check failed), erroring (a check could not run), warn (only warn-severity failures), healthy, or unknown (nothing has run yet). */
       health: string;
@@ -23071,12 +23080,12 @@ export namespace Schemas {
 
     export interface DataQualitySuiteRun {
       readonly id: string;
-      /** manual, materialization, or source_sync. */
+      /** manual, materialization, source_sync, or scheduled. */
       readonly trigger: string;
       /** running, completed, failed, or empty (nothing matched the trigger). */
       readonly status: string;
       /**
-         * 'table' or 'view' when the run targets exactly one subject, including a run of a single check on that subject; null for a run spanning several subjects.
+         * 'table', 'view', or 'metric' when the run targets exactly one subject, including a run of a single check on that subject; null for a run spanning several subjects.
          * @nullable
          */
       readonly subject_type: string | null;
@@ -25380,6 +25389,8 @@ export namespace Schemas {
      * * `GoogleAdSense` - GoogleAdSense
      * * `Sequenzy` - Sequenzy
      * * `Skio` - Skio
+     * * `Smartlead` - Smartlead
+     * * `Substack` - Substack
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -26721,6 +26732,8 @@ export namespace Schemas {
       GoogleAdSense: 'GoogleAdSense',
       Sequenzy: 'Sequenzy',
       Skio: 'Skio',
+      Smartlead: 'Smartlead',
+      Substack: 'Substack',
     } as const;
 
     /**
@@ -28075,7 +28088,9 @@ export namespace Schemas {
        * * `Cybersource` - Cybersource
        * * `GoogleAdSense` - GoogleAdSense
        * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio */
+       * * `Skio` - Skio
+       * * `Smartlead` - Smartlead
+       * * `Substack` - Substack */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -30121,7 +30136,9 @@ export namespace Schemas {
        * * `Cybersource` - Cybersource
        * * `GoogleAdSense` - GoogleAdSense
        * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio */
+       * * `Skio` - Skio
+       * * `Smartlead` - Smartlead
+       * * `Substack` - Substack */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -38952,7 +38969,9 @@ export namespace Schemas {
        * * `Cybersource` - Cybersource
        * * `GoogleAdSense` - GoogleAdSense
        * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio */
+       * * `Skio` - Skio
+       * * `Smartlead` - Smartlead
+       * * `Substack` - Substack */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -40327,7 +40346,9 @@ export namespace Schemas {
        * * `Cybersource` - Cybersource
        * * `GoogleAdSense` - GoogleAdSense
        * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio */
+       * * `Skio` - Skio
+       * * `Smartlead` - Smartlead
+       * * `Substack` - Substack */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -48589,6 +48610,8 @@ export namespace Schemas {
       projects: JiraProject[];
     }
 
+    export interface JsonValue {}
+
     /**
      * * `2.0` - 2.0
      */
@@ -52604,6 +52627,30 @@ export namespace Schemas {
          * @nullable
          */
       readonly duration_ms: number | null;
+    }
+
+    /**
+     * Arguments validated against the selected tool's schema.
+     */
+    export type MCPToolRequestArgs = {[key: string]: JsonValue};
+
+    export interface MCPToolRequest {
+      /** Arguments validated against the selected tool's schema. */
+      args?: MCPToolRequestArgs;
+    }
+
+    /**
+     * Structured tool output for native widgets.
+     */
+    export type MCPToolResponseStructuredContent = {[key: string]: JsonValue} | null;
+
+    export interface MCPToolResponse {
+      /** Formatted tool output for the model. */
+      content: string;
+      /** Structured tool output for native widgets. */
+      structured_content?: MCPToolResponseStructuredContent;
+      /** Whether the tool completed successfully. */
+      success: boolean;
     }
 
     /**
@@ -63686,13 +63733,14 @@ export namespace Schemas {
       name?: string;
       /** Why this check exists and what a failure means. */
       description?: string;
-      /** Kind of catalog object being checked: 'table' (a synced warehouse table) or 'view' (a saved query).
+      /** Kind of catalog object being checked: 'table', 'view', or 'metric'.
        *
        * * `table` - table
-       * * `view` - view */
+       * * `view` - view
+       * * `metric` - metric */
       readonly subject_type?: SubjectTypeEnum;
       /**
-         * Id of the table or view being checked -- the parent resource in the URL.
+         * Id of the table, view, or metric being checked, from the parent resource in the URL.
          * @nullable
          */
       readonly subject_uuid?: string | null;
@@ -82145,7 +82193,9 @@ export namespace Schemas {
        * * `Cybersource` - Cybersource
        * * `GoogleAdSense` - GoogleAdSense
        * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio */
+       * * `Skio` - Skio
+       * * `Smartlead` - Smartlead
+       * * `Substack` - Substack */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -83536,7 +83586,9 @@ export namespace Schemas {
        * * `Cybersource` - Cybersource
        * * `GoogleAdSense` - GoogleAdSense
        * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio */
+       * * `Skio` - Skio
+       * * `Smartlead` - Smartlead
+       * * `Substack` - Substack */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -84909,7 +84961,9 @@ export namespace Schemas {
        * * `Cybersource` - Cybersource
        * * `GoogleAdSense` - GoogleAdSense
        * * `Sequenzy` - Sequenzy
-       * * `Skio` - Skio */
+       * * `Skio` - Skio
+       * * `Smartlead` - Smartlead
+       * * `Substack` - Substack */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -95869,6 +95923,28 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type DataCatalogMetricsCheckSuiteRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type DataCatalogMetricsChecksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type DataCatalogMetricsRunCreateParams = {
     /**
      * Cache/execution behavior, same semantics as /query/. Omit to serve a fresh cache hit and calculate blocking when stale.
@@ -101043,8 +101119,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type McpToolsCreate200 = { [key: string]: unknown };
 
     export type MessagingCategoriesListParams = {
     /**

@@ -9734,32 +9734,18 @@
             "readOnlyHint": false
         }
     },
-    "scout-create-execute": {
-        "description": "Step 2 of 2 for create scout. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Create a custom scout skill and its runnable config in one atomic call. Any valid skill name works and the `signals-scout-` prefix is optional. Pass the complete markdown prompt in `body`; include project-specific event or signal names, thresholds, investigation steps, and report criteria there. The server always grants the report-channel tools. Optional `files` bundle reference material, while `config` controls the rolling or cron schedule, enabled and dry-run posture, and typed output destinations such as Slack (a channel to post into, or users to DM directly). Repeating the same definition is safe and applies any supplied config fields. Reusing the name for a different definition returns a conflict.",
+    "scout-create": {
+        "description": "Create a custom scout skill and its runnable config in one atomic call. Any valid skill name works and the `signals-scout-` prefix is optional. Pass the complete markdown prompt in `body`; include project-specific event or signal names, thresholds, investigation steps, and report criteria there. The server always grants the report-channel tools. Optional `files` bundle reference material, while `config` controls the rolling or cron schedule, enabled and dry-run posture, and typed output destinations such as Slack (a channel to post into, or users to DM directly). Repeating the same definition is safe and applies any supplied config fields. Reusing the name for a different definition returns a conflict.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Create a scout (execute)",
-        "title": "Create a scout (execute)",
+        "summary": "Create a scout",
+        "title": "Create a scout",
         "required_scopes": ["llm_skill:write", "signal_scout:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
-    },
-    "scout-create-prepare": {
-        "description": "Step 1 of 2 for create scout. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Create a custom scout skill and its runnable config in one atomic call. Any valid skill name works and the `signals-scout-` prefix is optional. Pass the complete markdown prompt in `body`; include project-specific event or signal names, thresholds, investigation steps, and report criteria there. The server always grants the report-channel tools. Optional `files` bundle reference material, while `config` controls the rolling or cron schedule, enabled and dry-run posture, and typed output destinations such as Slack (a channel to post into, or users to DM directly). Repeating the same definition is safe and applies any supplied config fields. Reusing the name for a different definition returns a conflict.",
-        "category": "Signals",
-        "feature": "signals",
-        "summary": "Create a scout (prepare)",
-        "title": "Create a scout (prepare)",
-        "required_scopes": ["llm_skill:write", "signal_scout:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
         }
     },
     "scout-edit-report": {
