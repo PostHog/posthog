@@ -121,10 +121,16 @@ Slack message in one or more channels. `channel` is required and takes channel I
   "filters": {
     "source": "internal-events",
     "events": [{ "id": "$slack_message_received", "type": "events" }],
-    "properties": [{ "key": "channel", "value": ["<channel id>"], "operator": "exact", "type": "event" }]
+    "properties": [
+      { "key": "channel", "value": ["<channel id>"], "operator": "exact", "type": "event" },
+      { "key": "bot_id", "value": "is_not_set", "operator": "is_not_set", "type": "event" },
+      { "key": "thread_ts", "value": "is_not_set", "operator": "is_not_set", "type": "event" }
+    ]
   }
 }
 ```
+
+Keep the `bot_id` and `thread_ts` filters. They hold the loop to top-level messages a person typed, which is what the workflow editor's Slack trigger creates. Without them the loop starts a task on every alert another app posts and on every reply under any thread, and each one spends the daily task budget. Widen only when the user asks: `bot_id` with `is_set` for apps and bots only, an `exact` filter on `user` or `app_id` for named posters, and drop the `thread_ts` filter to include replies.
 
 PostHog event, every matching occurrence:
 
