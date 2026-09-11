@@ -21,10 +21,12 @@ read layer maps them into these types. Reviewers and file paths are
 intentionally absent until the warehouse data that backs them lands.
 """
 
+from collections.abc import Mapping
 from dataclasses import field
 from datetime import date, datetime
 from enum import StrEnum
 
+from posthog_owners.schema import TeamEntry
 from pydantic.dataclasses import dataclass
 
 from posthog.hogql.database.models import FieldOrTable
@@ -1547,3 +1549,20 @@ class WorkflowJobAggregate:
     retry_job_count: int
     billable_minutes: float | None
     estimated_cost_usd: float | None
+
+
+@dataclass(frozen=True)
+class PathOwnership:
+    """Which team owns each of a set of repository paths, plus the repo's Slack registry.
+
+    The registry rides along because the caller that asks who owns a path usually has to reach
+    that team next, and the root ``owners.yaml`` answers both questions in one read.
+
+    ``resolved`` is false when the ownership files could not be read, which leaves every path
+    ``UNOWNED_TEAM`` and the registry empty. A caller that says so beats one that reads the blind
+    answer as "nobody owns this".
+    """
+
+    team_by_path: Mapping[str, str]
+    registry: Mapping[str, TeamEntry]
+    resolved: bool

@@ -12032,6 +12032,8 @@ export namespace Schemas {
     export interface BaselineEntry {
       /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
       quarantine?: BaselineQuarantineSummary | null;
+      /** Accepted variants still recorded against this baseline's current hash. Unlike the 30-day and 90-day counts, this has no time window: an accepted variant keeps matching without a new record. A baseline change resets it to zero. */
+      active_variants_current_baseline: number;
       identifier: string;
       run_type: string;
       /** @nullable */
@@ -12055,6 +12057,8 @@ export namespace Schemas {
 
     export interface BaselineTotals {
       by_run_type: BaselineTotalsByRunType;
+      /** Baselines carrying three or more accepted variants of their current hash. */
+      variant_pileups: number;
       all_snapshots: number;
       recently_tolerated: number;
       frequently_tolerated: number;

@@ -1,8 +1,8 @@
 """Find a team's Slack channel by name, and post an automated message into it.
 
-The two pieces every product that posts a routed digest needs, and nothing else. Which channel a
-team's message belongs in, what the message says, and what a failed post does to the product's own
-records all stay with the product.
+What every product that posts a routed digest needs: which channel a team's message belongs in, the
+limits Slack puts on a message, and what a refused post says. What the message says, and what a
+failure does to the product's own records, stay with the product.
 """
 
 from __future__ import annotations
@@ -18,6 +18,23 @@ from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
 
 logger = structlog.get_logger(__name__)
+
+# Slack rejects a section block over 3000 characters. The margin covers the mrkdwn escaping, which
+# can turn one character into five.
+MAX_SECTION_CHARS = 2900
+
+
+def clip_text(text: str, limit: int) -> str:
+    """Cut display text down to `limit` characters, marking that something was cut."""
+    if len(text) <= limit:
+        return text
+    return text[: max(limit - 1, 0)] + "…"
+
+
+def section_block(text: str) -> list[dict]:
+    """One mrkdwn section, in the block list a post takes."""
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+
 
 # Slack channel flags that mark a channel as shared beyond this workspace. A caller that maps a team
 # name onto a Slack channel by name can land on a shared channel carrying that name, which sends an
