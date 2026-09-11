@@ -190,16 +190,18 @@ class TestAttributionSessionsRead(SimpleTestCase):
 
     def test_classifier_changes_invalidate_shared_query_identity(self) -> None:
         def identity() -> str:
+            query = parse_select(
+                marketing_sessions_precompute.SESSIONS_INSERT_TEMPLATE,
+                placeholders={
+                    **marketing_sessions_precompute.base_placeholders(),
+                    "time_window_min": ast.Constant(value="MIN"),
+                    "time_window_max": ast.Constant(value="MAX"),
+                },
+            )
+            assert isinstance(query, ast.SelectQuery)
             return compute_query_hash(
                 LazyComputationQuery(
-                    query=parse_select(
-                        marketing_sessions_precompute.SESSIONS_INSERT_TEMPLATE,
-                        placeholders={
-                            **marketing_sessions_precompute.base_placeholders(),
-                            "time_window_min": ast.Constant(value="MIN"),
-                            "time_window_max": ast.Constant(value="MAX"),
-                        },
-                    ),
+                    query=query,
                     table=LazyComputationTable.MARKETING_SESSIONS_DIMENSIONAL_PREAGGREGATED,
                 )
             )

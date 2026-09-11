@@ -19,6 +19,7 @@ from posthog.schema import (
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tags_context
+from posthog.dataclasses import frozen
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 
@@ -44,6 +45,12 @@ DATE_FROM = "2023-01-10"
 DATE_TO = "2023-01-20"
 # The read extends the display range back by the attribution window, so this is its lower edge.
 WINDOW_START = datetime(2023, 1, 10, tzinfo=UTC) - timedelta(days=WINDOW_DAYS)
+
+
+@frozen
+class _AttributionCounts:
+    visitors: int
+    conversions: int
 
 
 class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
@@ -119,7 +126,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         precomputed: bool,
         exclude_direct: bool = False,
         allow_multiple_conversions: bool | None = None,
-    ) -> tuple[dict[str, tuple[int, int]], bool]:
+    ) -> tuple[dict[str, _AttributionCounts], bool]:
         query = MarketingAnalyticsAttributionQuery(
             dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
             breakdownBy=breakdown,
@@ -131,7 +138,10 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         runner = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team)
         runner.config.sessions_precomputation_enabled = precomputed
         response = runner.calculate()
-        rows = {row.breakdownValue: (row.visitors, row.influencedConversions) for row in (response.results or [])}
+        rows = {
+            row.breakdownValue: _AttributionCounts(visitors=row.visitors, conversions=row.influencedConversions)
+            for row in (response.results or [])
+        }
         return rows, runner._sessions_precompute_used
 
     def _materialize(self) -> LazyComputationResult:
@@ -247,7 +257,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         assert used
         # The newer row supersedes the older one, so the person sits in exactly one campaign.
         assert "dup" not in rows_out, f"the superseded campaign is still credited: {rows_out}"
-        assert rows_out.get("dup_superseded") == (1, 1), rows_out
+        assert rows_out.get("dup_superseded") == _AttributionCounts(visitors=1, conversions=1), rows_out
 
     # Both paths hold their own reference to the ceiling, so both have to be lowered for the fixture
     # to stay small enough to read.
@@ -310,7 +320,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         pre, pre_used = self._run(MarketingAnalyticsAttributionBreakdown.SOURCE, precomputed=True)
 
         # Pinned, so the fixture proves the internal person was dropped rather than never seeded.
-        assert live == {"google": (1, 1)}, live
+        assert live == {"google": _AttributionCounts(visitors=1, conversions=1)}, live
         assert not pre_used, "the precompute answered a query whose filter it cannot honor"
         assert pre == live, f"precomputed={pre} live={live}"
 
@@ -375,7 +385,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         self._materialize()
         pre, used = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=True)
         assert not used
-        assert live.get("long") == (1, 0)
+        assert live.get("long") == _AttributionCounts(visitors=1, conversions=0)
         assert pre == live
 
     @time_machine.travel("2026-09-11T12:00:00Z", tick=False)
