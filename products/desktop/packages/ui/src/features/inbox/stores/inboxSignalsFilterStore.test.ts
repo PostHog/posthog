@@ -127,6 +127,29 @@ describe("inboxSignalsFilterStore", () => {
     expect(persisted.state.priorityFilter).toEqual(["P0", "P1"]);
   });
 
+  it("restores filter and sort preferences after a restart", async () => {
+    const store = useInboxSignalsFilterStore.getState();
+    store.setSort("created_at", "asc");
+    store.setPriorityFilter(["P0", "P1"]);
+    store.setReportStateFilter(["dismissed"]);
+    const persisted = localStorage.getItem("inbox-signals-filter-storage");
+
+    useInboxSignalsFilterStore.setState({
+      sortField: "total_weight",
+      sortDirection: "desc",
+      priorityFilter: [],
+      reportStateFilter: ["review_and_merge", "needs_decision"],
+    });
+    localStorage.setItem("inbox-signals-filter-storage", persisted as string);
+    await useInboxSignalsFilterStore.persist.rehydrate();
+
+    const restored = useInboxSignalsFilterStore.getState();
+    expect(restored.sortField).toBe("created_at");
+    expect(restored.sortDirection).toBe("asc");
+    expect(restored.priorityFilter).toEqual(["P0", "P1"]);
+    expect(restored.reportStateFilter).toEqual(["dismissed"]);
+  });
+
   it("resetFilters restores defaults across surviving filter fields", () => {
     const store = useInboxSignalsFilterStore.getState();
     store.setSearchQuery("hello");

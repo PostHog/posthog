@@ -5,6 +5,10 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetSignalReports = vi.hoisted(() => vi.fn());
+const filterMocks = vi.hoisted(() => ({
+  priorityFilter: ["P1"] as string[],
+  reportStateFilter: ["review_and_merge", "needs_decision"] as string[],
+}));
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => ({
@@ -23,9 +27,8 @@ vi.mock("@posthog/ui/features/inbox/stores/inboxReviewerScopeStore", () => ({
 vi.mock("@posthog/ui/features/inbox/stores/inboxSignalsFilterStore", () => ({
   useInboxSignalsFilterStore: (selector: (state: unknown) => unknown) =>
     selector({
-      sourceProductFilter: ["github"],
-      priorityFilter: ["P1"],
-      prFilter: "all",
+      priorityFilter: filterMocks.priorityFilter,
+      reportStateFilter: filterMocks.reportStateFilter,
     }),
 }));
 
@@ -38,31 +41,49 @@ function renderCount(enabled: boolean) {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
-  return renderHook(
-    () => useInboxDecisionCount({ enabled, ignoreFilters: true }),
-    { wrapper },
-  );
+  return renderHook(() => useInboxDecisionCount({ enabled }), { wrapper });
 }
 
 describe("useInboxDecisionCount", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetSignalReports.mockResolvedValue({ count: 7, results: [] });
+    filterMocks.priorityFilter = ["P1"];
+    filterMocks.reportStateFilter = ["review_and_merge", "needs_decision"];
+    mockGetSignalReports.mockImplementation(async (params) => ({
+      count: params.has_implementation_pr ? 2 : 3,
+      results: [],
+    }));
   });
 
-  it("loads only a one-row server count for the navigation badge", async () => {
+  it("counts the active report groups with the configured priority filter", async () => {
     const { result } = renderCount(true);
 
-    await waitFor(() => expect(result.current).toBe(7));
-    expect(mockGetSignalReports).toHaveBeenCalledOnce();
-    expect(mockGetSignalReports).toHaveBeenCalledWith(
-      expect.objectContaining({
-        count_only: true,
-        priority: undefined,
-        source_product: undefined,
-        status: "ready",
-      }),
+    await waitFor(() => expect(result.current).toBe(5));
+    expect(mockGetSignalReports).toHaveBeenCalledTimes(2);
+    expect(mockGetSignalReports.mock.calls.map(([params]) => params)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          count_only: true,
+          has_implementation_pr: true,
+          priority: "P1",
+          status: "ready",
+        }),
+        expect.objectContaining({
+          actionability: "immediately_actionable,requires_human_input",
+          count_only: true,
+          has_implementation_pr: false,
+          priority: "P1",
+          status: "ready,pending_input",
+        }),
+      ]),
     );
+  });
+
+  it("shows no badge when the status filter hides active reports", () => {
+    filterMocks.reportStateFilter = ["resolved", "dismissed"];
+
+    expect(renderCount(true).result.current).toBe(0);
+    expect(mockGetSignalReports).not.toHaveBeenCalled();
   });
 
   it("does not request a count when the navigation item is unavailable", () => {
