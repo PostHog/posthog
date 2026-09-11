@@ -31,7 +31,12 @@ from products.metrics.backend.facade.contracts import (
     MetricSeries,
 )
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
-from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, MetricQueryRunner, _pick_interval
+from products.metrics.backend.metric_query_runner import (
+    _INTERVAL_LADDER,
+    MetricQueryRunner,
+    _pick_interval,
+    time_range_expr,
+)
 
 # How many label keys to drill into and how many movers to report.
 MAX_CANDIDATE_KEYS = 4
@@ -226,28 +231,39 @@ def characterize_anomaly(
 def _discover_candidate_keys(
     team: Team, metric_name: str, date_from: dt.datetime, date_to: dt.datetime
 ) -> tuple[str, ...]:
-    """Most common attribute keys on the metric's rows in the window, with
-    service_name always considered (`attribute_field` resolves it to the
-    first-class column). The dotted `service.name` resource attribute is
-    normalized to `service_name` so the same key isn't drilled twice."""
+    """Most common attribute keys across the metric's series that reported in
+    the window, with service_name always considered (`attribute_field` resolves
+    it to the first-class column). The dotted `service.name` resource attribute
+    is normalized to `service_name` so the same key isn't drilled twice.
+
+    Keys are counted per series rather than per data point: the labels live on
+    `metric_series`, and a key carried by many series is the one worth drilling
+    into, whichever series scrapes fastest."""
     query = parse_select(
         """
             SELECT key, count() AS occurrences
             FROM (
                 SELECT arrayJoin(arrayConcat(mapKeys(attributes), mapKeys(resource_attributes))) AS key
-                FROM posthog.metrics
-                WHERE metric_name = {metric_name}
-                  AND timestamp >= {date_from}
-                  AND timestamp < {date_to}
+                FROM (
+                    SELECT any(attributes) AS attributes, any(resource_attributes) AS resource_attributes
+                    FROM posthog.metric_series
+                    WHERE metric_name = {metric_name}
+                      AND series_fingerprint IN (
+                        SELECT DISTINCT series_fingerprint
+                        FROM posthog.metrics
+                        WHERE metric_name = {metric_name}
+                          AND {time_range}
+                      )
+                    GROUP BY series_fingerprint
+                )
             )
             GROUP BY key
-            ORDER BY occurrences DESC
+            ORDER BY occurrences DESC, key ASC
             LIMIT {limit}
         """,
         placeholders={
             "metric_name": ast.Constant(value=metric_name),
-            "date_from": ast.Constant(value=date_from),
-            "date_to": ast.Constant(value=date_to),
+            "time_range": time_range_expr(date_from, date_to),
             "limit": ast.Constant(value=MAX_CANDIDATE_KEYS),
         },
     )
