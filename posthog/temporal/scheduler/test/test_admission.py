@@ -23,6 +23,7 @@ from posthog.temporal.scheduler.admission import (
     renew_scheduler_claim,
     reserve_scheduler_claims,
 )
+from posthog.temporal.scheduler.metrics import SchedulerMetrics
 
 SCHEDULER = "subscriptions"
 REGION = "eu"
@@ -380,20 +381,21 @@ class TestSchedulerClaimLifecycle(TestCase):
             TemporalSchedulerClaim.Status.RESERVED,
         )
 
-    def test_metric_lookup_failure_does_not_turn_successful_transition_into_failure(self) -> None:
-        with patch(
-            "posthog.temporal.scheduler.admission.TemporalSchedulerClaim.objects.only",
-            side_effect=RuntimeError("metrics read failed"),
-        ):
-            self.assertTrue(
-                confirm_scheduler_claim(
-                    self.reservation.claim_id,
-                    self.reservation.claim_token,
-                    lease_duration=timedelta(minutes=10),
-                    now=self.now,
-                )
-            )
+    def test_metric_recording_failure_does_not_turn_successful_transition_into_failure(self) -> None:
+        failing_metrics = MagicMock(spec=SchedulerMetrics)
+        failing_metrics.record_claim_transition.side_effect = RuntimeError("metrics backend failed")
 
+        self.assertTrue(
+            confirm_scheduler_claim(
+                self.reservation.claim_id,
+                self.reservation.claim_token,
+                lease_duration=timedelta(minutes=10),
+                now=self.now,
+                metrics=failing_metrics,
+            )
+        )
+
+        failing_metrics.record_claim_transition.assert_called_once_with(SCHEDULER, REGION, "confirmed")
         claim = TemporalSchedulerClaim.objects.get(id=self.reservation.claim_id)
         self.assertEqual(claim.status, TemporalSchedulerClaim.Status.CONFIRMED)
 
