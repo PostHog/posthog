@@ -9,6 +9,8 @@ from django.db import close_old_connections
 from django.test import SimpleTestCase, TestCase, TransactionTestCase
 from django.utils import timezone
 
+from prometheus_client import CollectorRegistry
+
 from posthog.models.temporal_scheduler import TemporalSchedulerClaim, TemporalSchedulerPermitPool
 from posthog.temporal.scheduler.admission import (
     SchedulerAdmissionLimits,
@@ -24,6 +26,7 @@ from posthog.temporal.scheduler.admission import (
     renew_scheduler_claim,
     reserve_scheduler_claims,
 )
+from posthog.temporal.scheduler.metrics import SchedulerMetrics
 
 SCHEDULER = "subscriptions"
 REGION = "eu"
@@ -569,6 +572,28 @@ class TestSchedulerClaimLifecycle(TestCase):
             )
 
         set_lock_timeout.assert_called_once_with()
+
+    def test_recovery_deferral_is_not_counted_as_a_lease_renewal(self) -> None:
+        expected_lease = TemporalSchedulerClaim.objects.get(id=self.reservation.claim_id).lease_expires_at
+        assert expected_lease is not None
+        metrics = SchedulerMetrics(registry=(registry := CollectorRegistry()))
+
+        self.assertTrue(
+            defer_scheduler_claim_recovery(
+                self.reservation.claim_id,
+                self.reservation.claim_token,
+                lease_duration=timedelta(minutes=5),
+                error="Temporal status unavailable",
+                expected_lease_expires_at=expected_lease,
+                now=self.now,
+                metrics=metrics,
+            )
+        )
+
+        labels = {"scheduler": SCHEDULER, "region": REGION}
+        transition_total = "posthog_temporal_scheduler_claim_transition_total"
+        self.assertEqual(registry.get_sample_value(transition_total, {**labels, "transition": "recovery_deferred"}), 1)
+        self.assertIsNone(registry.get_sample_value(transition_total, {**labels, "transition": "renewed"}))
 
     def test_recovery_can_confirm_an_expired_reserved_claim(self) -> None:
         recovery_time = self.now + timedelta(minutes=6)

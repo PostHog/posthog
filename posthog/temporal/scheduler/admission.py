@@ -461,7 +461,7 @@ def defer_scheduler_claim_recovery(
             updated_at=transition_time,
         )
     if updated:
-        record_scheduler_metrics_safely(lambda: _record_claim_transition_for_id(claim_id, metrics, "renewed"))
+        record_scheduler_metrics_safely(lambda: _record_claim_transition_for_id(claim_id, metrics, "recovery_deferred"))
     return updated == 1
 
 
