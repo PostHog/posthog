@@ -5,6 +5,7 @@ from typing import Any, ClassVar, Optional
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
 from django.db.models import Manager, Q, QuerySet
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import get_object_or_404
@@ -984,9 +985,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
     def update(self, instance: Subscription, validated_data: dict, *args, **kwargs) -> Subscription:
         request = self.context["request"]
-        previous_target_value = instance.target_value
-        was_disabled = instance.enabled is False
-        is_delete = not instance.deleted and validated_data.get("deleted") is True
         invite_message = validated_data.pop("invite_message", "")
         # None means "not provided" — the delivery decision then falls back to inferring from
         # what the edit changed, matching the long-standing default behavior.
@@ -997,63 +995,78 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         analytics_props = get_request_analytics_properties(request)
 
-        # Snapshot delivery-relevant values before the write so the inferred path can tell,
-        # after, whether the edit actually changed what gets delivered. Only snapshot the
-        # dashboard_export_insights M2M when the payload carries it — that's the only case
-        # `.set()` can mutate the relation, so a schedule/meta-only edit pays no M2M query.
-        old_delivery_values = {field: getattr(instance, field) for field in self.FIELDS_THAT_TRIGGER_REDELIVERY}
-        old_export_insight_ids = (
-            set(instance.dashboard_export_insights.values_list("id", flat=True)) if export_insights_in_payload else None
-        )
+        # The view can have loaded `instance` before the scheduler advanced next_delivery_date.
+        # Refresh it under a row lock before saving so DRF's full-row update cannot restore that
+        # stale occurrence and leave a completed durable claim blocking future deliveries.
+        with transaction.atomic():
+            instance = Subscription.objects.select_for_update().get(pk=instance.pk)
+            previous_target_value = instance.target_value
+            was_disabled = instance.enabled is False
+            is_delete = not instance.deleted and validated_data.get("deleted") is True
 
-        if is_delete:
-            with slo_operation(
-                spec=SloSpec(
-                    distinct_id=str(request.user.distinct_id),
-                    area=SloArea.ANALYTIC_PLATFORM,
-                    operation=SloOperation.SUBSCRIPTION_DELETE,
-                    team_id=instance.team_id,
-                    resource_id=str(instance.id),
-                ),
-                properties={
-                    "subscription_id": instance.id,
-                    "target_type": instance.target_type,
-                    "frequency": instance.frequency,
-                    "resource_type": instance.resource_type,
-                },
-            ):
+            if is_delete:
+                with slo_operation(
+                    spec=SloSpec(
+                        distinct_id=str(request.user.distinct_id),
+                        area=SloArea.ANALYTIC_PLATFORM,
+                        operation=SloOperation.SUBSCRIPTION_DELETE,
+                        team_id=instance.team_id,
+                        resource_id=str(instance.id),
+                    ),
+                    properties={
+                        "subscription_id": instance.id,
+                        "target_type": instance.target_type,
+                        "frequency": instance.frequency,
+                        "resource_type": instance.resource_type,
+                    },
+                ):
+                    with attribute_subscription_saves(analytics_props):
+                        instance = super().update(instance, validated_data)
+            else:
+                # Snapshot delivery-relevant values from the locked row so the inferred path can
+                # tell whether this edit actually changed what gets delivered. Only read the M2M
+                # when the payload carries it, because only then can `.set()` mutate the relation.
+                old_delivery_values = {field: getattr(instance, field) for field in self.FIELDS_THAT_TRIGGER_REDELIVERY}
+                old_export_insight_ids = (
+                    set(instance.dashboard_export_insights.values_list("id", flat=True))
+                    if export_insights_in_payload
+                    else None
+                )
+
                 with attribute_subscription_saves(analytics_props):
                     instance = super().update(instance, validated_data)
-            _invalidate_summary_quota_cache(instance.team.organization_id)
-            return instance
 
-        with attribute_subscription_saves(analytics_props):
-            instance = super().update(instance, validated_data)
+                # Apply the M2M whenever the field is in the payload — including an empty list, which clears it.
+                if export_insights_in_payload:
+                    instance.dashboard_export_insights.set(dashboard_export_insight_ids)
+
+                is_re_enabling = was_disabled and instance.enabled
+
+                # Re-enabling clears the stale next_delivery_date that was frozen while
+                # disabled. Without this, the scheduler picks the sub up on its next tick
+                # (the past date matches `next_delivery_date__lte=now`) and fires a second
+                # SCHEDULED delivery right after the immediate SUBSCRIPTION_CHANGE confirmation.
+                if is_re_enabling:
+                    instance.set_next_delivery_date()
+                    instance.save(update_fields=["next_delivery_date"])
+
+                delivery_content_changed = any(
+                    getattr(instance, field) != old_value for field, old_value in old_delivery_values.items()
+                ) or (
+                    old_export_insight_ids is not None and set(dashboard_export_insight_ids) != old_export_insight_ids
+                )
+
+                # Explicit send_test_now wins. When omitted, infer: send when the edit changed what
+                # gets delivered, or on re-enable — a schedule/meta-only edit must not push a fresh
+                # delivery. Disabled subscriptions never fire regardless.
+                wants_delivery = (
+                    send_test_now if send_test_now is not None else (is_re_enabling or delivery_content_changed)
+                )
+                delivery_triggered = wants_delivery and instance.enabled
+
         _invalidate_summary_quota_cache(instance.team.organization_id)
-
-        # Apply the M2M whenever the field is in the payload — including an empty list, which clears it.
-        if export_insights_in_payload:
-            instance.dashboard_export_insights.set(dashboard_export_insight_ids)
-
-        is_re_enabling = was_disabled and instance.enabled
-
-        # Re-enabling clears the stale next_delivery_date that was frozen while
-        # disabled. Without this, the scheduler picks the sub up on its next tick
-        # (the past date matches `next_delivery_date__lte=now`) and fires a second
-        # SCHEDULED delivery right after the immediate SUBSCRIPTION_CHANGE confirmation.
-        if is_re_enabling:
-            instance.set_next_delivery_date()
-            instance.save(update_fields=["next_delivery_date"])
-
-        delivery_content_changed = any(
-            getattr(instance, field) != old_value for field, old_value in old_delivery_values.items()
-        ) or (old_export_insight_ids is not None and set(dashboard_export_insight_ids) != old_export_insight_ids)
-
-        # Explicit send_test_now wins. When omitted, infer: send when the edit changed what
-        # gets delivered, or on re-enable — a schedule/meta-only edit must not push a fresh
-        # delivery. Disabled subscriptions never fire regardless.
-        wants_delivery = send_test_now if send_test_now is not None else (is_re_enabling or delivery_content_changed)
-        delivery_triggered = wants_delivery and instance.enabled
+        if is_delete:
+            return instance
 
         # Explicit observability for the delivery decision on edits — the canonical
         # "subscription updated" event fires from the post_save signal before this decision
