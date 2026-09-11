@@ -79,6 +79,7 @@ def apply_page_proposal(
     organization_id: uuid.UUID, user_id: int, proposal_id: uuid.UUID, *, author: store.CommitAuthor
 ) -> str:
     try:
+        # nosemgrep: idor-lookup-without-team (the organization and creator scope this cross-team review lookup)
         proposal = WikiPageProposal.objects.unscoped().get(
             id=proposal_id, team__organization_id=organization_id, created_by_id=user_id
         )
