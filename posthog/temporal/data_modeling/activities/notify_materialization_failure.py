@@ -114,6 +114,12 @@ class _SavedQueryViewers(RecipientsResolver):
             # No team is no way to run the per-view check, so nobody is told, for the same reason
             # `_viewers_of` drops a member it could not check.
             return []
+        # The shared resolver applies this to a team target and returns a user target untouched, so
+        # a member who has since lost the project would otherwise skip it.
+        with_project_access = set(team.all_users_with_access().values_list("id", flat=True))
+        user_ids = [user_id for user_id in user_ids if user_id in with_project_access]
+        if not user_ids:
+            return []
         return _viewers_of(_access_of(team, user_ids), self._saved_query)
 
 
@@ -131,7 +137,7 @@ class _PrecomputedViewers(RecipientsResolver):
 def maybe_notify_materialization_failure(
     job: DataModelingJob, saved_query: DataWarehouseSavedQuery, team_id: int
 ) -> bool:
-    """Email on the first failure of a streak; a run started by hand also notifies in-app every time."""
+    """Email on the first failure of a streak; a run started by hand notifies its runner every time."""
     # An idempotent retry can land here with a job another path already completed or cancelled.
     if job.status != DataModelingJobStatus.FAILED:
         return False
@@ -145,17 +151,20 @@ def maybe_notify_materialization_failure(
         # The DAG run this belongs to notifies for every view it broke, once, at the end.
         return False
 
-    # A run with no parent was started by hand, usually to check a fix, and the person who started
-    # it may have moved on. Silence mid-streak would read as success, so every failure is told.
+    # A run with no parent was started outside a DAG, usually to check a fix. Silence mid-streak
+    # would read as success, so every failure is told, not just the one that opened the streak.
+    runner_id = job.manually_triggered_by_id
     create_notification(
         _failure_notification(
             team_id=team_id,
             views=[_FailedView(job=job, saved_query=saved_query)],
             resolver=_SavedQueryViewers(saved_query),
             source_id=str(job.id),
-            # Someone asked for this run and is waiting on its result, so it outranks the
-            # scheduled failures a person did not ask for.
-            priority=Priority.CRITICAL,
+            recipient_id=runner_id,
+            # A critical notification also raises a toast that does not close on its own, which is
+            # right for the person waiting on this run. A run nobody asked for, such as a repair
+            # triggered by read traffic, has no such person and stays at the scheduled volume.
+            priority=Priority.CRITICAL if runner_id else Priority.NORMAL,
         )
     )
     return True
@@ -192,6 +201,7 @@ def _failure_notification(
     views: list[_FailedView],
     resolver: RecipientsResolver,
     source_id: str,
+    recipient_id: int | None = None,
     priority: Priority = Priority.NORMAL,
 ) -> NotificationData:
     title, body = _failure_copy(views)
@@ -204,8 +214,8 @@ def _failure_notification(
         priority=priority,
         title=title[:255],
         body=body[:400],
-        target_type=TargetType.TEAM,
-        target_id=str(team_id),
+        target_type=TargetType.USER if recipient_id else TargetType.TEAM,
+        target_id=str(recipient_id) if recipient_id else str(team_id),
         # "warehouse_objects" (not "warehouse_view") is the AC resource — anything else
         # silently skips the access-control filter in create_notification
         resource_type="warehouse_objects",

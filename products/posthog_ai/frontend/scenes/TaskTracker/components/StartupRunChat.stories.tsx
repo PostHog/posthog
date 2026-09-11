@@ -5,18 +5,31 @@ import { useEffect } from 'react'
 import { mswDecorator } from '~/mocks/browser'
 
 import { SidePanelRunner } from '../../../components/SidePanelRunner'
+import { runInteractionLogic } from '../../../logics/runInteractionLogic'
 import { runStreamLogic } from '../../../logics/runStreamLogic'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 
-function StartupSidebar(): JSX.Element {
+function StartupSidebar({ narrow = true, queued = false }: { narrow?: boolean; queued?: boolean }): JSX.Element {
     const { setActiveCreation } = useActions(taskTrackerSceneLogic({ panelId: 'startup-story' }))
     const { startOptimisticRun } = useActions(runStreamLogic({ streamKey: 'startup-story' }))
+    const { enqueueMessage } = useActions(
+        runInteractionLogic({
+            taskId: '',
+            runId: '',
+            streamKey: 'startup-story',
+            interactionKey: 'startup-story',
+            currentRuntimeAdapter: 'claude',
+        })
+    )
     useEffect(() => {
-        setActiveCreation({ streamKey: 'startup-story' })
+        setActiveCreation({ streamKey: 'startup-story', interactionKey: 'startup-story' })
         startOptimisticRun('Explain how to measure weekly active users.')
-    }, [setActiveCreation, startOptimisticRun])
+        if (queued) {
+            enqueueMessage('Include a monthly comparison and explain how to interpret the result.')
+        }
+    }, [setActiveCreation, startOptimisticRun, enqueueMessage, queued])
     return (
-        <div className="flex h-160 w-100 flex-col border rounded bg-surface-primary">
+        <div className={`flex h-160 flex-col border rounded bg-surface-primary ${narrow ? 'w-100' : 'w-180'}`}>
             <div className="px-4 py-3 font-semibold">PostHog AI</div>
             <div className="flex-1 min-h-0">
                 <SidePanelRunner panelId="startup-story" />
@@ -44,3 +57,5 @@ const meta: Meta = {
 export default meta
 
 export const Sidebar: StoryObj = {}
+export const QueuedSidebar: StoryObj = { render: () => <StartupSidebar queued /> }
+export const QueuedWide: StoryObj = { render: () => <StartupSidebar queued narrow={false} /> }

@@ -6,12 +6,14 @@ Tests cover tree structure rendering, expandable nodes, ASCII art, and options h
 
 from typing import Any
 
+import pytest
+
 from parameterized import parameterized
 
 from posthog.schema import LLMTrace, LLMTraceEvent
 
 from ..constants import MAX_TREE_DEPTH
-from ..message_formatter import truncate_content
+from ..message_formatter import FormatterOptions, RenderBudgetExceeded, truncate_content
 from ..trace_formatter import (
     _format_cost,
     _format_latency,
@@ -506,6 +508,28 @@ class TestFormatTraceTextRepr:
         assert "TRACE HIERARCHY:" in result
         assert "[GEN]" in result
         assert "generation" in result
+
+    @pytest.mark.parametrize("budget_delta", [-1, 0])
+    @pytest.mark.parametrize("event_type", [None, "$ai_generation", "$ai_span"])
+    def test_render_budget_counts_headers_and_line_numbers(self, event_type: str | None, budget_delta: int) -> None:
+        messages = [{"role": "user", "content": "line\n" * 20 + "\ud83d\ude00"} for _ in range(3)]
+        properties = {"$ai_input": messages, "$ai_input_state": messages}
+        trace = {"properties": properties}
+        hierarchy = [{"event": {"event": event_type, "properties": properties}}] if event_type else []
+        options: FormatterOptions = {
+            "include_markers": False,
+            "truncated": False,
+            "include_line_numbers": True,
+            "max_length": None,
+        }
+        expected, _ = format_trace_text_repr(trace, hierarchy, options)
+        options["max_render_length"] = len(expected) + budget_delta
+
+        if budget_delta < 0:
+            with pytest.raises(RenderBudgetExceeded):
+                format_trace_text_repr(trace, hierarchy, options)
+        else:
+            assert format_trace_text_repr(trace, hierarchy, options) == (expected, False)
 
     def test_format_trace_with_aggregated_metrics(self):
         """Should format trace with cost and token data."""

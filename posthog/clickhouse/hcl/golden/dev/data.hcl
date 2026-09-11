@@ -11,6 +11,9 @@ database "posthog" {
     column "uuid" {
       type = "UUID"
     }
+    column "data_deletion_request_id" {
+      type = "Nullable(UUID)"
+    }
     column "created_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "now64()"
@@ -1190,47 +1193,6 @@ database "posthog" {
     }
   }
 
-  table "eni_inventory" {
-    order_by     = ["eni_id", "ip_address"]
-    partition_by = "toYYYYMMDD(collected_at)"
-    settings = {
-      index_granularity = "8192"
-    }
-    column "collected_at" {
-      type = "DateTime"
-    }
-    column "eni_id" {
-      type = "String"
-    }
-    column "ip_address" {
-      type = "String"
-    }
-    column "owner_account" {
-      type = "String"
-    }
-    column "subnet_id" {
-      type = "String"
-    }
-    column "security_groups" {
-      type = "Array(JSON)"
-    }
-    column "instance_id" {
-      type = "String"
-    }
-    column "node_name" {
-      type = "String"
-    }
-    column "karpenter_nodeclaim" {
-      type = "String"
-    }
-    column "karpenter_ec2nodeclass" {
-      type = "String"
-    }
-    engine "replacing_merge_tree" {
-      version_column = "collected_at"
-    }
-  }
-
   table "error_tracking_fingerprint_issue_state" {
     column "team_id" {
       type = "Int64"
@@ -1873,52 +1835,6 @@ database "posthog" {
     }
   }
 
-  table "flow_logs_local" {
-    order_by     = ["ts_start", "dstport", "dstaddr", "interface_id"]
-    partition_by = "toYYYYMMDD(ts_start)"
-    settings = {
-      index_granularity = "8192"
-    }
-    column "interface_id" {
-      type = "String"
-    }
-    column "srcaddr" {
-      type = "String"
-    }
-    column "dstaddr" {
-      type = "String"
-    }
-    column "srcport" {
-      type = "UInt16"
-    }
-    column "dstport" {
-      type = "UInt16"
-    }
-    column "protocol" {
-      type = "UInt8"
-    }
-    column "packets" {
-      type = "UInt32"
-    }
-    column "bytes" {
-      type = "UInt64"
-    }
-    column "ts_start" {
-      type = "DateTime"
-    }
-    column "ts_end" {
-      type = "DateTime"
-    }
-    column "action" {
-      type = "LowCardinality(String)"
-    }
-    column "log_status" {
-      type = "LowCardinality(String)"
-    }
-    engine "merge_tree" {
-    }
-  }
-
   table "groups" {
     order_by = ["team_id", "group_type_index", "group_key"]
     settings = {
@@ -2201,44 +2117,6 @@ database "posthog" {
       cluster_name    = "aux"
       remote_database = "posthog"
       remote_table    = "ingestion_warnings_v2"
-    }
-  }
-
-  table "k8s_node_inventory" {
-    order_by     = ["nodepool", "instance_id"]
-    partition_by = "toYYYYMMDD(collected_at)"
-    settings = {
-      index_granularity = "8192"
-    }
-    column "collected_at" {
-      type = "DateTime"
-    }
-    column "node_name" {
-      type = "String"
-    }
-    column "instance_id" {
-      type = "String"
-    }
-    column "region" {
-      type = "String"
-    }
-    column "nodeclaim" {
-      type = "String"
-    }
-    column "nodepool" {
-      type = "String"
-    }
-    column "ec2nodeclass" {
-      type = "String"
-    }
-    column "labels" {
-      type = "JSON"
-    }
-    column "enis" {
-      type = "Array(JSON)"
-    }
-    engine "replacing_merge_tree" {
-      version_column = "collected_at"
     }
   }
 
@@ -3995,35 +3873,6 @@ database "posthog" {
     }
   }
 
-  table "rds_inventory" {
-    order_by     = ["region", "instance_name"]
-    partition_by = "toYYYYMMDD(collected_at)"
-    settings = {
-      index_granularity = "8192"
-    }
-    column "collected_at" {
-      type = "DateTime"
-    }
-    column "region" {
-      type = "String"
-    }
-    column "instance_name" {
-      type = "String"
-    }
-    column "cluster_name" {
-      type = "String"
-    }
-    column "endpoint" {
-      type = "String"
-    }
-    column "ip_address" {
-      type = "String"
-    }
-    engine "replacing_merge_tree" {
-      version_column = "collected_at"
-    }
-  }
-
   table "session_recording_events" {
     column "uuid" {
       type = "UUID"
@@ -4139,20 +3988,8 @@ database "posthog" {
     column "max_last_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
     }
-    column "block_first_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_last_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_urls" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
-    }
     column "first_url" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
-    }
-    column "all_urls" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "click_count" {
       type = "SimpleAggregateFunction(sum, Int64)"
@@ -4184,14 +4021,29 @@ database "posthog" {
     column "event_count" {
       type = "SimpleAggregateFunction(sum, Int64)"
     }
+    column "_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime)"
+    }
     column "snapshot_source" {
       type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+    }
+    column "all_urls" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "snapshot_library" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
-    column "_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime)"
+    column "block_first_timestamps" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
+    }
+    column "block_last_timestamps" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
+    }
+    column "block_urls" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
+    }
+    column "retention_period_days" {
+      type = "SimpleAggregateFunction(max, Nullable(Int64))"
     }
     column "is_deleted" {
       type    = "SimpleAggregateFunction(max, UInt8)"
@@ -4209,9 +4061,6 @@ database "posthog" {
     }
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
-    }
-    column "retention_period_days" {
-      type = "SimpleAggregateFunction(max, Nullable(Int64))"
     }
     column "snapshot_mode" {
       type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
@@ -6646,20 +6495,8 @@ database "posthog" {
     column "max_last_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
     }
-    column "block_first_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_last_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_urls" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
-    }
     column "first_url" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
-    }
-    column "all_urls" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "click_count" {
       type = "SimpleAggregateFunction(sum, Int64)"
@@ -6691,14 +6528,29 @@ database "posthog" {
     column "event_count" {
       type = "SimpleAggregateFunction(sum, Int64)"
     }
+    column "_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime)"
+    }
     column "snapshot_source" {
       type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+    }
+    column "all_urls" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "snapshot_library" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
-    column "_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime)"
+    column "block_first_timestamps" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
+    }
+    column "block_last_timestamps" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
+    }
+    column "block_urls" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
+    }
+    column "retention_period_days" {
+      type = "SimpleAggregateFunction(max, Nullable(Int64))"
     }
     column "is_deleted" {
       type    = "SimpleAggregateFunction(max, UInt8)"
@@ -6716,9 +6568,6 @@ database "posthog" {
     }
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
-    }
-    column "retention_period_days" {
-      type = "SimpleAggregateFunction(max, Nullable(Int64))"
     }
     column "snapshot_mode" {
       type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"

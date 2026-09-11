@@ -63,10 +63,10 @@ A scout is a skill that holds a `SignalScoutConfig`. The harness globs `signals-
 There is no sampling. Each scout has its own `SignalScoutConfig` row (one per `(team, skill_name)`) carrying a `run_interval_minutes` schedule (default 1440 = every 24 hours) and a `last_run_at` stamp. Every tick the coordinator:
 
 1. Bounds candidates to the teams enrolled via the `signals-scout` feature flag's JSON payload allowlist (`guaranteed_team_ids` minus `skip_team_ids`, `_participating_teams` → `_enrolled_team_ids`). Editing the payload in the flag UI enrolls or drains a team next tick — no manual seed.
-2. Auto-registers a config for any `signals-scout-*` skill missing one (`scout_harness/config_registry.register_missing_configs`) — on an enrolled team, authoring a skill is enough to get a scout. For custom scouts, `scout-create-prepare` validates and signs the skill and config, then `scout-create-execute` creates them after the user confirms; `scout-config-create` remains the lower-level way to register a config for an existing skill.
+2. Auto-registers a config for any `signals-scout-*` skill missing one (`scout_harness/config_registry.register_missing_configs`) — on an enrolled team, authoring a skill is enough to get a scout. For custom scouts, `scout-create` validates and creates the skill and config in one call; `scout-config-create` remains the lower-level way to register a config for an existing skill.
 3. Dispatches every enabled scout whose schedule is due (`last_run_at is None`, or `now - last_run_at >= run_interval_minutes`), most-overdue first, capped at `MAX_RUNS_PER_TICK` per tick. Each due scout becomes one `RunSignalsScoutWorkflow` child run; `last_run_at` is advanced for everything dispatched.
 
-Pausing a scout is `enabled=False` on its config; slowing it is a larger `run_interval_minutes`. Both are tunable via the `scout-config-update` MCP tool, and settable for a new custom scout via the nested `config` object on `scout-create-prepare`. See `scout_coordinator._collect_planned_runs` for the exact due-check.
+Pausing a scout is `enabled=False` on its config; slowing it is a larger `run_interval_minutes`. Both are tunable via the `scout-config-update` MCP tool, and settable for a new custom scout via the nested `config` object on `scout-create`. See `scout_coordinator._collect_planned_runs` for the exact due-check.
 
 ### Authoring a new scout
 

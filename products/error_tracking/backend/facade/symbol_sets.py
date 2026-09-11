@@ -108,5 +108,20 @@ def bulk_start_upload(
     )
 
 
+def bulk_check_upload(
+    team: Any,
+    *,
+    symbol_sets: list[dict],
+    force: bool,
+    skip_on_conflict: bool,
+) -> list[str]:
+    return _logic.bulk_check_upload(
+        team,
+        symbol_sets=symbol_sets,
+        force=force,
+        skip_on_conflict=skip_on_conflict,
+    )
+
+
 def bulk_finish_upload(team: Any, content_hashes: dict[str, str]) -> None:
     _logic.bulk_finish_upload(team, content_hashes)
