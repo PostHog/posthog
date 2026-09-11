@@ -5135,6 +5135,14 @@ const api = {
         async setState(id: SignalReport['id'], data: SignalReportStateRequest): Promise<SignalReport> {
             return await new ApiRequest().signalReport(id).withAction('state').create({ data })
         },
+        // Record that a person is implementing a report PostHog declined to implement on its own, and
+        // move it to ready so a merged PR resolves it. Backend: `safety_override` action.
+        async overrideSafetyJudgment(id: SignalReport['id'], note?: string): Promise<SignalReport> {
+            return await new ApiRequest()
+                .signalReport(id)
+                .withAction('safety_override')
+                .create({ data: note ? { note } : {} })
+        },
         // Backend returns a flat `{ [user_uuid]: { name, email } }` map (not paginated).
         async availableReviewers(query?: string): Promise<{ user_uuid: string; name: string; email: string }[]> {
             const response: Record<string, { name: string; email: string }> = await new ApiRequest()

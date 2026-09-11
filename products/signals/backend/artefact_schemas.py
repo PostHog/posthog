@@ -166,7 +166,11 @@ class SafetyJudgment(BaseModel):
 
     choice: bool = Field(description="True when the report's signals are judged safe to act on.")
     explanation: str | None = Field(
-        default=None, description="Why the report was judged unsafe; null/omitted when safe."
+        default=None,
+        description=(
+            "Why the report was judged unsafe; null/omitted when the judge found it safe. A safe "
+            "verdict a person recorded to overrule the judge carries their reasoning here instead."
+        ),
     )
 
 

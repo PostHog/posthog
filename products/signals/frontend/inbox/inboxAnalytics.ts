@@ -143,8 +143,10 @@ export function discussQuestionProperties(params: {
  * is already an {@link captureInboxReportAction} event; without the outcome the two are
  * indistinguishable, so an attempted PR counts the same as a created one. `limited` is a server
  * limit (the per-report task cap or the per-user creation throttle) refusing an issued request.
+ * `cancelled` is the person backing out of a confirmation, which is the confirmation working
+ * rather than anything failing.
  */
-export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limited'
+export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limited' | 'cancelled'
 
 /**
  * Panels that replace the report list and so never fire `Inbox viewed`. `config` is the Settings

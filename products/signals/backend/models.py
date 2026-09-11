@@ -395,6 +395,7 @@ class SignalReport(UUIDModel):
         title: str | None = None,
         summary: str | None = None,
         error: str | None = None,
+        human_override: bool = False,
     ) -> list[str]:
         """
         Validate and apply a status transition with side effects.
@@ -402,6 +403,10 @@ class SignalReport(UUIDModel):
 
         Raises InvalidStatusTransition if the transition is not allowed.
         Does NOT call .save().
+
+        `human_override` opens the one edge no pipeline stage may take: a person who read why the
+        report was not implemented on its own, and decided to implement it anyway (see
+        `report_actions.override_safety_judgment`).
         """
         S = self.Status
         updated_fields: set[str] = set()
@@ -473,6 +478,19 @@ class SignalReport(UUIDModel):
             case (S.SUPPRESSED, S.PENDING_INPUT | S.READY | S.RESOLVED | S.FAILED):
                 self.status_before_suppression = None
                 updated_fields.add("status_before_suppression")
+
+            # A person overruling the safety judge and implementing the report anyway. No pipeline
+            # stage may take this edge — POTENTIAL and CANDIDATE were never researched and FAILED
+            # was rejected, so nothing in these statuses has earned READY on its own — which is why
+            # it is guarded on the explicit override rather than added to the arms above. READY is
+            # where the resulting pull request can resolve the report (see `_apply_pr_report_state`),
+            # and the person's accountability is what earns it. SUPPRESSED reaches READY through the
+            # restore arm above.
+            case (S.POTENTIAL | S.CANDIDATE | S.FAILED, S.READY) if human_override:
+                # A FAILED report's error explains a failure that is no longer what the report is
+                # waiting on, and the inbox renders it as the report's current state.
+                self.error = None
+                updated_fields.add("error")
 
             # Any non-deleted status can fail
             case (S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.RESOLVED, S.FAILED):

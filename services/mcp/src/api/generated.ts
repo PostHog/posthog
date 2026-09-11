@@ -80324,6 +80324,14 @@ export namespace Schemas {
       quota_limited: boolean;
     }
 
+    export interface SignalReportSafetyOverrideRequest {
+      /**
+         * Optional instructions the person gave the run when they overruled the judgment. Recorded on the override so the work log says what they asked for, and passed to the agent separately as the task's prompt. Capped at 4000 characters.
+         * @maxLength 4000
+         */
+      note?: string;
+    }
+
     export interface SignalReportStateRequest {
       /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is only allowed from a researched status (ready or pending_input) or a suppressed report; other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.
        *
