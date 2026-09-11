@@ -1,9 +1,9 @@
 from datetime import UTC, datetime
 
 import pytest
-from freezegun import freeze_time
 
 from asgiref.sync import sync_to_async
+from freezegun import freeze_time
 from temporalio.testing import ActivityEnvironment
 
 from posthog.schema import AlertCalculationInterval
