@@ -3714,6 +3714,22 @@ export interface HogQLNoticeApi {
     start?: number | null
 }
 
+export type ScanEstimateTimeRangeApi = (typeof ScanEstimateTimeRangeApi)[keyof typeof ScanEstimateTimeRangeApi]
+
+export const ScanEstimateTimeRangeApi = {
+    Bounded: 'bounded',
+    Open: 'open',
+} as const
+
+export interface EventsScanEstimateApi {
+    /** Length of the timestamp range the estimate covers, in days. */
+    days: number
+    /** Event names the estimate was narrowed to. Empty when the query reads every event. */
+    events: string[]
+    rows: number
+    time_range: ScanEstimateTimeRangeApi
+}
+
 export type PredicateScopeApi = (typeof PredicateScopeApi)[keyof typeof PredicateScopeApi]
 
 export const PredicateScopeApi = {
@@ -3766,6 +3782,8 @@ export const QueryIndexUsageApi = {
 export interface HogQLMetadataResponseApi {
     ch_table_names?: string[] | null
     errors: HogQLNoticeApi[]
+    /** Present only for a select that reads the events table alone; absent for joins, other tables, or a team with no data. */
+    events_scan_estimate?: EventsScanEstimateApi | null
     /** One entry per property filter, in query order. */
     index_usage?: PredicateIndexUsageApi[] | null
     isUsingIndices?: QueryIndexUsageApi | null

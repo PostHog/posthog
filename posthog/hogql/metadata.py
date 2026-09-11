@@ -6,6 +6,7 @@ import structlog
 from pydantic import BaseModel
 
 from posthog.schema import (
+    EventsScanEstimate,
     HogLanguage,
     HogQLMetadata,
     HogQLMetadataResponse,
@@ -21,6 +22,8 @@ from posthog.hogql.base import AST
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.cost.estimate import estimate_events_scan
+from posthog.hogql.cost.statistics import ClickHouseStatisticsProvider
 from posthog.hogql.database.database import Database
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.direct_sql import get_adapter
@@ -45,7 +48,7 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
-from posthog.schema_enums import PersonsOnEventsMode
+from posthog.schema_enums import PersonsOnEventsMode, ScanEstimateTimeRange
 
 logger = structlog.get_logger(__name__)
 
@@ -180,6 +183,8 @@ def get_hogql_metadata(
 
             if source is None and query.indexUsage and _index_usage_enabled(team):
                 _attach_index_usage(response, hogql_ast, context)
+            if source is None and query.indexUsage and _scan_estimate_enabled(team):
+                _attach_events_scan_estimate(response, hogql_ast, context)
         else:
             raise ValueError(f"Unsupported language: {query.language}")
     except Exception as e:
@@ -237,6 +242,53 @@ def _index_usage_enabled(team: Team) -> bool:
             "organization": {"id": str(team.organization_id)},
             "project": {"id": str(team.id)},
         },
+    )
+
+
+def _scan_estimate_enabled(team: Team) -> bool:
+    """The scan estimate is a first, coarse model and is being calibrated against read_rows in query_log.
+
+    Gated by an organization-group flag so the number is only shown where its accuracy is being watched.
+    Target the flag at the organization group: person conditions never match here, because the distinct
+    id passed is the team uuid.
+    """
+    return feature_enabled_or_false(
+        "hogql-events-scan-estimate",
+        str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+    )
+
+
+def _attach_events_scan_estimate(
+    response: HogQLMetadataResponse,
+    hogql_ast: Union[ast.SelectQuery, ast.SelectSetQuery],
+    context: HogQLContext,
+) -> None:
+    """Estimate how many events the query reads, for the editor to show before the user runs it."""
+    # Deferred like build_index_eligibility_report: the resolver must stay off this module's import path.
+    from posthog.hogql.resolver import resolve_types  # noqa: PLC0415
+
+    if context.database is None:
+        return
+    try:
+        with context.timings.measure("events_scan_estimate"):
+            resolved = resolve_types(clone_expr(hogql_ast), context, dialect="clickhouse")
+            estimate = estimate_events_scan(resolved, context, ClickHouseStatisticsProvider())
+    except Exception:
+        # Advisory only. A query that compiles must not be reported as invalid because estimating it failed.
+        logger.exception("hogql_events_scan_estimate_failed", team_id=context.team_id)
+        return
+    if estimate is None:
+        return
+    response.events_scan_estimate = EventsScanEstimate(
+        rows=estimate.rows,
+        days=estimate.days,
+        events=list(estimate.events),
+        time_range=ScanEstimateTimeRange(estimate.time_range),
     )
 
 
