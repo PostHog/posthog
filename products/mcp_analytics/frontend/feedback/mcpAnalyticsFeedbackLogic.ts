@@ -60,9 +60,10 @@ function hasFeedbackQuestions(survey: Survey): boolean {
     const [choice, detail] = survey.questions
     return (
         survey.questions.length === 2 &&
-        choice.type === SurveyQuestionType.SingleChoice &&
+        choice.type === SurveyQuestionType.Rating &&
         !!choice.id &&
-        choice.choices.length > 0 &&
+        choice.scale === 2 &&
+        choice.display === 'emoji' &&
         detail.type === SurveyQuestionType.Open &&
         !!detail.id &&
         !!detail.optional
@@ -162,8 +163,8 @@ export const mcpAnalyticsFeedbackLogic: LogicWrapper<mcpAnalyticsFeedbackLogicTy
                     !survey ||
                     values.completed ||
                     (completed ? !values.answer || answer !== values.answer : !!values.answer) ||
-                    survey.questions[0].type !== SurveyQuestionType.SingleChoice ||
-                    !survey.questions[0].choices.includes(answer)
+                    !hasFeedbackQuestions(survey) ||
+                    !['1', '2'].includes(answer)
                 ) {
                     actions.responseQueued(values.answer, values.completed)
                     return

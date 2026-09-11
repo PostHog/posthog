@@ -7,8 +7,8 @@ Loading, empty, impersonated, and capture-disabled sessions do not receive a pro
 The SDK must load the survey and its feature flags and return it as an active matching survey before the delay starts.
 
 The question and choices come from a separate API survey, rather than the generic header feedback survey.
-The supported shape is one single-choice question followed by one optional open-text question.
-The UI renders both as plain text using LemonUI components.
+The supported shape is one two-point emoji rating question followed by one optional open-text question.
+The UI renders the question text and thumbs buttons using LemonUI components.
 The first choice queues a partial response immediately and reveals the optional follow-up.
 Selecting Done or Send feedback completes the same submission.
 Closing or navigating away after the first answer leaves that answer available as a partial response.
@@ -24,7 +24,7 @@ The cooldown uses local storage; it does not follow the user across browsers or 
 Create the API survey in draft with partial responses enabled and an Always schedule.
 The questions are:
 
-1. Did this session help you find what you needed? Choices: Yes and No, displayed as thumbs up and thumbs down.
+1. Did this session help you find what you needed? Native rating question with emoji display and a two-point scale.
 2. What did you learn, or what was missing? Optional open text.
 
 The ID in `MCP_ANALYTICS_USEFULNESS_SURVEY_ID` selects this survey.
@@ -43,6 +43,7 @@ An incompatible question count or type suppresses the prompt.
 | `survey sent`      | Done or Send feedback is selected            | Same submission ID and first answer, optional text, completed true           |
 | `survey dismissed` | The question or optional follow-up is closed | Same submission ID and whether the first answer was recorded                 |
 
+The rating uses the native survey values as strings: `"1"` for thumbs up and `"2"` for thumbs down.
 The properties use the standard survey schema: `$survey_id`, `$survey_name`, `$survey_submission_id`, `$survey_questions`, `$survey_response_<question-id>`, `$survey_completed`, and `$survey_partially_completed`.
 Closing the thank-you state does not emit a dismissal.
 Repeated answer or completion clicks do not queue another response.
@@ -56,7 +57,7 @@ The SDK's existing viewer identity and group context remain available for cohort
 
 Filter reporting to this survey ID and use distinct submission IDs for response rate: submissions with a first answer divided by shown submissions.
 Do not count both the partial and completed events as separate responses.
-Report thumbs up (Yes) and thumbs down (No) separately, including partial submissions with a first answer.
+Report thumbs up (`1`) and thumbs down (`2`) separately, including partial submissions with a first answer.
 For adoption analysis, also report unique responding viewers and organizations rather than treating repeat responses as independent customers.
 Do not interpret a missing impression event as a zero response rate.
 

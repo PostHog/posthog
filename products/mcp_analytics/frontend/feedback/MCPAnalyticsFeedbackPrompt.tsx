@@ -8,7 +8,10 @@ import { userLogic } from 'scenes/userLogic'
 
 import { mcpAnalyticsFeedbackLogic } from './mcpAnalyticsFeedbackLogic'
 
-const answerIcons: Record<string, JSX.Element> = { Yes: <IconThumbsUp />, No: <IconThumbsDown /> }
+const thumbRatings = [
+    { value: '1', label: 'Thumbs up', icon: <IconThumbsUp /> },
+    { value: '2', label: 'Thumbs down', icon: <IconThumbsDown /> },
+]
 
 export function MCPAnalyticsFeedbackPrompt({ sessionId }: { sessionId: string }): JSX.Element | null {
     const { user } = useValues(userLogic)
@@ -20,7 +23,12 @@ export function MCPAnalyticsFeedbackPrompt({ sessionId }: { sessionId: string })
     const { visible, survey, answer, detail, completed, submitting, error } = useValues(logic)
     const { dismissPrompt, setDetail, submitResponse } = useActions(logic)
 
-    if (!visible || !survey || survey.questions[0].type !== SurveyQuestionType.SingleChoice) {
+    if (
+        !visible ||
+        !survey ||
+        survey.questions[0].type !== SurveyQuestionType.Rating ||
+        survey.questions[0].scale !== 2
+    ) {
         return null
     }
 
@@ -70,20 +78,18 @@ export function MCPAnalyticsFeedbackPrompt({ sessionId }: { sessionId: string })
                             role="group"
                             aria-labelledby="mcp-session-feedback-question"
                         >
-                            {survey.questions[0].choices.map((choice) => (
+                            {thumbRatings.map((rating) => (
                                 <LemonButton
-                                    key={choice}
+                                    key={rating.value}
                                     type="secondary"
                                     size="small"
                                     loading={submitting}
-                                    icon={answerIcons[choice]}
-                                    aria-label={choice}
-                                    tooltip={choice}
-                                    onClick={() => submitResponse(choice, false)}
+                                    icon={rating.icon}
+                                    aria-label={rating.label}
+                                    tooltip={rating.label}
+                                    onClick={() => submitResponse(rating.value, false)}
                                     data-attr="mcp-analytics-feedback-answer"
-                                >
-                                    {answerIcons[choice] ? null : choice}
-                                </LemonButton>
+                                />
                             ))}
                         </div>
                     </div>

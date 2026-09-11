@@ -31,9 +31,12 @@ describe('mcpAnalyticsFeedbackLogic', () => {
         questions: [
             {
                 id: 'example-choice',
-                type: SurveyQuestionType.SingleChoice,
+                type: SurveyQuestionType.Rating,
                 question: 'Was this useful?',
-                choices: ['Yes', 'No'],
+                display: 'emoji',
+                scale: 2,
+                lowerBoundLabel: '',
+                upperBoundLabel: '',
             },
             { id: 'example-detail', type: SurveyQuestionType.Open, question: 'What did you learn?', optional: true },
         ],
@@ -157,21 +160,21 @@ describe('mcpAnalyticsFeedbackLogic', () => {
         (detail) => {
             loadSurvey()
             jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
-            logic.actions.submitResponse('No', false)
-            logic.actions.submitResponse('Yes', false)
-            expect(logic.values.answer).toBe('No')
+            logic.actions.submitResponse('2', false)
+            logic.actions.submitResponse('1', false)
+            expect(logic.values.answer).toBe('2')
             expect(posthog.capture).toHaveBeenCalledWith(
                 'survey sent',
                 expect.objectContaining({
                     $survey_id: survey.id,
                     $survey_completed: false,
-                    '$survey_response_example-choice': 'No',
+                    '$survey_response_example-choice': '2',
                 })
             )
             const submissionId = logic.values.submissionId
             logic.actions.setDetail(detail)
-            logic.actions.submitResponse('No', true)
-            logic.actions.submitResponse('No', true)
+            logic.actions.submitResponse('2', true)
+            logic.actions.submitResponse('2', true)
             expect(logic.values.completed).toBe(true)
             expect(logic.values.submitting).toBe(false)
             const sent = jest.mocked(posthog.capture).mock.calls.filter(([name]) => name === 'survey sent')
@@ -180,7 +183,7 @@ describe('mcpAnalyticsFeedbackLogic', () => {
                 expect.objectContaining({
                     $survey_submission_id: submissionId,
                     $survey_completed: true,
-                    '$survey_response_example-choice': 'No',
+                    '$survey_response_example-choice': '2',
                     ...(detail ? { '$survey_response_example-detail': detail } : {}),
                 })
             )
@@ -192,7 +195,7 @@ describe('mcpAnalyticsFeedbackLogic', () => {
     it('preserves an answered question when dismissed before the optional follow-up', () => {
         loadSurvey()
         jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
-        logic.actions.submitResponse('No', false)
+        logic.actions.submitResponse('2', false)
         logic.actions.dismissPrompt()
         expect(posthog.capture).toHaveBeenCalledWith(
             'survey dismissed',
@@ -209,7 +212,7 @@ describe('mcpAnalyticsFeedbackLogic', () => {
         (failure) => {
             loadSurvey()
             jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
-            logic.actions.submitResponse('Yes', false)
+            logic.actions.submitResponse('1', false)
             logic.actions.setDetail('Found the slow call.')
             const submissionId = logic.values.submissionId
             jest.mocked(posthog.capture).mockImplementationOnce(() => {
@@ -218,14 +221,14 @@ describe('mcpAnalyticsFeedbackLogic', () => {
                 }
                 return undefined
             })
-            logic.actions.submitResponse('Yes', true)
+            logic.actions.submitResponse('1', true)
             expect(logic.values).toMatchObject({
                 error: true,
                 completed: false,
                 submitting: false,
                 detail: 'Found the slow call.',
             })
-            logic.actions.submitResponse('Yes', true)
+            logic.actions.submitResponse('1', true)
             expect(logic.values).toMatchObject({ error: false, completed: true, submissionId })
         }
     )
@@ -245,6 +248,13 @@ describe('mcpAnalyticsFeedbackLogic', () => {
         { end_date: '2026-08-01T00:00:00Z' },
         { type: SurveyType.Popover },
         { questions: [] },
+        {
+            questions: [
+                { ...survey.questions[0], type: SurveyQuestionType.SingleChoice, choices: ['Yes', 'No'] },
+                survey.questions[1],
+            ],
+        },
+        { questions: [{ ...survey.questions[0], scale: 5 as const }, survey.questions[1]] },
         { questions: [survey.questions[0], { ...survey.questions[1], optional: false }] },
     ])('does not show a stopped or incompatible survey: %j', (overrides) => {
         logic.actions.schedulePrompt({ ...survey, ...overrides })

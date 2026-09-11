@@ -29,9 +29,12 @@ const survey: Survey = {
     questions: [
         {
             id: 'example-choice',
-            type: SurveyQuestionType.SingleChoice,
+            type: SurveyQuestionType.Rating,
             question: 'Did this session help you find what you needed?',
-            choices: ['Yes', 'No'],
+            display: 'emoji',
+            scale: 2,
+            lowerBoundLabel: '',
+            upperBoundLabel: '',
         },
         {
             id: 'example-detail',
@@ -64,15 +67,15 @@ const meta: Meta<typeof MCPAnalyticsFeedbackPrompt> = {
                 }
                 logic.actions.showPrompt(survey, Date.now(), 'example-submission')
                 if (context.parameters.feedbackStage === 'followup') {
-                    logic.actions.responseQueued('No', false)
+                    logic.actions.responseQueued('2', false)
                 }
                 if (context.parameters.feedbackStage === 'error') {
-                    logic.actions.responseQueued('No', false)
+                    logic.actions.responseQueued('2', false)
                     logic.actions.setDetail('Found a tool call that needs a clearer error message.')
                     logic.actions.responseFailed()
                 }
                 if (context.parameters.feedbackStage === 'thanks') {
-                    logic.actions.responseQueued('Yes', true)
+                    logic.actions.responseQueued('1', true)
                 }
                 return () => {
                     posthog.onSurveysLoaded = onSurveysLoaded
