@@ -343,6 +343,10 @@ function productOfFile(file) {
 // the importers cannot be known, which widens the matrix the same way an
 // unreadable tach map does.
 //
+// A product test directory is also not always run by the product's own suite.
+// Some are run by a Django segment instead, so dropping Django would leave the
+// changed test running in no job at all. djangoOwnsFile keeps those out.
+//
 // Keep this narrow: production code, test commands, and fixtures outside a test
 // directory still use the full non-isolated fallback.
 function getTestOnlyProducts(changedFiles, dependentsOf) {
@@ -354,6 +358,12 @@ function getTestOnlyProducts(changedFiles, dependentsOf) {
     for (const file of changedFiles) {
         const match = file.match(/^products\/([^/]+)\/(?:backend|stats)\/(?:[^/]+\/)*tests?(?:\/|$)/)
         if (!match) {
+            return null
+        }
+        if (djangoOwnsFile(file)) {
+            console.error(
+                `${file} is run by the Django matrix, not by the ${match[1]} suite — testing all products + Django`
+            )
             return null
         }
         const dependents = dependentsOf(file)
@@ -1003,6 +1013,18 @@ function getSegmentDuration(segment, durations, ranNodeIds = null) {
         total += dur
     }
     return total
+}
+
+// Whether the Django matrix runs `file`, by the same prefix rules the segment
+// sizing uses. The table lists product paths as well as posthog/ and ee/, and a
+// product path in it is run by a Django segment rather than by that product's
+// own backend:test command, which targets its own test root and does not reach
+// this one. Such a file has to keep Django in the run.
+function djangoOwnsFile(file) {
+    return Object.values(DJANGO_SEGMENTS).some(
+        ({ include, exclude }) =>
+            include.some((prefix) => file.startsWith(prefix)) && !exclude.some((prefix) => file.startsWith(prefix))
+    )
 }
 
 // Fallback shard counts used when .test_durations is missing.

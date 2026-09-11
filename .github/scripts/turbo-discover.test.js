@@ -205,6 +205,21 @@ test('test-only product changes select only their product suites', () => {
     assert.equal(getTestOnlyProducts([base], () => null), null)
 })
 
+// A product path in DJANGO_SEGMENTS is run by a Django segment rather than by
+// that product's own backend:test command, which targets a different test root.
+// Narrowing Django away would leave a change to such a test running in no job,
+// so the shortcut has to refuse it. Derived from the table rather than written
+// out, so a product root added to a segment later is covered on its own.
+test('a test root the Django matrix owns is not a test-only change', () => {
+    const djangoOwnedProductRoots = Object.values(DJANGO_SEGMENTS)
+        .flatMap((segment) => segment.include)
+        .filter((prefix) => prefix.startsWith('products/'))
+    assert.notEqual(djangoOwnedProductRoots.length, 0, 'expected the Django segments to own at least one product root')
+    for (const root of djangoOwnedProductRoots) {
+        assert.equal(getTestOnlyProducts([`${root}tests/test_emission.py`], () => []), null, root)
+    }
+})
+
 // Narrowing takes Django off the run, and decideSelection stops looking at the
 // kill switch once Django is off. So the switch has to be honored before the
 // shortcut runs, or flipping the repo variable during an incident cannot put a
