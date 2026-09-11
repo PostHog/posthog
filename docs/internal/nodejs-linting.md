@@ -4,7 +4,8 @@ Run `pnpm --filter=@posthog/nodejs lint` to check Node.js services and `pnpm --f
 `hogli format:nodejs <files>` and the proto-generation commands use the same lint entrypoint.
 Prettier remains the formatter: run `pnpm --filter=@posthog/nodejs format:check` to check formatting.
 
-The Node.js configuration lives in `nodejs/.oxlintrc.json` and is independent of the frontend and image-scrub sidecar configurations.
+The Node.js configuration lives in `nodejs/.oxlintrc.nodejs.json` and is independent of the frontend and image-scrub sidecar configurations.
+The explicit filename prevents the root Oxlint command from loading it as a nested configuration.
 The parent command excludes the standalone sidecar, generated IDL, build output, dependencies, `bin`, and `dev` directories.
 It checks JavaScript and TypeScript files with the same extension scope as the former ESLint command.
 
@@ -17,6 +18,7 @@ The JavaScript plugin preserves the `JSON.parse` restriction and directive-pair 
 Use named `eslint-disable` or `oxlint-disable` directives for necessary exceptions.
 Unused directives fail linting.
 The entrypoint separately rejects blanket disables because Oxlint can suppress a JavaScript plugin's own directive errors.
+Fix mode removes blanket disables before linting, including those emitted by proto generation.
 This guard parses one file at a time without creating a TypeScript type-checking program.
 
 Type checking remains a separate command: `pnpm --filter=@posthog/nodejs typescript:check`.
