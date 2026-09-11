@@ -29,11 +29,11 @@ import {
 } from '../../../utils/scoutRunsWindow'
 import { ScoutTimestamp } from './ScoutTimestamp'
 
-// "Filed or added" rather than "Emitted": scouts moved to the report channel, so the rows these
-// runs carry talk about reports, and the pill has to use the same word they do.
+// This pill matches any run that produced output, either a signal finding or report activity, so its
+// label names neither channel. Each row names the channel its own run used.
 const FILTERS: { value: ScoutRunFilter; label: string }[] = [
     { value: 'all', label: 'All' },
-    { value: 'emitted', label: 'Filed or added' },
+    { value: 'emitted', label: 'Found something' },
     { value: 'quiet', label: 'Quiet' },
     { value: 'failed', label: 'Failed' },
 ]
@@ -338,7 +338,7 @@ function useScoutRuns(skillName: string): SignalScoutRunSummary[] {
 }
 
 /**
- * The All / Filed or added / Quiet / Failed pills, each with its match count. They live in the Runs
+ * The All / Found something / Quiet / Failed pills, each with its match count. They live in the Runs
  * tab bar's right slot rather than above the list, so the tab bar carries both what you are looking
  * at and how it is narrowed.
  */
