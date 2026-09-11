@@ -837,25 +837,104 @@ tools:
         enabled: false
     customer-tasks-activities-list:
         operation: customerTasksActivitiesList
-        enabled: false
+        enabled: true
+        scopes:
+            - customer_task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List customer task history
+        description: >
+            Read the change history of a Customer analytics task by ID. Account details the caller cannot access are
+            redacted.
+        feature_flag: customer-analytics-customer-tasks
     customer-tasks-archive-create:
         operation: customer_tasks_archive_create
-        enabled: false
+        enabled: true
+        scopes:
+            - customer_task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Archive customer task
+        description: >
+            Archive a Customer analytics task by ID. This removes it from active lists while preserving its history. Use
+            customer-tasks-restore-create to restore it.
+        feature_flag: customer-analytics-customer-tasks
     customer-tasks-create:
         operation: customer_tasks_create
-        enabled: false
+        enabled: true
+        scopes:
+            - customer_task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create customer task
+        description: >
+            Create a Customer analytics task with a name and optional description, account UUID, project member assignee
+            ID, ISO 8601 deadline, and initial status. This is a customer follow-up task, not an AI coding task.
+        feature_flag: customer-analytics-customer-tasks
     customer-tasks-list:
         operation: customer_tasks_list
-        enabled: false
+        enabled: true
+        scopes:
+            - customer_task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List customer tasks
+        description: >
+            List accessible Customer analytics tasks. Filter by search, account UUID, assignee (me, unassigned, or user
+            ID), comma-separated statuses, deadline, or archive state. Active tasks are returned by default.
+        feature_flag: customer-analytics-customer-tasks
     customer-tasks-partial-update:
         operation: customer_tasks_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - customer_task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update customer task
+        description: >
+            Update a Customer analytics task by ID. Supply only fields to change. Use null to clear the account,
+            assignee, description, or deadline. Statuses are open, in_progress, completed, and canceled. Reopen a
+            completed or canceled task before moving it to another status. Restore archived tasks before editing.
+        feature_flag: customer-analytics-customer-tasks
     customer-tasks-restore-create:
         operation: customer_tasks_restore_create
-        enabled: false
+        enabled: true
+        scopes:
+            - customer_task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Restore customer task
+        description: |
+            Restore an archived Customer analytics task by ID so it appears in active lists and can be edited again.
+        feature_flag: customer-analytics-customer-tasks
     customer-tasks-retrieve:
         operation: customer_tasks_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - customer_task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get customer task
+        description: >
+            Retrieve one accessible Customer analytics task by ID, including its linked account, assignee, deadline,
+            status, and archive state.
+        feature_flag: customer-analytics-customer-tasks
     customer-tasks-update:
         operation: customer_tasks_update
         enabled: false
