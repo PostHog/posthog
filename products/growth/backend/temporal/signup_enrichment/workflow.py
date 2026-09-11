@@ -20,6 +20,8 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
+from products.growth.backend.enrichment import gates
+from products.growth.backend.enrichment.context import EnrichmentContext, EnrichmentPhase
 from products.growth.backend.enrichment.core import enrich_organization
 from products.growth.backend.enrichment.providers import HarmonicEnrichmentProvider
 from products.growth.backend.enrichment.snapshot import SignupEnrichmentSnapshot, capture_signup_enrichment_snapshot
@@ -93,9 +95,7 @@ async def enrich_signup_organization_activity(
         # The org owner can delete the org during the recheck delay; without this guard the
         # recheck would enrich a deleted org (db_constraint=False means orphan rows, and the
         # group projection would write properties for a dead org).
-        from posthog.models import Organization  # noqa: PLC0415 — heavy import kept off the workflow module path
-
-        org_exists = await sync_to_async(Organization.objects.filter(id=inputs.organization_id).exists)()
+        org_exists = await sync_to_async(gates.organization_exists)(inputs.organization_id)
         if not org_exists:
             logger.info("signup_enrichment_recheck_skipped_org_deleted")
             return {"matched": False, "fields_filled": 0, "org_deleted": True}
@@ -108,16 +108,15 @@ async def enrich_signup_organization_activity(
         return {"matched": False, "fields_filled": 0}
 
     try:
-        outcome = await enrich_organization(
+        ctx = EnrichmentContext(
             organization_id=inputs.organization_id,
             domain=inputs.domain,
-            provider=HarmonicEnrichmentProvider(),
-            pha_client=pha_client,
-            is_recheck=is_recheck,
+            phase=EnrichmentPhase.RECHECK if is_recheck else EnrichmentPhase.AT_SIGNUP,
+            distinct_id=inputs.distinct_id,
             role_at_organization=inputs.role_at_organization,
             geoip_country_code=inputs.geoip_country_code,
-            distinct_id=inputs.distinct_id,
         )
+        outcome = await enrich_organization(ctx=ctx, provider=HarmonicEnrichmentProvider(), pha_client=pha_client)
         fields, fit = outcome.provider_fields, outcome.fit
         filled = fields.to_dict() if fields else {}
         matched = fields is not None

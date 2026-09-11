@@ -308,6 +308,12 @@ class SignalReport(UUIDModel):
     # lands NOT NULL with no Postgres default and any insert from a pre-deploy worker — which omits
     # the column it doesn't know about — fails until the rollout finishes.
     charts = models.JSONField(default=list, db_default=[], blank=True)
+    # Typed impact measurements (see report_metrics.py). Definitions and optional saved
+    # snapshots live here; their longitudinal data stays in the analytics query engine. A snapshot
+    # is refreshed only when a person opens the inbox or the report (report_metric_refresh.py), so
+    # a report nobody looks at costs no queries.
+    # `db_default` keeps inserts from pre-deploy workers valid during a rolling rollout.
+    metrics = models.JSONField(default=list, db_default=[], blank=True)
     # Questions this report suggests its reader ask AI about it, each a plain string (see
     # report_prompts.py). Content rather than log for the same reason `charts` is: a question is
     # written against the summary it sits under, so a rewrite of that summary replaces it instead of
