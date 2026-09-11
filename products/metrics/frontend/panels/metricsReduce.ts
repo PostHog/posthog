@@ -1,8 +1,25 @@
-import type { MetricsQueryPoint, MetricsQuerySeries, MetricsReducer } from '~/queries/schema/schema-general'
+import type { MetricsReducer } from '~/queries/schema/schema-general'
+
+/** One bucket. `value` is `null` for a non-representable aggregate (a gap). The schema's
+ * `MetricsQueryPoint` declares `value: number` but the backend sends null, so this shape
+ * matches what both the schema series and the viewer's API series actually carry. */
+export interface ReduciblePoint {
+    time: string
+    value: number | null
+}
+
+/** The shape `flattenSeriesRows` needs. A structural subset of both the schema series and
+ * the viewer's `MetricsChartSeries`, so either flows in. */
+export interface ReducibleSeries {
+    labels: Record<string, string>
+    points: ReduciblePoint[]
+    metricName?: string | null
+    unit?: string | null
+}
 
 /** The reducers a caller may ask for. `reduceSeries` returns `null` when a series has no
  * non-null point, so a panel can show "No data" instead of a misleading 0. */
-export function reduceSeries(points: MetricsQueryPoint[], reducer: MetricsReducer): number | null {
+export function reduceSeries(points: ReduciblePoint[], reducer: MetricsReducer): number | null {
     const values = points.map((p) => p.value).filter((v): v is number => v !== null && v !== undefined)
     if (values.length === 0) {
         return null
@@ -33,10 +50,10 @@ export interface MetricsSeriesRow {
     /** The reduced value per reducer, keyed by reducer name. `null` means no data. */
     values: Record<MetricsReducer, number | null>
     /** The raw series, kept so a row can link back to its points (sparkline, drill-down). */
-    series: MetricsQuerySeries
+    series: ReducibleSeries
 }
 
-export function flattenSeriesRows(series: MetricsQuerySeries[], reducers: MetricsReducer[]): MetricsSeriesRow[] {
+export function flattenSeriesRows(series: ReducibleSeries[], reducers: MetricsReducer[]): MetricsSeriesRow[] {
     return series.map((s) => ({
         labels: s.labels,
         metricName: s.metricName ?? undefined,
