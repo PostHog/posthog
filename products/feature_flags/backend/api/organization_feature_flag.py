@@ -23,7 +23,7 @@ from posthog.api.utils import ErrorResponseSerializer, action
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.filters.filter import Filter
-from posthog.models.group_type_mapping import get_group_types_for_project
+from posthog.models.group_type_mapping import get_group_types_for_project, invalidate_group_types_cache
 from posthog.rate_limit import CopyFlagsBurstRateThrottle, CopyFlagsSustainedRateThrottle
 from posthog.user_permissions import UserPermissions
 from posthog.utils import safe_int
@@ -1480,6 +1480,17 @@ class OrganizationFeatureFlagView(
     def _build_group_type_index_map(
         self, source_indexes: set[int], source_team: Team, target_team: Team
     ) -> dict[int, int]:
+        try:
+            return self._map_group_type_indexes(source_indexes, source_team, target_team)
+        except ValueError:
+            # Group types are cached per project for minutes, and one created by event ingestion
+            # does not invalidate that cache, so an index that does not resolve can just mean the
+            # read is stale. Read once more before we tell the user the group type is missing.
+            invalidate_group_types_cache(source_team.project_id)
+            invalidate_group_types_cache(target_team.project_id)
+            return self._map_group_type_indexes(source_indexes, source_team, target_team)
+
+    def _map_group_type_indexes(self, source_indexes: set[int], source_team: Team, target_team: Team) -> dict[int, int]:
         source_group_types = {
             group_type["group_type_index"]: group_type["group_type"]
             for group_type in get_group_types_for_project(source_team.project_id, caller_tag="flags/copy-flags")

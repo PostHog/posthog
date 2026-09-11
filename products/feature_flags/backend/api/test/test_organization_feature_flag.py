@@ -18,6 +18,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
@@ -4092,6 +4093,25 @@ class TestOrganizationFeatureFlagCopyGroupTypes(APIBaseTest):
         self.assertEqual(response.json()["success"], [])
         self.assertIn("company", response.json()["failed"][0]["error_message"])
         self.assertFalse(FeatureFlag.objects.filter(key=source_flag.key, team=self.team_3).exists())
+
+    def test_copy_flag_reads_past_a_stale_group_type_cache_before_it_fails(self):
+        source_flag = self._create_source_flag(
+            "company-aggregated-flag",
+            {"aggregation_group_type_index": 1, "groups": [{"rollout_percentage": 100}]},
+        )
+        # Cache the target's group types, then add the one the flag needs the way event ingestion
+        # does: without invalidating that cache.
+        get_group_types_for_project(self.team_3.project_id)
+        create_group_type_mapping(
+            team=self.team_3, project_id=self.team_3.project_id, group_type="company", group_type_index=1
+        )
+
+        response = self._post_copy_flag(source_flag.key, target_project_ids=[self.team_3.id])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["failed"], [])
+        copied_flag = FeatureFlag.objects.get(key=source_flag.key, team=self.team_3)
+        self.assertEqual(copied_flag.filters["aggregation_group_type_index"], 1)
 
     def test_copy_flag_remaps_group_type_index_in_a_copied_scheduled_change(self):
         source_flag = self._create_source_flag(
