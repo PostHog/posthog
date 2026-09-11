@@ -647,6 +647,10 @@ pub struct TestLeaderService {
     /// partition fence above this one names its holder, which is the fact
     /// the refusal has to carry all the way back to the caller.
     person_fence_op: Arc<Mutex<Option<String>>>,
+    /// Every `ReleaseFences` batch received: the routed partition and the
+    /// person ids it carried, so a test can see how the router split a
+    /// caller's batch.
+    release_batches: Arc<Mutex<Vec<(u32, Vec<i64>)>>>,
 }
 
 impl TestLeaderService {
@@ -655,7 +659,14 @@ impl TestLeaderService {
             persons: DashMap::new(),
             fenced: Arc::new(AtomicBool::new(false)),
             person_fence_op: Arc::new(Mutex::new(None)),
+            release_batches: Arc::new(Mutex::new(Vec::new())),
         }
+    }
+
+    /// Handle for reading the received release batches after the service
+    /// has been moved into the server.
+    pub fn release_batches(&self) -> Arc<Mutex<Vec<(u32, Vec<i64>)>>> {
+        Arc::clone(&self.release_batches)
     }
 
     /// Refuse every write for this person the way the leader refuses one
@@ -720,8 +731,20 @@ impl PersonHogLeader for TestLeaderService {
         request: Request<personhog_proto::personhog::types::v1::ReleaseFencesRequest>,
     ) -> Result<Response<personhog_proto::personhog::types::v1::ReleaseFencesResponse>, Status>
     {
-        require_partition_metadata(&request)?;
-        Err(Status::unimplemented("not exercised by router tests"))
+        let partition = require_partition_metadata(&request)?;
+        let person_ids = request
+            .into_inner()
+            .persons
+            .iter()
+            .map(|p| p.person_id)
+            .collect();
+        self.release_batches
+            .lock()
+            .unwrap()
+            .push((partition, person_ids));
+        Ok(Response::new(
+            personhog_proto::personhog::types::v1::ReleaseFencesResponse {},
+        ))
     }
 
     async fn fold_person_document(

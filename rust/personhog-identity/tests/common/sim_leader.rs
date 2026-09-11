@@ -32,7 +32,6 @@ use tonic::Status;
 use uuid::Uuid;
 
 use personhog_common::grpc::semantic_refusal;
-use personhog_common::partitioning::partition_for_person;
 use personhog_identity::leader::{LifecycleLeader, PropertyWriter};
 use personhog_proto::personhog::types::v1::{
     FencePersonRequest, FencePersonResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse,
@@ -40,11 +39,6 @@ use personhog_proto::personhog::types::v1::{
     ReleaseFencesResponse, ReleaseOutcome, UpdatePersonPropertiesRequest,
     UpdatePersonPropertiesResponse,
 };
-
-/// Few enough partitions that a handful of victims land on several of
-/// them, so a batched release is exercised as one call per partition
-/// rather than one call in total.
-const SIM_NUM_PARTITIONS: u32 = 4;
 
 /// Which RPC a scripted failure applies to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -96,7 +90,6 @@ pub enum LeaderCall {
     },
     /// A `ReleaseFences` call, recorded before its per-person releases.
     ReleaseBatch {
-        partition: u32,
         person_ids: Vec<i64>,
     },
     PropertyPush {
@@ -148,9 +141,6 @@ pub struct SimLeader {
     /// Whether `ReleaseFences` is served; off, it answers UNIMPLEMENTED
     /// like a router or leader that predates it.
     release_fences_supported: AtomicBool,
-    /// Whether a fence reports its partition; off, it seals like a leader
-    /// that predates the hint.
-    partition_hints: AtomicBool,
 }
 
 impl SimLeader {
@@ -165,7 +155,6 @@ impl SimLeader {
             sealed_identified: Mutex::new(HashMap::new()),
             last_seen: Mutex::new(HashMap::new()),
             release_fences_supported: AtomicBool::new(true),
-            partition_hints: AtomicBool::new(true),
         }
     }
 
@@ -175,10 +164,6 @@ impl SimLeader {
 
     pub fn disable_release_fences(&self) {
         self.release_fences_supported.store(false, Ordering::SeqCst);
-    }
-
-    pub fn disable_partition_hints(&self) {
-        self.partition_hints.store(false, Ordering::SeqCst);
     }
 
     /// Script the next matching call for `person_id` (the fold matches on
@@ -362,13 +347,8 @@ impl LifecycleLeader for SimLeader {
             person_id: request.person_id,
             op_type: request.op_type(),
         });
-        let partition = self
-            .partition_hints
-            .load(Ordering::SeqCst)
-            .then(|| partition_for_person(request.team_id, request.person_id, SIM_NUM_PARTITIONS));
         Ok(FencePersonResponse {
             sealed: Some(person),
-            partition,
         })
     }
 
@@ -385,25 +365,12 @@ impl LifecycleLeader for SimLeader {
             outcome,
             persons,
         } = request;
-        let Some(first) = persons.first() else {
+        if persons.is_empty() {
             return Err(Status::invalid_argument(
                 "ReleaseFences needs at least one person",
             ));
-        };
-        // The real leader refuses a batch that strays off the partition the
-        // router derived from the first person.
-        let partition = partition_for_person(team_id, first.person_id, SIM_NUM_PARTITIONS);
-        if let Some(stray) = persons
-            .iter()
-            .find(|p| partition_for_person(team_id, p.person_id, SIM_NUM_PARTITIONS) != partition)
-        {
-            return Err(Status::invalid_argument(format!(
-                "person {} is not on partition {partition}",
-                stray.person_id
-            )));
         }
         self.record(LeaderCall::ReleaseBatch {
-            partition,
             person_ids: persons.iter().map(|p| p.person_id).collect(),
         });
         for person in persons {

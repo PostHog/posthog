@@ -2667,21 +2667,24 @@ async fn insert_delete_marks(
     }
 }
 
-/// A person id on the harness person's partition other than the harness
-/// person itself.
-fn sibling_on_partition(harness: &FenceHarness) -> i64 {
+/// A person id on a partition other than the harness person's, with that
+/// partition.
+fn person_on_other_partition(harness: &FenceHarness) -> (i64, u32) {
     let mut id = harness.person_id + 1;
-    while partition_for_person(harness.team_id, id, NUM_PARTITIONS) != harness.partition {
+    loop {
+        let partition = partition_for_person(harness.team_id, id, NUM_PARTITIONS);
+        if partition != harness.partition {
+            return (id, partition);
+        }
         id += 1;
     }
-    id
 }
 
-/// One `ReleaseFences` call closes every fence of an op on a partition,
-/// producing each death document exactly as a single release would, and
-/// each fence reports the partition the saga groups by.
+/// One `ReleaseFences` call closes every fence of an op across the
+/// partitions this pod serves, producing each death document exactly as a
+/// single release would.
 #[tokio::test]
-async fn a_batched_release_produces_a_death_document_per_person() {
+async fn a_batched_release_spans_the_partitions_this_pod_serves() {
     let pool = common::create_persons_pool().await;
     let mut harness = start_fence_harness(
         test_cached_person(),
@@ -2694,11 +2697,12 @@ async fn a_batched_release_produces_a_death_document_per_person() {
     let team_id = harness.team_id;
     let partition = harness.partition;
     let first_id = harness.person_id;
-    let second_id = sibling_on_partition(&harness);
+    let (second_id, second_partition) = person_on_other_partition(&harness);
     let second_uuid = Uuid::now_v7().to_string();
+    harness.cache.create_partition(second_partition);
     seed_person(
         &harness.cache,
-        partition,
+        second_partition,
         CachedPerson {
             id: second_id,
             uuid: second_uuid.clone(),
@@ -2710,21 +2714,21 @@ async fn a_batched_release_produces_a_death_document_per_person() {
     insert_delete_marks(&pool, op, team_id, &[first_id, second_id]).await;
 
     let mut persons = Vec::new();
-    for (person_id, uuid) in [
-        (first_id, test_cached_person().uuid),
-        (second_id, second_uuid),
+    for (person_id, uuid, person_partition) in [
+        (first_id, test_cached_person().uuid, partition),
+        (second_id, second_uuid, second_partition),
     ] {
-        let fenced = harness
+        let sealed = harness
             .client
             .fence_person(with_partition(
                 fence_request(team_id, person_id, &op),
-                partition,
+                person_partition,
             ))
             .await
             .expect("fence succeeds")
-            .into_inner();
-        assert_eq!(fenced.partition, Some(partition));
-        let sealed = fenced.sealed.expect("sealed state returned");
+            .into_inner()
+            .sealed
+            .expect("sealed state returned");
         persons.push(ReleaseFenceItem {
             person_id,
             person_uuid: uuid,
@@ -2733,6 +2737,7 @@ async fn a_batched_release_produces_a_death_document_per_person() {
         });
     }
 
+    // Routed by the first person, as the router does.
     harness
         .client
         .release_fences(with_partition(
@@ -2747,20 +2752,20 @@ async fn a_batched_release_produces_a_death_document_per_person() {
         .await
         .expect("batched release succeeds");
 
+    // The first person's death document lands on the harness partition.
     let records = changelog_records(&harness);
-    for person in &persons {
-        let death = records
-            .iter()
-            .find(|r| r.id == person.person_id && r.is_deleted)
-            .expect("a death document per person");
-        assert_eq!(death.uuid, person.person_uuid);
-        assert_eq!(death.version, person.sealed_version.unwrap() + 1);
-        // The fence is gone: a new op finds a destroyed person, not a fence.
+    let death = records
+        .iter()
+        .find(|r| r.id == first_id && r.is_deleted)
+        .expect("a death document for the routed person");
+    assert_eq!(death.version, persons[0].sealed_version.unwrap() + 1);
+    // Both fences are gone: a new op finds destroyed persons, not fences.
+    for (person, person_partition) in persons.iter().zip([partition, second_partition]) {
         let status = harness
             .client
             .fence_person(with_partition(
                 fence_request(team_id, person.person_id, &Uuid::now_v7()),
-                partition,
+                person_partition,
             ))
             .await
             .expect_err("a destroyed person cannot be fenced");
@@ -2774,11 +2779,11 @@ async fn a_batched_release_produces_a_death_document_per_person() {
         .expect("cleanup op");
 }
 
-/// A batch may not stray off the routed partition: one foreign person
-/// refuses the whole call before anything is destroyed — the same
-/// fail-closed stance as a misrouted single release.
+/// A batch may not reach onto a partition this pod does not serve: one
+/// such person refuses the whole call before anything is destroyed — the
+/// same fail-closed stance as a misrouted single release.
 #[tokio::test]
-async fn a_batched_release_with_a_foreign_person_is_refused_whole() {
+async fn a_batched_release_with_an_unserved_person_is_refused_whole() {
     let pool = common::create_persons_pool().await;
     let mut harness = start_fence_harness(
         test_cached_person(),
@@ -2791,10 +2796,7 @@ async fn a_batched_release_with_a_foreign_person_is_refused_whole() {
     let team_id = harness.team_id;
     let partition = harness.partition;
     let person_id = harness.person_id;
-    let mut foreign_id = person_id + 1;
-    while partition_for_person(team_id, foreign_id, NUM_PARTITIONS) == partition {
-        foreign_id += 1;
-    }
+    let (foreign_id, _) = person_on_other_partition(&harness);
     let op = Uuid::now_v7();
     insert_delete_marks(&pool, op, team_id, &[person_id]).await;
 
@@ -2835,8 +2837,8 @@ async fn a_batched_release_with_a_foreign_person_is_refused_whole() {
             partition,
         ))
         .await
-        .expect_err("a batch with a foreign person is refused");
-    assert_eq!(status.code(), Code::InvalidArgument);
+        .expect_err("a batch with an unserved person is refused");
+    assert_eq!(status.code(), Code::FailedPrecondition);
 
     // The local person is untouched and still fenced by the op.
     let read = harness

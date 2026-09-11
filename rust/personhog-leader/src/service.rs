@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -1993,7 +1994,6 @@ impl PersonHogLeader for PersonHogLeaderService {
             partition,
             FencePersonResponse {
                 sealed: Some(sealed),
-                partition: Some(partition),
             },
         )
     }
@@ -2058,42 +2058,59 @@ impl PersonHogLeader for PersonHogLeaderService {
                 req.persons.len()
             )));
         }
-        // The saga grouped its victims by the partition each fence
-        // reported; a person that hashes elsewhere means that grouping is
-        // stale, and nothing here may act on any of the batch.
-        for person in &req.persons {
-            self.validate_partition(partition, req.team_id, person.person_id)?;
-        }
+        let team_id = req.team_id;
+        let outcome = req.outcome();
+        // The router grouped the saga's batch by owning pod, so the persons
+        // span partitions. Every one must be served here right now: a
+        // stale grouping refuses the whole batch before anything is
+        // touched, and the router re-resolves and retries like any
+        // ownership refusal.
+        self.validate_ownership(partition)?;
         self.check_authority(partition)?;
+        let mut partitions: BTreeSet<u32> = BTreeSet::new();
+        let mut located = Vec::with_capacity(req.persons.len());
+        for person in req.persons {
+            let person_partition =
+                partition_for_person(team_id, person.person_id, self.num_partitions);
+            self.validate_ownership(person_partition)?;
+            self.check_authority(person_partition)?;
+            partitions.insert(person_partition);
+            located.push((person_partition, person));
+        }
         let op_id = Uuid::parse_str(&req.op_id)
             .map_err(|_| Status::invalid_argument("op_id must be a valid UUID"))?;
-        histogram!("personhog_leader_release_batch_size").record(req.persons.len() as f64);
-        let team_id = req.team_id;
+        histogram!("personhog_leader_release_batch_size").record(located.len() as f64);
 
-        match req.outcome() {
+        match outcome {
             ReleaseOutcome::Committed => {
-                let releases = req
-                    .persons
+                let releases = located
                     .into_iter()
-                    .map(|person| {
+                    .map(|(person_partition, person)| {
                         CommittedRelease::validate(
                             person.person_id,
                             person.person_uuid,
                             person.sealed_version,
                             person.created_at,
                         )
+                        .map(|release| (person_partition, release))
                     })
                     .collect::<Result<Vec<_>, Status>>()?;
                 if releases.is_empty() {
                     return self.authoritative_ok(partition, ReleaseFencesResponse {});
                 }
-                let Some(_inflight_guard) = self.inflight.try_begin(partition) else {
-                    return Err(Status::failed_precondition(format!(
-                        "partition {partition} is fenced for handoff; writes are rejected"
-                    )));
-                };
+                // Producing to the changelog must respect the handoff
+                // write freeze on every partition the batch touches.
+                let mut inflight_guards = Vec::with_capacity(partitions.len());
+                for person_partition in &partitions {
+                    let Some(guard) = self.inflight.try_begin(*person_partition) else {
+                        return Err(Status::failed_precondition(format!(
+                            "partition {person_partition} is fenced for handoff; writes are rejected"
+                        )));
+                    };
+                    inflight_guards.push(guard);
+                }
                 let lifecycle_db = self.lifecycle_db()?;
-                let person_ids: Vec<i64> = releases.iter().map(|r| r.person_id).collect();
+                let person_ids: Vec<i64> = releases.iter().map(|(_, r)| r.person_id).collect();
                 let verify_started = Instant::now();
                 let marks = mark_statuses(&lifecycle_db.pool, op_id, team_id, &person_ids).await;
                 record_release_phase("verify_mark", verify_started);
@@ -2103,9 +2120,9 @@ impl PersonHogLeader for PersonHogLeaderService {
                 // in flight.
                 let release_futures: Vec<_> = releases
                     .iter()
-                    .map(|release| {
+                    .map(|(person_partition, release)| {
                         let mark = marks.get(&release.person_id).map(String::as_str);
-                        self.release_committed(partition, team_id, op_id, release, mark)
+                        self.release_committed(*person_partition, team_id, op_id, release, mark)
                     })
                     .collect();
                 let results: Vec<Result<(), Status>> = stream::iter(release_futures)
@@ -2117,8 +2134,8 @@ impl PersonHogLeader for PersonHogLeaderService {
                 }
             }
             ReleaseOutcome::Aborted => {
-                for person in &req.persons {
-                    self.release_aborted(partition, team_id, person.person_id, op_id)
+                for (person_partition, person) in &located {
+                    self.release_aborted(*person_partition, team_id, person.person_id, op_id)
                         .await?;
                 }
             }

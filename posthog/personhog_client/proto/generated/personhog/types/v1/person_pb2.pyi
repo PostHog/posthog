@@ -528,13 +528,11 @@ class FencePersonRequest(_message.Message):
     ) -> None: ...
 
 class FencePersonResponse(_message.Message):
-    __slots__ = ("sealed", "partition")
+    __slots__ = ("sealed",)
     SEALED_FIELD_NUMBER: _ClassVar[int]
-    PARTITION_FIELD_NUMBER: _ClassVar[int]
     sealed: Person
-    partition: int
 
-    def __init__(self, sealed: _Optional[_Union[Person, _Mapping]] = ..., partition: _Optional[int] = ...) -> None: ...
+    def __init__(self, sealed: _Optional[_Union[Person, _Mapping]] = ...) -> None: ...
 
 class ReleaseFenceRequest(_message.Message):
     __slots__ = ("team_id", "person_id", "person_uuid", "op_id", "outcome", "sealed_version", "created_at")

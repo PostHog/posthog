@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -12,6 +13,7 @@ use personhog_common::grpc::{
     current_caller_tag, current_client_name, ClientInFlightGuard, GZIP_OVERHEAD_HEADER,
     PROCESSING_TIME_HEADER,
 };
+use personhog_proto::personhog::types::v1::{ReleaseFenceItem, ReleaseFencesRequest};
 use rand::Rng;
 use tonic::body::BoxBody;
 use tonic::Code;
@@ -19,7 +21,10 @@ use tower::{Service, ServiceExt};
 
 use crate::backend::{LeaderBackend, ReplicaBackend};
 use crate::config::RetryConfig;
-use crate::grpc_http::{grpc_error_response, grpc_status_code, is_grpc_error_response};
+use crate::grpc_http::{
+    decode_unary_frame, encode_unary_frame, grpc_error_response, grpc_status_code,
+    is_grpc_error_response,
+};
 
 const SERVICE_PREFIX: &str = "/personhog.service.v1.PersonHogService/";
 const REPLICA_PREFIX: &str = "/personhog.replica.v1.PersonHogReplica/";
@@ -175,7 +180,7 @@ impl RawProxyInner {
                 (resp, "leader", call_ms)
             }
             "ReleaseFences" => {
-                let (resp, call_ms) = self.raw_proxy_to_leader(req, "ReleaseFences").await;
+                let (resp, call_ms) = self.split_release_fences_to_leaders(req).await;
                 (resp, "leader", call_ms)
             }
             // The merge saga's document write: leader-routed like every
@@ -473,6 +478,116 @@ impl RawProxyInner {
                 body_bytes,
             )
             .await
+    }
+
+    /// The one leader-bound method whose body the router decodes: the
+    /// router is what knows which pod owns which partition, so the saga's
+    /// per-op batch is split into one sub-request per owning pod here. The
+    /// first error response wins; a pod that already released its persons
+    /// stays released, and the saga's retry absorbs that per person.
+    async fn split_release_fences_to_leaders(
+        &self,
+        req: http::Request<BoxBody>,
+    ) -> (http::Response<BoxBody>, Option<f64>) {
+        let leader = match &self.leader {
+            Some(l) => l.clone(),
+            None => {
+                return (
+                    grpc_error_response(
+                        Code::Unimplemented,
+                        "leader backend not configured for this router",
+                    ),
+                    None,
+                )
+            }
+        };
+
+        let (parts, body) = req.into_parts();
+        let collect_start = Instant::now();
+        let body_bytes = match collect_body_limited(body, self.max_recv_message_size).await {
+            Ok(b) => b,
+            Err(resp) => return (resp, None),
+        };
+        histogram!(
+            "personhog_router_body_collect_ms",
+            "method" => "ReleaseFences",
+            "client" => current_client_name(),
+        )
+        .record(collect_start.elapsed().as_secs_f64() * 1000.0);
+
+        let request: ReleaseFencesRequest = match decode_unary_frame(&body_bytes) {
+            Ok(request) => request,
+            Err(resp) => return (resp, None),
+        };
+        if request.persons.is_empty() {
+            return (
+                grpc_error_response(
+                    Code::InvalidArgument,
+                    "ReleaseFences needs at least one person",
+                ),
+                None,
+            );
+        }
+
+        // A partition with no owner yet forms its own group, so its
+        // bounce-and-retry does not hold up the persons that can proceed.
+        let mut groups: BTreeMap<String, (u32, Vec<ReleaseFenceItem>)> = BTreeMap::new();
+        for person in request.persons {
+            let partition = leader.partition_for_person(request.team_id, person.person_id);
+            let key = match leader.owner_of_partition(partition).await {
+                Some(pod) => pod,
+                None => format!("unassigned:{partition}"),
+            };
+            groups
+                .entry(key)
+                .or_insert_with(|| (partition, Vec::new()))
+                .1
+                .push(person);
+        }
+        histogram!("personhog_router_release_fences_pods").record(groups.len() as f64);
+
+        // The client's content-length describes its frame, not the
+        // re-encoded sub-batches.
+        let mut headers = parts.headers;
+        headers.remove(http::header::CONTENT_LENGTH);
+
+        let _in_flight = ClientInFlightGuard::new("leader");
+        let forwards = groups.into_values().map(|(partition, persons)| {
+            let key = (request.team_id, persons[0].person_id);
+            let frame = encode_unary_frame(&ReleaseFencesRequest {
+                team_id: request.team_id,
+                op_id: request.op_id.clone(),
+                outcome: request.outcome,
+                persons,
+            });
+            let headers = headers.clone();
+            let leader = leader.clone();
+            async move {
+                leader
+                    .forward_or_stash("ReleaseFences", partition, key, headers, frame)
+                    .await
+            }
+        });
+        let outcomes = futures::future::join_all(forwards).await;
+
+        let mut call_ms: Option<f64> = None;
+        let mut success: Option<http::Response<BoxBody>> = None;
+        for (response, ms) in outcomes {
+            call_ms = match (call_ms, ms) {
+                (Some(a), Some(b)) => Some(a.max(b)),
+                (a, b) => a.or(b),
+            };
+            if is_grpc_error_response(&response) {
+                return (response, call_ms);
+            }
+            if success.is_none() {
+                success = Some(response);
+            }
+        }
+        (
+            success.expect("a non-empty batch forwards to at least one pod"),
+            call_ms,
+        )
     }
 }
 
