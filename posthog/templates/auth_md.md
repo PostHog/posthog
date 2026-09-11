@@ -25,7 +25,7 @@ The user-claimed device flow (`service_auth`, `anonymous`) is not supported yet.
 
 ## Scopes
 
-{% for scope, description in scopes %}- `{{ scope }}`: {{ description }}
+{% for scope in scopes %}- `{{ scope.name }}`: {{ scope.description }}
 {% endfor %}
 
 ## Changing scopes

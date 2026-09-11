@@ -8,6 +8,7 @@ from typing import Any
 
 from posthog.api import id_jag
 from posthog.api.oauth.claims import OIDC_CLAIMS
+from posthog.dataclasses import frozen
 from posthog.models.oauth import TokenEndpointAuthMethod
 from posthog.scopes import get_oauth_scopes_supported, get_scope_descriptions
 
@@ -115,9 +116,22 @@ _IDENTITY_SCOPE_DESCRIPTIONS = {
 }
 
 
-def client_manifest_scopes() -> list[tuple[str, str]]:
+@frozen
+class ManifestScope:
+    """One advertised scope as the auth.md manifest lists it."""
+
+    name: str
+    description: str
+
+
+def client_manifest_scopes() -> list[ManifestScope]:
     descriptions = get_scope_descriptions()
     return [
-        (scope, descriptions[scope] if scope in descriptions else _IDENTITY_SCOPE_DESCRIPTIONS.get(scope, scope))
+        ManifestScope(
+            name=scope,
+            description=descriptions[scope]
+            if scope in descriptions
+            else _IDENTITY_SCOPE_DESCRIPTIONS.get(scope, scope),
+        )
         for scope in get_oauth_scopes_supported()
     ]
