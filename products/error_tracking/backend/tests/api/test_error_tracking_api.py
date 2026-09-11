@@ -1642,6 +1642,60 @@ class TestErrorTracking(APIBaseTest):
 
     @parameterized.expand(
         [
+            # (name, endpoint, the upload names the other release, expected rejection code)
+            ("start_upload", "bulk_start_upload", True, "release_id_mismatch"),
+            ("check_upload", "bulk_check_upload", False, "content_hash_mismatch"),
+        ]
+    )
+    @patch("products.error_tracking.backend.logic.symbol_sets.posthoganalytics.capture_exception")
+    def test_bulk_upload_conflict_is_not_reported_to_error_tracking(
+        self,
+        _name: str,
+        endpoint: str,
+        upload_names_other_release: bool,
+        expected_code: str,
+        patched_capture_exception: Mock,
+    ) -> None:
+        chunk_id = str(uuid7())
+        release = ErrorTrackingRelease.objects.create(
+            team=self.team,
+            hash_id="conflict-release",
+            version="1.0.0",
+            project="test",
+        )
+        other_release = ErrorTrackingRelease.objects.create(
+            team=self.team,
+            hash_id="conflict-other-release",
+            version="1.0.1",
+            project="test",
+        )
+        ErrorTrackingSymbolSet.objects.create(
+            team=self.team,
+            ref=chunk_id,
+            storage_ptr="existing",
+            content_hash="already_uploaded",
+            release=release,
+        )
+
+        upload = {
+            "chunk_id": chunk_id,
+            "content_hash": "already_uploaded" if upload_names_other_release else "different_hash",
+        }
+        if upload_names_other_release:
+            upload["release_id"] = str(other_release.id)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{endpoint}",
+            data={"symbol_sets": [upload]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == expected_code
+        patched_capture_exception.assert_not_called()
+
+    @parameterized.expand(
+        [
             # (name, existing row (None = missing), upload names the release, request flags, expected to upload)
             ("missing", None, False, {}, True),
             ("unchanged", {"content_hash": "hash", "bound": False}, False, {}, False),
