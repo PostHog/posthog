@@ -24,7 +24,6 @@ use crate::grpc_transport::GrpcTransport;
 use crate::in_flight::{Delivery, InFlightPoll, InFlightPolls, PartitionDeliveries};
 use crate::ledger_rejection::{warn_rejection, RejectedSlice};
 use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
-use crate::scheduler::SchedulerKind;
 use crate::types::{Accumulator, SerializedKafkaMessage};
 
 /// Batch-wide statistics gathered while collecting, used to emit parity
@@ -123,22 +122,6 @@ impl IngestionConsumer {
         // callbacks reset the same baselines the commit path checks against.
         let commit_sentinel = consumer.context().commit_sentinel();
         let topic_offset_ledger = consumer.context().topic_offset_ledger();
-        let revoked_partitions: Arc<Mutex<Vec<TopicPartition>>> = Arc::new(Mutex::new(Vec::new()));
-        let purge_dispatcher = Arc::clone(&dispatcher);
-        let hook_revoked = (dispatcher.scheduler_kind() == SchedulerKind::KeyTable)
-            .then(|| Arc::clone(&revoked_partitions));
-        consumer
-            .context()
-            .set_revoke_hook(Box::new(move |partitions| {
-                purge_dispatcher.purge_revoked(partitions);
-                if let Some(list) = &hook_revoked {
-                    list.lock().unwrap().extend(
-                        partitions
-                            .iter()
-                            .map(|(topic, partition)| TopicPartition::new(topic, *partition)),
-                    );
-                }
-            }));
         let (batcher, outputs) = Batcher::new(
             dispatcher,
             Arc::clone(&transport),
@@ -146,6 +129,10 @@ impl IngestionConsumer {
             options.deferred_flush_timeout,
             options.parked_retry_interval,
         );
+        let revoked_partitions: Arc<Mutex<Vec<TopicPartition>>> = Arc::new(Mutex::new(Vec::new()));
+        consumer
+            .context()
+            .set_revoke_hook(batcher.revoke_hook(Arc::clone(&revoked_partitions)));
         Self {
             commit_sentinel,
             debug_recorder: options.debug_recorder,
@@ -204,19 +191,7 @@ impl IngestionConsumer {
         );
         context.set_assignment_epoch(transport.assignment_epoch());
         let revoked_partitions: Arc<Mutex<Vec<TopicPartition>>> = Arc::new(Mutex::new(Vec::new()));
-        let purge_dispatcher = batcher.dispatcher();
-        let hook_revoked = (purge_dispatcher.scheduler_kind() == SchedulerKind::KeyTable)
-            .then(|| Arc::clone(&revoked_partitions));
-        context.set_revoke_hook(Box::new(move |partitions| {
-            purge_dispatcher.purge_revoked(partitions);
-            if let Some(list) = &hook_revoked {
-                list.lock().unwrap().extend(
-                    partitions
-                        .iter()
-                        .map(|(topic, partition)| TopicPartition::new(topic, *partition)),
-                );
-            }
-        }));
+        context.set_revoke_hook(batcher.revoke_hook(Arc::clone(&revoked_partitions)));
         let consumer: StreamConsumer<SentinelContext> =
             client_config.create_with_context(context)?;
         consumer.subscribe(&[&config.ingestion_consumer_consume_topic])?;

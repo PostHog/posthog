@@ -592,7 +592,7 @@ pub struct SentinelContext {
     revoke_hook: OnceLock<RevokeHook>,
 }
 
-type RevokeHook = Box<dyn Fn(&[(String, i32)]) + Send + Sync>;
+pub type RevokeHook = Box<dyn Fn(&[(String, i32)]) + Send + Sync>;
 
 impl SentinelContext {
     pub fn new(

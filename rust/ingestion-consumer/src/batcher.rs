@@ -16,10 +16,10 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use common_kafka_consumer::{AssignmentEpoch, GroupCompletion, Offset, Partition};
+use common_kafka_consumer::{AssignmentEpoch, GroupCompletion, Offset, Partition, TopicPartition};
 use lifecycle::Handle;
 use metrics::{counter, histogram};
 use tokio::sync::mpsc;
@@ -28,7 +28,7 @@ use tracing::{error, info};
 
 use crate::dispatcher::{Dispatcher, KeyOffset, SubBatch};
 use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend};
-use crate::order_sentinel::KeyOrderSentinel;
+use crate::order_sentinel::{KeyOrderSentinel, RevokeHook};
 use crate::scheduler::SchedulerKind;
 use crate::transport::SendError;
 use crate::types::Accumulator;
@@ -180,9 +180,23 @@ impl Batcher {
         self.inner.dispatcher.key_order_sentinel()
     }
 
-    /// The dispatcher, for the consumer's revocation hook.
-    pub fn dispatcher(&self) -> Arc<Dispatcher> {
-        Arc::clone(&self.inner.dispatcher)
+    /// The rebalance callback's revocation hook. Drops the scheduler's queued
+    /// messages for the revoked partitions; under the key-table scheduler it
+    /// also reports them on `revoked`, so the consumer loop can strip them
+    /// from its in-flight polls.
+    pub fn revoke_hook(&self, revoked: Arc<Mutex<Vec<TopicPartition>>>) -> RevokeHook {
+        let dispatcher = Arc::clone(&self.inner.dispatcher);
+        let revoked = (dispatcher.scheduler_kind() == SchedulerKind::KeyTable).then_some(revoked);
+        Box::new(move |partitions| {
+            dispatcher.purge_revoked(partitions);
+            if let Some(list) = &revoked {
+                list.lock().unwrap().extend(
+                    partitions
+                        .iter()
+                        .map(|(topic, partition)| TopicPartition::new(topic, *partition)),
+                );
+            }
+        })
     }
 
     /// Submit one poll's demuxed groups. Call on the consumer loop, in poll
