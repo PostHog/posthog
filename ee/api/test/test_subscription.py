@@ -3863,6 +3863,23 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
+    def test_update_revalidates_a_target_that_changed_while_waiting_for_the_row_lock(self):
+        subscription = self._sub_on_an_open_insight()
+        stale_subscription = Subscription.objects.get(pk=subscription.pk)
+        Subscription.objects.filter(pk=subscription.pk).update(insight=self.restricted_insight)
+
+        with patch("ee.api.subscription.SubscriptionViewSet.get_object", return_value=stale_subscription):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}",
+                {"target_value": "attacker@example.com"},
+            )
+
+        body = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, body
+        assert body["attr"] == "insight", body
+        assert "Viewer access" in body["detail"], body
+        self.mock_temporal_client.start_workflow.assert_not_called()
+
     def test_insight_filter_does_not_confirm_a_restricted_subscription(self):
         hidden = self._sub_on_a_restricted_insight()
 
