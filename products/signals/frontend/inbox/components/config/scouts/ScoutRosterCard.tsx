@@ -13,6 +13,7 @@ import { inboxCardRowClassName } from '../../cards/inboxCardRowClassName'
 import { ScoutLifecycleBadge } from './ScoutBadges'
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
+import { ScoutCostLine } from './ScoutCostLine'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
 import { ScoutRunBoxes } from './ScoutRunBoxes'
 import { ScoutStatusDot } from './ScoutStatusDot'
@@ -36,12 +37,19 @@ function MetaSeparator(): JSX.Element {
  */
 export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
     const { config, group } = row
-    const { rollups, updatingScoutIds, scoutRunsLoadedOnce, scoutRunCosts, expensiveRunCostThreshold } =
-        useValues(scoutFleetLogic)
+    const {
+        rollups,
+        updatingScoutIds,
+        scoutRunsLoadedOnce,
+        scoutRunCosts,
+        scoutCostRollups,
+        expensiveRunCostThreshold,
+    } = useValues(scoutFleetLogic)
     const { updateScoutConfig } = useActions(scoutFleetLogic)
     const { currentTeam } = useValues(teamLogic)
     const now = new Date()
     const rollup = rollups.get(config.skill_name)
+    const costRollup = scoutCostRollups.get(config.skill_name)
     const runs = rollup?.runs ?? []
     const subtitle = scoutSubtitle(config, rollup, now)
     // Only enabled scouts have a next run; a paused one would otherwise carry an empty dash.
@@ -90,6 +98,11 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
                             </>
                         )}
                     </div>
+                    {costRollup && (
+                        <div className="flex flex-wrap items-center text-xs leading-none text-tertiary select-none">
+                            <ScoutCostLine rollup={costRollup} />
+                        </div>
+                    )}
                 </div>
             </Link>
             <div className="flex shrink-0 items-center justify-between gap-4 @lg:justify-end @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">

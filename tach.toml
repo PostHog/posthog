@@ -1303,7 +1303,7 @@ from = [
 
 [[modules]]
 path = "products.business_knowledge"
-depends_on = ["posthog", "ee"]
+depends_on = ["posthog", "ee", "products.access_control"]
 layer = "modules"
 
 [[interfaces]]
