@@ -23,6 +23,8 @@ export function watchReasonCopy(reason: WatchFeedReasonApi): string {
             return (reason.signals_count ?? 0) > 1
                 ? `The scanner raised ${reason.signals_count} signals from this session.`
                 : 'The scanner raised a signal from this session.'
+        case 'unusual_verdict':
+            return `The scanner answered ${reason.verdict}, which is rare for it in this window.`
         case 'verdict_yes':
             return 'The scanner answered yes for this session.'
         case 'outlier_score':
