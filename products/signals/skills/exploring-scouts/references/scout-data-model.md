@@ -155,4 +155,4 @@ On a rolling interval, due means `last_run_at is None` or `now - last_run_at >= 
 Enrollment is via the `signals-scout` feature flag's allowlist.
 So a scout can be enabled yet run late if: the team was drained from the flag, the scout was disabled, or busy ticks hit the per-tick cap.
 There is no sampling — a due, enabled, enrolled scout runs.
-Separately, a scout paused by the failure breaker (`repeated_failures`) gets one probe run a day and resumes on a clean one.
+Separately, a scout paused by the failure breaker (`repeated_failures`) gets one probe run a day and resumes on a clean one, unless the project is at its enabled-scout cap, in which case the row stays `paused_by_system` until a slot frees or a person re-enables it.
