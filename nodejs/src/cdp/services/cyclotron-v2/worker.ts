@@ -44,9 +44,8 @@ const highTransitionDequeuesCounter = new Counter({
 })
 
 // The loop swallows the error and retries, so without this counter a queue whose every
-// dequeue throws looks exactly like an idle queue. Exported for the rate-limited
-// subclass, which has its own loop and catch.
-export const consumerLoopErrorsCounter = new Counter({
+// dequeue throws looks exactly like an idle queue.
+const consumerLoopErrorsCounter = new Counter({
     name: 'cdp_cyclotron_v2_consumer_loop_errors_total',
     help: 'Consumer loop iterations that threw, per queue. A sustained positive rate can indicate the queue is not being consumed.',
     labelNames: ['queue'] as const,
@@ -230,6 +229,8 @@ export class CyclotronV2Worker {
     protected readonly queueName: string
     protected readonly batchMaxSize: number
     protected readonly pollDelayMs: number
+    protected readonly maxPollDelayMs: number
+    private emptyPollCount = 0
     private readonly heartbeatTimeoutMs: number
     protected readonly includeEmptyBatches: boolean
     protected readonly fairDequeue: boolean
@@ -243,6 +244,7 @@ export class CyclotronV2Worker {
         this.queueName = config.queueName
         this.batchMaxSize = config.batchMaxSize ?? 100
         this.pollDelayMs = config.pollDelayMs ?? 50
+        this.maxPollDelayMs = Math.max(config.maxPollDelayMs ?? 1000, this.pollDelayMs)
         this.heartbeatTimeoutMs = config.heartbeatTimeoutMs ?? 30000
         this.includeEmptyBatches = config.includeEmptyBatches ?? false
         // Fair (per-team round-robin) dequeue is the email queue's ordering.
@@ -264,16 +266,30 @@ export class CyclotronV2Worker {
         while (this.isConsuming) {
             try {
                 this.lastPollTime = new Date()
-                const rows = this.fairDequeue ? await this.fairDequeueJobs() : await this.dequeueJobs()
+
+                const plan = await this.planPoll()
+                if ('skip' in plan) {
+                    if (this.includeEmptyBatches) {
+                        await processBatch([])
+                    }
+                    // A limiter-supplied delay is authoritative; otherwise back off.
+                    await (plan.sleepMs !== undefined ? sleep(plan.sleepMs) : this.sleepAfterEmptyPoll())
+                    continue
+                }
+
+                const rows = this.fairDequeue
+                    ? await this.fairDequeueJobs(plan.dequeue)
+                    : await this.dequeueJobs(plan.dequeue)
 
                 if (rows.length === 0) {
                     if (this.includeEmptyBatches) {
                         await processBatch([])
                     }
-                    await sleep(this.pollDelayMs)
+                    await this.sleepAfterEmptyPoll()
                     continue
                 }
 
+                this.resetPollBackoff()
                 const jobs = rows.map((row) => this.wrapJob(row))
                 await processBatch(jobs)
             } catch (err) {
@@ -282,6 +298,39 @@ export class CyclotronV2Worker {
                 await sleep(this.pollDelayMs)
             }
         }
+    }
+
+    /**
+     * Decide each poll whether to dequeue and how many rows to claim. The dequeue is a
+     * write-path `UPDATE ... FOR UPDATE SKIP LOCKED`, so on an empty queue it buys nothing
+     * and still contends for the head of the dequeue index with every other pod. `countWork`
+     * answers the "is anything ready" question read-only, so an idle queue never runs the write.
+     *
+     * Rate-limited subclasses override this to gate the claim behind their token bucket.
+     */
+    protected async planPoll(): Promise<{ dequeue: number } | { skip: true; sleepMs?: number }> {
+        if ((await this.countWork(1)) === 0) {
+            return { skip: true }
+        }
+        return { dequeue: this.batchMaxSize }
+    }
+
+    /**
+     * Sleep after a poll that found no work, doubling the delay each time up to
+     * `maxPollDelayMs` while the queue stays empty. The first empty poll still waits
+     * exactly `pollDelayMs`, so a queue that only just drained keeps its latency.
+     * The jitter spreads pods that started together, which otherwise reach the head
+     * of the dequeue index in lockstep.
+     */
+    protected async sleepAfterEmptyPoll(): Promise<void> {
+        const delay = Math.min(this.pollDelayMs * 2 ** this.emptyPollCount, this.maxPollDelayMs)
+        this.emptyPollCount++
+        await sleep(this.pollDelayMs + Math.random() * (delay - this.pollDelayMs))
+    }
+
+    /** Back to the configured poll delay, called as soon as a poll finds work. */
+    protected resetPollBackoff(): void {
+        this.emptyPollCount = 0
     }
 
     /**

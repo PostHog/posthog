@@ -3,6 +3,7 @@ import { register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
 import { parseJSON } from '~/common/utils/json-parse'
+import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
@@ -1027,6 +1028,49 @@ describe('Cyclotron V2', () => {
             const jobs = await dequeueOneBatch(worker)
             expect(jobs).toHaveLength(2)
             expect(await countByStatus('running')).toBe(2)
+        })
+
+        // The dequeue is a write-path UPDATE that contends for the head of the dequeue
+        // index with every other pod, so an empty queue must resolve on the read-only
+        // pre-check. Empty batches still have to reach the consumer — KEDA scales the
+        // workers off the utilization gauge they set.
+        it('does not run the dequeue update while the queue is empty', async () => {
+            const dequeueSpy = jest.spyOn(CyclotronV2Worker.prototype as any, 'dequeueJobs')
+            const worker = createWorker('empty-poll-precheck')
+            let emptyBatches = 0
+
+            // eslint-disable-next-line @typescript-eslint/require-await
+            await worker.connect(async (batch) => {
+                if (batch.length === 0) {
+                    emptyBatches++
+                }
+            })
+            await sleep(100)
+            await worker.stopConsuming()
+            const dequeueCalls = dequeueSpy.mock.calls.length
+            dequeueSpy.mockRestore()
+
+            expect(emptyBatches).toBeGreaterThan(0)
+            expect(dequeueCalls).toBe(0)
+        })
+
+        // The backoff grows the poll delay while a queue is idle, so an uncapped or
+        // never-reset delay would strand the next job for as long as the queue stayed quiet.
+        it('picks up a job enqueued once the empty-poll backoff has grown', async () => {
+            const queue = 'empty-poll-backoff'
+            const worker = createWorker(queue, { pollDelayMs: 10, maxPollDelayMs: 50 })
+            const processed: string[] = []
+
+            // eslint-disable-next-line @typescript-eslint/require-await
+            await worker.connect(async (batch) => {
+                processed.push(...batch.map((job) => job.id))
+            })
+            // Long enough for the backoff to saturate at maxPollDelayMs before the job lands.
+            await sleep(150)
+            const id = await manager.createJob({ teamId: 1, queueName: queue })
+
+            await waitForExpect(() => expect(processed).toContain(id), 2_000, 10)
+            await worker.stopConsuming()
         })
 
         // The loop swallows errors and retries, so a queue whose batches all throw looks

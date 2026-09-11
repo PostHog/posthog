@@ -1,8 +1,5 @@
-import { logger } from '~/common/utils/logger'
-
 import { CyclotronV2BatchLimit, CyclotronV2WorkerConfig } from './types'
-import { CyclotronV2DequeuedJob } from './types'
-import { CyclotronV2Worker, consumerLoopErrorsCounter, sleep } from './worker'
+import { CyclotronV2Worker } from './worker'
 
 /**
  * Variant of CyclotronV2Worker that consults a per-poll rate-limit hook before
@@ -25,54 +22,18 @@ export class CyclotronV2RateLimitedWorker extends CyclotronV2Worker {
         super(config)
     }
 
-    protected override async runConsumerLoop(
-        processBatch: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>
-    ): Promise<void> {
-        while (this.isConsuming) {
-            try {
-                this.lastPollTime = new Date()
-
-                // Pre-size the token-bucket claim to the number of rows actually
-                // available for this poll, capped at batchMaxSize. Idle polls
-                // (count === 0) skip the limiter entirely so the bucket stays
-                // at capacity for the next burst. Sparse polls (count < capacity)
-                // only consume what they'll send, fixing the "1 ready job drains
-                // the whole bucket" failure mode of asking for full capacity
-                // every time.
-                const visibleRows = await this.countWork(this.batchMaxSize)
-                if (visibleRows === 0) {
-                    await sleep(this.pollDelayMs)
-                    continue
-                }
-
-                const decision = await this.getBatchLimit(visibleRows)
-                // === 0 (not <=) so a future bug returning a negative limit
-                // surfaces as a SQL LIMIT error instead of silently sleeping.
-                if (decision && decision.limit === 0) {
-                    await sleep(decision.sleepMs ?? this.pollDelayMs)
-                    continue
-                }
-                const effectiveLimit = decision ? Math.min(decision.limit, this.batchMaxSize) : this.batchMaxSize
-
-                const rows = this.fairDequeue
-                    ? await this.fairDequeueJobs(effectiveLimit)
-                    : await this.dequeueJobs(effectiveLimit)
-
-                if (rows.length === 0) {
-                    if (this.includeEmptyBatches) {
-                        await processBatch([])
-                    }
-                    await sleep(this.pollDelayMs)
-                    continue
-                }
-
-                const jobs = rows.map((row) => this.wrapJob(row))
-                await processBatch(jobs)
-            } catch (err) {
-                consumerLoopErrorsCounter.labels({ queue: this.queueName }).inc()
-                logger.error('CyclotronV2RateLimitedWorker consumer loop error', { error: String(err) })
-                await sleep(this.pollDelayMs)
-            }
+    protected override async planPoll(): Promise<{ dequeue: number } | { skip: true; sleepMs?: number }> {
+        const visibleRows = await this.countWork(this.batchMaxSize)
+        if (visibleRows === 0) {
+            return { skip: true }
         }
+
+        const decision = await this.getBatchLimit(visibleRows)
+        // === 0 (not <=) so a future bug returning a negative limit surfaces as a
+        // SQL LIMIT error instead of silently sleeping.
+        if (decision && decision.limit === 0) {
+            return { skip: true, sleepMs: decision.sleepMs }
+        }
+        return { dequeue: decision ? Math.min(decision.limit, this.batchMaxSize) : this.batchMaxSize }
     }
 }
