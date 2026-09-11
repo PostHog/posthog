@@ -112,7 +112,6 @@ describe("ActivityRow", () => {
     expect(row?.querySelector(".quill-avatar")).toHaveClass(
       "bg-primary",
       "text-primary-foreground",
-      "size-4",
     );
     expect(row).not.toHaveClass("bg-primary/10");
     expect(row).not.toHaveClass("outline-primary/20");

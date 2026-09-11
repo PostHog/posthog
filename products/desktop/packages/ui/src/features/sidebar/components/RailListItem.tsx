@@ -15,6 +15,8 @@ export const RAIL_CONTAINER_CLASS = "@container/rail";
 export const RAIL_DETAIL_CLAMP_CLASS =
   "line-clamp-1 @sm/rail:line-clamp-2 @lg/rail:line-clamp-3";
 
+const RAIL_DESCRIPTION_CLAMP_CLASS = "line-clamp-2 @lg/rail:line-clamp-3";
+
 /** Hidden until the row is hovered or focused; opens stay visible while open. */
 export const RAIL_HOVER_ACTIONS_CLASS =
   "opacity-0 transition-opacity focus-within:opacity-100 group-hover/rail-item:opacity-100 group-focus-within/rail-item:opacity-100 has-[[data-popup-open]]:opacity-100";
@@ -38,6 +40,7 @@ export interface RailListItemProps
   detail?: ReactNode;
   /** Off, the detail row shows in full, for the full-page list. */
   clampDetail?: boolean;
+  detailLines?: 1 | 2;
   isSelected?: boolean;
   compact?: boolean;
   /** Renders as a keyboard-walkable option of the enclosing `Autocomplete`. */
@@ -65,6 +68,7 @@ export function RailListItem({
   meta,
   detail,
   clampDetail = true,
+  detailLines = 1,
   isSelected = false,
   compact = false,
   asOption = false,
@@ -88,7 +92,9 @@ export function RailListItem({
 
   const body = (
     <>
-      <span className="mt-0.5 shrink-0">{leading}</span>
+      <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center">
+        {leading}
+      </span>
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
           <span
@@ -111,7 +117,12 @@ export function RailListItem({
             className={cn(
               "mt-0.5 block break-words text-[12px] text-muted-foreground leading-snug",
               clampDetail
-                ? cn("whitespace-normal", RAIL_DETAIL_CLAMP_CLASS)
+                ? cn(
+                    "whitespace-normal",
+                    detailLines === 2
+                      ? RAIL_DESCRIPTION_CLAMP_CLASS
+                      : RAIL_DETAIL_CLAMP_CLASS,
+                  )
                 : "whitespace-pre-wrap",
             )}
           >

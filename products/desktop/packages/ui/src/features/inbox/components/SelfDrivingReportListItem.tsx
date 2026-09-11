@@ -72,7 +72,7 @@ export function SelfDrivingReportListItem({
 
   return (
     <RailListItem
-      leading={<PriorityMonogram priority={report.priority} />}
+      leading={<PriorityMonogram priority={report.priority} size="small" />}
       title={title}
       meta={
         <>
@@ -106,6 +106,7 @@ export function SelfDrivingReportListItem({
         </>
       }
       detail={detail}
+      detailLines={2}
       isSelected={isSelected}
       compact={compact}
       asOption={asOption}

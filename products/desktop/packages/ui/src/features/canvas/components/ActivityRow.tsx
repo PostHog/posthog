@@ -6,7 +6,7 @@ import {
   QuestionIcon,
 } from "@phosphor-icons/react";
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
-import { Avatar, AvatarFallback, Badge, Button, cn } from "@posthog/quill";
+import { Avatar, AvatarFallback, Badge, Button } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { UserBasic } from "@posthog/shared/domain-types";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
@@ -107,10 +107,7 @@ export function ActivityRow({
     <RailListItem
       leading={
         presentation.agentIcon ? (
-          <Avatar
-            size="xs"
-            className={cn(agentIconWrapperClassName, compact && "size-4")}
-          >
+          <Avatar size="xs" className={agentIconWrapperClassName}>
             <AvatarFallback>
               <AgentActivityIcon
                 kind={presentation.agentIcon}
@@ -119,13 +116,7 @@ export function ActivityRow({
             </AvatarFallback>
           </Avatar>
         ) : (
-          <span className="mt-1 flex shrink-0">
-            <UserAvatar
-              user={item.author ?? currentUser}
-              size="xs"
-              className={compact ? "size-4" : undefined}
-            />
-          </span>
+          <UserAvatar user={item.author ?? currentUser} size="xs" />
         )
       }
       title={item.taskTitle}
