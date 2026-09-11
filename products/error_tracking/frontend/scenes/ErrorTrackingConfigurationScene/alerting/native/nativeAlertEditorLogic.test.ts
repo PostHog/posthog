@@ -90,8 +90,20 @@ describe('nativeAlertEditorLogic', () => {
             expect.objectContaining({ trigger: 'issue_created' })
         )
 
+        // A new alert starts with every trigger and the plain sentence; the first untick customizes it.
+        expect(logic.values.triggersCustomized).toBe(false)
         logic.actions.setDraft({ name: 'Spikes' })
         logic.actions.setTriggerEnabled('issue_created', false)
+        expect(logic.values.triggersCustomized).toBe(true)
+        await expectLogic(logic, () => logic.actions.resetTriggers()).toFinishAllListeners()
+        expect(logic.values.draft.triggers).toHaveLength(4)
+        expect(logic.values.triggersCustomized).toBe(false)
+        // Reset changes the primary trigger back, so the preview must follow it.
+        expect(mockPreview).toHaveBeenLastCalledWith(
+            expect.any(String),
+            expect.objectContaining({ trigger: 'issue_created' })
+        )
+        logic.actions.setDraft({ triggers: [] })
         await expectLogic(logic, () => logic.actions.setTriggerEnabled('issue_spiking', true)).toFinishAllListeners()
         expect(mockPreview).toHaveBeenLastCalledWith(
             expect.any(String),
