@@ -4721,7 +4721,7 @@ describe("CloudTaskEngine credential relay", () => {
       { credential: "claude_subscription_token", outcome: "no_token" },
     );
     expect(errorUpdates(updates)).toMatchObject([
-      { runId: "run-1", retryable: true },
+      { runId: "run-1", retryable: false },
     ]);
   });
 
@@ -4829,11 +4829,12 @@ describe("CloudTaskEngine credential relay", () => {
     );
   });
 
-  it("stops retrying a refused run and surfaces a retryable error", async () => {
+  it("stops retrying a refused run without alarming an observer", async () => {
     const updates: unknown[] = [];
     relayService.on(CloudTaskEvent.Update, (payload) => updates.push(payload));
     tokenStore.get.mockResolvedValue("sk-ant-oat01-fake-test-token");
-    // Another user's plan owns the run, so the designation stays refused.
+    // Another user's plan owns the run, so the designation stays refused and
+    // the owner's desktop is the one that answers.
     mockNetFetch.mockImplementation((url: string) =>
       Promise.resolve(
         createJsonResponse(
@@ -4860,9 +4861,7 @@ describe("CloudTaskEngine credential relay", () => {
       ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY,
       { credential: "claude_subscription_token", outcome: "rejected" },
     );
-    expect(errorUpdates(updates)).toMatchObject([
-      { runId: "run-1", retryable: true },
-    ]);
+    expect(errorUpdates(updates)).toEqual([]);
     const ownerChecks = ownerCheckCount();
     await vi.advanceTimersByTimeAsync(120_000);
     expect(ownerCheckCount()).toBe(ownerChecks);

@@ -103,11 +103,11 @@ type CredentialFailureOutcome = "no_token" | "expired" | "rejected";
 
 const CREDENTIAL_FAILURE_MESSAGE: Record<CredentialFailureOutcome, string> = {
   no_token:
-    "This run needs your Claude token. Save one in Settings > Harness, then retry.",
+    "This run needs your Claude token. Save one in Settings > Harness, then start the task again.",
   rejected:
-    "This account cannot send a Claude token to this run. Retry, or start a new task on PostHog billing.",
+    "Your Claude token could not be sent to this run. Start the task again, or start a new task on PostHog billing.",
   expired:
-    "Your Claude token did not reach the run in time. Retry to send it again.",
+    "Your Claude token did not reach the run in time. Start the task again.",
 };
 
 /** A refusal retrying cannot clear, so the delivery loop stops instead of
@@ -757,7 +757,8 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       });
       if (outcome !== "sent") {
         this.log.warn("Claude token delivery failed", { outcome });
-        this.emitCredentialFailure(watcher, outcome);
+        if (this.claudeSubscriptionRuns.has(runKey))
+          this.emitCredentialFailure(watcher, outcome);
       }
     };
     if (expiresAt <= Date.now()) {
@@ -808,7 +809,13 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         try {
           await this.designateClaudeSubscription(watcher);
         } catch (error) {
-          if (error instanceof ClaudeTokenRelayRefused) return "rejected";
+          if (error instanceof ClaudeTokenRelayRefused) {
+            this.log.warn("Claude token relay refused", {
+              runId: watcher.runId,
+              reason: error.message,
+            });
+            return "rejected";
+          }
           throw error;
         }
       }
@@ -856,7 +863,11 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
   }
 
   /** The sandbox blocks startup until a token arrives, so a failure that only
-   *  reaches the log reads as a run that spins with its messages queued. */
+   *  reaches the log reads as a run that spins with its messages queued.
+   *
+   *  Not retryable: the sandbox asks once per run, and `finish` has already
+   *  retired this request id, so a stream retry cannot resend the token and
+   *  would only clear the error the user has to act on. */
   private emitCredentialFailure(
     watcher: WatcherState,
     outcome: CredentialFailureOutcome,
@@ -867,7 +878,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       kind: "error",
       errorTitle: "Claude token not delivered",
       errorMessage: CREDENTIAL_FAILURE_MESSAGE[outcome],
-      retryable: true,
+      retryable: false,
     });
   }
 
