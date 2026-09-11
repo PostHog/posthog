@@ -22,6 +22,7 @@ import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } 
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { buildMCPSessionAnalyticsProperties, getEffectiveMCPClientIdentity } from './mcp-context'
+import type { RequestCharge } from './rate-limiter'
 import type { ResolvedState } from './request-state-resolver'
 
 function buildBaseProperties(
@@ -434,6 +435,43 @@ export async function trackToolSpan(toolName: string, state: ResolvedState, meta
 }
 
 /**
+ * The canonical `$mcp_*` identity fields for a request that died before state
+ * resolution, so a refusal can be grouped by the same dimensions as real MCP
+ * traffic. Everything here comes off the raw request — nothing needs an
+ * authenticated call.
+ */
+function buildUnresolvedProperties(props: RequestProperties): Record<string, unknown> {
+    return {
+        $ai_product: 'mcp',
+        // Resolved without scopes — the request never authenticated, so nothing can
+        // vouch for a declared consumer and anything unproven lands as `mcp`.
+        source: resolveEventSource({
+            mcpConsumer: props.mcpConsumer,
+            clientUserAgent: props.clientUserAgent,
+        }),
+        $mcp_source: MCP_ANALYTICS_SOURCE,
+        $mcp_server_name: MCP_SERVER_NAME,
+        $mcp_server_version: MCP_SERVER_VERSION,
+        $mcp_version: MCP_ANALYTICS_VERSION,
+        $mcp_client_name: props.mcpClientName,
+        $mcp_client_version: props.mcpClientVersion,
+        $mcp_client_user_agent: props.clientUserAgent,
+        $mcp_protocol_version: props.mcpProtocolVersion,
+        $mcp_transport: props.transport,
+        $mcp_session_id: props.mcpSessionId,
+        $mcp_conversation_id: props.mcpConversationId,
+        $mcp_consumer: props.mcpConsumer,
+        $mcp_mode: props.mode,
+        $mcp_region: props.region,
+        $mcp_auth_method: classifyAuthMethod(props.apiToken),
+        mcp_runtime: 'hono',
+        $mcp_vendor_client: props.mcpVendorClient,
+        has_organization_id: !!props.organizationId,
+        has_project_id: !!props.projectId,
+    }
+}
+
+/**
  * Emits `$mcp_auth_failed` for a request the PostHog API refused. These requests die
  * before `RequestStateResolver.resolve` returns, so they never reach
  * `trackInitEvent`/`trackToolCall` and are otherwise invisible in analytics — a
@@ -451,35 +489,47 @@ export function trackAuthFailure(props: RequestProperties, failure: McpAuthFailu
             distinctId: props.userHash,
             event: '$mcp_auth_failed',
             properties: {
-                $ai_product: 'mcp',
-                // Resolved without scopes — the request never authenticated, so nothing can
-                // vouch for a declared consumer and anything unproven lands as `mcp`.
-                source: resolveEventSource({
-                    mcpConsumer: props.mcpConsumer,
-                    clientUserAgent: props.clientUserAgent,
-                }),
-                $mcp_source: MCP_ANALYTICS_SOURCE,
-                $mcp_server_name: MCP_SERVER_NAME,
-                $mcp_server_version: MCP_SERVER_VERSION,
-                $mcp_version: MCP_ANALYTICS_VERSION,
-                $mcp_client_name: props.mcpClientName,
-                $mcp_client_version: props.mcpClientVersion,
-                $mcp_client_user_agent: props.clientUserAgent,
-                $mcp_protocol_version: props.mcpProtocolVersion,
-                $mcp_transport: props.transport,
-                $mcp_session_id: props.mcpSessionId,
-                $mcp_conversation_id: props.mcpConversationId,
-                $mcp_consumer: props.mcpConsumer,
-                $mcp_mode: props.mode,
-                $mcp_region: props.region,
-                $mcp_auth_method: classifyAuthMethod(props.apiToken),
-                mcp_runtime: 'hono',
-                $mcp_vendor_client: props.mcpVendorClient,
+                ...buildUnresolvedProperties(props),
                 $mcp_auth_failure_reason: failure.reason,
                 ...(failure.status ? { $mcp_auth_status: failure.status } : {}),
                 ...(failure.missingScope ? { $mcp_missing_scope: failure.missingScope } : {}),
-                has_organization_id: !!props.organizationId,
-                has_project_id: !!props.projectId,
+            },
+        })
+    } catch {
+        // never break the request for analytics
+    }
+}
+
+export interface RateLimitedMeta {
+    /** The window that blocked the request, e.g. `mcp_burst`. */
+    scope: string
+    limit: number
+    resetSeconds: number
+    /** Which bucket the request was charged to — handshake or work. */
+    charge: RequestCharge
+    /** Resolved project id, when the request or the token cache named one. */
+    projectId?: string
+}
+
+/**
+ * Emits `$mcp_rate_limited` for a request the server refused with a 429. A block
+ * happens before the request reaches `RequestStateResolver.resolve`, so it lands in
+ * neither `$mcp_initialize` nor `$mcp_tool_call`, and this event is the only view of
+ * which clients are blocked and on what. Keyed on `userHash` (a hash of the bearer
+ * token, never the token itself), the same as {@link trackAuthFailure}.
+ */
+export function trackRateLimited(props: RequestProperties, meta: RateLimitedMeta): void {
+    try {
+        getPostHogClient().capture({
+            distinctId: props.userHash,
+            event: '$mcp_rate_limited',
+            properties: {
+                ...buildUnresolvedProperties(props),
+                $mcp_rate_limit_scope: meta.scope,
+                $mcp_rate_limit_limit: meta.limit,
+                $mcp_rate_limit_reset_seconds: meta.resetSeconds,
+                $mcp_rate_limit_charge: meta.charge,
+                ...(meta.projectId ? { $mcp_project_id: meta.projectId } : {}),
             },
         })
     } catch {
