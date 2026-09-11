@@ -26,6 +26,7 @@ def analyze_fixture(
     open_filters_placeholder: bool = False,
     event_filter: EventFilterOutcome | None = None,
     table_row_averages: dict[str, float] | None = None,
+    all_time: bool = False,
 ) -> QueryScanResult:
     return analyze(
         PlanSet(
@@ -40,6 +41,7 @@ def analyze_fixture(
         measurements=MEASUREMENTS,
         event_filter=event_filter,
         table_row_averages=table_row_averages,
+        all_time=all_time,
     )
 
 
@@ -58,6 +60,14 @@ class TestAnalyze(SimpleTestCase):
             ("event filter in the key stays quiet", "plan_event_filter_used", {}, []),
             ("event filter inside an OR still used", "plan_event_filter_in_or", {}, []),
             ("no date bound is flagged", "plan_no_date_bound", {}, ["no_start_date"]),
+            # An "All time" insight runs with a bound at the project's first event, so the plan alone
+            # would stay quiet; the setting is what says no start date was chosen.
+            (
+                "all time insight is flagged despite the bound",
+                "plan_event_filter_used",
+                {"query_kind": "TrendsQuery", "all_time": True},
+                ["no_start_date"],
+            ),
             # persons gate: the persons read dwarfs the events read
             ("persons join over the ratio", "plan_persons_join", {}, ["persons_join"]),
             # persons gate the other way: raise the ratio past what the plan shows

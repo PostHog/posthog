@@ -57,6 +57,7 @@ def analyze(
     measurements: ScanMeasurements,
     event_filter: EventFilterOutcome | None = None,
     table_row_averages: dict[str, float] | None = None,
+    all_time: bool = False,
 ) -> QueryScanResult:
     """`open_filters_placeholder` is true when the query left its date range to a `{filters}`
     placeholder that expanded to no bound, so the fix is on the insight, not in the SQL.
@@ -85,6 +86,7 @@ def analyze(
         measurements,
         query_kind=query_kind,
         open_filters_placeholder=open_filters_placeholder,
+        all_time=all_time,
         range_share=range_share,
         subquery_index=None,
         table_row_averages=averages,
@@ -97,6 +99,7 @@ def analyze(
             measurements,
             query_kind=query_kind,
             open_filters_placeholder=open_filters_placeholder,
+            all_time=all_time,
             range_share=None,
             subquery_index=index,
             table_row_averages=averages,
@@ -119,6 +122,7 @@ def _findings_for_plan(
     *,
     query_kind: str,
     open_filters_placeholder: bool,
+    all_time: bool,
     range_share: float | None,
     subquery_index: int | None,
     table_row_averages: dict[str, float],
@@ -131,7 +135,10 @@ def _findings_for_plan(
 
     findings: list[QueryScanWarning] = []
 
-    if not events_read.has_timestamp_key():
+    # "All time" reaches the plan as a bound at the project's first event, so only the setting
+    # says the person chose no start date; it applies to the outer query, not its subqueries.
+    chose_all_time = all_time and subquery_index is None
+    if not events_read.has_timestamp_key() or chose_all_time:
         reason = FindingReason.FILTERS if open_filters_placeholder and query_kind == _SQL_QUERY_KIND else None
         findings.append(
             build_warning(
@@ -139,7 +146,11 @@ def _findings_for_plan(
                 query_kind=query_kind,
                 reason=reason,
                 measurements=measurements,
-                evidence=_min_max_evidence(events_read, subquery_index),
+                evidence=(
+                    "The date range is set to All time, so the query starts at the project's first event."
+                    if chose_all_time
+                    else _min_max_evidence(events_read, subquery_index)
+                ),
             )
         )
 

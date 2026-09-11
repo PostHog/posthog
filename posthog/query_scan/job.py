@@ -87,6 +87,7 @@ class QueryScanJob:
     dashboard_id: int | None = None
     killed: bool = False
     error_type: str | None = None
+    all_time: bool = False
 
 
 @frozen(eq=False)
@@ -147,6 +148,7 @@ def _run(job: QueryScanJob, started: float) -> None:
                 thresholds,
                 query_kind=job.query_kind or "",
                 open_filters_placeholder=job.open_filters_placeholder,
+                all_time=job.all_time,
                 measurements=measurements,
                 event_filter=_combined_event_filter(execution, outer),
                 table_row_averages=table_row_averages,

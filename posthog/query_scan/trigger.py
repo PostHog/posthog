@@ -154,6 +154,7 @@ def maybe_trigger_query_scan(
             error_type=error_type,
             query_kind=query_kind,
             open_filters_placeholder=_open_filters_placeholder(query, query_kind),
+            all_time=_all_time(query),
         )
     except Exception:
         # The broker can be down while ClickHouse is fine, and the result is not cached yet, so
@@ -247,6 +248,17 @@ def _json_default(value: Any) -> Any:
     if isinstance(value, bytes):
         return value.decode("utf-8", "replace")
     return str(value)
+
+
+def _all_time(query: BaseModel) -> bool:
+    """Whether the person chose the "All time" date range. The runner turns that into a bound at
+    the project's first event, so the plan reports a timestamp filter and cannot tell on its own."""
+    source = getattr(query, "source", None) or query
+    date_range = getattr(source, "dateRange", None)
+    if date_range is None:
+        filters = getattr(source, "filters", None)
+        date_range = getattr(filters, "dateRange", None)
+    return getattr(date_range, "date_from", None) == "all"
 
 
 def _open_filters_placeholder(query: BaseModel, query_kind: str | None) -> bool:

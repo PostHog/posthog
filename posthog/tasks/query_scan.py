@@ -37,6 +37,7 @@ def analyze_query_scan(
     dashboard_id: int | None = None,
     killed: bool = False,
     error_type: str | None = None,
+    all_time: bool = False,
 ) -> None:
     team = Team.objects.select_related("organization").filter(pk=team_id).first()
     if team is None:
@@ -56,6 +57,7 @@ def analyze_query_scan(
                 dashboard_id=dashboard_id,
                 killed=killed,
                 error_type=error_type,
+                all_time=all_time,
             )
         )
     except SoftTimeLimitExceeded:

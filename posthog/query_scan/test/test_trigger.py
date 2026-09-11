@@ -221,6 +221,11 @@ class TestQueryScanTrigger(SimpleTestCase):
         key, payload = self.redis.set.call_args.args
         assert key == "query_scan:1:cache_key_1"
         assert json.loads(payload)["status"] == "pending"
+
+    def test_the_payload_says_whether_all_time_was_chosen(self) -> None:
+        self._trigger(query=TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=DateRange(date_from="all")))
+
+        assert self.delay.call_args.kwargs["all_time"] is True
         assert self.redis.set.call_args.kwargs["ex"] == 600
         assert self.redis.set.call_args.kwargs["nx"] is True
         # A count left without a TTL would stand forever and cap the team for good.
