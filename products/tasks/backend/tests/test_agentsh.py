@@ -642,6 +642,27 @@ class TestModalSandboxAgentShWrapping(TestCase):
         self.assertIn("--allowedDomains", cmd)
         self.assertIn("example.com,api.example.com", cmd)
 
+    @parameterized.expand([("with_domains", ["example.com"]), ("without_domains", None)])
+    def test_command_empties_the_agent_server_log_before_backgrounding(self, _name, allowed_domains):
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
+
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-test"
+        cmd = sandbox._build_agent_server_command(
+            repo_path="/tmp/workspace/repos/org/repo",
+            task_id="test-task",
+            run_id="test-run",
+            mode="background",
+            create_pr=True,
+            allowed_domains=allowed_domains,
+        )
+
+        # The health poll fails the attempt as soon as the log names a fatal error, so the reset
+        # has to land before the launch backgrounds; otherwise the previous attempt's line fails
+        # this one instantly and every retry is lost.
+        self.assertIn(": > /tmp/agent-server.log", cmd)
+        self.assertLess(cmd.index(": > /tmp/agent-server.log"), cmd.index("agent-server --port"))
+
     def test_command_includes_runtime_environment_variables(self):
         from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 

@@ -1455,6 +1455,64 @@ class TestStartupFailureDiagnostics:
     def test_transfer_error_after_a_response_is_not_an_egress_failure(self):
         assert _egress_failure_reason("api.anthropic.com http_code=200 curl_exit=56") is None
 
+    @pytest.mark.parametrize(
+        ("agent_server_log", "health_response", "expected_reason", "expected_keys"),
+        [
+            (
+                "[AgentServer] [error] Fatal agent-server error; marking run failed {\n"
+                '  "message": "Session initialization timed out after 30000ms",\n'
+                '  "stack": "Error: Session initialization timed out"\n}',
+                "no-health-response",
+                "agent-server exited during startup: Session initialization timed out after 30000ms",
+                {"agent_server_fatal": "Session initialization timed out after 30000ms"},
+            ),
+            (
+                "[AgentServer] [debug] Auto-initializing session",
+                '{"status":"ok","hasSession":false,"boot":{"currentPhase":"session_create",'
+                '"phasesMs":{"context_fetch":143,"session_create":118854}}}',
+                "still in boot phase session_create after 118854ms",
+                {"boot_phase": "session_create after 118854ms"},
+            ),
+            (
+                "[AgentServer] [debug] Auto-initializing session",
+                "no-health-response",
+                "did not answer on port 8080 and named no fatal error",
+                {},
+            ),
+        ],
+        ids=["fatal_error_named", "stalled_boot_phase", "silent_exit"],
+    )
+    def test_failure_reason_names_what_stopped_the_startup(
+        self,
+        agent_server_log: str,
+        health_response: str,
+        expected_reason: str,
+        expected_keys: dict[str, str],
+    ):
+        sandbox = self._sandbox()
+
+        def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
+            if "agent-server.log" in command:
+                return ExecutionResult(stdout=agent_server_log, stderr="", exit_code=0, error=None)
+            if "/health" in command:
+                return ExecutionResult(stdout=health_response, stderr="", exit_code=0, error=None)
+            if "http_code=" in command:
+                return ExecutionResult(
+                    stdout="gateway.us.posthog.com http_code=200 curl_exit=0", stderr="", exit_code=0, error=None
+                )
+            return ExecutionResult(stdout="ok", stderr="", exit_code=0, error=None)
+
+        with (
+            patch.object(sandbox, "is_running", return_value=True),
+            patch.object(sandbox, "execute", side_effect=_exec),
+        ):
+            diagnostics = sandbox._diagnose_startup_failure(allowed_domains=None)
+
+        assert expected_reason in diagnostics["failure_reason"]
+        assert "agent server alive" not in diagnostics["failure_reason"]
+        for key, value in expected_keys.items():
+            assert diagnostics[key] == value
+
     def test_reports_alive_without_session_when_no_block(self):
         sandbox = self._sandbox()
 
