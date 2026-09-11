@@ -158,6 +158,39 @@ describe('tasksLogic', () => {
 
             expect(listRequestUrls).toHaveLength(1)
         })
+
+        // Regression coverage: the loader reached `breakpoint` only after a resolved response, so a
+        // superseded request that rejected still dispatched `loadTasksFailure`. `tasksError` only
+        // clears on a new `loadTasks`, so the nav kept its error banner above the newer run's
+        // correct list until the user searched, refiltered, retried, or reloaded.
+        it.each([
+            ['before', true],
+            ['after', false],
+        ])('discards a superseded failure that lands %s the newer page', async (_order, failFirst) => {
+            // Deliberate loader failure — kea-loaders would log it
+            silenceKeaLoadersErrors()
+            let rejectStale: (error: Error) => void = () => {}
+            let resolveCurrent: (value: unknown) => void = () => {}
+            jest.spyOn(api, 'get')
+                .mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectStale = reject)))
+                .mockImplementationOnce(() => new Promise((resolve) => (resolveCurrent = resolve)))
+
+            logic.actions.loadTasks({ search: 'stale' })
+            logic.actions.loadTasks({ search: 'current' })
+
+            const page = { results: [createMockTask('current-task')], next: null }
+            if (failFirst) {
+                rejectStale(new Error('gateway timeout'))
+                resolveCurrent(page)
+            } else {
+                resolveCurrent(page)
+                rejectStale(new Error('gateway timeout'))
+            }
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.tasks.map((task) => task.id)).toEqual(['current-task'])
+            expect(logic.values.tasksError).toBeNull()
+        })
     })
 
     describe('setSearchQuery', () => {

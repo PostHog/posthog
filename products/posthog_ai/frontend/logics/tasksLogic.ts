@@ -199,7 +199,18 @@ export const tasksLogic = kea<tasksLogicType>([
                 // it is showing, and `{}` there would swap the active filter for the whole visible set.
                 // The default is evaluated per call, so it picks up the filter active at refresh time.
                 loadTasks: async (params: TaskListParams = values.taskListParams, breakpoint) => {
-                    const response = await api.tasks.list(params)
+                    let response: PaginatedResponse<Task>
+                    try {
+                        response = await api.tasks.list(params)
+                    } catch (error) {
+                        // A superseded run must not settle the loader on the error path either. Its
+                        // failure would raise the navigation's error banner over the results a newer
+                        // run has already delivered, and only another `loadTasks` clears that value.
+                        // `breakpoint` throws for a superseded run and does nothing for the newest
+                        // one, whose failure does need to surface.
+                        breakpoint()
+                        throw error
+                    }
                     breakpoint()
                     actions.setTasksNext(response.next ?? null)
                     return response.results
