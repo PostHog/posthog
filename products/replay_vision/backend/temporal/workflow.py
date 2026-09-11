@@ -385,6 +385,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     or FailureKind.INTERNAL_ERROR.value
                 )
                 await self._mark_failed(observation_id, scanner_type, failure_kind, _root_cause_message(e))
+            await self._emit_terminal_event(observation_id)
             raise
         finally:
             if uploaded is not None:
@@ -526,6 +527,23 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
             retry_policy=_STATE_ACTIVITY_RETRY,
         )
+
+    async def _emit_terminal_event(self, observation_id: UUID) -> None:
+        """Emit `$recording_observed` for a failed or ineligible outcome, fail-soft as on the success path.
+
+        Without it the events table only ever sees the scans that worked, so no query can report a
+        failure rate, and an inline scan — which belongs to no saved scanner — leaves no trace at all.
+        """
+        try:
+            await wf.execute_activity(
+                emit_observation_event_activity,
+                EmitObservationEventInputs(observation_id=observation_id),
+                start_to_close_timeout=dt.timedelta(seconds=30),
+                schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
+                retry_policy=_STATE_ACTIVITY_RETRY,
+            )
+        except Exception:
+            wf.logger.exception("Event emission failed for terminal observation %s", observation_id)
 
     async def _apply_scanner_side_effects(
         self,

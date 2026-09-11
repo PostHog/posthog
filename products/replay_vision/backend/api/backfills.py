@@ -239,10 +239,10 @@ class ReplayScannerBackfillViewSet(
     def _unobserved_count(self, scanner: ReplayScanner, window_start: datetime, window_end: datetime) -> int:
         """Upper bound on what a backfill over this window would scan, rejecting when it is zero.
 
-        An upper bound rather than exact: the exclusion reads `$recording_observed`, which only exists
-        for observations that succeeded and managed to publish, so sessions already tried and found
-        ineligible or failed still count here. They cannot produce a second observation, so the real
-        spend lands under the quote.
+        An upper bound rather than exact: the exclusion reads succeeded `$recording_observed` rows,
+        and only those that managed to publish, so sessions already tried and found ineligible or
+        failed still count here. They cannot produce a second observation, so the real spend lands
+        under the quote.
 
         Distinguishes "nothing here matches the scanner" from "everything here is already done"; the
         second count only runs on the rejection path, so the happy path stays at one ClickHouse query.

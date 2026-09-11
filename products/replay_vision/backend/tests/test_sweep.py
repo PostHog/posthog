@@ -657,8 +657,8 @@ class TestFindScannerCandidatesActivity:
         assert MockDeep.call_args.kwargs["candidate_limit"] == expected_deep_limit
 
     def test_deep_pass_excludes_sessions_with_terminal_observations(self) -> None:
-        # The $recording_observed event only lands on success, so excluding on it would hand these
-        # sessions back on every tick and the walk would never move past them.
+        # The deep pass excludes on the Postgres rows, not on $recording_observed, so a terminal
+        # observation of any status moves the walk past its session.
         scanner = _make_scanner(deep_swept_through=dt.datetime.now(dt.UTC) - _PAST_DEEP_INTERVAL)
         for session_id, status in (("failed-sess", ObservationStatus.FAILED), ("ok-sess", ObservationStatus.SUCCEEDED)):
             ReplayObservation.objects.create(

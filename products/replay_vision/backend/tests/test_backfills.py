@@ -249,8 +249,8 @@ class TestCreateObservationForBackfill:
     @pytest.mark.parametrize(
         "seeded_status,expect_retaken",
         [
-            # A failed scan emits no $recording_observed event, so the creation-time count quotes that session
-            # as work. Leaving the row alone would report progress for a scan that never re-ran.
+            # A failed scan is not excluded from the creation-time count, which quotes that session as
+            # work. Leaving the row alone would report progress for a scan that never re-ran.
             (ObservationStatus.FAILED, True),
             # A succeeded session is already billed; retaking it would scan and charge twice.
             (ObservationStatus.SUCCEEDED, False),
