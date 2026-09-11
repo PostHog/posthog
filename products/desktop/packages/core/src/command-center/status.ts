@@ -19,10 +19,13 @@ export interface SessionStatusInput {
   cloudStatus?: TaskRunStatus;
   pendingPermissions: { size: number };
   isPromptPending: boolean;
-  events: readonly AcpMessage[];
+  events?: readonly AcpMessage[];
+  lastStopReason?: string;
 }
 
-function latestStopReason(events: readonly AcpMessage[]): string | undefined {
+export function latestStopReason(
+  events: readonly AcpMessage[],
+): string | undefined {
   for (let index = events.length - 1; index >= 0; index--) {
     const message = events[index].message;
     if (!("result" in message)) continue;
@@ -54,7 +57,11 @@ export function deriveStatus(
   if (session.status === "connected" && session.isPromptPending)
     return "running";
 
-  if (latestStopReason(session.events) === "cancelled") return "error";
+  if (
+    (session.lastStopReason ?? latestStopReason(session.events ?? [])) ===
+    "cancelled"
+  )
+    return "error";
 
   return "idle";
 }

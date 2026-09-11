@@ -1,4 +1,4 @@
-import { useSessionForTask } from "../sessions/useSession";
+import { useSessionSelector } from "../sessions/useSession";
 import { useTasks } from "../tasks/useTasks";
 import { resolveCloudPrSummaries, resolveCloudPrUrls } from "./cloudPrUrl";
 
@@ -10,13 +10,19 @@ export function useCloudPrUrl(taskId: string): string | null {
 export function useCloudPrUrls(taskId: string): string[] {
   const { data: tasks = [] } = useTasks();
   const task = tasks.find((t) => t.id === taskId);
-  const session = useSessionForTask(taskId);
-  return resolveCloudPrUrls(task, session);
+  const cloudOutput = useSessionSelector(
+    taskId,
+    (session) => session?.cloudOutput,
+  );
+  return resolveCloudPrUrls(task, { cloudOutput });
 }
 
 export function useCloudPrSummaries(taskId: string): Record<string, string> {
   const { data: tasks = [] } = useTasks();
   const task = tasks.find((t) => t.id === taskId);
-  const session = useSessionForTask(taskId);
-  return resolveCloudPrSummaries(task, session);
+  const cloudOutput = useSessionSelector(
+    taskId,
+    (session) => session?.cloudOutput,
+  );
+  return resolveCloudPrSummaries(task, { cloudOutput });
 }
