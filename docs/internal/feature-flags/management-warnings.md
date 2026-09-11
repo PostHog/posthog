@@ -25,13 +25,11 @@ Reset and conclusion warnings belong to the operation preview, so they do not pe
 
 SDK readiness checks need observed SDK capabilities and evaluation modes.
 They belong to activation and experiment-start validation rather than configuration-only warning detectors.
-
-| Code outside this DTO            | Treatment                                                                                                                                                   |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SDK_REMOTE_FALLBACK_REQUIRED`   | Explain remote request requirements and local-only or bulk-local omissions before activation. Expected remote fallback alone is not a configuration defect. |
-| `SDK_EXPERIMENT_CONTEXT_MISSING` | Explain missing attribution support while drafting. Block experiment start when the SDK readiness policy fails.                                             |
-| `EXPERIMENT_VALUE_COLLISION`     | Equal-valued variants are valid, including A/A tests. The editor may explain that variant identity distinguishes them; equality alone is not a warning.     |
-| `LEGACY_PROJECTION_LIMITED`      | Defer emission until number/object values are enabled and their compatibility behavior is implemented.                                                      |
+Readiness explains remote request requirements and local-only or bulk-local omissions before activation; expected remote fallback alone is not a configuration defect.
+Missing attribution support is explained while drafting and blocks experiment start when the readiness policy fails.
+Equal-valued variants are valid, including A/A tests; the editor may explain that variant identity distinguishes them, and equality alone is not a warning.
+Number and object value compatibility behavior remains deferred until those values are enabled.
+None of these carry a management warning code.
 
 ## Wire compatibility and detector ownership
 
@@ -39,9 +37,7 @@ They belong to activation and experiment-start validation rather than configurat
 `detail` is presentation text; `attr` is a field string or explicit null.
 Parsing and serialization preserve an omitted member separately from `attr: null`.
 
-The five supported codes form a producer subset of the nine literals in the [published harness registry](https://github.com/PostHog/posthog-sdk-test-harness/blob/3de40b77efbe978057ea1d16a519b72cf6ec8e16/contracts/feature_flag_rules_v2/registries/literals.json).
-The broader harness vocabulary retains the other four literals for compatibility; this management DTO rejects them.
-Their presence in the registry does not require a producer to emit them.
+The five codes are the complete `warning_codes` list of the harness registry at contract package 2.0.0 ([posthog-sdk-test-harness#57](https://github.com/PostHog/posthog-sdk-test-harness/pull/57), unreleased); the DTO rejects any other code.
 
 Share the diagnostic output type across callers.
 Define detector inputs alongside their implementations: rule checks need evaluated targeting and rollout fields, and lifecycle checks need the proposed operation.

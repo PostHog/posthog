@@ -35,10 +35,6 @@ class TestManagementWarning:
         [
             ("unknown_member", {"code": "RULE_ORDER_CHANGES_TRAFFIC", "extra": True}, "Unknown.*member"),
             ("unknown_code", {"code": "UNKNOWN_WARNING"}, "Unsupported.*code"),
-            ("equal_values", {"code": "EXPERIMENT_VALUE_COLLISION"}, "Unsupported.*code"),
-            ("sdk_fallback", {"code": "SDK_REMOTE_FALLBACK_REQUIRED"}, "Unsupported.*code"),
-            ("sdk_context", {"code": "SDK_EXPERIMENT_CONTEXT_MISSING"}, "Unsupported.*code"),
-            ("typed_projection", {"code": "LEGACY_PROJECTION_LIMITED"}, "Unsupported.*code"),
             ("missing_code", {}, "code is required"),
             ("null_code", {"code": None}, "Unsupported.*code"),
             ("number_code", {"code": 1}, "Unsupported.*code"),
