@@ -342,6 +342,7 @@ export const Table = (props: TableProps): JSX.Element => {
                 </LemonBanner>
             )}
             <LemonTable
+                id={props.uniqueKey?.toString()}
                 className="DataVisualizationTable"
                 dataSource={tabularData}
                 columns={tableColumns}
