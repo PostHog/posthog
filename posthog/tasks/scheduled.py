@@ -75,6 +75,7 @@ from posthog.tasks.uploaded_media import sweep_abandoned_media_uploads_task
 from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credentials
 from posthog.utils import get_crontab, get_instance_region
 
+from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task
 from products.approvals.backend.tasks import expire_old_change_requests, validate_pending_change_requests
 from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
 from products.conversations.backend.tasks.email import flush_pending_email_replies
@@ -1081,6 +1082,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         DAILY_DIGEST_CRONTAB,
         send_daily_digests.s(),
         name="stamphog daily merged-pr digests",
+    )
+
+    # AEO citation-tracking POC: daily citation checks for allowlisted, flag-enabled teams.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="7", minute="30"),
+        run_aeo_citation_checks_task.s(),
+        name="AEO citation checks",
     )
 
     # MCP registry daily sync: crawl the official registry, aggregate measured servers,
