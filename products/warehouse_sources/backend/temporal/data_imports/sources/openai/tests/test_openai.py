@@ -620,19 +620,36 @@ class TestRetries:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("forbidden_scope", 403, True), ("unauthorized", 401, False)])
-    def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
-        # 403 is accepted at create time (real key, unprobed scope); 401 means a bad key.
+    @parameterized.expand(
+        [
+            ("ok", 200, True, None),
+            ("forbidden_scope", 403, True, None),
+            ("unauthorized", 401, False, "rejected your Admin API key"),
+            ("service_unavailable", 503, False, "couldn't check your Admin API key"),
+        ]
+    )
+    def test_status_mapping(self, _name: str, status: int, expected: bool, fragment: str | None) -> None:
+        # 403 is accepted at create time (real key, unprobed scope); 401 means a bad key. Anything
+        # else leaves the key unjudged, so it must not read as a rejection.
         session = mock.MagicMock()
         session.get.return_value = mock.MagicMock(status_code=status)
         with mock.patch(OPENAI_SESSION_PATCH, return_value=session):
-            assert validate_credentials("sk-admin-test") is expected
+            is_valid, message = validate_credentials("sk-admin-test")
+
+        assert is_valid is expected
+        if fragment is None:
+            assert message is None
+        else:
+            assert message is not None and fragment in message
 
     def test_network_error_is_invalid(self) -> None:
         session = mock.MagicMock()
         session.get.side_effect = requests.ConnectionError("boom")
         with mock.patch(OPENAI_SESSION_PATCH, return_value=session):
-            assert validate_credentials("sk-admin-test") is False
+            is_valid, message = validate_credentials("sk-admin-test")
+
+        assert is_valid is False
+        assert message is not None and "couldn't check your Admin API key" in message
 
 
 class TestNonRetryableErrors:

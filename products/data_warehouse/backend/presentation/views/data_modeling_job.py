@@ -69,7 +69,7 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     pagination_class = DataModelingJobPagination
     queryset = DataModelingJob.objects.all()
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["saved_query_id"]
+    filterset_fields = ["saved_query_id", "status"]
     search_fields = ["saved_query_id"]
     ordering_fields = ["created_at"]
     ordering = "-created_at"
