@@ -340,6 +340,7 @@ async def amirror_conversation(conversation_id: UUID | str, team_id: int, user_i
         task_id,
         team_id,
         entries=frames,
+        batch_id=f"after:{progress.message_count}",
         expected_state={MESSAGES_COPIED_KEY: progress.message_count},
         state_updates={MESSAGES_COPIED_KEY: len(messages), LAST_MESSAGE_ID_KEY: messages[-1].get("id")},
         completed_at=updated_at,

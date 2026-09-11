@@ -276,6 +276,27 @@ class TestMirrorConversation(APIBaseTest):
         assert second.run_id == first.run_id
         assert len(self._log_methods()) == 4
 
+    def test_retry_after_a_failed_state_write_does_not_copy_the_turn_twice(self):
+        self.state_messages = [HumanMessage(content="hello", id="h1"), AssistantMessage(content="hi", id="a1")]
+        # The log append succeeds, then the state write fails and rolls the transaction back.
+        original_save = TaskRun.save
+
+        def save_but_fail_the_progress_write(run, *args, **kwargs):
+            if kwargs.get("update_fields") == ["state", "completed_at"]:
+                raise RuntimeError("db down")
+            return original_save(run, *args, **kwargs)
+
+        with patch.object(TaskRun, "save", save_but_fail_the_progress_write), self.assertRaises(RuntimeError):
+            self._mirror()
+        assert len(self._log_methods()) == 4
+        assert TaskRun.objects.get(state__has_key="imported_from").state[MESSAGES_COPIED_KEY] == 0
+
+        result = self._mirror()
+
+        assert result.appended_frames == 4
+        assert len(self._log_methods()) == 4
+        assert TaskRun.objects.get(id=result.run_id).state[MESSAGES_COPIED_KEY] == 2
+
     def test_moved_conversation_renders_no_checkpoint_history(self):
         # Once the history is in the task's import run, the checkpoint must not render as well.
         self.state_messages = [HumanMessage(content="hello", id="h1"), AssistantMessage(content="hi", id="a1")]
