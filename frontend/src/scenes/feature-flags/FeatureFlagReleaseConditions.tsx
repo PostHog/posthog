@@ -9,7 +9,7 @@ import { LemonLabel, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lem
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { groupKeyNamesOf, isPropertyFilterWithOperator, labelWithGroupName } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -67,6 +67,7 @@ function PropertyValueComponent({
     property: AnyPropertyFilter
     getDistinctIdName: (distinctId: string) => string
 }): JSX.Element {
+    const groupKeyNames = groupKeyNamesOf(property)
     if (property.type === PropertyFilterType.Cohort) {
         return (
             <LemonButton type="secondary" size="xsmall" to={urls.cohort(property.value)} sideIcon={<IconOpenInNew />}>
@@ -84,8 +85,9 @@ function PropertyValueComponent({
     return (
         <>
             {propertyValues.map((val, idx) => (
-                <LemonSnack key={idx}>
-                    {isDistinctId ? getDistinctIdName(String(val)) : String(val)}
+                // Keep the resolved group or person name out of session replay, like GroupActorDisplay.
+                <LemonSnack key={idx} className="ph-no-capture">
+                    {isDistinctId ? getDistinctIdName(String(val)) : labelWithGroupName(String(val), groupKeyNames)}
                     <span>
                         {isPropertyFilterWithOperator(property) &&
                         ['is_date_before', 'is_date_after'].includes(property.operator) &&
@@ -144,6 +146,7 @@ export function FeatureFlagReleaseConditions({
         properties,
         filterGroups,
         getDistinctIdName,
+        resolveGroupKeyNames,
     } = useValues(releaseConditionsLogic)
 
     const {
@@ -313,7 +316,7 @@ export function FeatureFlagReleaseConditions({
                     )}
                     {readOnly ? (
                         <>
-                            {group.properties?.map((property, idx) => (
+                            {resolveGroupKeyNames(group.properties).map((property, idx) => (
                                 <div className="feature-flag-property-display" key={idx}>
                                     {idx === 0 ? (
                                         <LemonButton
@@ -374,7 +377,9 @@ export function FeatureFlagReleaseConditions({
                                 pageKey={`feature-flag-${id}-${group.sort_key}-${filterGroups.length}-${
                                     filters.aggregation_group_type_index ?? ''
                                 }`}
-                                propertyFilters={withResolvedFlagLabels(group?.properties, getFlagKey)}
+                                propertyFilters={resolveGroupKeyNames(
+                                    withResolvedFlagLabels(group?.properties, getFlagKey)
+                                )}
                                 logicalRowDivider
                                 addText="Add condition"
                                 onChange={(properties) => updateConditionSet(index, undefined, properties)}

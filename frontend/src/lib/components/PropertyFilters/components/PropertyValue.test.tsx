@@ -303,4 +303,37 @@ describe('PropertyValue', () => {
         // The pasted id is shown as the value.
         expect(screen.getByText('org-abc-123')).toBeInTheDocument()
     })
+
+    it.each([
+        ['editable', true],
+        ['read-only', false],
+    ])('labels a resolved value with its group name in the %s view', (_label, editable) => {
+        // The caller resolves the names, so a person property that holds a group key gets them
+        // too. Without this the feature flag filter shows a bare list of org UUIDs.
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="organization_id"
+                    type={PropertyFilterType.Person}
+                    operator={PropertyOperator.Exact}
+                    onSet={jest.fn()}
+                    editable={editable}
+                    value={['org-abc-123', 'org-def-456']}
+                    groupKeyNames={{ 'org-abc-123': 'Fjellride AB' }}
+                />
+            </Provider>
+        )
+
+        // The name comes with the id, so the id stays available to copy or to compare.
+        const resolved = screen.getByText(
+            editable ? '(Fjellride AB) org-abc-123' : '(Fjellride AB) org-abc-123 or org-def-456'
+        )
+        expect(resolved).toBeInTheDocument()
+        // An id the caller could not resolve keeps its raw value rather than showing a name.
+        if (editable) {
+            expect(screen.getByText('org-def-456')).toBeInTheDocument()
+            // The resolved group name must stay out of session replay, like GroupActorDisplay.
+            expect(resolved.closest('.ph-no-capture')).toBeInTheDocument()
+        }
+    })
 })

@@ -50,6 +50,23 @@
                                                         {},
                                                         {
                                                             "properties": {
+                                                                "group_key_names": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "propertyNames": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                },
                                                                 "key": {
                                                                     "type": "string"
                                                                 },
@@ -158,6 +175,23 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "group_key_names": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "propertyNames": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                },
                                                                 "key": {
                                                                     "type": "string"
                                                                 },
@@ -258,6 +292,23 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "group_key_names": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "propertyNames": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                },
                                                                 "key": {
                                                                     "type": "string"
                                                                 },
@@ -358,6 +409,23 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "group_key_names": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "propertyNames": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                },
                                                                 "key": {
                                                                     "enum": ["tag_name", "text", "href", "selector"],
                                                                     "type": "string"
@@ -458,6 +526,23 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "group_key_names": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "propertyNames": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                },
                                                                 "key": {
                                                                     "type": "string"
                                                                 },
@@ -557,6 +642,23 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "group_key_names": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "propertyNames": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                },
                                                                 "key": {
                                                                     "type": "string"
                                                                 },
@@ -666,6 +768,23 @@
                                                                         }
                                                                     ]
                                                                 },
+                                                                "group_key_names": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "propertyNames": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                },
                                                                 "key": {
                                                                     "const": "id",
                                                                     "default": "id",
@@ -746,6 +865,23 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "group_key_names": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "propertyNames": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                },
                                                                 "key": {
                                                                     "anyOf": [
                                                                         {
@@ -857,6 +993,23 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "group_key_names": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "propertyNames": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                },
                                                                 "key": {
                                                                     "type": "string"
                                                                 },
@@ -970,7 +1123,8 @@
                                                                         {
                                                                             "type": "null"
                                                                         }
-                                                                    ]
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
                                                                 },
                                                                 "group_type_index": {
                                                                     "anyOf": [
@@ -1081,6 +1235,23 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "group_key_names": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "propertyNames": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                },
                                                                 "key": {
                                                                     "type": "string"
                                                                 },
@@ -1181,6 +1352,23 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "group_key_names": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "propertyNames": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                },
                                                                 "key": {
                                                                     "description": "The key should be the flag ID",
                                                                     "type": "string"
@@ -1224,6 +1412,23 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "group_key_names": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "propertyNames": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                },
                                                                 "key": {
                                                                     "type": "string"
                                                                 },
@@ -1290,6 +1495,23 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "group_key_names": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "propertyNames": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                },
                                                                 "key": {
                                                                     "type": "string"
                                                                 },
@@ -1389,6 +1611,23 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "group_key_names": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "propertyNames": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                },
                                                                 "key": {
                                                                     "type": "string"
                                                                 },
@@ -1488,6 +1727,23 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "group_key_names": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "propertyNames": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                },
                                                                 "key": {
                                                                     "type": "string"
                                                                 },
@@ -1587,6 +1843,23 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "group_key_names": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "propertyNames": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                },
                                                                 "key": {
                                                                     "type": "string"
                                                                 },
@@ -1689,6 +1962,23 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "group_key_names": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "propertyNames": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                },
                                                                 "key": {
                                                                     "type": "string"
                                                                 },
@@ -1788,6 +2078,23 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "group_key_names": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "propertyNames": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                },
                                                                 "key": {
                                                                     "type": "string"
                                                                 },
@@ -1890,6 +2197,23 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "group_key_names": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "propertyNames": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                },
                                                                 "key": {
                                                                     "type": "string"
                                                                 },
@@ -1989,6 +2313,23 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "group_key_names": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "propertyNames": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                },
                                                                 "key": {
                                                                     "type": "string"
                                                                 },
@@ -2089,6 +2430,23 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "group_key_names": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "propertyNames": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                },
                                                                 "key": {
                                                                     "type": "string"
                                                                 },
@@ -2195,6 +2553,23 @@
                                                                                 "anyOf": [
                                                                                     {
                                                                                         "properties": {
+                                                                                            "group_key_names": {
+                                                                                                "anyOf": [
+                                                                                                    {
+                                                                                                        "additionalProperties": {
+                                                                                                            "type": "string"
+                                                                                                        },
+                                                                                                        "propertyNames": {
+                                                                                                            "type": "string"
+                                                                                                        },
+                                                                                                        "type": "object"
+                                                                                                    },
+                                                                                                    {
+                                                                                                        "type": "null"
+                                                                                                    }
+                                                                                                ],
+                                                                                                "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                                            },
                                                                                             "key": {
                                                                                                 "type": "string"
                                                                                             },
@@ -2303,6 +2678,23 @@
                                                                                     },
                                                                                     {
                                                                                         "properties": {
+                                                                                            "group_key_names": {
+                                                                                                "anyOf": [
+                                                                                                    {
+                                                                                                        "additionalProperties": {
+                                                                                                            "type": "string"
+                                                                                                        },
+                                                                                                        "propertyNames": {
+                                                                                                            "type": "string"
+                                                                                                        },
+                                                                                                        "type": "object"
+                                                                                                    },
+                                                                                                    {
+                                                                                                        "type": "null"
+                                                                                                    }
+                                                                                                ],
+                                                                                                "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                                            },
                                                                                             "key": {
                                                                                                 "type": "string"
                                                                                             },
@@ -2403,6 +2795,23 @@
                                                                                     },
                                                                                     {
                                                                                         "properties": {
+                                                                                            "group_key_names": {
+                                                                                                "anyOf": [
+                                                                                                    {
+                                                                                                        "additionalProperties": {
+                                                                                                            "type": "string"
+                                                                                                        },
+                                                                                                        "propertyNames": {
+                                                                                                            "type": "string"
+                                                                                                        },
+                                                                                                        "type": "object"
+                                                                                                    },
+                                                                                                    {
+                                                                                                        "type": "null"
+                                                                                                    }
+                                                                                                ],
+                                                                                                "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                                            },
                                                                                             "key": {
                                                                                                 "enum": [
                                                                                                     "tag_name",
@@ -2508,6 +2917,23 @@
                                                                                     },
                                                                                     {
                                                                                         "properties": {
+                                                                                            "group_key_names": {
+                                                                                                "anyOf": [
+                                                                                                    {
+                                                                                                        "additionalProperties": {
+                                                                                                            "type": "string"
+                                                                                                        },
+                                                                                                        "propertyNames": {
+                                                                                                            "type": "string"
+                                                                                                        },
+                                                                                                        "type": "object"
+                                                                                                    },
+                                                                                                    {
+                                                                                                        "type": "null"
+                                                                                                    }
+                                                                                                ],
+                                                                                                "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                                            },
                                                                                             "key": {
                                                                                                 "type": "string"
                                                                                             },
@@ -2608,6 +3034,23 @@
                                                                                     },
                                                                                     {
                                                                                         "properties": {
+                                                                                            "group_key_names": {
+                                                                                                "anyOf": [
+                                                                                                    {
+                                                                                                        "additionalProperties": {
+                                                                                                            "type": "string"
+                                                                                                        },
+                                                                                                        "propertyNames": {
+                                                                                                            "type": "string"
+                                                                                                        },
+                                                                                                        "type": "object"
+                                                                                                    },
+                                                                                                    {
+                                                                                                        "type": "null"
+                                                                                                    }
+                                                                                                ],
+                                                                                                "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
+                                                                                            },
                                                                                             "key": {
                                                                                                 "type": "string"
                                                                                             },
@@ -2696,6 +3139,23 @@
                                                                             "type": "null"
                                                                         }
                                                                     ]
+                                                                },
+                                                                "group_key_names": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "propertyNames": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it."
                                                                 },
                                                                 "key": {
                                                                     "description": "Event name, or action id when event_type is 'actions'",

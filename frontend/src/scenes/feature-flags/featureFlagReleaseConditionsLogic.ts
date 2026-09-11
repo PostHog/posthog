@@ -18,12 +18,15 @@ import { v4 as uuidv4 } from 'uuid'
 
 import api from 'lib/api'
 import { ApiError, CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE } from 'lib/api-error'
-import { isEmptyProperty, isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { cachedFindGroups } from 'lib/components/PropertyFilters/components/groupKeyTooltipLogic'
+import { groupKeyNamesOf, isEmptyProperty, isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils/objects'
-import { isOperatorSemver } from 'lib/utils/operators'
+import { isOperatorFlag, isOperatorRegex, isOperatorSemver } from 'lib/utils/operators'
 import { isValidSemverValue } from 'lib/utils/semver'
+import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
@@ -47,6 +50,105 @@ import { resolveAggregationGroupTypeIndex } from './aggregation'
 // A property filter targets people by their raw distinct id.
 export function isDistinctIdFilter(property: AnyPropertyFilter): boolean {
     return property.type === PropertyFilterType.Person && property.key === 'distinct_id'
+}
+
+// A group key can only sit in a filter whose operator matches whole values. `is set` carries a
+// bare `true`, and the partial-match operators carry a fragment of a value.
+function holdsWholeValues(property: AnyPropertyFilter): boolean {
+    if (!isPropertyFilterWithOperator(property) || property.operator === undefined) {
+        return true
+    }
+    const { operator } = property
+    return !(
+        isOperatorFlag(operator) ||
+        isOperatorRegex(operator) ||
+        [
+            PropertyOperator.IContains,
+            PropertyOperator.NotIContains,
+            PropertyOperator.IContainsMulti,
+            PropertyOperator.NotIContainsMulti,
+            PropertyOperator.StartsWith,
+            PropertyOperator.NotStartsWith,
+            PropertyOperator.EndsWith,
+            PropertyOperator.NotEndsWith,
+        ].includes(operator)
+    )
+}
+
+// A `<group_type>_id` property, such as `organization_id` on a person, conventionally holds the
+// key of a group of that type. Returns the group type to resolve the property's values against,
+// or null when the key names no group type this project has. The convention is not guaranteed by
+// the schema, so resolution stays display only and an unresolvable value keeps its raw id.
+export function groupTypeIndexForIdKey(
+    property: AnyPropertyFilter,
+    groupTypes: Map<GroupTypeIndex, GroupType>
+): GroupTypeIndex | null {
+    if (typeof property.key !== 'string' || !holdsWholeValues(property)) {
+        return null
+    }
+    const namedGroupType = property.key.toLowerCase().match(/^(.+)_id$/)?.[1]
+    if (!namedGroupType) {
+        return null
+    }
+    for (const groupType of groupTypes.values()) {
+        if (groupType.group_type.toLowerCase() === namedGroupType) {
+            return groupType.group_type_index
+        }
+    }
+    return null
+}
+
+function propertyValueList(property: AnyPropertyFilter): string[] {
+    if (Array.isArray(property.value)) {
+        return property.value.map(String)
+    }
+    return property.value !== null && property.value !== undefined ? [String(property.value)] : []
+}
+
+const groupKeyCacheKey = (groupTypeIndex: GroupTypeIndex, groupKey: string): string => `${groupTypeIndex}:${groupKey}`
+
+export interface GroupKeyTarget {
+    groupTypeIndex: GroupTypeIndex
+    groupKey: string
+}
+
+// Attaches resolved group names to a `<group_type>_id` property through `group_key_names`, the
+// same field the API injects for `$group_key`, so no display surface needs extra wiring. Names
+// are re-read from the cache on every call rather than trusting the ones already on the filter,
+// because the editable PropertyFilters round-trips them back through `onChange` and a renamed
+// group would otherwise stay pinned to its old name.
+export function withResolvedGroupKeyNames(
+    properties: AnyPropertyFilter[] | undefined,
+    groupTypes: Map<GroupTypeIndex, GroupType>,
+    groupKeyNameCache: Record<string, string>
+): AnyPropertyFilter[] {
+    return (properties ?? []).map((property) => {
+        const groupTypeIndex = groupTypeIndexForIdKey(property, groupTypes)
+        if (groupTypeIndex === null) {
+            return property
+        }
+        const groupKeyNames: Record<string, string> = {}
+        for (const groupKey of propertyValueList(property)) {
+            const name = groupKeyNameCache[groupKeyCacheKey(groupTypeIndex, groupKey)]
+            // A key that names no group, or a group with no name, is cached as the key itself so it
+            // is not looked up again. Such a value has nothing to show, so it is left off the map
+            // and falls back to the raw id.
+            if (name && name !== groupKey) {
+                groupKeyNames[groupKey] = name
+            }
+        }
+        if (Object.keys(groupKeyNames).length === 0) {
+            // Nothing resolves now. Drop a `group_key_names` map the filter kept from an earlier
+            // save so a value that no longer names a group falls back to its raw id.
+            if (!('group_key_names' in property)) {
+                return property
+            }
+            const { group_key_names: _stale, ...rest } = property
+            return rest as AnyPropertyFilter
+        }
+        // The cast narrows the spread of the property union back to AnyPropertyFilter.
+        return { ...property, group_key_names: groupKeyNames } as AnyPropertyFilter
+    })
 }
 
 // What we keep from a failed blast-radius request so the UI can pick a message and decide whether
@@ -172,8 +274,10 @@ export interface featureFlagReleaseConditionsLogicValues {
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
     currentProjectId: number | null // projectLogic
+    currentTeamId: number | null // teamLogic
     affectedCounts: Record<string, number | undefined>
     aggregationTargetName: (conditionGroupTypeIndex?: number | null | undefined) => string
+    apiGroupKeyNames: Record<string, string>
     blastRadiusErrors: Record<string, BlastRadiusError | undefined>
     computeBlastRadiusPercentage: (rolloutPercentage: any, sortKey: any) => any
     distinctIdNameCache: Record<string, string>
@@ -190,6 +294,8 @@ export interface featureFlagReleaseConditionsLogicValues {
     flagKeysLoading: boolean
     getDistinctIdName: (distinctId: string) => string
     getFlagKey: (flagId: string) => string
+    groupKeyNameCache: Record<string, string>
+    groupKeyTargets: GroupKeyTarget[]
     isAnyItemDragging: boolean
     openConditions: string[]
     properties: AnyPropertyFilter[]
@@ -202,6 +308,7 @@ export interface featureFlagReleaseConditionsLogicValues {
         rollout_percentage: string | undefined
         variant: null
     }[]
+    resolveGroupKeyNames: (properties: AnyPropertyFilter[] | undefined) => AnyPropertyFilter[]
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicGroupTypesForCondition: (conditionGroupTypeIndex: number | null | undefined) => TaxonomicFilterGroupType[]
     totalCounts: Record<string, number | undefined>
@@ -232,6 +339,9 @@ export interface featureFlagReleaseConditionsLogicActions {
     }
     loadDistinctIdNames: (distinctIds: string[]) => {
         distinctIds: string[]
+    }
+    loadGroupKeyNames: (targets: GroupKeyTarget[]) => {
+        targets: GroupKeyTarget[]
     }
     moveConditionSetDown: (index: number) => {
         index: number
@@ -294,6 +404,9 @@ export interface featureFlagReleaseConditionsLogicActions {
     setFlagKeysLoading: (isLoading: boolean) => {
         isLoading: boolean
     }
+    setGroupKeyNames: (groupKeyNames: Record<string, string>) => {
+        groupKeyNames: Record<string, string>
+    }
     setIsAnyItemDragging: (isAnyItemDragging: boolean) => {
         isAnyItemDragging: boolean
     }
@@ -341,7 +454,7 @@ export interface featureFlagReleaseConditionsLogicMeta {
             filters: FeatureFlagFilters & {
                 groups: FeatureFlagGroupTypeWithSortKey[]
             },
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => (conditionGroupTypeIndex?: number | null | undefined) => string
         taxonomicGroupTypesForCondition: (
             filters: FeatureFlagFilters & {
@@ -375,6 +488,18 @@ export interface featureFlagReleaseConditionsLogicMeta {
         flagKeysLoading: (flagKeyLoading: boolean) => boolean
         flagIds: (filterGroups: FeatureFlagGroupType[]) => string[]
         distinctIds: (filterGroups: FeatureFlagGroupType[]) => string[]
+        groupKeyTargets: (
+            filterGroups: FeatureFlagGroupType[],
+            groupTypes: Map<GroupTypeIndex, GroupType>
+        ) => GroupKeyTarget[]
+        apiGroupKeyNames: (
+            filterGroups: FeatureFlagGroupType[],
+            groupTypes: Map<GroupTypeIndex, GroupType>
+        ) => Record<string, string>
+        resolveGroupKeyNames: (
+            groupTypes: Map<GroupTypeIndex, GroupType>,
+            groupKeyNameCache: Record<string, string>
+        ) => (properties: AnyPropertyFilter[] | undefined) => AnyPropertyFilter[]
         getDistinctIdName: (distinctIdNameCache: Record<string, string>) => (distinctId: string) => string
         properties: (filterGroups: FeatureFlagGroupType[]) => AnyPropertyFilter[]
     }
@@ -392,7 +517,14 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
     props({} as FeatureFlagReleaseConditionsLogicProps),
     key(({ id }) => id ?? 'unknown'),
     connect(() => ({
-        values: [projectLogic, ['currentProjectId'], groupsModel, ['groupTypes', 'aggregationLabel']],
+        values: [
+            projectLogic,
+            ['currentProjectId'],
+            teamLogic,
+            ['currentTeamId'],
+            groupsModel,
+            ['groupTypes', 'aggregationLabel'],
+        ],
     })),
     actions({
         setFilters: (filters: FeatureFlagFilters) => ({ filters }),
@@ -445,6 +577,8 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         setFlagKeysLoading: (isLoading: boolean) => ({ isLoading }),
         loadDistinctIdNames: (distinctIds: string[]) => ({ distinctIds }),
         setDistinctIdNames: (distinctIdNames: Record<string, string>) => ({ distinctIdNames }),
+        loadGroupKeyNames: (targets: GroupKeyTarget[]) => ({ targets }),
+        setGroupKeyNames: (groupKeyNames: Record<string, string>) => ({ groupKeyNames }),
         setOpenConditions: (openConditions: string[]) => ({ openConditions }),
         openCondition: (sortKey: string) => ({ sortKey }),
         setIsAnyItemDragging: (isAnyItemDragging: boolean) => ({ isAnyItemDragging }),
@@ -704,6 +838,15 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 }),
             },
         ],
+        groupKeyNameCache: [
+            {} as Record<string, string>,
+            {
+                setGroupKeyNames: (state, { groupKeyNames }) => ({
+                    ...state,
+                    ...groupKeyNames,
+                }),
+            },
+        ],
         openConditions: [
             [] as string[],
             {
@@ -727,12 +870,15 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
     })),
     listeners(({ actions, values, props }) => ({
         setFilters: async () => {
-            const { flagIds, distinctIds } = values
+            const { flagIds, distinctIds, groupKeyTargets } = values
             if (flagIds.length > 0) {
                 await actions.loadAllFlagKeys(flagIds)
             }
             if (distinctIds.length > 0) {
                 actions.loadDistinctIdNames(distinctIds)
+            }
+            if (groupKeyTargets.length > 0) {
+                actions.loadGroupKeyNames(groupKeyTargets)
             }
             // Recalculate blast radius when filters change (e.g., from template application)
             if (!props.readOnly) {
@@ -776,6 +922,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 // Resolve display names for any distinct_id targeting in the updated properties.
                 if (values.distinctIds.length > 0) {
                     actions.loadDistinctIdNames(values.distinctIds)
+                }
+
+                // Same for a `<group_type>_id` value the user just added or pasted.
+                if (values.groupKeyTargets.length > 0) {
+                    actions.loadGroupKeyNames(values.groupKeyTargets)
                 }
             }
 
@@ -988,6 +1139,58 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 }
             }
         },
+        loadGroupKeyNames: async ({ targets }) => {
+            // The API resolves every value the flag was saved with, including the ones that name no
+            // group. Adopting those names is what keeps a flag-detail page view free of group
+            // lookups, however many groups the flag targets, and stops a value that resolves to
+            // nothing from being asked about at all. Only what the user typed since is left to fetch.
+            // Reading them needs no team id, so this runs before the guard below.
+            // Dispatch only what is new, because every dispatch replaces the cache object and so
+            // re-renders every filter row.
+            const unseenApiNames = Object.fromEntries(
+                Object.entries(values.apiGroupKeyNames).filter(([key]) => !(key in values.groupKeyNameCache))
+            )
+            if (Object.keys(unseenApiNames).length > 0) {
+                actions.setGroupKeyNames(unseenApiNames)
+            }
+
+            const teamId = values.currentTeamId
+            if (!teamId || targets.length === 0) {
+                return
+            }
+
+            const keysByGroupType = new Map<GroupTypeIndex, Set<string>>()
+            for (const { groupTypeIndex, groupKey } of targets) {
+                if (groupKeyCacheKey(groupTypeIndex, groupKey) in values.groupKeyNameCache) {
+                    continue
+                }
+                const groupKeys = keysByGroupType.get(groupTypeIndex) ?? new Set<string>()
+                groupKeys.add(groupKey)
+                keysByGroupType.set(groupTypeIndex, groupKeys)
+            }
+
+            // Commit each group type as it resolves so a failure on one does not discard the
+            // names already found for another.
+            for (const [groupTypeIndex, groupKeys] of keysByGroupType) {
+                try {
+                    const groups = await cachedFindGroups(teamId, groupTypeIndex, [...groupKeys])
+                    const resolved: Record<string, string> = {}
+                    for (const [groupKey, group] of Object.entries(groups)) {
+                        // A group that does not exist and a group with no name are both cached as
+                        // the key itself, so neither is looked up again.
+                        const name = group ? groupDisplayId(group.group_key, group.group_properties) : groupKey
+                        resolved[groupKeyCacheKey(groupTypeIndex, groupKey)] = name
+                    }
+                    if (Object.keys(resolved).length > 0) {
+                        actions.setGroupKeyNames(resolved)
+                    }
+                } catch (error) {
+                    // Keys that failed stay uncached, so a later setFilters or updateConditionSet
+                    // retries them. Until one resolves, every value renders as its raw id.
+                    console.error('Error loading group key names:', error)
+                }
+            }
+        },
     })),
     selectors({
         filterGroups: [(s) => [s.filters], (filters: FeatureFlagFilters) => filters.groups || []],
@@ -1192,6 +1395,49 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                         }) || []
                 ) || [],
         ],
+        groupKeyTargets: [
+            (s) => [s.filterGroups, s.groupTypes],
+            (filterGroups: FeatureFlagGroupType[], groupTypes: Map<GroupTypeIndex, GroupType>): GroupKeyTarget[] =>
+                filterGroups?.flatMap(
+                    (group: FeatureFlagGroupType) =>
+                        group.properties?.flatMap((property: AnyPropertyFilter) => {
+                            const groupTypeIndex = groupTypeIndexForIdKey(property, groupTypes)
+                            return groupTypeIndex === null
+                                ? []
+                                : propertyValueList(property).map((groupKey) => ({ groupTypeIndex, groupKey }))
+                        }) || []
+                ) || [],
+        ],
+        // Group key names already on the filters, keyed for `groupKeyNameCache`. On a fresh page
+        // view these are the ones the API resolved for every saved value. After an edit the filters
+        // also carry the ones this logic resolved and wrote back through `onChange`.
+        apiGroupKeyNames: [
+            (s) => [s.filterGroups, s.groupTypes],
+            (
+                filterGroups: FeatureFlagGroupType[],
+                groupTypes: Map<GroupTypeIndex, GroupType>
+            ): Record<string, string> => {
+                const names: Record<string, string> = {}
+                for (const group of filterGroups ?? []) {
+                    for (const property of group.properties ?? []) {
+                        const groupTypeIndex = groupTypeIndexForIdKey(property, groupTypes)
+                        if (groupTypeIndex === null) {
+                            continue
+                        }
+                        for (const [groupKey, name] of Object.entries(groupKeyNamesOf(property))) {
+                            names[groupKeyCacheKey(groupTypeIndex, groupKey)] = name
+                        }
+                    }
+                }
+                return names
+            },
+        ],
+        resolveGroupKeyNames: [
+            (s) => [s.groupTypes, s.groupKeyNameCache],
+            (groupTypes: Map<GroupTypeIndex, GroupType>, groupKeyNameCache: Record<string, string>) =>
+                (properties: AnyPropertyFilter[] | undefined): AnyPropertyFilter[] =>
+                    withResolvedGroupKeyNames(properties, groupTypes, groupKeyNameCache),
+        ],
         getDistinctIdName: [
             (s) => [s.distinctIdNameCache],
             (distinctIdNameCache: Record<string, string>) =>
@@ -1241,12 +1487,15 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
     afterMount(({ props, actions, values }) => {
         // Load flag keys on mount if there are flag dependencies
         if (props.filters) {
-            const { flagIds, distinctIds } = values
+            const { flagIds, distinctIds, groupKeyTargets } = values
             if (flagIds.length > 0) {
                 actions.loadAllFlagKeys(flagIds)
             }
             if (distinctIds.length > 0) {
                 actions.loadDistinctIdNames(distinctIds)
+            }
+            if (groupKeyTargets.length > 0) {
+                actions.loadGroupKeyNames(groupKeyTargets)
             }
         }
 

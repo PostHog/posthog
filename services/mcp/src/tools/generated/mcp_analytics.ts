@@ -316,6 +316,12 @@ const PropertyFilterBaseValue = z.union([z.string(), z.number(), z.boolean()])
 const PropertyFilterValue = z.union([PropertyFilterBaseValue, z.array(PropertyFilterBaseValue), z.null()])
 
 const EventPropertyFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator.default('exact'),
@@ -324,6 +330,12 @@ const EventPropertyFilter = z.object({
 })
 
 const PersonPropertyFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -332,6 +344,12 @@ const PersonPropertyFilter = z.object({
 })
 
 const PersonMetadataPropertyFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -343,6 +361,12 @@ const PersonMetadataPropertyFilter = z.object({
 })
 
 const ElementPropertyFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.enum(['tag_name', 'text', 'href', 'selector']),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -351,6 +375,12 @@ const ElementPropertyFilter = z.object({
 })
 
 const EventMetadataPropertyFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -359,6 +389,12 @@ const EventMetadataPropertyFilter = z.object({
 })
 
 const SessionPropertyFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -368,6 +404,12 @@ const SessionPropertyFilter = z.object({
 
 const CohortPropertyFilter = z.object({
     cohort_name: z.string().optional(),
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.literal('id').default('id'),
     label: z.string().optional(),
     operator: PropertyOperator.default('in'),
@@ -378,6 +420,12 @@ const CohortPropertyFilter = z.object({
 const DurationType = z.enum(['duration', 'active_seconds', 'inactive_seconds'])
 
 const RecordingPropertyFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.union([
         DurationType,
         z.literal('snapshot_source'),
@@ -394,6 +442,12 @@ const RecordingPropertyFilter = z.object({
 })
 
 const LogEntryPropertyFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -402,7 +456,12 @@ const LogEntryPropertyFilter = z.object({
 })
 
 const GroupPropertyFilter = z.object({
-    group_key_names: z.record(z.string(), z.string()).optional(),
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     group_type_index: z.union([z.number().int(), z.null()]).optional(),
     key: z.string(),
     label: z.string().optional(),
@@ -412,6 +471,12 @@ const GroupPropertyFilter = z.object({
 })
 
 const FeaturePropertyFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -420,6 +485,12 @@ const FeaturePropertyFilter = z.object({
 })
 
 const FlagPropertyFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.string().describe('The key should be the flag ID'),
     label: z.string().optional(),
     operator: z
@@ -431,6 +502,12 @@ const FlagPropertyFilter = z.object({
 })
 
 const HogQLPropertyFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.string(),
     label: z.string().optional(),
     type: z.literal('hogql').default('hogql'),
@@ -442,6 +519,12 @@ const EmptyPropertyFilter = z.object({
 })
 
 const DataWarehousePropertyFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -450,6 +533,12 @@ const DataWarehousePropertyFilter = z.object({
 })
 
 const DataWarehousePersonPropertyFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -458,6 +547,12 @@ const DataWarehousePersonPropertyFilter = z.object({
 })
 
 const ErrorTrackingIssueFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -468,6 +563,12 @@ const ErrorTrackingIssueFilter = z.object({
 const LogPropertyFilterType = z.enum(['log', 'log_attribute', 'log_resource_attribute'])
 
 const LogPropertyFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -476,6 +577,12 @@ const LogPropertyFilter = z.object({
 })
 
 const MetricPropertyFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -486,6 +593,12 @@ const MetricPropertyFilter = z.object({
 const SpanPropertyFilterType = z.enum(['span', 'span_attribute', 'span_resource_attribute'])
 
 const SpanPropertyFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -494,6 +607,12 @@ const SpanPropertyFilter = z.object({
 })
 
 const RevenueAnalyticsPropertyFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -502,6 +621,12 @@ const RevenueAnalyticsPropertyFilter = z.object({
 })
 
 const AccountCustomPropertyFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -513,6 +638,12 @@ const AccountCustomPropertyFilter = z.object({
 })
 
 const WorkflowVariablePropertyFilter = z.object({
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -547,6 +678,12 @@ const BehavioralPropertyFilter = z.object({
         .describe('Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval')
         .optional(),
     explicit_datetime_to: z.string().optional(),
+    group_key_names: z
+        .record(z.string(), z.string())
+        .describe(
+            'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.'
+        )
+        .optional(),
     key: z.string().describe("Event name, or action id when event_type is 'actions'"),
     label: z.string().optional(),
     negation: z.coerce

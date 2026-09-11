@@ -102,6 +102,12 @@ export const LogsAlertsCreateBody = () => zod.object({
                                     zod.union([
                                         zod.unknown(),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod
@@ -168,6 +174,12 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -227,6 +239,12 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -288,6 +306,12 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.enum(['tag_name', 'text', 'href', 'selector']),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -346,6 +370,12 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -404,6 +434,12 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -463,6 +499,12 @@ export const LogsAlertsCreateBody = () => zod.object({
                                         }),
                                         zod.object({
                                             cohort_name: zod.union([zod.string(), zod.null()]).optional(),
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod
                                                 .literal('id')
                                                 .default(
@@ -524,6 +566,12 @@ export const LogsAlertsCreateBody = () => zod.object({
                                             value: zod.number(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.union([
                                                 zod.enum(['duration', 'active_seconds', 'inactive_seconds']),
                                                 zod.string(),
@@ -585,6 +633,12 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -645,7 +699,10 @@ export const LogsAlertsCreateBody = () => zod.object({
                                         zod.object({
                                             group_key_names: zod
                                                 .union([zod.record(zod.string(), zod.string()), zod.null()])
-                                                .optional(),
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             group_type_index: zod.union([zod.number(), zod.null()]).optional(),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
@@ -705,6 +762,12 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -764,6 +827,12 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string().describe('The key should be the flag ID'),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod
@@ -785,6 +854,12 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 .describe('The value can be true, false, or a variant name'),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             type: zod
@@ -810,6 +885,12 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 ),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -868,6 +949,12 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -926,6 +1013,12 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -984,6 +1077,12 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -1038,6 +1137,12 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -1096,6 +1201,12 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -1150,6 +1261,12 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -1208,6 +1325,12 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -1269,6 +1392,12 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -1332,6 +1461,15 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                     zod.array(
                                                         zod.union([
                                                             zod.object({
+                                                                group_key_names: zod
+                                                                    .union([
+                                                                        zod.record(zod.string(), zod.string()),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                                    ),
                                                                 key: zod.string(),
                                                                 label: zod.union([zod.string(), zod.null()]).optional(),
                                                                 operator: zod
@@ -1404,6 +1542,15 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                                     .optional(),
                                                             }),
                                                             zod.object({
+                                                                group_key_names: zod
+                                                                    .union([
+                                                                        zod.record(zod.string(), zod.string()),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                                    ),
                                                                 key: zod.string(),
                                                                 label: zod.union([zod.string(), zod.null()]).optional(),
                                                                 operator: zod.enum([
@@ -1469,6 +1616,15 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                                     .optional(),
                                                             }),
                                                             zod.object({
+                                                                group_key_names: zod
+                                                                    .union([
+                                                                        zod.record(zod.string(), zod.string()),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                                    ),
                                                                 key: zod.enum(['tag_name', 'text', 'href', 'selector']),
                                                                 label: zod.union([zod.string(), zod.null()]).optional(),
                                                                 operator: zod.enum([
@@ -1533,6 +1689,15 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                                     .optional(),
                                                             }),
                                                             zod.object({
+                                                                group_key_names: zod
+                                                                    .union([
+                                                                        zod.record(zod.string(), zod.string()),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                                    ),
                                                                 key: zod.string(),
                                                                 label: zod.union([zod.string(), zod.null()]).optional(),
                                                                 operator: zod.enum([
@@ -1600,6 +1765,15 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                                     .optional(),
                                                             }),
                                                             zod.object({
+                                                                group_key_names: zod
+                                                                    .union([
+                                                                        zod.record(zod.string(), zod.string()),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                                    ),
                                                                 key: zod.string(),
                                                                 label: zod.union([zod.string(), zod.null()]).optional(),
                                                                 type: zod
@@ -1639,6 +1813,12 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                     'Absolute or relative (e.g. -30d) lower date bound — alternative to time_value\/time_interval'
                                                 ),
                                             explicit_datetime_to: zod.union([zod.string(), zod.null()]).optional(),
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod
                                                 .string()
                                                 .describe("Event name, or action id when event_type is 'actions'"),
@@ -1887,6 +2067,12 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                     zod.union([
                                         zod.unknown(),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod
@@ -1953,6 +2139,12 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -2012,6 +2204,12 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -2073,6 +2271,12 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.enum(['tag_name', 'text', 'href', 'selector']),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -2131,6 +2335,12 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -2189,6 +2399,12 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -2248,6 +2464,12 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                         }),
                                         zod.object({
                                             cohort_name: zod.union([zod.string(), zod.null()]).optional(),
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod
                                                 .literal('id')
                                                 .default(
@@ -2309,6 +2531,12 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                             value: zod.number(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.union([
                                                 zod.enum(['duration', 'active_seconds', 'inactive_seconds']),
                                                 zod.string(),
@@ -2370,6 +2598,12 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -2430,7 +2664,10 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                         zod.object({
                                             group_key_names: zod
                                                 .union([zod.record(zod.string(), zod.string()), zod.null()])
-                                                .optional(),
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             group_type_index: zod.union([zod.number(), zod.null()]).optional(),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
@@ -2490,6 +2727,12 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -2549,6 +2792,12 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string().describe('The key should be the flag ID'),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod
@@ -2570,6 +2819,12 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 .describe('The value can be true, false, or a variant name'),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             type: zod
@@ -2595,6 +2850,12 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 ),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -2653,6 +2914,12 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -2711,6 +2978,12 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -2769,6 +3042,12 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -2823,6 +3102,12 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -2881,6 +3166,12 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -2935,6 +3226,12 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -2993,6 +3290,12 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -3054,6 +3357,12 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -3117,6 +3426,15 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                     zod.array(
                                                         zod.union([
                                                             zod.object({
+                                                                group_key_names: zod
+                                                                    .union([
+                                                                        zod.record(zod.string(), zod.string()),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                                    ),
                                                                 key: zod.string(),
                                                                 label: zod.union([zod.string(), zod.null()]).optional(),
                                                                 operator: zod
@@ -3189,6 +3507,15 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                                     .optional(),
                                                             }),
                                                             zod.object({
+                                                                group_key_names: zod
+                                                                    .union([
+                                                                        zod.record(zod.string(), zod.string()),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                                    ),
                                                                 key: zod.string(),
                                                                 label: zod.union([zod.string(), zod.null()]).optional(),
                                                                 operator: zod.enum([
@@ -3254,6 +3581,15 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                                     .optional(),
                                                             }),
                                                             zod.object({
+                                                                group_key_names: zod
+                                                                    .union([
+                                                                        zod.record(zod.string(), zod.string()),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                                    ),
                                                                 key: zod.enum(['tag_name', 'text', 'href', 'selector']),
                                                                 label: zod.union([zod.string(), zod.null()]).optional(),
                                                                 operator: zod.enum([
@@ -3318,6 +3654,15 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                                     .optional(),
                                                             }),
                                                             zod.object({
+                                                                group_key_names: zod
+                                                                    .union([
+                                                                        zod.record(zod.string(), zod.string()),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                                    ),
                                                                 key: zod.string(),
                                                                 label: zod.union([zod.string(), zod.null()]).optional(),
                                                                 operator: zod.enum([
@@ -3385,6 +3730,15 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                                     .optional(),
                                                             }),
                                                             zod.object({
+                                                                group_key_names: zod
+                                                                    .union([
+                                                                        zod.record(zod.string(), zod.string()),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                                    ),
                                                                 key: zod.string(),
                                                                 label: zod.union([zod.string(), zod.null()]).optional(),
                                                                 type: zod
@@ -3424,6 +3778,12 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                     'Absolute or relative (e.g. -30d) lower date bound — alternative to time_value\/time_interval'
                                                 ),
                                             explicit_datetime_to: zod.union([zod.string(), zod.null()]).optional(),
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod
                                                 .string()
                                                 .describe("Event name, or action id when event_type is 'actions'"),
@@ -3731,6 +4091,12 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                     zod.union([
                                         zod.unknown(),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod
@@ -3797,6 +4163,12 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -3856,6 +4228,12 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -3917,6 +4295,12 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.enum(['tag_name', 'text', 'href', 'selector']),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -3975,6 +4359,12 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -4033,6 +4423,12 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -4092,6 +4488,12 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                         }),
                                         zod.object({
                                             cohort_name: zod.union([zod.string(), zod.null()]).optional(),
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod
                                                 .literal('id')
                                                 .default(
@@ -4153,6 +4555,12 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                             value: zod.number(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.union([
                                                 zod.enum(['duration', 'active_seconds', 'inactive_seconds']),
                                                 zod.string(),
@@ -4214,6 +4622,12 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -4274,7 +4688,10 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                         zod.object({
                                             group_key_names: zod
                                                 .union([zod.record(zod.string(), zod.string()), zod.null()])
-                                                .optional(),
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             group_type_index: zod.union([zod.number(), zod.null()]).optional(),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
@@ -4334,6 +4751,12 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -4393,6 +4816,12 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string().describe('The key should be the flag ID'),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod
@@ -4414,6 +4843,12 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 .describe('The value can be true, false, or a variant name'),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             type: zod
@@ -4439,6 +4874,12 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 ),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -4497,6 +4938,12 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -4555,6 +5002,12 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -4613,6 +5066,12 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -4667,6 +5126,12 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -4725,6 +5190,12 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -4779,6 +5250,12 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -4837,6 +5314,12 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -4898,6 +5381,12 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod.string(),
                                             label: zod.union([zod.string(), zod.null()]).optional(),
                                             operator: zod.enum([
@@ -4961,6 +5450,15 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                     zod.array(
                                                         zod.union([
                                                             zod.object({
+                                                                group_key_names: zod
+                                                                    .union([
+                                                                        zod.record(zod.string(), zod.string()),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                                    ),
                                                                 key: zod.string(),
                                                                 label: zod.union([zod.string(), zod.null()]).optional(),
                                                                 operator: zod
@@ -5033,6 +5531,15 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                                     .optional(),
                                                             }),
                                                             zod.object({
+                                                                group_key_names: zod
+                                                                    .union([
+                                                                        zod.record(zod.string(), zod.string()),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                                    ),
                                                                 key: zod.string(),
                                                                 label: zod.union([zod.string(), zod.null()]).optional(),
                                                                 operator: zod.enum([
@@ -5098,6 +5605,15 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                                     .optional(),
                                                             }),
                                                             zod.object({
+                                                                group_key_names: zod
+                                                                    .union([
+                                                                        zod.record(zod.string(), zod.string()),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                                    ),
                                                                 key: zod.enum(['tag_name', 'text', 'href', 'selector']),
                                                                 label: zod.union([zod.string(), zod.null()]).optional(),
                                                                 operator: zod.enum([
@@ -5162,6 +5678,15 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                                     .optional(),
                                                             }),
                                                             zod.object({
+                                                                group_key_names: zod
+                                                                    .union([
+                                                                        zod.record(zod.string(), zod.string()),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                                    ),
                                                                 key: zod.string(),
                                                                 label: zod.union([zod.string(), zod.null()]).optional(),
                                                                 operator: zod.enum([
@@ -5229,6 +5754,15 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                                     .optional(),
                                                             }),
                                                             zod.object({
+                                                                group_key_names: zod
+                                                                    .union([
+                                                                        zod.record(zod.string(), zod.string()),
+                                                                        zod.null(),
+                                                                    ])
+                                                                    .optional()
+                                                                    .describe(
+                                                                        'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                                    ),
                                                                 key: zod.string(),
                                                                 label: zod.union([zod.string(), zod.null()]).optional(),
                                                                 type: zod
@@ -5268,6 +5802,12 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                     'Absolute or relative (e.g. -30d) lower date bound — alternative to time_value\/time_interval'
                                                 ),
                                             explicit_datetime_to: zod.union([zod.string(), zod.null()]).optional(),
+                                            group_key_names: zod
+                                                .union([zod.record(zod.string(), zod.string()), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person\/event value can carry it.'
+                                                ),
                                             key: zod
                                                 .string()
                                                 .describe("Event name, or action id when event_type is 'actions'"),

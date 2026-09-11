@@ -1458,7 +1458,14 @@ export const PropertyOperatorApi = {
     NotIcontainsMulti: 'not_icontains_multi',
 } as const
 
+/**
+ * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+ */
+export type EventPropertyFilterApiGroupKeyNames = { [key: string]: string } | null
+
 export interface EventPropertyFilterApi {
+    /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+    group_key_names?: EventPropertyFilterApiGroupKeyNames
     key: string
     label?: string | null
     operator?: PropertyOperatorApi | null
@@ -1467,7 +1474,14 @@ export interface EventPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+/**
+ * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+ */
+export type PersonPropertyFilterApiGroupKeyNames = { [key: string]: string } | null
+
 export interface PersonPropertyFilterApi {
+    /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+    group_key_names?: PersonPropertyFilterApiGroupKeyNames
     key: string
     label?: string | null
     operator: PropertyOperatorApi
@@ -1476,8 +1490,15 @@ export interface PersonPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+/**
+ * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+ */
+export type CohortPropertyFilterApiGroupKeyNames = { [key: string]: string } | null
+
 export interface CohortPropertyFilterApi {
     cohort_name?: string | null
+    /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+    group_key_names?: CohortPropertyFilterApiGroupKeyNames
     key?: 'id'
     label?: string | null
     operator?: PropertyOperatorApi | null
@@ -1494,7 +1515,14 @@ export const Key10Api = {
     Selector: 'selector',
 } as const
 
+/**
+ * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+ */
+export type ElementPropertyFilterApiGroupKeyNames = { [key: string]: string } | null
+
 export interface ElementPropertyFilterApi {
+    /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+    group_key_names?: ElementPropertyFilterApiGroupKeyNames
     key: Key10Api
     label?: string | null
     operator: PropertyOperatorApi
@@ -1502,14 +1530,28 @@ export interface ElementPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+/**
+ * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+ */
+export type HogQLPropertyFilterApiGroupKeyNames = { [key: string]: string } | null
+
 export interface HogQLPropertyFilterApi {
+    /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+    group_key_names?: HogQLPropertyFilterApiGroupKeyNames
     key: string
     label?: string | null
     type?: 'hogql'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+/**
+ * Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.
+ */
+export type DataWarehousePropertyFilterApiGroupKeyNames = { [key: string]: string } | null
+
 export interface DataWarehousePropertyFilterApi {
+    /** Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it. */
+    group_key_names?: DataWarehousePropertyFilterApiGroupKeyNames
     key: string
     label?: string | null
     operator: PropertyOperatorApi

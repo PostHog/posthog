@@ -11,6 +11,8 @@ import {
     FeatureFlagGroupType,
     FeatureFlagType,
     FlagPropertyFilter,
+    GroupType,
+    GroupTypeIndex,
     MultivariateFlagOptions,
     PropertyFilterType,
     PropertyOperator,
@@ -20,8 +22,10 @@ import { resolveAggregationGroupTypeIndex } from './aggregation'
 import {
     featureFlagReleaseConditionsLogic,
     getBlastRadiusErrorMessage,
+    groupTypeIndexForIdKey,
     isBlastRadiusErrorRetryable,
     withResolvedFlagLabels,
+    withResolvedGroupKeyNames,
 } from './featureFlagReleaseConditionsLogic'
 
 jest.mock('uuid', () => ({
@@ -1887,6 +1891,147 @@ describe('the feature flag release conditions logic', () => {
             }).toDispatchActions(['setFilters'])
 
             expect(logic.values.filters.groups[0].rollout_percentage).toEqual(25)
+        })
+    })
+    describe('resolving group key names', () => {
+        // The API resolves a saved `<group_type>_id` value server-side and sends the name on the
+        // filter. Every value gets an entry, one naming no group mapping to itself.
+        const savedOrganizationFilter = (groupKeyNames: Record<string, string>): AnyPropertyFilter =>
+            ({
+                type: PropertyFilterType.Person,
+                key: 'organization_id',
+                operator: PropertyOperator.Exact,
+                value: ['org-abc-123', 'org-not-a-group'],
+                group_key_names: groupKeyNames,
+            }) as AnyPropertyFilter
+
+        // `organization` is group type 0 in the default mock team.
+        async function mountWithSavedFilter(groupKeyNames: Record<string, string>): Promise<void> {
+            logic?.unmount()
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'saved-group-flag',
+                filters: generateFeatureFlagFilters([
+                    {
+                        properties: [savedOrganizationFilter(groupKeyNames)],
+                        rollout_percentage: 100,
+                        variant: null,
+                        sort_key: 'group-1',
+                    },
+                ]),
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        }
+
+        it('adopts the names the API resolved instead of looking each value up', async () => {
+            // One `groups/find` request per value, and a 404 for every value that names no group,
+            // is what this replaces. A saved flag must cost no group lookup at all.
+            const findGroup = jest.fn(() => [404, { detail: 'Not found.' }])
+            useMocks({ get: { '/api/environments/:team_id/groups/find/': findGroup } })
+
+            await mountWithSavedFilter({
+                'org-abc-123': 'Fjellride AB',
+                'org-not-a-group': 'org-not-a-group',
+            })
+
+            expect(findGroup).not.toHaveBeenCalled()
+            expect(logic.values.groupKeyNameCache).toEqual({
+                '0:org-abc-123': 'Fjellride AB',
+                '0:org-not-a-group': 'org-not-a-group',
+            })
+        })
+
+        it('looks up a value the API did not resolve', async () => {
+            // A value the user typed since the last save has no name on the filter, so it is the
+            // one thing left to fetch.
+            const findGroup = jest.fn(() => [
+                200,
+                { group_key: 'org-not-a-group', group_type_index: 0, group_properties: { name: 'Nyhavn ApS' } },
+            ])
+            useMocks({ get: { '/api/environments/:team_id/groups/find/': findGroup } })
+
+            await mountWithSavedFilter({ 'org-abc-123': 'Fjellride AB' })
+
+            expect(findGroup).toHaveBeenCalledTimes(1)
+            expect(logic.values.groupKeyNameCache['0:org-not-a-group']).toEqual('Nyhavn ApS')
+        })
+    })
+
+    describe('withResolvedGroupKeyNames', () => {
+        // A project with an `organization` group type but no `team` one, so a `team_id` property
+        // must not be resolved against a group type this project does not have.
+        const groupTypes = new Map<GroupTypeIndex, GroupType>([
+            [1 as GroupTypeIndex, { group_type: 'organization', group_type_index: 1 as GroupTypeIndex } as GroupType],
+        ])
+        const groupKeyNameCache = {
+            '1:org-abc-123': 'Fjellride AB',
+            // A group that exists with no name is cached as its own key, and one that does not
+            // exist is cached the same way, so neither is looked up again.
+            '1:org-nameless': 'org-nameless',
+        }
+
+        const personFilter = (key: string, value: unknown, operator = PropertyOperator.Exact): AnyPropertyFilter =>
+            ({ type: PropertyFilterType.Person, key, operator, value }) as AnyPropertyFilter
+
+        it.each([
+            ['a key naming a group type this project has', 'organization_id', PropertyOperator.Exact, 1],
+            ['a key naming no group type', 'team_id', PropertyOperator.Exact, null],
+            ['a key that does not end in _id', 'organization', PropertyOperator.Exact, null],
+            // A partial-match operator holds a fragment of a value, so it can never hold a key.
+            ['a contains operator', 'organization_id', PropertyOperator.IContains, null],
+            ['a starts-with operator', 'organization_id', PropertyOperator.StartsWith, null],
+            ['an ends-with operator', 'organization_id', PropertyOperator.EndsWith, null],
+            ['a regex operator', 'organization_id', PropertyOperator.Regex, null],
+            // `is set` carries a bare `true`.
+            ['an is-set operator', 'organization_id', PropertyOperator.IsSet, null],
+        ])('resolves %s to %s', (_label, key, operator, expected) => {
+            expect(groupTypeIndexForIdKey(personFilter(key, 'org-abc-123', operator), groupTypes)).toBe(expected)
+        })
+
+        it('attaches the name of every value it resolved', () => {
+            const [result] = withResolvedGroupKeyNames(
+                [personFilter('organization_id', ['org-abc-123', 'org-unresolved'])],
+                groupTypes,
+                groupKeyNameCache
+            )
+            // Only the resolved key carries a name. An unresolved one is absent from the map, so
+            // every display surface falls back to its raw id.
+            expect((result as any).group_key_names).toEqual({ 'org-abc-123': 'Fjellride AB' })
+        })
+
+        it('leaves a group with no name off the map rather than naming it after its own key', () => {
+            // Otherwise the value renders as its own id twice over, which reads as a bug.
+            const nameless = personFilter('organization_id', 'org-nameless')
+            expect(withResolvedGroupKeyNames([nameless], groupTypes, groupKeyNameCache)[0]).toBe(nameless)
+        })
+
+        it('leaves a property whose key names no group type untouched by reference', () => {
+            // `team_id` is an ordinary property name, so its values must not be labeled with the
+            // name of an unrelated group that happens to share a key.
+            const teamFilter = personFilter('team_id', 'org-abc-123')
+            expect(withResolvedGroupKeyNames([teamFilter], groupTypes, groupKeyNameCache)[0]).toBe(teamFilter)
+        })
+
+        it('drops a stale name when a value no longer resolves to a group', () => {
+            // A saved filter can carry names from an earlier resolve. If the group later loses its
+            // name or is removed, the value must fall back to its raw id, not keep the old name.
+            const stale = {
+                ...personFilter('organization_id', 'org-nameless'),
+                group_key_names: { 'org-nameless': 'Old Name AB' },
+            } as AnyPropertyFilter
+            const [result] = withResolvedGroupKeyNames([stale], groupTypes, groupKeyNameCache)
+            expect('group_key_names' in result).toBe(false)
+        })
+
+        it('re-resolves over names that round-tripped through onChange', () => {
+            // The editable PropertyFilters writes the injected names back into state, so a renamed
+            // group must be overridden rather than kept.
+            const stale = {
+                ...personFilter('organization_id', 'org-abc-123'),
+                group_key_names: { 'org-abc-123': 'Old Name AB' },
+            } as AnyPropertyFilter
+            const [result] = withResolvedGroupKeyNames([stale], groupTypes, groupKeyNameCache)
+            expect((result as any).group_key_names).toEqual({ 'org-abc-123': 'Fjellride AB' })
         })
     })
 })

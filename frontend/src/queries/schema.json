@@ -48,6 +48,13 @@
         "AccountCustomPropertyFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -2209,6 +2216,13 @@
                 },
                 "explicit_datetime_to": {
                     "type": "string"
+                },
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
                 },
                 "key": {
                     "description": "Event name, or action id when event_type is 'actions'",
@@ -6121,6 +6135,13 @@
                 },
                 "explicit_datetime_to": {
                     "type": "string"
+                },
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
                 },
                 "key": {
                     "description": "Event name, or action id when event_type is 'actions'",
@@ -16630,6 +16651,13 @@
                 "cohort_name": {
                     "type": "string"
                 },
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
+                },
                 "key": {
                     "const": "id",
                     "type": "string"
@@ -19907,6 +19935,13 @@
         "DataWarehousePersonPropertyFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -19930,6 +19965,13 @@
         "DataWarehousePropertyFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -20987,6 +21029,13 @@
             "additionalProperties": false,
             "description": "Sync with nodejs/src/types.ts",
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
+                },
                 "key": {
                     "enum": ["tag_name", "text", "href", "selector"],
                     "type": "string"
@@ -22462,6 +22511,13 @@
         "ErrorTrackingIssueFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -23268,6 +23324,13 @@
         "EventMetadataPropertyFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -23315,6 +23378,13 @@
             "additionalProperties": false,
             "description": "Sync with nodejs/src/types.ts",
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -27415,6 +27485,13 @@
         "FeaturePropertyFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -27749,6 +27826,13 @@
         "FlagPropertyFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
+                },
                 "key": {
                     "description": "The key should be the flag ID",
                     "type": "string"
@@ -29001,6 +29085,7 @@
                     "additionalProperties": {
                         "type": "string"
                     },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
                     "type": "object"
                 },
                 "group_type_index": {
@@ -29614,6 +29699,13 @@
         "HogQLPropertyFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -31824,6 +31916,13 @@
         "LogEntryPropertyFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -31914,6 +32013,13 @@
         "LogPropertyFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -37882,6 +37988,13 @@
         "MetricPropertyFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -39576,6 +39689,13 @@
         "PersonMetadataPropertyFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -39601,6 +39721,13 @@
             "additionalProperties": false,
             "description": "Sync with nodejs/src/types.ts",
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -49293,6 +49420,13 @@
         "RecordingDurationFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
+                },
                 "key": {
                     "$ref": "#/definitions/DurationType"
                 },
@@ -49337,6 +49471,13 @@
         "RecordingPropertyFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
+                },
                 "key": {
                     "anyOf": [
                         {
@@ -50193,6 +50334,13 @@
         "RevenueAnalyticsPropertyFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -50917,6 +51065,13 @@
         "SessionPropertyFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -52210,6 +52365,13 @@
         "SpanPropertyFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
+                },
                 "key": {
                     "type": "string"
                 },
@@ -58163,6 +58325,13 @@
         "WorkflowVariablePropertyFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Display-only passthrough: resolved group names keyed by raw group key. The serializer accepts it on any property filter, so a `<group_type>_id` person/event value can carry it.",
+                    "type": "object"
+                },
                 "key": {
                     "type": "string"
                 },
