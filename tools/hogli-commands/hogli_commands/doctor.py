@@ -7,6 +7,7 @@ import enum
 import json
 import time
 import fcntl
+import shlex
 import select
 import shutil
 import signal
@@ -15,7 +16,7 @@ import platform
 import tempfile
 import importlib
 import subprocess
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -1038,8 +1039,7 @@ class DevProcess:
 )
 @click.option("--dry-run", is_flag=True, help="Show what would be killed without killing")
 @click.option("--yes", "-y", is_flag=True, help="Auto-confirm kill of all orphaned processes")
-@click.option("--all", "include_all", is_flag=True, help="Include processes under an active phrocs, not just orphans")
-def doctor_zombies(dry_run: bool, yes: bool, include_all: bool) -> None:
+def doctor_zombies(dry_run: bool, yes: bool) -> None:
     """Find and kill orphaned PostHog dev processes left behind after an unclean shutdown."""
 
     def _record() -> None:
@@ -1057,37 +1057,22 @@ def doctor_zombies(dry_run: bool, yes: bool, include_all: bool) -> None:
 
     orphans = [p for p in processes if p.is_orphan]
     managed = [p for p in processes if not p.is_orphan]
-    targets = processes if include_all else orphans
+    targets = orphans
 
     if not targets:
         click.echo(f"No orphaned processes found ({len(managed)} process(es) under an active process manager).")
-        click.echo("Use --all to include managed processes.")
         _record()
         return
 
-    if include_all:
-        # Show orphans and managed groups separately
-        if orphans:
-            _display_process_table(orphans, "Orphaned processes", REPO_ROOT, number_offset=0)
-        if managed:
-            # Group managed processes by their manager
-            managers: dict[str, list[DevProcess]] = {}
-            for p in managed:
-                managers.setdefault(p.manager, []).append(p)
-            offset = len(orphans)
-            for mgr, procs in managers.items():
-                _display_process_table(procs, f"Managed by {mgr}", REPO_ROOT, number_offset=offset)
-                offset += len(procs)
-    else:
-        _display_process_table(orphans, "Orphaned processes", REPO_ROOT)
+    _display_process_table(orphans, "Orphaned processes", REPO_ROOT)
 
-    if managed and not include_all:
+    if managed:
         # Summarize managed groups
         managed_groups: dict[str, list[DevProcess]] = {}
         for p in managed:
             managed_groups.setdefault(p.manager, []).append(p)
         parts = [f"{len(procs)} under {mgr}" for mgr, procs in managed_groups.items()]
-        click.echo(f"   ({', '.join(parts)} — use --all to include)\n")
+        click.echo(f"   ({', '.join(parts)})\n")
 
     total_rss = sum(p.memory_rss_kb for p in targets)
     click.echo(f"   Total: {len(targets)} process(es) using ~{_format_rss(total_rss)}\n")
@@ -1135,6 +1120,7 @@ def _scan_posthog_processes(repo_root: Path) -> list[DevProcess]:
     # Build a full PID→(PPID, args) map for ancestor lookups
     all_procs: dict[int, tuple[int, str]] = {pid: (ppid, args) for pid, ppid, _, _, _, args in parsed}
 
+    codex_pids = _codex_infrastructure_pids(all_procs, _get_process_executables())
     own_tree = _get_own_process_tree()
     repo_str = str(repo_root)
     repo_prefix = repo_str + "/"
@@ -1147,7 +1133,7 @@ def _scan_posthog_processes(repo_root: Path) -> list[DevProcess]:
     cwd_pids: list[int] = []
     for entry in parsed:
         pid, _, _, _, _, args = entry
-        if pid in own_tree or _is_excluded(args):
+        if pid in own_tree or pid in codex_pids or _is_excluded(args):
             continue
         if _matches_repo_path(args, repo_str, repo_prefix):
             candidates.append((entry, True))
@@ -1248,13 +1234,90 @@ def _identify_manager(args: str) -> str | None:
     return None
 
 
+def _get_process_executables() -> dict[int, str]:
+    # macOS comm contains the full path, but Linux comm can be a truncated title.
+    # Keep the path in the final column so spaces cannot split its identity.
+    field = "comm" if platform.system() == "Darwin" else "exe"
+    result = subprocess.run(["ps", "-eo", f"pid=,{field}="], capture_output=True, text=True, check=False)
+    executables: dict[int, str] = {}
+    for line in result.stdout.splitlines():
+        parts = line.strip().split(maxsplit=1)
+        if len(parts) == 2 and parts[0].isdigit() and parts[1] != "-":
+            executables[int(parts[0])] = parts[1]
+    return executables
+
+
+def _command_executable(args: str) -> str:
+    try:
+        return next(_command_words(args), "")
+    except ValueError:
+        return args.split()[0] if args else ""
+
+
+def _command_words(args: str) -> Iterator[str]:
+    words = shlex.shlex(args, posix=True)
+    words.whitespace_split = True
+    words.commenters = ""
+    return iter(words)
+
+
+def _is_codex_entrypoint(args: str, executable: str) -> bool:
+    # ps does not quote argv[0], which can itself contain spaces.
+    try:
+        if args.startswith(executable + " "):
+            arguments = _command_words(args[len(executable) :])
+        else:
+            arguments = _command_words(args)
+            next(arguments, None)
+        return _is_codex_script(arguments)
+    except ValueError:
+        return False
+
+
+def _is_codex_script(arguments: Iterable[str]) -> bool:
+    options = iter(arguments)
+    for argument in options:
+        if argument in {"--eval", "--print"} or argument.startswith(("-e", "-p", "--eval=", "--print=")):
+            return False
+        if argument in {"-r", "--require", "--import", "--loader", "--experimental-loader"}:
+            next(options, None)
+            continue
+        if argument.startswith("-") and argument != "-":
+            continue
+        return argument == "codex" or argument.endswith(("/bin/codex", "/@openai/codex/bin/codex.js"))
+    return False
+
+
+def _codex_infrastructure_pids(all_procs: dict[int, tuple[int, str]], executables: dict[int, str]) -> set[int]:
+    native: set[int] = set()
+    nodes: set[int] = set()
+    protected: set[int] = set()
+    for pid, (_, args) in all_procs.items():
+        executable = executables.get(pid) or _command_executable(args)
+        path = Path(executable)
+        if path.name == "codex":
+            native.add(pid)
+        if path.name in {"codex", "codex-code-mode-host"}:
+            protected.add(pid)
+        elif "cua_node" in path.parts and path.name in {"node", "node_repl", "node-repl", "repl"}:
+            protected.add(pid)
+        elif path.name in {"node", "nodejs"}:
+            nodes.add(pid)
+            if _is_codex_entrypoint(args, executable):
+                protected.add(pid)
+
+    # Launchers can run through symlinks whose names do not identify Codex.
+    protected.update(all_procs[pid][0] for pid in native if all_procs[pid][0] in nodes)
+    return protected
+
+
 _PsLine = tuple[int, int, float, int, str, str]
 
 
 def _parse_ps_line(line: str) -> _PsLine | None:
     """Parse a single ps output line into (pid, ppid, cpu%, rss_kb, start_time, args)."""
 
-    parts = line.split()
+    parts = line.split(maxsplit=9)
     # Need at least: pid ppid cpu rss + 5 date tokens + 1 args token = 10
     if len(parts) < 10:
         return None
@@ -1269,7 +1332,7 @@ def _parse_ps_line(line: str) -> _PsLine | None:
 
     # lstart is always 5 tokens: Day Mon DD HH:MM:SS YYYY
     start_time = " ".join(parts[4:9])
-    args = " ".join(parts[9:])
+    args = parts[9]
 
     return pid, ppid, cpu, rss, start_time, args
 
