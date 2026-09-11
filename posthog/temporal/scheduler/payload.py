@@ -1,5 +1,5 @@
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Generic, Literal, TypeVar
 
 from temporalio.converter import DataConverter
@@ -53,11 +53,16 @@ async def select_items_within_temporal_payload(
 
     candidates = tuple(items[:max_items])
     encoded_sizes: dict[int, int] = {}
+    converter = data_converter or build_data_converter()
+    measurement_converter = replace(
+        converter,
+        payload_limits=replace(converter.payload_limits, payload_size_warning=0),
+    )
 
     async def size_for(count: int) -> int:
         if count not in encoded_sizes:
             encoded_sizes[count] = await temporal_payload_size_bytes(
-                build_payload(candidates[:count]), data_converter=data_converter
+                build_payload(candidates[:count]), data_converter=measurement_converter
             )
         return encoded_sizes[count]
 

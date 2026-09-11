@@ -199,6 +199,30 @@ def _lock_or_create_tenant_pools(
     return pools
 
 
+def sample_scheduler_permits_in_flight(
+    *,
+    scheduler: str,
+    region: str,
+    metrics: SchedulerMetrics = DEFAULT_SCHEDULER_METRICS,
+) -> None:
+    _validate_scope(scheduler, region)
+
+    def sample() -> None:
+        with transaction.atomic(durable=True):
+            pool, _ = TemporalSchedulerPermitPool.objects.get_or_create(
+                scheduler=scheduler,
+                region=region,
+                tenant_key="",
+            )
+            locked_pool = (
+                TemporalSchedulerPermitPool.objects.select_for_update(skip_locked=True).filter(id=pool.id).first()
+            )
+            if locked_pool is not None:
+                metrics.set_permits_in_flight(scheduler, region, locked_pool.in_flight)
+
+    record_scheduler_metrics_safely(sample)
+
+
 def reserve_scheduler_claims(
     *,
     scheduler: str,
@@ -212,6 +236,7 @@ def reserve_scheduler_claims(
     _validate_limits(limits)
     hashed_requests, multiplicities = _deduplicate_requests(requests)
     if not hashed_requests:
+        sample_scheduler_permits_in_flight(scheduler=scheduler, region=region, metrics=metrics)
         return SchedulerAdmissionResult(reservations=(), already_claimed=0, deferred_for_capacity=0)
 
     claim_time = _resolve_time(now)
