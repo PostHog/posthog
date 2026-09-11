@@ -421,14 +421,17 @@ class Migration(migrations.Migration):
         ),
         # CHECK cannot see the parent row. This composite FK requires part.team_id
         # to equal the delivery's team_id so a different part_key cannot attach
-        # work to another team's delivery. Not DEFERRABLE: Django TestCase never
-        # commits, so a deferred FK would not fire until teardown.
+        # work to another team's delivery. Immediate, because a deferred FK would
+        # not fire inside Django TestCase (the test transaction never commits).
+        # ON DELETE CASCADE: a default NO ACTION FK would race Django's deferred
+        # delivery_id CASCADE and can reject parent deletes while parts still exist.
         migrations.RunSQL(
             sql="""
             ALTER TABLE posthog_conversations_delivery_part
             ADD CONSTRAINT delivery_part_matches_parent_team
             FOREIGN KEY (delivery_id, team_id)
-            REFERENCES posthog_conversations_delivery (id, team_id);
+            REFERENCES posthog_conversations_delivery (id, team_id)
+            ON DELETE CASCADE;
             """,
             reverse_sql="""
             ALTER TABLE posthog_conversations_delivery_part
