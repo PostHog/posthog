@@ -22977,6 +22977,30 @@ export namespace Schemas {
       gate_materialization_on_checks: boolean;
     }
 
+    export interface DataQualityMetricSubject {
+      /** Metric identifier used by the nested check endpoints. */
+      id: string;
+      /** Queryable metric name. */
+      name: string;
+      /** Metric label shown in the data catalog. */
+      display_name: string;
+    }
+
+    export interface DataQualityOutputColumn {
+      /** Output column name available through the {metric} relation. */
+      name: string;
+      /**
+         * ClickHouse type, or null when it could not be inferred.
+         * @nullable
+         */
+      type: string | null;
+    }
+
+    export interface DataQualityOutputSchema {
+      /** Columns returned by the saved metric query. */
+      columns: DataQualityOutputColumn[];
+    }
+
     /**
      * Type-specific configuration, validated against the check type's JSON schema.
      */

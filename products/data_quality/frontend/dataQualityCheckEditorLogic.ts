@@ -12,17 +12,22 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { performQuery } from '~/queries/query'
 import {
     AccessControlFilterWarning,
+    type DatabaseSchemaDataWarehouseTable,
+    type DatabaseSchemaField,
+    type DatabaseSchemaViewTable,
     DataWarehouseSyncWarning,
     HogQLQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
 
-import type {
-    DatabaseSchemaDataWarehouseTable,
-    DatabaseSchemaViewTable,
-} from '../../../frontend/src/queries/schema/schema-general'
 import { DataQualitySubjectRef, checksApi } from './checksApi'
-import type { DataQualityCheckApi, DataQualityCheckTypeApi } from './generated/api.schemas'
+import type {
+    DataQualityCheckApi,
+    DataQualityCheckTypeApi,
+    DataQualityMetricSubjectApi,
+    DataQualityOutputColumnApi,
+    DataQualityOutputSchemaApi,
+} from './generated/api.schemas'
 import { CheckTypeEnumApi, DataQualityCheckSeverityEnumApi, SubjectTypeEnumApi } from './generated/api.schemas'
 
 const CHECK_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/
@@ -74,6 +79,13 @@ export interface RelationshipSubject {
     name: string
     type: SubjectTypeEnumApi
     fields: string[]
+    outputSchema: DataQualityOutputColumnApi[]
+}
+
+export interface SelectableSubject {
+    id: string
+    name: string
+    type: SubjectTypeEnumApi
 }
 
 export interface CustomSqlPreview {
@@ -256,6 +268,7 @@ export interface dataQualityCheckEditorLogicValues {
     databaseLoading: boolean // databaseTableListLogic
     views: DatabaseSchemaViewTable[] // databaseTableListLogic
     availableColumns: string[]
+    availableOutputSchema: DataQualityOutputColumnApi[]
     checkForm: CheckFormValues
     checkFormAllErrors: Record<string, any>
     checkFormChanged: boolean
@@ -285,14 +298,22 @@ export interface dataQualityCheckEditorLogicValues {
     isCheckFormValid: boolean
     isMetricSubject: boolean
     isOpen: boolean
+    metricOutputSchema: DataQualityOutputSchemaApi | null
+    metricOutputSchemaError: string | null
+    metricOutputSchemaLoading: boolean
+    metricSubjects: DataQualityMetricSubjectApi[]
+    metricSubjectsError: string | null
+    metricSubjectsLoading: boolean
     needsWarehouseCatalog: boolean
     openedWithoutSubject: boolean
     relationshipSubjects: RelationshipSubject[]
     requiresColumn: boolean
+    selectableSubjects: SelectableSubject[]
     serverError: string | null
     showCheckFormErrors: boolean
     subject: DataQualitySubjectRef | null
     subjectColumns: string[]
+    subjectOutputSchema: DataQualityOutputColumnApi[]
     warehouseCatalogRequested: boolean
 }
 
@@ -333,16 +354,48 @@ export interface dataQualityCheckEditorLogicActions {
             value: true
         }
     }
+    loadMetricOutputSchema: (_: any) => any
+    loadMetricOutputSchemaFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadMetricOutputSchemaSuccess: (
+        metricOutputSchema: DataQualityOutputSchemaApi | null,
+        payload?: any
+    ) => {
+        metricOutputSchema: DataQualityOutputSchemaApi | null
+        payload?: any
+    }
+    loadMetricSubjects: () => any
+    loadMetricSubjectsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadMetricSubjectsSuccess: (
+        metricSubjects: DataQualityMetricSubjectApi[],
+        payload?: any
+    ) => {
+        metricSubjects: DataQualityMetricSubjectApi[]
+        payload?: any
+    }
     loadWarehouseCatalog: () => {
         value: true
     }
     openEditor: (
         check: DataQualityCheckApi | null,
         subject: DataQualitySubjectRef | null,
-        columns?: string[]
+        columns?: string[],
+        outputSchema?: DataQualityOutputColumnApi[]
     ) => {
         check: DataQualityCheckApi | null
         columns: string[]
+        outputSchema: DataQualityOutputColumnApi[]
         subject: DataQualitySubjectRef | null
     }
     requestClose: () => {
@@ -424,11 +477,18 @@ export interface dataQualityCheckEditorLogicMeta {
             views: DatabaseSchemaViewTable[],
             dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
         ) => RelationshipSubject[]
-        availableColumns: (
+        selectableSubjects: (
+            relationshipSubjects: RelationshipSubject[],
+            metricSubjects: DataQualityMetricSubjectApi[]
+        ) => SelectableSubject[]
+        availableOutputSchema: (
             subjectColumns: string[],
+            subjectOutputSchema: DataQualityOutputColumnApi[],
             subject: DataQualitySubjectRef | null,
-            relationshipSubjects: RelationshipSubject[]
-        ) => string[]
+            relationshipSubjects: RelationshipSubject[],
+            metricOutputSchema: DataQualityOutputSchemaApi | null
+        ) => DataQualityOutputColumnApi[]
+        availableColumns: (availableOutputSchema: DataQualityOutputColumnApi[]) => string[]
         customSqlSourceQuery: (checkForm: CheckFormValues) => HogQLQuery
         customSqlPreviewStale: (customSqlPreview: CustomSqlPreview | null, checkForm: CheckFormValues) => boolean
         customSqlPreviewVerdict: (customSqlPreview: CustomSqlPreview | null) => 'fail' | 'pass' | null
@@ -474,11 +534,13 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         openEditor: (
             check: DataQualityCheckApi | null,
             subject: DataQualitySubjectRef | null,
-            columns: string[] = []
+            columns: string[] = [],
+            outputSchema: DataQualityOutputColumnApi[] = []
         ) => ({
             check,
             subject,
             columns,
+            outputSchema,
         }),
         setSubject: (subject: DataQualitySubjectRef) => ({ subject }),
         requestClose: true,
@@ -489,6 +551,26 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         loadWarehouseCatalog: true,
     }),
     loaders(({ values }) => ({
+        metricSubjects: [
+            [] as DataQualityMetricSubjectApi[],
+            {
+                loadMetricSubjects: async () => checksApi.metricSubjects(),
+            },
+        ],
+        metricOutputSchema: [
+            null as DataQualityOutputSchemaApi | null,
+            {
+                loadMetricOutputSchema: async (_, breakpoint): Promise<DataQualityOutputSchemaApi | null> => {
+                    const subject = values.subject
+                    if (subject?.subjectType !== SubjectTypeEnumApi.Metric) {
+                        return null
+                    }
+                    const schema = await checksApi.outputSchema(subject)
+                    breakpoint()
+                    return values.subject === subject ? schema : null
+                },
+            },
+        ],
         checkTypes: [
             [] as DataQualityCheckTypeApi[],
             {
@@ -583,6 +665,12 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                 openEditor: (_, { columns }) => columns,
             },
         ],
+        subjectOutputSchema: [
+            [] as DataQualityOutputColumnApi[],
+            {
+                openEditor: (_, { outputSchema }) => outputSchema,
+            },
+        ],
         // Keep the full catalog available across modal opens, while avoiding refetches on type switches.
         warehouseCatalogRequested: [
             false,
@@ -595,6 +683,32 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
             {
                 openEditor: () => [],
                 setSubject: () => [],
+            },
+        ],
+        metricOutputSchema: [
+            null as DataQualityOutputSchemaApi | null,
+            {
+                openEditor: () => null,
+                setSubject: () => null,
+            },
+        ],
+        metricSubjectsError: [
+            null as string | null,
+            {
+                loadMetricSubjects: () => null,
+                loadMetricSubjectsSuccess: () => null,
+                loadMetricSubjectsFailure: (_, { error, errorObject }) => errorObject?.detail ?? error,
+                openEditor: () => null,
+            },
+        ],
+        metricOutputSchemaError: [
+            null as string | null,
+            {
+                loadMetricOutputSchema: () => null,
+                loadMetricOutputSchemaSuccess: () => null,
+                loadMetricOutputSchemaFailure: (_, { error, errorObject }) => errorObject?.detail ?? error,
+                openEditor: () => null,
+                setSubject: () => null,
             },
         ],
         serverError: [
@@ -667,7 +781,10 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         ],
         relationshipSubjects: [
             (s) => [s.views, s.dataWarehouseTables],
-            (views: any[], dataWarehouseTables: any[]): RelationshipSubject[] =>
+            (
+                views: DatabaseSchemaViewTable[],
+                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
+            ): RelationshipSubject[] =>
                 // Only warehouse subjects carry the uuid a relationships check references;
                 // PostHog-native and system tables have no check subject to point at.
                 [
@@ -680,18 +797,52 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                         name: subject.name,
                         type: subject.type,
                         fields: Object.keys(subject.fields ?? {}),
+                        outputSchema: Object.entries(subject.fields ?? {}).map(
+                            ([name, field]: [string, DatabaseSchemaField]) => ({
+                                name,
+                                type: field.type ?? null,
+                            })
+                        ),
                     })),
         ],
-        availableColumns: [
-            (s) => [s.subjectColumns, s.subject, s.relationshipSubjects],
+        selectableSubjects: [
+            (s) => [s.relationshipSubjects, s.metricSubjects],
+            (
+                relationshipSubjects: RelationshipSubject[],
+                metricSubjects: DataQualityMetricSubjectApi[]
+            ): SelectableSubject[] => [
+                ...relationshipSubjects.map(({ id, name, type }) => ({ id, name, type })),
+                ...metricSubjects.map((metric) => ({
+                    id: metric.id,
+                    name: metric.display_name || metric.name,
+                    type: SubjectTypeEnumApi.Metric,
+                })),
+            ],
+        ],
+        availableOutputSchema: [
+            (s) => [s.subjectColumns, s.subjectOutputSchema, s.subject, s.relationshipSubjects, s.metricOutputSchema],
             (
                 subjectColumns: string[],
+                subjectOutputSchema: DataQualityOutputColumnApi[],
                 subject: DataQualitySubjectRef | null,
-                relationshipSubjects: RelationshipSubject[]
-            ) =>
-                subjectColumns.length
-                    ? subjectColumns
-                    : (relationshipSubjects.find((candidate) => candidate.id === subject?.subjectId)?.fields ?? []),
+                relationshipSubjects: RelationshipSubject[],
+                metricOutputSchema: DataQualityOutputSchemaApi | null
+            ): DataQualityOutputColumnApi[] => {
+                if (subject?.subjectType === SubjectTypeEnumApi.Metric) {
+                    return metricOutputSchema?.columns ?? []
+                }
+                if (subjectOutputSchema.length) {
+                    return subjectOutputSchema
+                }
+                const catalogSubject = relationshipSubjects.find(
+                    (candidate) => candidate.id === subject?.subjectId && candidate.type === subject?.subjectType
+                )
+                return catalogSubject?.outputSchema ?? subjectColumns.map((name) => ({ name, type: null }))
+            },
+        ],
+        availableColumns: [
+            (s) => [s.availableOutputSchema],
+            (availableOutputSchema: DataQualityOutputColumnApi[]) => availableOutputSchema.map(({ name }) => name),
         ],
     }),
     forms(({ props, values, actions, cache }) => ({
@@ -859,12 +1010,27 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                           : EMPTY_CHECK_FORM
                 )
                 actions.loadCheckTypes()
+                if (subject?.subjectType === SubjectTypeEnumApi.Metric) {
+                    actions.loadMetricOutputSchema(undefined)
+                }
+                if (subject === null) {
+                    actions.loadMetricSubjects()
+                }
                 ensureWarehouseCatalog()
             },
-            setSubject: () => {
+            setSubject: ({ subject }) => {
+                actions.resetCheckForm(
+                    subject.subjectType === SubjectTypeEnumApi.Metric
+                        ? {
+                              ...EMPTY_CHECK_FORM,
+                              checkType: CheckTypeEnumApi.CustomSql,
+                              customSql: METRIC_CHECK_QUERY_TEMPLATE,
+                          }
+                        : EMPTY_CHECK_FORM
+                )
                 actions.loadCheckTypes()
-                if (values.checkForm.columnName) {
-                    actions.setCheckFormValues({ columnName: '' })
+                if (subject.subjectType === SubjectTypeEnumApi.Metric) {
+                    actions.loadMetricOutputSchema(undefined)
                 }
                 actions.setServerError(null)
                 actions.setCheckFormManualErrors({})

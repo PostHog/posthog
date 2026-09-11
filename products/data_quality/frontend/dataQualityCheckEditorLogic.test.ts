@@ -12,7 +12,9 @@ import { DataQualityCheckEditorLogicProps, dataQualityCheckEditorLogic } from '.
 import {
     dataCatalogMetricsChecksCheckTypesList,
     dataCatalogMetricsChecksCreate,
+    dataCatalogMetricsChecksOutputSchemaRetrieve,
     dataCatalogMetricsChecksPartialUpdate,
+    dataQualityChecksMetricSubjectsList,
     warehouseSavedQueriesChecksCheckTypesList,
     warehouseSavedQueriesChecksCreate,
     warehouseSavedQueriesChecksPartialUpdate,
@@ -70,9 +72,15 @@ jest.mock('scenes/data-management/database/databaseTableListLogic', () => {
             path(['scenes', 'data-management', 'database', 'databaseTableListLogic']),
             actions({ loadDatabase: true }),
             reducers({
-                views: [[{ id: 'view-7', name: 'orders_view', fields: { order_id: {} } }]],
+                views: [[{ id: 'view-7', name: 'orders_view', fields: { order_id: { type: 'string' } } }]],
                 dataWarehouseTables: [
-                    [{ id: 'table-9', name: 'stripe_charges', fields: { customer_id: {}, amount: {} } }],
+                    [
+                        {
+                            id: 'table-9',
+                            name: 'stripe_charges',
+                            fields: { customer_id: { type: 'string' }, amount: { type: 'decimal' } },
+                        },
+                    ],
                 ],
                 databaseLoading: [false],
                 databaseLoadError: [null],
@@ -85,7 +93,9 @@ jest.mock('scenes/data-management/database/databaseTableListLogic', () => {
 jest.mock('./generated/api', () => ({
     dataCatalogMetricsChecksCheckTypesList: jest.fn(),
     dataCatalogMetricsChecksCreate: jest.fn(),
+    dataCatalogMetricsChecksOutputSchemaRetrieve: jest.fn(),
     dataCatalogMetricsChecksPartialUpdate: jest.fn(),
+    dataQualityChecksMetricSubjectsList: jest.fn(),
     warehouseSavedQueriesChecksCreate: jest.fn(),
     warehouseSavedQueriesChecksPartialUpdate: jest.fn(),
     warehouseSavedQueriesChecksCheckTypesList: jest.fn(),
@@ -161,6 +171,15 @@ describe('dataQualityCheckEditorLogic', () => {
         silenceKeaLoadersErrors()
         ;(warehouseSavedQueriesChecksCheckTypesList as jest.Mock).mockResolvedValue(CHECK_TYPE_CATALOG)
         ;(warehouseTablesChecksCheckTypesList as jest.Mock).mockResolvedValue(CHECK_TYPE_CATALOG)
+        ;(dataQualityChecksMetricSubjectsList as jest.Mock).mockResolvedValue([
+            { id: 'metric-1', name: 'daily_signups', display_name: 'Daily signups' },
+        ])
+        ;(dataCatalogMetricsChecksOutputSchemaRetrieve as jest.Mock).mockResolvedValue({
+            columns: [
+                { name: 'day', type: 'Nullable(Date)' },
+                { name: 'signups', type: 'UInt64' },
+            ],
+        })
     })
 
     afterEach(() => {
@@ -185,6 +204,10 @@ describe('dataQualityCheckEditorLogic', () => {
         expect(logic.values.requiresColumn).toBe(false)
         expect(logic.values.needsWarehouseCatalog).toBe(false)
         expect(logic.values.isMetricSubject).toBe(true)
+        expect(logic.values.availableOutputSchema).toEqual([
+            { name: 'day', type: 'Nullable(Date)' },
+            { name: 'signups', type: 'UInt64' },
+        ])
         logic.actions.setCheckFormValue('customSql', 'SELECT * FROM {metric} WHERE signups < 100')
         logic.actions.submitCheckForm()
         await expectLogic(logic).toFinishAllListeners()
@@ -198,6 +221,49 @@ describe('dataQualityCheckEditorLogic', () => {
             })
         )
         expect(performQuery).not.toHaveBeenCalled()
+    })
+
+    it('offers HogQL metrics in the overview and pre-fills the metric query after selection', async () => {
+        ;(dataCatalogMetricsChecksCheckTypesList as jest.Mock).mockResolvedValue(
+            CHECK_TYPE_CATALOG.filter((type) => type.check_type === 'custom_sql')
+        )
+        await mountLogic({ surface: 'overview' })
+
+        logic.actions.openEditor(null, null)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.selectableSubjects).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    id: 'metric-1',
+                    name: 'Daily signups',
+                    type: 'metric',
+                }),
+            ])
+        )
+
+        logic.actions.setSubject({ subjectType: 'metric', subjectId: 'metric-1' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.checkForm).toMatchObject({
+            checkType: 'custom_sql',
+            customSql: 'SELECT *\nFROM {metric}\nWHERE <failure condition>',
+        })
+        expect(dataCatalogMetricsChecksOutputSchemaRetrieve).toHaveBeenCalledWith('1', 'metric-1')
+    })
+
+    it('uses warehouse field types as the selected table output schema', async () => {
+        await mountLogic({ surface: 'overview' })
+        logic.actions.openEditor(null, null)
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setSubject({ subjectType: 'table', subjectId: 'table-9' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.availableOutputSchema).toEqual([
+            { name: 'customer_id', type: 'string' },
+            { name: 'amount', type: 'decimal' },
+        ])
     })
 
     it('does not let a late table catalog replace the metric-only check types', async () => {
@@ -726,7 +792,7 @@ describe('dataQualityCheckEditorLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.checkForm.columnName).toEqual('')
-        expect(logic.values.checkForm.toColumn).toEqual('id')
+        expect(logic.values.checkForm.toColumn).toEqual('')
         expect(logic.values.checkFormManualErrors).toEqual({})
         expect(logic.values.serverError).toBeNull()
     })

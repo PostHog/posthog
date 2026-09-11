@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { useRef } from 'react'
 
 import {
     LemonButton,
@@ -8,6 +9,7 @@ import {
     LemonModal,
     LemonSegmentedButton,
     LemonSelect,
+    LemonTag,
     LemonTextArea,
     Link,
     Spinner,
@@ -16,14 +18,19 @@ import {
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import type { CodeEditorProps } from 'lib/monaco/CodeEditor'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { urls } from 'scenes/urls'
+
+import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 
 import type { DataQualitySubjectRef } from './checksApi'
 import { checkTypeLabel } from './checksConstants'
 import { dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
 import { CheckTypeEnumApi, DataQualityCheckSeverityEnumApi, SubjectTypeEnumApi } from './generated/api.schemas'
 import { formatPreviewCell } from './previewCell'
+
+type CodeEditorInstance = Parameters<NonNullable<CodeEditorProps['onMount']>>[0]
 
 export function CheckEditorModal(): JSX.Element {
     const {
@@ -38,7 +45,9 @@ export function CheckEditorModal(): JSX.Element {
         databaseLoading,
         databaseLoadError,
         openedWithoutSubject,
-        relationshipSubjects,
+        selectableSubjects,
+        metricSubjectsLoading,
+        metricSubjectsError,
         subject,
         isCheckFormSubmitting,
         serverError,
@@ -48,8 +57,16 @@ export function CheckEditorModal(): JSX.Element {
     const formShapeLoading = checkTypesLoading && !checkTypes.length
     const awaitingSubject = openedWithoutSubject && !subject
     const checkTypesFailedEmpty = checkTypesError && !checkTypesLoading && !checkTypes.length
-    const { loadCheckTypes, loadDatabase, requestClose, setCheckFormValues, setSubject, submitCheckForm } =
-        useActions(dataQualityCheckEditorLogic)
+    const subjectCatalogLoading = databaseLoading || metricSubjectsLoading
+    const {
+        loadCheckTypes,
+        loadDatabase,
+        loadMetricSubjects,
+        requestClose,
+        setCheckFormValues,
+        setSubject,
+        submitCheckForm,
+    } = useActions(dataQualityCheckEditorLogic)
 
     return (
         <LemonModal
@@ -70,7 +87,7 @@ export function CheckEditorModal(): JSX.Element {
                             loading={isCheckFormSubmitting}
                             disabledReason={
                                 awaitingSubject
-                                    ? 'Pick a table or view first'
+                                    ? 'Pick a table, view, or metric first'
                                     : isCheckFormSubmitting
                                       ? 'Saving'
                                       : formShapeLoading
@@ -95,29 +112,41 @@ export function CheckEditorModal(): JSX.Element {
             )}
             {openedWithoutSubject && (
                 <div className="flex flex-col gap-2 mb-3">
-                    <LemonField.Pure label="Table or view">
+                    <LemonField.Pure label="Table, view, or metric">
                         <LemonInputSelect
                             mode="single"
-                            value={subject ? [subject.subjectId] : []}
-                            options={relationshipSubjects.map((candidate) => ({
-                                key: candidate.id,
+                            value={subject ? [`${subject.subjectType}:${subject.subjectId}`] : []}
+                            options={selectableSubjects.map((candidate) => ({
+                                key: `${candidate.type}:${candidate.id}`,
                                 label: candidate.name,
+                                labelComponent: (
+                                    <div className="flex items-center justify-between gap-2 w-full">
+                                        <span>{candidate.name}</span>
+                                        <LemonTag type="muted" size="small">
+                                            {candidate.type === SubjectTypeEnumApi.Metric
+                                                ? 'Metric'
+                                                : candidate.type === SubjectTypeEnumApi.View
+                                                  ? 'View'
+                                                  : 'Table'}
+                                        </LemonTag>
+                                    </div>
+                                ),
                             }))}
-                            onChange={(selectedIds) => {
-                                const selected = relationshipSubjects.find(
-                                    (candidate) => candidate.id === selectedIds[0]
+                            onChange={(selectedKeys) => {
+                                const selected = selectableSubjects.find(
+                                    (candidate) => `${candidate.type}:${candidate.id}` === selectedKeys[0]
                                 )
                                 if (!selected) {
                                     return
                                 }
                                 const selectedSubject: DataQualitySubjectRef = {
                                     subjectId: selected.id,
-                                    subjectType: selected.type === SubjectTypeEnumApi.View ? 'view' : 'table',
+                                    subjectType: selected.type,
                                 }
                                 setSubject(selectedSubject)
                             }}
-                            loading={databaseLoading}
-                            placeholder="Search tables and views"
+                            loading={subjectCatalogLoading}
+                            placeholder="Search tables, views, and metrics"
                             data-attr="data-quality-check-subject"
                         />
                     </LemonField.Pure>
@@ -128,9 +157,19 @@ export function CheckEditorModal(): JSX.Element {
                                 Retry
                             </LemonButton>
                         </div>
-                    ) : !databaseLoading && relationshipSubjects.length === 0 ? (
+                    ) : null}
+                    {metricSubjectsError && !metricSubjectsLoading ? (
+                        <div className="flex items-center gap-2 text-secondary text-sm">
+                            <span>Couldn't load your metrics.</span>
+                            <LemonButton size="small" type="secondary" onClick={loadMetricSubjects}>
+                                Retry
+                            </LemonButton>
+                        </div>
+                    ) : null}
+                    {!subjectCatalogLoading && selectableSubjects.length === 0 ? (
                         <p className="mb-0 text-secondary text-sm">
-                            Connect a source or <Link to={urls.database()}>browse tables and views</Link>.
+                            <Link to={urls.database()}>Browse tables and views</Link> or{' '}
+                            <Link to={urls.metrics()}>create a HogQL metric</Link> first.
                         </p>
                     ) : null}
                 </div>
@@ -274,9 +313,29 @@ function CustomSqlField(): JSX.Element {
         customSqlQueryKey,
         customSqlSourceQuery,
         isMetricSubject,
+        availableOutputSchema,
+        metricOutputSchemaError,
+        metricOutputSchemaLoading,
     } = useValues(dataQualityCheckEditorLogic)
-    const { runCustomSqlPreview, setCustomSqlEditorError, setCustomSqlValidationLoading } =
+    const { loadMetricOutputSchema, runCustomSqlPreview, setCustomSqlEditorError, setCustomSqlValidationLoading } =
         useActions(dataQualityCheckEditorLogic)
+    const editorRef = useRef<CodeEditorInstance | null>(null)
+
+    const insertOutputColumn = (columnName: string): void => {
+        const editor = editorRef.current
+        const selection = editor?.getSelection()
+        if (!editor || !selection) {
+            return
+        }
+        editor.executeEdits('data-quality-output-schema', [
+            {
+                range: selection,
+                text: escapePropertyAsHogQLIdentifier(columnName),
+                forceMoveMarkers: true,
+            },
+        ])
+        editor.focus()
+    }
 
     const previewRows = customSqlPreview?.rows ?? []
     // Key and index by position, not by column name: HogQL can return two columns with the same name
@@ -312,10 +371,64 @@ function CustomSqlField(): JSX.Element {
                         onError={isMetricSubject ? undefined : setCustomSqlEditorError}
                         onMetadataLoading={isMetricSubject ? undefined : setCustomSqlValidationLoading}
                         onPressCmdEnter={isMetricSubject ? undefined : () => runCustomSqlPreview(undefined)}
+                        onMount={(editor) => {
+                            editorRef.current = editor
+                        }}
                         autoFocus
                         minHeight="8rem"
                         maxHeight="40vh"
                     />
+                    <div className="rounded border bg-surface-primary overflow-hidden">
+                        <div className="flex items-center justify-between gap-2 px-3 py-2 border-b">
+                            <div>
+                                <div className="font-semibold text-sm">Available columns</div>
+                                <div className="text-secondary text-xs">
+                                    Select a column to insert it into the query.
+                                </div>
+                            </div>
+                            {metricOutputSchemaLoading && <Spinner />}
+                        </div>
+                        {metricOutputSchemaError ? (
+                            <div className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                                <span className="text-secondary">
+                                    Couldn't load the metric output schema. You can still write the query manually.
+                                </span>
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    onClick={() => loadMetricOutputSchema(undefined)}
+                                >
+                                    Retry
+                                </LemonButton>
+                            </div>
+                        ) : !metricOutputSchemaLoading && availableOutputSchema.length === 0 ? (
+                            <p className="mb-0 px-3 py-2 text-secondary text-sm">
+                                No output columns were found. You can still write the query manually.
+                            </p>
+                        ) : (
+                            <div className="flex flex-col max-h-40 overflow-y-auto p-1">
+                                {availableOutputSchema.map((column) => (
+                                    <LemonButton
+                                        key={column.name}
+                                        type="tertiary"
+                                        size="small"
+                                        fullWidth
+                                        onClick={() => insertOutputColumn(column.name)}
+                                        data-attr="data-quality-check-output-column"
+                                    >
+                                        <span className="flex items-center justify-between gap-2 w-full">
+                                            <code>{column.name}</code>
+                                            {column.type && (
+                                                <LemonTag type="muted" size="small">
+                                                    {column.type}
+                                                </LemonTag>
+                                            )}
+                                        </span>
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                     {!isMetricSubject && (
                         <div className="flex flex-col items-end gap-1">
                             <LemonButton

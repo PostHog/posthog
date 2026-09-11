@@ -61,3 +61,5 @@ A reconciler runs every 15 minutes, processing bounded pages of checks and produ
 In the metric Tests tab, a failed schedule edit refreshes the persisted state and offers Reload before another edit. Schedule controls stay disabled while a request is pending or its outcome is uncertain.
 
 The Playwright environment registers Temporal search attributes before starting the web server and workers. Schedule creation requires `PostHogTeamId` and `PostHogScheduleType` to be registered.
+
+Background schedule refreshes preserve a newer edit response, so a pending refresh cannot undo the settings shown after an edit.

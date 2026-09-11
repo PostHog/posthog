@@ -2,7 +2,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
@@ -279,6 +279,33 @@ class TestMetricCheckAPI(APIBaseTest):
         assert rewritten.status_code == status.HTTP_400_BAD_REQUEST, rewritten.content
         assert rewritten.json()["detail"] == "Metric checks require a live HogQL definition."
 
+    def test_overview_subject_picker_lists_only_live_hogql_metrics(self) -> None:
+        Metric.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="metric_without_definition",
+            definition=None,
+            referenced_table_names=[],
+        )
+        deleted = Metric.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="deleted_metric",
+            definition={"kind": "HogQLQuery", "query": "SELECT 1 AS value"},
+            referenced_table_names=[],
+        )
+        deleted.deleted = True
+        deleted.save(update_fields=["deleted"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/data_quality_checks/metric_subjects/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json() == [
+            {
+                "id": str(self.metric.id),
+                "name": "signups",
+                "display_name": "",
+            }
+        ]
+
     def test_metric_manual_run_and_nested_history(self) -> None:
         check = self._create()
         with patch(START_SUITE, return_value=MagicMock(start_workflow=AsyncMock())):
@@ -469,6 +496,36 @@ class TestCheckViewSetScopes(SimpleTestCase):
         view.action = action
 
         assert view.dangerously_get_required_scopes(APIRequestFactory().generic(method, "/"), view) == expected
+
+
+class TestMetricOutputSchemaAPI(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.metric = Metric.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="daily_signups",
+            definition={
+                "kind": "HogQLQuery",
+                "query": "SELECT toDate('2026-09-08') AS day, count() AS signups FROM events",
+            },
+            referenced_table_names=["events"],
+        )
+        flag = patch(FLAG, return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
+
+    def test_returns_the_saved_metrics_output_columns_and_types(self) -> None:
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/data_catalog/metrics/{self.metric.id}/checks/output_schema/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json() == {
+            "columns": [
+                {"name": "day", "type": "Nullable(Date)"},
+                {"name": "signups", "type": "UInt64"},
+            ]
+        }
 
 
 class TestDataQualityCheckAPI(APIBaseTest):
