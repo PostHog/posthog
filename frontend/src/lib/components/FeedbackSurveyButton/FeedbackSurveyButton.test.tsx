@@ -16,8 +16,10 @@ function mockSurveysLoaded(context: { isLoaded: boolean } | null): void {
     }) as typeof posthog.onSurveysLoaded)
 }
 
-function renderButton(properties?: Properties): HTMLElement {
-    const { getByRole } = render(<FeedbackSurveyButton surveyId={SURVEY_ID} properties={properties} />)
+function renderButton(properties?: Properties, onClick?: () => void): HTMLElement {
+    const { getByRole } = render(
+        <FeedbackSurveyButton surveyId={SURVEY_ID} properties={properties} onClick={onClick} />
+    )
     return getByRole('button')
 }
 
@@ -30,17 +32,20 @@ describe('FeedbackSurveyButton', () => {
 
     it('is disabled and does not display the survey before the surveys extension reports in', () => {
         mockSurveysLoaded(null)
-        const button = renderButton()
+        const onClick = jest.fn()
+        const button = renderButton(undefined, onClick)
 
         expect(button.getAttribute('aria-disabled')).toBe('true')
         fireEvent.click(button)
         expect(posthog.displaySurvey).not.toHaveBeenCalled()
+        expect(onClick).not.toHaveBeenCalled()
     })
 
     it('displays the survey with condition bypass once surveys load', () => {
         mockSurveysLoaded({ isLoaded: true })
         const properties = { feedback_surface: 'mcp_analytics', mcp_analytics_tab: 'activity' }
-        const button = renderButton(properties)
+        const onClick = jest.fn()
+        const button = renderButton(properties, onClick)
 
         expect(button.getAttribute('aria-disabled')).not.toBe('true')
         fireEvent.click(button)
@@ -50,6 +55,7 @@ describe('FeedbackSurveyButton', () => {
             ignoreDelay: true,
             properties,
         })
+        expect(onClick).toHaveBeenCalledTimes(1)
     })
 
     it('stays disabled when the surveys extension reports a failed load', () => {
