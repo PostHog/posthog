@@ -2387,9 +2387,8 @@ def _resolve_project_state(
 def _filter_accessible_integrations(
     integration: Integration, slack_user_id: str, candidates: list[Integration]
 ) -> list[Integration]:
-    # `views.publish` answers whoever opens the tab, including a Slack Connect guest with
-    # no PostHog account, so a viewer we cannot identify reaches nothing — the renderer
-    # draws the "no project to show yet" explainer instead.
+    # `views.publish` answers whoever opens the tab, including a Slack Connect guest with no
+    # PostHog account, so a viewer this cannot resolve must reach no project at all.
     user = _resolve_home_user(integration, slack_user_id)
     if user is None:
         return []

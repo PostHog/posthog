@@ -1028,8 +1028,7 @@ class TestTasksControlsRepublishTheList:
     """
 
     def _seed(self, integration) -> None:
-        # The card is scoped to the projects the clicker can reach, so U001 needs an
-        # identity before any of its rows render.
+        # The card is scoped to the projects the clicker can reach, so U001 needs an identity.
         viewer = User.objects.create_and_join(integration.team.organization, "viewer@posthog.com", None)
         SlackUserProfileCache.objects.create(
             integration=integration,

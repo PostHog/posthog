@@ -485,8 +485,7 @@ class TestResolveStatsState:
 class TestStatsCardGating:
     @pytest.mark.parametrize("is_admin, expected_visible", [(True, True), (False, False)])
     def test_card_is_admin_only(self, slack_integration, mock_slack_client, flag_on, is_admin, expected_visible):
-        # Slack admin rights alone reach nothing — the card is scoped to the projects the
-        # viewer can already see, so the admin needs a PostHog identity for either case.
+        # The card is scoped to the viewer's projects, so isolating the admin gate needs an identity.
         admin = User.objects.create_and_join(slack_integration.team.organization, "admin@posthog.com", None)
         SlackUserProfileCache.objects.create(
             integration=slack_integration,
