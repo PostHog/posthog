@@ -1,5 +1,5 @@
 import type { SignalReport } from "@posthog/shared/types";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -8,9 +8,12 @@ const mocks = vi.hoisted(() => ({
   source: undefined as string | undefined,
   gate: vi.fn(),
   tracker: vi.fn(() => null),
+  navigate: vi.fn(),
+  triageEnabled: true,
 }));
 
 vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => mocks.navigate,
   useRouterState: ({ select }: { select: (state: unknown) => unknown }) =>
     select({
       location: {
@@ -19,6 +22,10 @@ vi.mock("@tanstack/react-router", () => ({
         search: { from: mocks.source },
       },
     }),
+}));
+
+vi.mock("@posthog/ui/features/feature-flags/useTriageFocusEnabled", () => ({
+  useTriageFocusEnabled: () => mocks.triageEnabled,
 }));
 
 vi.mock("@posthog/ui/features/inbox/components/InboxReportDetailGate", () => ({
@@ -68,8 +75,31 @@ describe("ReportPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.source = undefined;
+    mocks.triageEnabled = true;
     mocks.report = { id: "report-1", status: "ready" } as SignalReport;
   });
+
+  it.each([null, "https://github.com/example/repo/pull/1"])(
+    "starts triage from an open report with PR %s without intercepting typing",
+    (prUrl) => {
+      mocks.report = { ...mocks.report, implementation_pr_url: prUrl };
+      render(
+        <>
+          <ReportPage reportId="report-1" cachedReport={null} />
+          <input aria-label="Chat input" />
+        </>,
+      );
+
+      fireEvent.keyDown(screen.getByLabelText("Chat input"), { key: "t" });
+      fireEvent.keyDown(window, { key: "t", metaKey: true });
+      expect(mocks.navigate).not.toHaveBeenCalled();
+
+      fireEvent.keyDown(window, { key: "t" });
+      fireEvent.keyDown(window, { key: "T" });
+      expect(mocks.navigate).toHaveBeenCalledTimes(2);
+      expect(mocks.navigate).toHaveBeenCalledWith({ to: "/inbox/triage" });
+    },
+  );
 
   it.each([
     ["/settings/agents", "Settings agents"],

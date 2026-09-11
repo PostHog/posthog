@@ -1,1 +1,1 @@
-1351_drop_persistedfolder_table
+1352_email_lookup_indexes
