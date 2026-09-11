@@ -94,7 +94,7 @@ These are not suggestions; violating any of them ends the campaign pass.
 - A description change that helps one intent can steal traffic from the right
   tool for another — that's why the no-regression sample is mandatory. The
   intent-cluster snapshot's `tool_overlaps` (see
-  [`exploring-mcp-intent-clusters`](../exploring-mcp-intent-clusters/SKILL.md))
+  [`exploring-mcp-intent-clusters`](../../../products/mcp_analytics/skills/exploring-mcp-intent-clusters/SKILL.md))
   lists exactly which pairs compete for which intents: snapshot it before a
   description rewrite and recompute after, and treat a capture shift in an
   overlapping pair as the regression signal.
