@@ -302,7 +302,8 @@ def build_attached_insight_image_urls(asset_ids: list[int], *, team_id: int) -> 
         image_url = get_delivery_image_url(team_id=team_id, asset_id=asset.id, expiry_delta=CHART_IMAGE_URL_TTL)
         if image_url:
             insight = asset.insight
-            urls.append({"title": insight.name or insight.derived_name or "Insight", "image_url": image_url})
+            title = (insight.name or insight.derived_name) if insight is not None else None
+            urls.append({"title": title or "Insight", "image_url": image_url})
     return urls
 
 

@@ -893,7 +893,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         insight_ids = attrs.get("ai_prompt_export_insights", [])
         if resource_type != Subscription.ResourceType.AI_PROMPT:
             if provided:
-                raise ValidationError({"ai_prompt_export_insights": ["Only AI prompt subscriptions can attach insights."]})
+                raise ValidationError(
+                    {"ai_prompt_export_insights": ["Only AI prompt subscriptions can attach insights."]}
+                )
             return
         if not provided:
             return
@@ -1104,13 +1106,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             instance.set_next_delivery_date()
             instance.save(update_fields=["next_delivery_date"])
 
-        delivery_content_changed = any(
-            getattr(instance, field) != old_value for field, old_value in old_delivery_values.items()
-        ) or (
-            old_export_insight_ids is not None and set(dashboard_export_insight_ids) != old_export_insight_ids
-        ) or (
-            old_ai_prompt_export_insight_ids is not None
-            and set(ai_prompt_export_insight_ids) != old_ai_prompt_export_insight_ids
+        delivery_content_changed = (
+            any(getattr(instance, field) != old_value for field, old_value in old_delivery_values.items())
+            or (old_export_insight_ids is not None and set(dashboard_export_insight_ids) != old_export_insight_ids)
+            or (
+                old_ai_prompt_export_insight_ids is not None
+                and set(ai_prompt_export_insight_ids) != old_ai_prompt_export_insight_ids
+            )
         )
 
         # Explicit send_test_now wins. When omitted, infer: send when the edit changed what
