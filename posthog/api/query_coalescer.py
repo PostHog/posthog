@@ -329,7 +329,15 @@ class QueryCoalescingMiddleware:
 
         enabled = posthoganalytics.feature_enabled("http-query-coalescing", str(team_id))
 
-        key = self._compute_key(team_id, request, parsed_post_body)
+        try:
+            key = self._compute_key(team_id, request, parsed_post_body)
+        except TypeError:
+            # orjson.dumps rejects nesting above 255 levels, which is shallower than the 1024
+            # levels orjson.loads accepts, so a parsed body can still have no key. The view's
+            # parser takes that depth, so let it answer the request instead of raising here.
+            query_coalesce_counter.labels(outcome="skipped_unkeyable_body").inc()
+            return self.get_response(request)
+
         coalescer = QueryCoalescer(key, dry_run=not enabled)
 
         try:

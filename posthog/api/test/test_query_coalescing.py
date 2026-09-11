@@ -573,3 +573,18 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
             self.client.post(self._query_url(), body, content_type="application/json")
 
         mock_cls.assert_not_called()
+
+    def test_body_nested_past_the_encoder_limit_is_answered_by_the_view(self) -> None:
+        # orjson.loads accepts nesting that orjson.dumps rejects, so the key computation sees a
+        # parsed body it cannot normalize. Catches a middleware that lets the encoder's
+        # TypeError escape __call__, which turns the view's own 400 into a 500.
+        body = b'{"query": ' + b"[" * 260 + b"]" * 260 + b"}"
+
+        with (
+            mock.patch("posthog.api.query_coalescer.posthoganalytics.feature_enabled", return_value=True),
+            mock.patch("posthog.api.query_coalescer.QueryCoalescer") as mock_cls,
+        ):
+            response = self.client.post(self._query_url(), body, content_type="application/json")
+
+        mock_cls.assert_not_called()
+        self.assertEqual(response.status_code, 400, response.content)
