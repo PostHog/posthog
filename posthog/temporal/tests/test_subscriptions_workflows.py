@@ -53,11 +53,11 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExceeded
 from products.exports.backend.temporal.subscriptions.activities import (
-    _ClaimRecoveryCounts,
     _SUBSCRIPTION_RECOVERY_RPC_TIMEOUT,
-    _WorkflowClaimStatus,
+    _ClaimRecoveryCounts,
     _reconcile_expired_subscription_claims,
     _resolve_exportable_insights,
+    _WorkflowClaimStatus,
     advance_next_delivery_date,
     advance_next_delivery_date_v2,
     advance_subscription_scheduler_cursor_activity,
@@ -3624,7 +3624,7 @@ async def test_capacity_deferral_does_not_pin_the_subscription_tenant_cursor(tea
     assert page.next_discovery_cursor == str(max(team.id, other_team.id))
 
 
-@freeze_time("2026-09-09T08:25:30Z")
+@time_machine.travel("2026-09-09T08:25:30Z", tick=False)
 async def test_reserved_subscription_claim_expires_before_the_next_recovery_tick(team, user):
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="lease-next", name="Lease next tick")
     subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
