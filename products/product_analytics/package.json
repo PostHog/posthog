@@ -29,6 +29,7 @@
         "elkjs": "*",
         "fuse.js": "*",
         "natural-orderby": "*",
-        "react": "*"
+        "react": "*",
+        "react-toastify": "*"
     }
 }

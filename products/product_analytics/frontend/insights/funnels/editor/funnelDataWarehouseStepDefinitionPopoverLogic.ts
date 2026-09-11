@@ -9,21 +9,20 @@ import type {
     TaxonomicFilterGroup,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import type { TaxonomicDefinitionTypes } from 'lib/components/TaxonomicFilter/types'
 
 import type { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
-import { InsightLogicProps } from '~/types'
-
-import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'
-import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
-
-import type { TaxonomicDefinitionTypes } from '../../../lib/components/TaxonomicFilter/types'
 import type {
     DatabaseSchemaField,
     DatabaseSchemaSchema,
     DatabaseSchemaSource,
     FunnelsQuery,
-} from '../../../queries/schema/schema-general'
-import type { DatabaseSchemaTableCertification } from '../../../queries/schema/schema-general'
+} from '~/queries/schema/schema-general'
+import type { DatabaseSchemaTableCertification } from '~/queries/schema/schema-general'
+import { InsightLogicProps } from '~/types'
+
+import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'
+import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 
 export type FunnelFieldKey = 'id_field' | 'timestamp_field' | 'aggregation_target_field'
 

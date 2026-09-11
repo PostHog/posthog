@@ -4213,6 +4213,9 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+      react-toastify:
+        specifier: '*'
+        version: 10.0.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
       '@storybook/react':
         specifier: 'catalog:'
