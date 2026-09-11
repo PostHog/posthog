@@ -94,7 +94,7 @@ Reports reach people via `suggested_reviewers` — the inbox floats a report to 
 
 ## "Send this scout's reports to Slack"
 
-Delivery is a config decision, not an authoring one: the same report goes to the inbox and to Slack.
+Delivery is a config decision, not an authoring one: a surfaced report (`ready` or `pending_input`) goes to the inbox and to Slack, while a report the safety or actionability judge suppressed stays inbox-only, so a missing Slack message for a suppressed report is not a delivery failure.
 
 1. `posthog:scout-config-update` with `output_destinations.slack`: the workspace `integration_id` plus either a `channel` or up to five `users` to DM, never both (field shapes and the threading option are in `authoring-scouts`, Run posture).
    From a scoped API key or OAuth token this write also needs `integration:read` and `task:read` (or the write scopes) alongside `signal_scout:write`; a minimally scoped credential gets a permission error.

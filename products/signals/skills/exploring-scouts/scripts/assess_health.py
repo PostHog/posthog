@@ -122,6 +122,14 @@ def table(headers: list[str], body: list[list[str]]) -> list[str]:
     return out
 
 
+def _is_cancelled_as_failed(run: dict) -> bool:
+    # A cancellation caught while the run was still starting is finalized as `failed` with the
+    # cancellation's text as its error, so a literal status check would count a worker shutdown
+    # as a scout failure. A cancellation with an empty error is indistinguishable and stays in.
+    text = f"{run.get('failure_reason') or ''} {run.get('error') or ''}".lower()
+    return "cancel" in text
+
+
 def _is_timeout_reason(reason: str | None) -> bool:
     # The harness words a run that hit its poll budget as "... timed out after 900s"; other
     # writers say "timeout". Match both so a mixed history never hides a real timeout.
@@ -133,12 +141,15 @@ def assess_scout(name: str, runs: list[dict], interval: float | None, mem_count:
                  now: datetime | None, config_last_run: str | None) -> dict:
     runs = sorted(runs, key=lambda r: r.get("started_at") or "")
     n = len(runs)
-    completed = sum(1 for r in runs if r.get("status") == "completed")
-    failed = sum(1 for r in runs if r.get("status") == "failed")
-
     # Only settled outcomes count: a cancelled run (worker shutdown, deploy) says nothing about
     # the scout, and an in-flight row has no outcome yet.
-    settled = [r for r in runs if r.get("status") in ("completed", "failed")]
+    settled = [
+        r
+        for r in runs
+        if r.get("status") == "completed" or (r.get("status") == "failed" and not _is_cancelled_as_failed(r))
+    ]
+    completed = sum(1 for r in settled if r.get("status") == "completed")
+    failed = sum(1 for r in settled if r.get("status") == "failed")
     durations = [
         m for r in settled if (m := minutes_between(r.get("started_at"), r.get("completed_at"))) is not None
     ]
@@ -148,7 +159,7 @@ def assess_scout(name: str, runs: list[dict], interval: float | None, mem_count:
     # however long it ran, and a fast upstream timeout is not over-investigation.
     timeouts = sum(
         1
-        for r in runs
+        for r in settled
         if r.get("status") == "failed"
         and (m := minutes_between(r.get("started_at"), r.get("completed_at"))) is not None
         and m >= TIMEOUT_MINUTES
@@ -252,7 +263,8 @@ def render(scouts: list[dict], window_note: str, has_mem: bool, *, art: bool = T
     L += ["", "-" * 78, " column key", "-" * 78,
           " runs      runs in the window; (NF) = N of them failed",
           " ok        success rate — % of settled runs (completed or failed; cancelled and",
-          "           in-flight rows are excluded) that reached a clean 'completed' status",
+          "           in-flight rows are excluded, as is a failed row whose error names a",
+          "           cancellation) that reached a clean 'completed' status",
           " wrote     report rate — % of settled runs that wrote or edited an inbox report (from",
           "           emitted_report_ids / edited_report_ids on the run row; legacy",
           "           signal-channel emits count too). Most healthy scouts write rarely —",
