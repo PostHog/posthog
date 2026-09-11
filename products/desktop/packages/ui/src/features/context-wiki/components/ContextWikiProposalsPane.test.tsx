@@ -19,13 +19,16 @@ const state = vi.hoisted(() => ({
   queryError: null as Error | null,
   isPending: false,
   isLoading: false,
+  isFetching: false,
+  empty: false,
 }));
 
 vi.mock("../hooks/useContextWiki", () => ({
   useContextWikiProposals: () => ({
-    data: state.proposals,
+    data: state.empty ? [] : state.proposals,
     error: state.queryError,
     isLoading: state.isLoading,
+    isFetching: state.isFetching,
     refetch: state.refetch,
   }),
   useApplyContextWikiProposal: () => ({
@@ -54,15 +57,21 @@ vi.mock("@pierre/diffs/react", () => ({
 describe("ContextWikiProposalsPane", () => {
   beforeEach(() => {
     state.mutate.mockClear();
+    state.refetch.mockClear();
     state.error = null;
     state.queryError = null;
     state.isPending = false;
     state.isLoading = false;
+    state.isFetching = false;
+    state.empty = false;
   });
 
   it("requires selection and applies only the reviewed proposal ID", async () => {
     const user = userEvent.setup();
     render(<ContextWikiProposalsPane />);
+    expect(
+      screen.getByText("Select an edit to review its changes."),
+    ).toBeVisible();
     expect(
       screen.queryByRole("button", { name: "Apply to shared wiki" }),
     ).toBeNull();
@@ -94,10 +103,28 @@ describe("ContextWikiProposalsPane", () => {
       expect(screen.getByRole("alert")).toHaveTextContent("submit a new edit");
   });
 
-  it("shows an actionable load error", () => {
-    state.queryError = new Error("Unavailable");
+  it("explains how to create the first suggestion", () => {
+    state.empty = true;
     render(<ContextWikiProposalsPane />);
-    expect(screen.getByRole("alert")).toHaveTextContent("Could not load");
-    expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+    expect(screen.getByText(/No suggested edits/)).toBeVisible();
+    expect(
+      screen.getByText(/Ask a task to propose a correction/),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Apply to shared wiki" }),
+    ).toBeNull();
   });
+
+  it.each([false, true])(
+    "shows an actionable load error with retrying=%s",
+    async (retrying) => {
+      state.queryError = new Error("Unavailable");
+      state.isFetching = retrying;
+      render(<ContextWikiProposalsPane />);
+      expect(screen.getByRole("alert")).toHaveTextContent("Could not load");
+      const retry = screen.getByRole("button", { name: /^Try again/ });
+      await userEvent.click(retry);
+      expect(state.refetch).toHaveBeenCalledTimes(retrying ? 0 : 1);
+    },
+  );
 });

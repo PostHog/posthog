@@ -47,6 +47,7 @@ For a shared-page correction, read the page with `task-context-wiki-page-retriev
 The server stores an immutable suggestion without changing the published wiki.
 The user opens **Context > Suggested edits**, selects the edit, reviews the full diff, and selects **Apply to shared wiki**.
 The Desktop review interface ships separately, after the backend is deployed.
+Desktop validates proposal responses before showing them. If suggestions cannot load, use **Try again** to retry the request.
 Only that user with wiki write permission can apply the stored content. Task and loop tokens cannot approve suggestions.
 If the wiki changes before approval, publication returns a conflict. Read the page again and submit a new suggestion; never replace the base head to bypass review.
 

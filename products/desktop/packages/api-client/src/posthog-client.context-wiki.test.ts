@@ -24,6 +24,55 @@ const PAGE_INPUT = {
 };
 
 describe("context wiki client", () => {
+  it.each([
+    { method: "list", response: {} },
+    { method: "list", response: [{ id: "proposal-1", content: "New text" }] },
+    { method: "apply", response: {} },
+    { method: "apply", response: { head_sha: 123 } },
+  ])(
+    "rejects malformed $method responses: $response",
+    async ({ method, response }) => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue(new Response(JSON.stringify(response)));
+      const client = makeClient(fetch);
+      await expect(
+        method === "list"
+          ? client.getContextWikiProposals()
+          : client.applyContextWikiProposal("proposal-1"),
+      ).rejects.toThrow();
+    },
+  );
+
+  it.each([
+    { status: 200, response: [] },
+    {
+      status: 200,
+      response: [
+        {
+          id: "proposal-1",
+          task_id: "task-1",
+          path: "areas/example.md",
+          original_content: "Old text",
+          content: "New text",
+          base_head: "base-head",
+          created_at: "2026-09-11T10:00:00Z",
+        },
+      ],
+    },
+    { status: 404, response: null },
+  ])(
+    "reads proposal responses: $status $response",
+    async ({ status, response }) => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue(new Response(JSON.stringify(response), { status }));
+      await expect(
+        makeClient(fetch).getContextWikiProposals(),
+      ).resolves.toEqual(response);
+    },
+  );
+
   it("applies the stored suggestion without a replacement body", async () => {
     const fetch = vi
       .fn()

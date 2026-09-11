@@ -135,6 +135,12 @@ import type {
   TeamMcpGatewayConfig,
   TeamMcpGatewayConfigUpdate,
 } from "./mcp-gateway";
+import {
+  type ContextWikiPageProposal,
+  type ContextWikiProposalApplyResult,
+  contextWikiProposalApplyResultSchema,
+  contextWikiProposalsSchema,
+} from "./schemas";
 import type { SpendAnalysisResponse } from "./spend-analysis";
 import { parseUserSpendLimit, type UserSpendLimit } from "./spend-limit";
 import {
@@ -150,6 +156,7 @@ interface HogQLGrid {
 }
 
 export type * from "./mcp-gateway";
+export type { ContextWikiPageProposal } from "./schemas";
 export interface ApiClientLogger {
   warn(...args: unknown[]): void;
 }
@@ -931,16 +938,6 @@ export interface ContextWikiPage {
   content: string;
   head_sha: string;
   updated_at: string;
-}
-
-export interface ContextWikiPageProposal {
-  id: string;
-  task_id: string;
-  path: string;
-  original_content: string;
-  content: string;
-  base_head: string;
-  created_at: string;
 }
 
 export interface ContextWikiHealthFinding {
@@ -3723,19 +3720,24 @@ export class PostHogAPIClient {
   }
 
   async getContextWikiProposals(): Promise<ContextWikiPageProposal[] | null> {
-    return this.getContextWikiResource<ContextWikiPageProposal[]>(
+    const response = await this.getContextWikiResource<unknown>(
       "/api/organizations/@current/context_layer/proposals/",
     );
+    return response === null
+      ? null
+      : contextWikiProposalsSchema.parse(response);
   }
 
-  async applyContextWikiProposal(id: string): Promise<{ head_sha: string }> {
+  async applyContextWikiProposal(
+    id: string,
+  ): Promise<ContextWikiProposalApplyResult> {
     const path = `/api/organizations/@current/context_layer/proposals/${encodeURIComponent(id)}/apply/`;
     const response = await this.api.fetcher.fetch({
       method: "post",
       url: new URL(`${this.api.baseUrl}${path}`),
       path,
     });
-    return (await response.json()) as { head_sha: string };
+    return contextWikiProposalApplyResultSchema.parse(await response.json());
   }
 
   /**

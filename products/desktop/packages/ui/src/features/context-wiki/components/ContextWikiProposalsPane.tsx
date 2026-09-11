@@ -1,5 +1,4 @@
 import type { ContextWikiPageProposal } from "@posthog/api-client/posthog-client";
-import { Button } from "@posthog/quill";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { type ReactElement, useState } from "react";
 import {
@@ -7,6 +6,7 @@ import {
   useContextWikiProposals,
 } from "../hooks/useContextWiki";
 import { ContextWikiProposalReview } from "./ContextWikiProposalReview";
+import { ContextWikiProposalsPlaceholder } from "./ContextWikiProposalsPlaceholder";
 
 function ProposalReview({
   proposal,
@@ -35,24 +35,15 @@ export function ContextWikiProposalsPane(): ReactElement {
   if (proposals.isLoading) return <LoadingState />;
   if (proposals.error) {
     return (
-      <div className="p-4">
-        <p role="alert">Could not load suggested edits.</p>
-        <Button
-          onClick={() => void proposals.refetch()}
-          disabled={proposals.isFetching}
-        >
-          Try again
-        </Button>
-      </div>
+      <ContextWikiProposalsPlaceholder
+        state="error"
+        onRetry={() => void proposals.refetch()}
+        retrying={proposals.isFetching}
+      />
     );
   }
   if (!proposals.data?.length) {
-    return (
-      <p className="p-4 text-(--gray-11)">
-        No suggested edits. Ask a task to propose a correction to a shared wiki
-        page.
-      </p>
-    );
+    return <ContextWikiProposalsPlaceholder state="empty" />;
   }
 
   return (
@@ -77,9 +68,7 @@ export function ContextWikiProposalsPane(): ReactElement {
         {selected ? (
           <ProposalReview key={selected.id} proposal={selected} />
         ) : (
-          <p className="p-4 text-(--gray-11)">
-            Select an edit to review its changes.
-          </p>
+          <ContextWikiProposalsPlaceholder state="unselected" />
         )}
       </div>
     </div>
