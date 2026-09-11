@@ -491,7 +491,7 @@ def _iter_aso_stats(
     manager: ResumableSourceManager[AppfiguresResumeConfig],
     aso_countries: str | None,
 ) -> Iterator[list[dict[str, Any]]]:
-    """/aso/stats — one flat object of keyword aggregates per product and country."""
+    """/aso/stats, one flat object of keyword aggregates per product and country."""
     targets = _aso_targets(session, logger, aso_countries)
     if not targets:
         logger.info("Appfigures: account has no products to track keywords for, skipping aso_stats")

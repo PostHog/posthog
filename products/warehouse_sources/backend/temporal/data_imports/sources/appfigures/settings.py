@@ -156,7 +156,7 @@ APPFIGURES_ENDPOINTS: dict[str, AppfiguresEndpointConfig] = {
         default_incremental_field="date",
         incremental_fields=[_REPORT_DATE_FIELD],
     ),
-    # Daily ad-publishing revenue by network — requests, fill rate, impressions, eCPM, and the
+    # Daily ad-publishing revenue by network: requests, fill rate, impressions, eCPM, and the
     # revenue those ads earned, which the sales and revenue reports do not cover.
     "ads_report": AppfiguresEndpointConfig(
         name="ads_report",
@@ -170,7 +170,7 @@ APPFIGURES_ENDPOINTS: dict[str, AppfiguresEndpointConfig] = {
         default_incremental_field="date",
         incremental_fields=[_REPORT_DATE_FIELD],
     ),
-    # Daily user-acquisition campaign spend — installs, clicks, impressions, cost, CPC, and CPA — so
+    # Daily user-acquisition campaign spend: installs, clicks, impressions, cost, CPC, and CPA, so
     # spend can be set against the revenue report.
     "adspend_report": AppfiguresEndpointConfig(
         name="adspend_report",
@@ -235,7 +235,7 @@ APPFIGURES_ENDPOINTS: dict[str, AppfiguresEndpointConfig] = {
         # reads the product catalog before anything else, so probe that instead.
         probe_path="/products/mine",
     ),
-    # Per-product, per-country summary of the tracked keyword set — average position, how many
+    # Per-product, per-country summary of the tracked keyword set: average position, how many
     # keywords sit in the top 5/25/100, and how many moved up or down.
     "aso_stats": AppfiguresEndpointConfig(
         name="aso_stats",
