@@ -22,6 +22,14 @@ export interface ToolCallInfo {
   result?: unknown;
 }
 
+/** One tool call event's fields, before they are merged into a {@link ToolCallInfo}. */
+interface PartialToolCall {
+  toolCallId: string;
+  toolName?: string;
+  input?: unknown;
+  result?: unknown;
+}
+
 export interface ResumeInput {
   taskId: string;
   runId: string;
@@ -260,52 +268,14 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
           }
 
           case "tool_call":
-          case "tool_call_update": {
-            const meta = (update._meta as Record<string, unknown>)
-              ?.claudeCode as Record<string, unknown> | undefined;
-            if (meta) {
-              const toolCallId = meta.toolCallId as string | undefined;
-              const toolName = meta.toolName as string | undefined;
-              const toolInput = meta.toolInput;
-              const toolResponse = meta.toolResponse;
-
-              if (toolCallId && toolName) {
-                let toolCall = currentToolCalls.find(
-                  (tc) => tc.toolCallId === toolCallId,
-                );
-                if (!toolCall) {
-                  toolCall = {
-                    toolCallId,
-                    toolName,
-                    input: toolInput,
-                  };
-                  currentToolCalls.push(toolCall);
-                }
-
-                if (toolResponse !== undefined) {
-                  toolCall.result = toolResponse;
-                }
-              }
-            }
-            break;
-          }
-
+          case "tool_call_update":
           case "tool_result": {
             const meta = (update._meta as Record<string, unknown>)
               ?.claudeCode as Record<string, unknown> | undefined;
-            if (meta) {
-              const toolCallId = meta.toolCallId as string | undefined;
-              const toolResponse = meta.toolResponse;
-
-              if (toolCallId) {
-                const toolCall = currentToolCalls.find(
-                  (tc) => tc.toolCallId === toolCallId,
-                );
-                if (toolCall && toolResponse !== undefined) {
-                  toolCall.result = toolResponse;
-                }
-              }
-            }
+            mergeToolCall(
+              currentToolCalls,
+              meta ? readClaudeToolCall(meta) : readAcpToolCall(update),
+            );
             break;
           }
         }
@@ -322,4 +292,82 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
 
     return turns;
   }
+}
+
+/**
+ * Fold one tool call event into the turn's calls. A call is created on the
+ * first event that names it, and later events fill in what they carry, so a
+ * result that arrives on a separate update still reaches the resume prompt.
+ */
+function mergeToolCall(
+  toolCalls: ToolCallInfo[],
+  fields: PartialToolCall,
+): void {
+  if (!fields.toolCallId) return;
+  let toolCall = toolCalls.find((tc) => tc.toolCallId === fields.toolCallId);
+  if (!toolCall) {
+    if (!fields.toolName) return;
+    toolCall = {
+      toolCallId: fields.toolCallId,
+      toolName: fields.toolName,
+      input: fields.input,
+    };
+    toolCalls.push(toolCall);
+  } else if (toolCall.input === undefined && fields.input !== undefined) {
+    toolCall.input = fields.input;
+  }
+  if (fields.result !== undefined) {
+    toolCall.result = fields.result;
+  }
+}
+
+/** Tool call fields the Claude adapter writes on `_meta.claudeCode`. */
+function readClaudeToolCall(meta: Record<string, unknown>): PartialToolCall {
+  return {
+    toolCallId: typeof meta.toolCallId === "string" ? meta.toolCallId : "",
+    toolName: typeof meta.toolName === "string" ? meta.toolName : undefined,
+    input: meta.toolInput,
+    result: meta.toolResponse,
+  };
+}
+
+/**
+ * Tool call fields from the standard ACP update. Only the Claude adapter
+ * writes `_meta.claudeCode`: Codex and pi tag their calls with
+ * `_meta.posthog`, and a plain shell call carries no meta at all. Without
+ * this fallback a summary resume of those runs holds narration only.
+ */
+function readAcpToolCall(update: Record<string, unknown>): PartialToolCall {
+  const posthogMeta = (update._meta as Record<string, unknown> | undefined)
+    ?.posthog as Record<string, unknown> | undefined;
+  const toolName =
+    typeof posthogMeta?.toolName === "string"
+      ? posthogMeta.toolName
+      : typeof update.title === "string"
+        ? update.title
+        : undefined;
+  return {
+    toolCallId: typeof update.toolCallId === "string" ? update.toolCallId : "",
+    toolName,
+    input: update.rawInput,
+    result:
+      update.rawOutput !== undefined
+        ? update.rawOutput
+        : toolContentText(update.content),
+  };
+}
+
+/** The text of an ACP tool call's content blocks, for a call with no `rawOutput`. */
+function toolContentText(content: unknown): string | undefined {
+  if (!Array.isArray(content)) return undefined;
+  const texts: string[] = [];
+  for (const block of content) {
+    const inner = (block as { content?: unknown } | null)?.content as
+      | { type?: unknown; text?: unknown }
+      | undefined;
+    if (inner?.type === "text" && typeof inner.text === "string") {
+      texts.push(inner.text);
+    }
+  }
+  return texts.length > 0 ? texts.join("\n") : undefined;
 }

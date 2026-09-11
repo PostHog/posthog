@@ -178,3 +178,47 @@ export function createToolResult(
     },
   });
 }
+
+/**
+ * A Codex or pi tool call: standard ACP fields, with `_meta.posthog` only when
+ * the adapter can name the tool. A shell call carries no meta at all.
+ */
+export function createAcpToolCall(
+  toolCallId: string,
+  fields: { title: string; toolName?: string; rawInput?: unknown },
+): StoredNotification {
+  return createNotification("session/update", {
+    update: {
+      sessionUpdate: "tool_call",
+      toolCallId,
+      title: fields.title,
+      ...(fields.rawInput !== undefined ? { rawInput: fields.rawInput } : {}),
+      ...(fields.toolName
+        ? { _meta: { posthog: { toolName: fields.toolName } } }
+        : {}),
+    },
+  });
+}
+
+export function createAcpToolCallUpdate(
+  toolCallId: string,
+  fields: { rawOutput?: unknown; text?: string },
+): StoredNotification {
+  return createNotification("session/update", {
+    update: {
+      sessionUpdate: "tool_call_update",
+      toolCallId,
+      status: "completed",
+      ...(fields.rawOutput !== undefined
+        ? { rawOutput: fields.rawOutput }
+        : {}),
+      ...(fields.text !== undefined
+        ? {
+            content: [
+              { type: "content", content: { type: "text", text: fields.text } },
+            ],
+          }
+        : {}),
+    },
+  });
+}

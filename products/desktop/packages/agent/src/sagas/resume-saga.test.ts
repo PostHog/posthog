@@ -4,6 +4,8 @@ import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import type { PostHogAPIClient } from "../posthog-api";
 import { ResumeSaga } from "./resume-saga";
 import {
+  createAcpToolCall,
+  createAcpToolCallUpdate,
   createAgentChunk,
   createAgentMessage,
   createMockApiClient,
@@ -346,6 +348,71 @@ describe("ResumeSaga", () => {
         toolName: "ReadFile",
         input: { path: "/test.ts" },
         result: "file contents here",
+      });
+    });
+
+    it("tracks a Codex MCP tool call from its ACP fields", async () => {
+      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
+        createTaskRun(),
+      );
+      (
+        mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([
+        createAcpToolCall("call-1", {
+          title: "posthog/exec",
+          toolName: "mcp__posthog__exec",
+          rawInput: { command: "call skill-get" },
+        }),
+        createAcpToolCallUpdate("call-1", {
+          rawOutput: { body: "skill body" },
+        }),
+      ]);
+
+      const saga = new ResumeSaga(mockLogger);
+      const result = await saga.run({
+        taskId: "task-1",
+        runId: "run-1",
+        repositoryPath: repo.path,
+        apiClient: mockApiClient,
+      });
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+
+      expect(result.data.conversation[0].toolCalls?.[0]).toMatchObject({
+        toolCallId: "call-1",
+        toolName: "mcp__posthog__exec",
+        input: { command: "call skill-get" },
+        result: { body: "skill body" },
+      });
+    });
+
+    it("tracks a shell tool call that carries no meta, using its title and content", async () => {
+      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
+        createTaskRun(),
+      );
+      (
+        mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([
+        createAcpToolCall("call-1", { title: "cat SKILL.md" }),
+        createAcpToolCallUpdate("call-1", { text: "pointer stub" }),
+      ]);
+
+      const saga = new ResumeSaga(mockLogger);
+      const result = await saga.run({
+        taskId: "task-1",
+        runId: "run-1",
+        repositoryPath: repo.path,
+        apiClient: mockApiClient,
+      });
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+
+      expect(result.data.conversation[0].toolCalls?.[0]).toMatchObject({
+        toolCallId: "call-1",
+        toolName: "cat SKILL.md",
+        result: "pointer stub",
       });
     });
 
