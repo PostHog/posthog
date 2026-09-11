@@ -2817,7 +2817,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         # A partial update skips the `thread_reports` default, so the flag reaches the reader
         # through the response only and the stored destination keeps the shape it was sent in.
         assert response.json()["output_destinations"] == {
-            "slack": {**destination["slack"], "users": None, "thread_reports": False},
+            "slack": {**destination["slack"], "users": None, "thread_reports": True},
             "webhook": None,
         }
         config.refresh_from_db()
@@ -2837,11 +2837,35 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         # Reads render both target keys, null when unset; the stored JSON keeps only what was sent.
         assert response.json()["output_destinations"] == {
-            "slack": {**destination["slack"], "channel": None, "thread_reports": False},
+            "slack": {**destination["slack"], "channel": None, "thread_reports": True},
             "webhook": None,
         }
         config.refresh_from_db()
         assert config.output_destinations == destination
+
+    def test_partial_update_slack_destination_preserves_explicit_thread_opt_out(self) -> None:
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            output_destinations={
+                "slack": {
+                    "integration_id": integration.id,
+                    "channel": "CSCOUTS|#scout-findings",
+                    "thread_reports": False,
+                }
+            },
+        )
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"output_destinations": {"slack": {"integration_id": integration.id, "users": ["U0123ABC456|@andy"]}}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.output_destinations["slack"]["thread_reports"] is False
 
     @parameterized.expand(
         [
@@ -3470,6 +3494,34 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-fresh")
         assert config.emit is True
         assert config.run_interval_minutes == 120
+
+    def test_create_upsert_preserves_omitted_slack_thread_opt_out(self) -> None:
+        self._make_skill("signals-scout-fresh")
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-fresh",
+            output_destinations={
+                "slack": {
+                    "integration_id": integration.id,
+                    "channel": "COLD|#old",
+                    "thread_reports": False,
+                }
+            },
+        )
+
+        response = self.client.post(
+            self._list_url(),
+            data={
+                "skill_name": "signals-scout-fresh",
+                "output_destinations": {"slack": {"integration_id": integration.id, "channel": "CNEW|#new"}},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-fresh")
+        assert config.output_destinations["slack"]["thread_reports"] is False
 
     _CAP_PATCH = "products.signals.backend.scout_harness.views.MAX_ENABLED_SCOUTS_PER_TEAM"
 
