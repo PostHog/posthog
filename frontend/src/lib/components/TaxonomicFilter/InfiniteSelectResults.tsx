@@ -246,18 +246,14 @@ export function InfiniteSelectResults({
                                 logic={infiniteListLogic}
                                 props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}
                             >
-                                {groupType === openTab && (showDataWarehouseLoadingState || showEmptyState) && (
+                                {(showDataWarehouseLoadingState || showEmptyState) && (
                                     <TaxonomicFilterEmptyState
                                         groupType={groupType}
                                         isLoading={showDataWarehouseLoadingState}
                                     />
                                 )}
-                                {groupType === openTab &&
-                                    !showDataWarehouseLoadingState &&
-                                    !showEmptyState &&
-                                    listComponent}
-                                {groupType === openTab &&
-                                    !showDataWarehouseLoadingState &&
+                                {!showDataWarehouseLoadingState && !showEmptyState && listComponent}
+                                {!showDataWarehouseLoadingState &&
                                     !showEmptyState &&
                                     (() => {
                                         const currentGroup = taxonomicGroups.find((g) => g.type === groupType)
