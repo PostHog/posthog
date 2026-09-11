@@ -18,7 +18,6 @@ const MetricsQueryRenderer = lazyWithRetry(() =>
  */
 export function registerMetricsToolRenderers(): void {
     registerToolRenderers([
-        // The flagship: charts the returned series as sparklines.
         {
             key: 'query-metrics',
             displayName: 'Query metrics',

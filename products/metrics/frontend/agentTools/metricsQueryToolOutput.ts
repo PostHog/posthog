@@ -6,7 +6,8 @@ export interface MetricSeriesSummary {
     name: string
     /** The label values the series was split by, as `key=value` pairs. */
     labels: string[]
-    values: number[]
+    /** Null where the API reported no representable aggregate for the bucket — a gap, not a zero. */
+    values: (number | null)[]
     times: string[]
 }
 
@@ -14,8 +15,8 @@ function asString(value: unknown): string {
     return typeof value === 'string' ? value : ''
 }
 
-function asNumber(value: unknown): number {
-    return typeof value === 'number' && Number.isFinite(value) ? value : 0
+function asNullableNumber(value: unknown): number | null {
+    return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
 function seriesLabels(labels: unknown): string[] {
@@ -42,7 +43,7 @@ export function extractMetricSeries(message: ToolCallMessage): MetricSeriesSumma
             return {
                 name: asString(series.metric_name) || asString(series.clause) || 'Series',
                 labels: seriesLabels(series.labels),
-                values: points.map((point) => asNumber(point?.value)),
+                values: points.map((point) => asNullableNumber(point?.value)),
                 times: points.map((point) => asString(point?.time)),
             }
         })

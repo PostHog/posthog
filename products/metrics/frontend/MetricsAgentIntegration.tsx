@@ -9,8 +9,7 @@ import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 import { METRICS_AGENT_HEADLINES, buildMetricsAgentContext, metricsQueryToViewerState } from './metricsAgentContext'
 import { MetricsSceneActiveTab, metricsSceneLogic } from './metricsSceneLogic'
 
-// The two tabs that show the chart the agent's query lands on. On the SQL and fundamentals tabs the
-// user has their own work open, so a query-metrics call leaves it alone instead of pulling the tab.
+// The tabs holding the chart. Elsewhere the user has their own work open, so leave it alone.
 const APPLY_BACK_TABS: MetricsSceneActiveTab[] = ['overview', 'viewer']
 
 /**
@@ -23,8 +22,7 @@ export function MetricsAgentIntegration(): null {
     const { viewerClauses, formula, dateFrom, dateTo, activeTab } = useValues(metricsSceneLogic)
     const { setClauses, setDateFrom, setDateTo, setActiveTab } = useActions(metricsSceneLogic)
 
-    // Debounced so per-keystroke metric name and formula edits don't re-serialize the query on
-    // every change.
+    // Debounced so a keystroke in the metric name or formula doesn't re-serialize the whole query.
     const debouncedClauses = useDebouncedValue(viewerClauses, 500)
     const debouncedFormula = useDebouncedValue(formula, 500)
 
@@ -61,8 +59,7 @@ export function MetricsAgentIntegration(): null {
             setClauses(next.clauses, next.formula)
             setDateFrom(next.dateFrom)
             setDateTo(next.dateTo)
-            // The overview tab has no chart of its own, so the series the agent queried would land
-            // out of sight without this.
+            // Overview has no chart of its own, so the queried series would land out of sight.
             setActiveTab('viewer')
         },
     })

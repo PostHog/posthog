@@ -55,6 +55,11 @@ const SERIES: Record<string, unknown>[] = [
         labels: { service_name: 'checkout' },
         points: points([0.11, 0.12, 0.11, 0.13, 0.12, 0.14]),
     },
+    {
+        metric_name: 'http_server_request_duration_seconds',
+        labels: { service_name: 'search' },
+        points: [...points([0.32, 0.31, 0.33, 0.3]), { time: '2026-09-08T10:04:00Z', value: null }],
+    },
 ]
 
 export const WithSeries: Story = {

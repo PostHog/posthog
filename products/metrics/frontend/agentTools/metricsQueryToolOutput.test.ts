@@ -50,6 +50,24 @@ describe('metricsQueryToolOutput', () => {
             expect(series?.[0]).toMatchObject({ name: 'a / b', labels: [], values: [] })
         })
 
+        it('keeps an unrepresentable bucket as a gap rather than a zero', () => {
+            const series = extractMetricSeries(
+                toolMessage({
+                    results: [
+                        {
+                            metric_name: 'up',
+                            points: [
+                                { time: '2026-09-08T10:00:00Z', value: 4 },
+                                { time: '2026-09-08T10:01:00Z', value: null },
+                            ],
+                        },
+                    ],
+                })
+            )
+
+            expect(series?.[0].values).toEqual([4, null])
+        })
+
         it('returns an empty array when the query matched no series', () => {
             expect(extractMetricSeries(toolMessage({ results: [] }))).toEqual([])
         })

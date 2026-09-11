@@ -17,6 +17,11 @@ function formatTimestamp(timestamp: string): string {
 
 function SeriesRow({ series }: { series: MetricSeriesSummary }): JSX.Element {
     const latest = series.values.length > 0 ? series.values[series.values.length - 1] : null
+    // The chart takes numbers only, and a gap plotted as zero would draw a cliff the metric never
+    // had, so a bucket with no representable aggregate is left out of the line entirely.
+    const drawn = series.values
+        .map((value, index) => ({ value, label: formatTimestamp(series.times[index] ?? '') }))
+        .filter((point): point is { value: number; label: string } => point.value !== null)
     return (
         <div className="flex items-center gap-2">
             <div className="flex flex-col min-w-0 flex-1">
@@ -26,14 +31,14 @@ function SeriesRow({ series }: { series: MetricSeriesSummary }): JSX.Element {
                 )}
             </div>
             <Sparkline
-                data={series.values}
-                labels={series.times.map(formatTimestamp)}
+                data={drawn.map((point) => point.value)}
+                labels={drawn.map((point) => point.label)}
                 type="line"
                 // The chart carries no height of its own, so it needs one here or it draws nothing.
                 className="h-8 shrink-0"
             />
             <span className="text-xs font-mono shrink-0 w-16 text-right">
-                {latest === null ? '—' : humanFriendlyNumber(latest, 2)}
+                {latest === null || latest === undefined ? '—' : humanFriendlyNumber(latest, 2)}
             </span>
         </div>
     )
