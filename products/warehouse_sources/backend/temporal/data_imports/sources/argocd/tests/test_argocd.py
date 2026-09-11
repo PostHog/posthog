@@ -637,6 +637,33 @@ class TestFanOut:
         assert len(self._child_urls(patched.return_value, "/resource-tree")) == 2
         logger.warning.assert_called_once()
 
+    def test_walk_stops_at_its_time_budget(self):
+        # Per-request limits reset on the next request, so without a budget for the walk a slow
+        # host holds an import worker for one request per application. A budget already spent
+        # stops the walk, so no application is requested.
+        apps = [{"metadata": {"name": f"app-{i}", "namespace": "argocd"}, "spec": {}, "status": {}} for i in range(4)]
+        logger = mock.MagicMock()
+        with (
+            mock.patch.object(argocd_module, "MAX_FAN_OUT_SECONDS", -1),
+            _patch_session_by_url(
+                {
+                    "/resource-tree": _response(json_data={"nodes": []}),
+                    "/api/v1/applications": _response(json_data={"items": apps}),
+                }
+            ) as patched,
+        ):
+            list(
+                get_rows(
+                    host="https://argocd.example.com",
+                    api_token="tok",
+                    endpoint="resource_tree",
+                    team_id=1,
+                    logger=logger,
+                )
+            )
+        assert self._child_urls(patched.return_value, "/resource-tree") == []
+        logger.warning.assert_called_once()
+
     @pytest.mark.parametrize(
         "endpoint, fragment, json_data",
         [

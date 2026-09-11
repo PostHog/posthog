@@ -1,9 +1,9 @@
-from dataclasses import dataclass
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@frozen
 class ArgocdEndpointConfig:
     name: str
     path: str

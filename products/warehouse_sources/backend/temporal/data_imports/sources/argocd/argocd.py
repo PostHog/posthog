@@ -56,6 +56,11 @@ MAX_FAN_OUT_APPLICATIONS = 5000
 # Argo CD keeps 10 history entries per application by default; this leaves headroom for
 # installs that raise revisionHistoryLimit.
 MAX_REVISIONS_PER_APPLICATION = 25
+# Every per-request limit resets on the next request, so a walk of one request per application
+# needs a budget of its own. Without it a host that answers slowly for tens of thousands of
+# applications holds an import worker until the activity's 24h timeout. The walk stops at the
+# budget and logs what it skipped, the same way it does at the application cap.
+MAX_FAN_OUT_SECONDS = 4 * 60 * 60
 
 # Repository objects' credential fields are write-only in the Argo CD API, but drop them
 # defensively in case a server version ever echoes one back.
@@ -438,6 +443,7 @@ def _child_rows(
     endpoint: str,
     app: dict[str, Any],
     logger: FilteringBoundLogger,
+    deadline: float,
 ) -> Iterator[dict[str, Any]]:
     identity = _application_identity(app)
     app_label = f"{identity['application_namespace']}/{identity['application_name']}"
@@ -445,6 +451,8 @@ def _child_rows(
 
     if endpoint == "revision_metadata":
         for revision, source_index in _revision_requests(app):
+            if time.monotonic() > deadline:
+                return
             url = _child_url(host, path, app, revision=revision, sourceIndex=source_index)
             data = _fetch_child(session, url, headers, logger, app_label)
             if isinstance(data, dict):
@@ -491,9 +499,16 @@ def _fan_out_rows(
         apps = apps[:MAX_FAN_OUT_APPLICATIONS]
 
     rows_per_batch = _MANAGED_RESOURCE_ROWS_PER_BATCH if endpoint == "managed_resources" else _ROWS_PER_BATCH
+    deadline = time.monotonic() + MAX_FAN_OUT_SECONDS
     batch: list[dict[str, Any]] = []
-    for app in apps:
-        for row in _child_rows(session, host, headers, endpoint, app, logger):
+    for index, app in enumerate(apps):
+        if time.monotonic() > deadline:
+            logger.warning(
+                f"Argo CD: {endpoint} reached its {MAX_FAN_OUT_SECONDS}s budget after {index} applications, "
+                f"skipping the remaining {len(apps) - index}"
+            )
+            break
+        for row in _child_rows(session, host, headers, endpoint, app, logger, deadline):
             batch.append(row)
             if len(batch) >= rows_per_batch:
                 yield batch
