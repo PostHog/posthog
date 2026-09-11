@@ -433,14 +433,14 @@ Note: Full v2 endpoint list read from the docs nav (slugs encode the HTTP path).
 
 ## AppsFlyer — **thin**
 
-Today (3): `daily_report`, `geo_report`, `partners_report`
+Today (9): `ad_revenue`, `ad_revenue_organic`, `ad_revenue_retargeting`, `daily_report`, `geo_report`, `in_app_events`, `installs`, `master_report`, `partners_report`
 
 Diffed against: <https://dev.appsflyer.com/hc/reference>
 
-- [ ] `/api/raw-data/export/app/{app_id}/installs_report/v5` — install-level raw rows — the core AppsFlyer dataset for attribution modelling (high)
-- [ ] `/api/raw-data/export/app/{app_id}/in_app_events_report/v5` — raw in-app event rows, needed to join revenue and funnel events to media source (high)
-- [ ] `/api/master-agg-data/v4/app/{app_id} (Master API)` — single aggregated cross-app report with cohort KPIs, the vendor's recommended aggregate feed (high)
-- [ ] `/api/raw-data/export/app/{app_id}/ad_revenue_raw/v5 (plus organic and retargeting variants)` — ad monetization revenue per user, missing entirely from the aggregate reports (high)
+- [x] `/api/raw-data/export/app/{app_id}/installs_report/v5` — install-level raw rows — the core AppsFlyer dataset for attribution modelling (high)
+- [x] `/api/raw-data/export/app/{app_id}/in_app_events_report/v5` — raw in-app event rows, needed to join revenue and funnel events to media source (high)
+- [x] `/api/master-agg-data/v4/app/{app_id} (Master API)` — single aggregated cross-app report with cohort KPIs, the vendor's recommended aggregate feed (high)
+- [x] `/api/raw-data/export/app/{app_id}/ad_revenue_raw/v5 (plus organic and retargeting variants)` — ad monetization revenue per user, missing entirely from the aggregate reports (high)
 - [ ] `/api/raw-data/export/app/{app_id}/uninstall_events_report/v5` — uninstall events, required for retention and LTV net of churn (high)
 - [ ] `/api/raw-data/export/app/{app_id}/organic_installs_report/v5 and organic_in_app_events_report/v5` — organic baseline without which paid lift cannot be computed (high)
 - [ ] `/api/raw-data/export/app/{app_id}/installs_retarget/v5 and in_app_events_retarget/v5` — retargeting conversions, reported separately from UA and otherwise invisible (high)
@@ -450,7 +450,7 @@ Diffed against: <https://dev.appsflyer.com/hc/reference>
 - [ ] `/api/raw-data/export/app/{app_id}/reinstalls/v5 and reinstalls_organic/v5` — reinstall/resurrection cohorts, a distinct lifecycle state from installs (medium)
 - [ ] `/api/agg-data/export/app/{app_id}/geo_by_date_report/v5 and partners_by_date_report/v5` — daily time series of the geo and partner breakdowns we currently sync only as period totals (medium)
 
-Note: PostHog exposes three aggregate Pull API v5 reports (daily, geo, partners). The entire raw-data pull API (install/event/uninstall level rows), ad revenue, retargeting, Protect360 fraud, SKAN and the cross-app Master API are absent — that is the bulk of what warehouse users pull from AppsFlyer. Reference index enumerated from the docs nav (~160 slugs).
+Note: PostHog exposes three aggregate Pull API v5 reports (daily, geo, partners), the raw-data install and in-app-event reports, all three ad revenue raw reports, and the Master API LTV report. Still absent: uninstalls, reinstalls, the organic install/event baseline, retargeting conversions, Protect360 fraud, SKAN and the partner postback reports. Reference index enumerated from the docs nav (~160 slugs).
 
 ## Appsignal — gaps
 
