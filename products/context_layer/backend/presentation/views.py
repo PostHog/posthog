@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, cast
 from uuid import UUID
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -11,6 +11,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models.user import User
 from posthog.oauth_provenance import INTERNAL_RUN_SCOPE, get_oauth_access_token
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.redis import get_client
@@ -461,7 +462,8 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(responses={200: WikiPageProposalSerializer(many=True)}, summary="List your pending wiki edits")
     @action(methods=["GET"], detail=False)
     def proposals(self, request: Request, **kwargs) -> Response:
-        proposals = facade.list_page_proposals(self.organization.id, request.user.id)
+        user_id = cast(int, request.user.id)
+        proposals = facade.list_page_proposals(self.organization.id, user_id)
         return Response(WikiPageProposalSerializer(proposals, many=True).data)
 
     @extend_schema(
@@ -471,6 +473,8 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(methods=["POST"], detail=False, url_path=r"proposals/(?P<proposal_id>[^/.]+)/apply")
     def apply_proposal(self, request: Request, proposal_id: str, **kwargs) -> Response:
+        user = cast(User, request.user)
+        user_id = cast(int, user.id)
         token = get_oauth_access_token(request)
         scopes = set((getattr(token, "scope", "") or "").split())
         if INTERNAL_RUN_SCOPE in scopes or LOOP_CONTEXT_INTERNAL_SCOPE in scopes:
@@ -484,11 +488,9 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             head_sha = facade.apply_page_proposal(
                 self.organization.id,
-                request.user.id,
+                user_id,
                 proposal_uuid,
-                author=facade.CommitAuthor(
-                    name=request.user.first_name or request.user.email, email=request.user.email
-                ),
+                author=facade.CommitAuthor(name=user.first_name or user.email, email=user.email),
             )
         except facade.ContextLayerStoreError as error:
             return _store_error_response(error)
@@ -683,11 +685,12 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = WikiPageProposalWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         _assert_run_commit_cap(request)
+        user_id = cast(int, request.user.id)
         try:
             proposal = facade.create_page_proposal(
                 self.organization.id,
                 team_id=self.team_id,
-                user_id=request.user.id,
+                user_id=user_id,
                 task_id=task_id,
                 **serializer.validated_data,
             )
