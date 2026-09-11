@@ -935,6 +935,20 @@ describe('exec tool', () => {
             }
         )
 
+        // A `--json` caller parses what it gets back, and every other result it can
+        // receive is serialized. Raw prose here would be the one reply it cannot read.
+        it('encodes the miss when the caller asked for --json', async () => {
+            const exec = createExec([
+                makeSkillTool('skill-get', '{"detail":"Skill with name \'missing-skill\' not found."}'),
+            ])
+
+            const result = (await exec.handler(mockContext, {
+                command: 'call --json skill-get {"skill_name":"missing-skill"}',
+            })) as string
+
+            expect(JSON.parse(result)).toContain('No skill named "missing-skill"')
+        })
+
         it('falls back to the skill message when skill-file-get misses on the skill itself', async () => {
             const exec = createExec([
                 makeSkillTool('skill-file-get', '{"detail":"Skill with name \'missing-skill\' not found."}'),

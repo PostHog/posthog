@@ -1702,7 +1702,11 @@ export function createExecTool(
                         // read as one. Telemetry above still records the 404.
                         const lookupMiss = formatSkillLookupMiss(tool.name, err, input)
                         if (lookupMiss) {
-                            return lookupMiss
+                            // The success path below serializes a string result under
+                            // `--json`, so encode this the same way. A `--json` caller
+                            // reaches for `JSON.parse`, and raw prose is the one reply
+                            // that would break in its hands.
+                            return useJson ? JSON.stringify(lookupMiss) : lookupMiss
                         }
                         throw err
                     }
