@@ -8,7 +8,7 @@ import {
 } from '@/lib/build-tool-result'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { RESPONSE_TRUNCATION_KEY, capResponseToClientBudget } from '@/lib/response-budget'
-import { withInformationalResponse } from '@/tools/tool-utils'
+import { withAgentNote, withInformationalResponse } from '@/tools/tool-utils'
 import { POSTHOG_META_KEY } from '@/tools/types'
 
 const CODEX_BUDGET = 9_000
@@ -100,6 +100,28 @@ describe('capResponseToClientBudget', () => {
         for (const row of keptText(capped.response).split('\n')) {
             expect(sourceLines.has(row)).toBe(true)
         }
+    })
+
+    // Tools append `_posthogUrl` and `_agentNote` after the bulk field, so a blind prefix
+    // dropped the link to the full result and the tool's note — the pointers the sibling
+    // projection branch is built to keep.
+    it('keeps the trailing pointer fields of an oversized text response', () => {
+        const built = buildToolResultPayload({
+            handlerResult: withAgentNote(
+                { results: blobRows(20_000), _posthogUrl: 'https://us.posthog.com/project/2/insights/abc' },
+                'Open the url to see every row.'
+            ),
+            toolName: 'query-run',
+            params: {},
+        })
+
+        const capped = capResponseToClientBudget(built, CODEX_BUDGET)
+
+        const text = capped.response.content[0]!.text
+        expect(estimateResponseTokens(capped.response)).toBeLessThanOrEqual(CODEX_BUDGET)
+        expect(text).toContain('_posthogUrl: "https://us.posthog.com/project/2/insights/abc"')
+        expect(text).toContain('_agentNote: Open the url to see every row.')
+        expect(text.indexOf('Result shortened')).toBeGreaterThan(text.indexOf('_posthogUrl'))
     })
 
     // An informational result quarantines workspace data in a tag pair the agent must not

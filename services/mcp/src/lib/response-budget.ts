@@ -182,6 +182,31 @@ function projectArrayWithNotice(items: unknown[], maxChars: number, notice: stri
     return [...kept, sentinel(items.length - kept.length)]
 }
 
+/** Short fields the tools append after the bulk payload for the agent to navigate by. */
+const TRAILING_POINTER_KEYS = ['_posthogUrl', '_agentNote']
+
+/**
+ * Splits the trailing pointer lines off a formatted response. They sit after the bulk
+ * field, so a blind prefix drops the link to the full result and the tool's own note.
+ * An agent needs both to carry on after a shortened answer.
+ */
+function splitTrailingPointers(text: string, room: number): { body: string; pointers: string } {
+    const bodyLines: string[] = []
+    const pointerLines: string[] = []
+    for (const line of text.split('\n')) {
+        if (TRAILING_POINTER_KEYS.some((key) => line.startsWith(`${key}: `))) {
+            pointerLines.push(line)
+        } else {
+            bodyLines.push(line)
+        }
+    }
+    const pointers = pointerLines.join('\n')
+    if (pointers.length === 0 || pointers.length + 1 > room) {
+        return { body: text, pointers: '' }
+    }
+    return { body: bodyLines.join('\n'), pointers: `\n${pointers}` }
+}
+
 /**
  * Shorten `response` to `maxTokens` if it is larger. Returns the response
  * untouched when it fits, or when no budget is set for the client.
@@ -210,12 +235,14 @@ export function capResponseToClientBudget(response: ToolResultPayload, maxTokens
         // An informational wrapper quarantines workspace data the agent must not act on.
         // The shortened payload stays inside the tags, and the notice stays outside them.
         const wrapper = splitInformationalResponse(text)
-        const [open, body, close] = wrapper ? [wrapper.open, wrapper.body, wrapper.close] : ['', text, '']
+        const [open, rest, close] = wrapper ? [wrapper.open, wrapper.body, wrapper.close] : ['', text, '']
         // The notice, the blank line separating it from the kept text, and the tags.
-        const budget = Math.max(MIN_PROJECTION_CHARS, maxChars - notice.length - 2 - open.length - close.length)
+        const reserved = notice.length + 2 + open.length + close.length
+        const { body, pointers } = splitTrailingPointers(rest, maxChars - reserved - MIN_PROJECTION_CHARS)
+        const budget = Math.max(MIN_PROJECTION_CHARS, maxChars - reserved - pointers.length)
         capped = {
             ...response,
-            content: [{ type: 'text', text: `${open}${clipText(body, budget)}${close}\n\n${notice}` }],
+            content: [{ type: 'text', text: `${open}${clipText(body, budget)}${pointers}${close}\n\n${notice}` }],
         }
     }
 
