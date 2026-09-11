@@ -412,13 +412,39 @@ class EndpointMaterializationService:
                 return MaterializationPreview.cant_materialize(var_reason)
 
             if variable_infos:
-                transformed = transform_query_for_materialization(
-                    hogql_query,
-                    variable_infos,
-                    self.team,
-                    bucket_overrides=bucket_overrides,
-                    user=self.user,
-                )
+                try:
+                    transformed = transform_query_for_materialization(
+                        hogql_query,
+                        variable_infos,
+                        self.team,
+                        bucket_overrides=bucket_overrides,
+                        user=self.user,
+                    )
+                except MaterializationNotSupportedError as e:
+                    # The pre-flight analysis accepted a query the transform then rejected. That
+                    # disagreement is a gate bug rather than something the user can fix, so keep
+                    # the signal the uncaught raise used to file before reporting the reason.
+                    logger.warning(
+                        "materialization_preview: transform rejected a query the pre-flight analysis accepted",
+                        endpoint_name=endpoint.name,
+                        version=version.version,
+                        team_id=self.team.pk,
+                    )
+                    capture_exception(
+                        e,
+                        {
+                            "product": Product.ENDPOINTS,
+                            "team_id": self.team.pk,
+                            "endpoint_name": endpoint.name,
+                            "materialization_preview": True,
+                        },
+                    )
+                    return MaterializationPreview.cant_materialize(str(e))
+                except ExposedHogQLError as e:
+                    # A bad user query, not a system fault — the enable path treats it the same
+                    # way. Report it as a pre-flight rejection instead of raising, which would
+                    # surface as a 500.
+                    return MaterializationPreview.cant_materialize(str(e))
                 transformed_query_str = transformed.get("query")
 
                 # Extract range pairs grouped by column

@@ -298,6 +298,12 @@ def analyze_variables_for_materialization(
     if not finder.variable_placeholders:
         return False, "No variables found", []
 
+    # Ordered before the per-variable analysis, which reads the WHERE clause of a context root
+    # only and so reports a variable nested in a subquery as unused.
+    rejection = _nested_variable_rejection(ast_node)
+    if rejection is not None:
+        return False, rejection, []
+
     result_vars, reason = _collect_materializable_variables(
         ast_node, finder.variable_placeholders, hogql_query.get("variables", {})
     )
@@ -441,6 +447,15 @@ def _context_rejection(cte_names: set[Optional[str]]) -> Optional[str]:
     if None in cte_names:
         return "Variable used in both CTE and top-level query is not yet supported"
     return "Variable used in multiple CTEs is not yet supported"
+
+
+def _nested_variable_rejection(ast_node: ast.SelectQuery | ast.SelectSetQuery) -> Optional[str]:
+    """Reject a variable inside a subquery, which the transform leaves in place as a placeholder."""
+    finder = _NestedVariableFinder()
+    finder.visit(ast_node)
+    if finder.found:
+        return "Variable used inside a subquery is not yet supported for materialization"
+    return None
 
 
 def _reaggregation_rejection(
@@ -1054,9 +1069,51 @@ class VariablePlaceholderFinder(TraversingVisitor):
             self.variable_placeholders.append(node)
 
 
+def _contains_variable_placeholder(node: ast.Expr) -> bool:
+    finder = VariablePlaceholderFinder()
+    finder.visit(node)
+    return bool(finder.variable_placeholders)
+
+
 def _contains_placeholder(node: ast.Expr) -> bool:
     found = find_placeholders(node)
     return bool(found.has_filters or found.placeholder_fields or found.placeholder_expressions)
+
+
+class _NestedVariableFinder(TraversingVisitor):
+    """Find a variable placeholder in a query that is not a materialization context root.
+
+    This mirrors the context-root rule in ``MaterializationTransformer.visit_select_query``: the
+    top-level query and a CTE body carry their context's variables, and a query nested in one does
+    not. The two walks must agree, because the transform leaves a variable it skips as a
+    placeholder, and printing the materialized query then fails on it.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+        self._nesting_depth = 0
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        if self._nesting_depth > 0:
+            if _contains_variable_placeholder(node):
+                self.found = True
+            return
+
+        if node.ctes:
+            for cte in node.ctes.values():
+                self.visit(cte.expr)
+
+        # Visit the rest of the query one level deeper, with the CTEs detached so the loop above
+        # stays their only visit. Reaching them again here would count them as nested.
+        original_ctes = node.ctes
+        node.ctes = None
+        self._nesting_depth += 1
+        try:
+            super().visit_select_query(node)
+        finally:
+            self._nesting_depth -= 1
+            node.ctes = original_ctes
 
 
 def find_variable_in_where(
@@ -1394,16 +1451,29 @@ class MaterializationTransformer(CloningVisitor):
         super().__init__()
         self.variable_infos = variable_infos
         self._current_cte_name: Optional[str] = None
+        self._nesting_depth = 0
 
     def visit_select_query(self, node: ast.SelectQuery):
+        # A context root is the top-level query or a CTE body. Only it carries that context's
+        # variables. A nested query shares the same _current_cte_name, so without this guard a
+        # subquery in WHERE, FROM or a JOIN also gets variable columns and loses its own WHERE.
+        is_context_root = self._nesting_depth == 0
+
         new_ctes = self._process_ctes(node)
 
         # Visit the select query itself (without re-visiting CTEs)
         original_ctes = node.ctes
         node.ctes = None
-        new_node = super().visit_select_query(node)
+        self._nesting_depth += 1
+        try:
+            new_node = super().visit_select_query(node)
+        finally:
+            self._nesting_depth -= 1
         node.ctes = original_ctes  # Restore original
         new_node.ctes = new_ctes
+
+        if not is_context_root:
+            return new_node
 
         # Add variable columns + remove variable WHERE clauses for current context
         vars_for_context = self._vars_for_current_context()
@@ -1605,7 +1675,9 @@ class MaterializationTransformer(CloningVisitor):
                 return filtered_exprs[0]
             return ast.And(exprs=filtered_exprs)
 
-        if isinstance(where_node, ast.Or):
+        # Matches the pre-flight gate in _usage_rejection: an OR is only a problem when a variable
+        # sits inside it. An OR of plain predicates stays as it is.
+        if isinstance(where_node, ast.Or) and _contains_variable_placeholder(where_node):
             raise MaterializationNotSupportedError("Variables in OR conditions not supported")
 
         return where_node
