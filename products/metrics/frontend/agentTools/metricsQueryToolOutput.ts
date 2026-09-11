@@ -1,4 +1,4 @@
-import { asRecord, parseToolOutputRecord } from 'products/posthog_ai/frontend/api/tools'
+import { asRecord, getToolOutputRecord } from 'products/posthog_ai/frontend/api/tools'
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/api/types'
 
 export interface MetricSeriesSummary {
@@ -30,7 +30,7 @@ function seriesLabels(labels: unknown): string[] {
  * which case the widget falls back to the generic card rather than showing an empty chart panel.
  */
 export function extractMetricSeries(message: ToolCallMessage): MetricSeriesSummary[] | null {
-    const output = parseToolOutputRecord(message)
+    const output = getToolOutputRecord(message)
     const results = output?.results
     if (!Array.isArray(results)) {
         return null
