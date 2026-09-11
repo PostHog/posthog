@@ -223,7 +223,7 @@ async def _create_alert_check(
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 class TestRetrieveDueAlerts:
-    @freeze_time("2026-09-09T12:00:00Z")
+    @time_machine.travel("2026-09-09T12:00:00Z", tick=False)
     async def test_records_metrics_for_due_alerts(self, ateam) -> None:
         due_alert = await _create_alert(ateam, next_check_at=datetime(2026, 9, 9, 11, 0, tzinfo=UTC))
         await _create_alert(ateam, next_check_at=datetime(2026, 9, 9, 13, 0, tzinfo=UTC))
