@@ -35,12 +35,14 @@ import {
     signalsScoutMetadataGet,
     signalsScoutRunsFindingsSummary,
     signalsScoutRunsList,
+    signalsScoutRunsCosts,
     signalsScoutRunsRecentPerScout,
     signalsScoutRunsTokenCosts,
 } from 'products/signals/frontend/generated/api'
 import type {
     FleetFindingsSummaryApi,
     PatchedSignalScoutConfigUpdateApi,
+    ScoutCostsApi,
     ScoutMetadataApi,
     SignalScoutConfigApi,
 } from 'products/signals/frontend/generated/api.schemas'
@@ -56,6 +58,7 @@ import {
 } from '../inboxAnalytics'
 import { SignalScoutRunSummary } from '../types'
 import { aiConsentDisabledReason } from '../utils/aiConsent'
+import { computeScoutCostRollups, ScoutCostRollup } from '../utils/scoutCosts'
 import { compareScoutsByName, SCOUT_GROUP_ORDER, scoutGroup, ScoutGroupKey, ScoutRosterRow } from '../utils/scoutGroups'
 
 export type ScoutEnabledFilter = 'all' | 'enabled' | 'disabled'
@@ -73,6 +76,7 @@ import {
     isSettledRun,
     rosterRunCosts,
     scoutDisplayName,
+    SCOUT_ROSTER_WINDOW_DAYS,
     SCOUT_ROSTER_WINDOW_HOURS,
     SCOUT_RUNS_PER_SCOUT,
     SCOUT_RUNS_WINDOW_HOURS,
@@ -285,6 +289,9 @@ export interface scoutFleetLogicValues {
     scoutBannerMessage: string | null
     scoutConfigs: SignalScoutConfig[] | null
     scoutConfigsLoading: boolean
+    scoutCostRollups: Map<string, ScoutCostRollup>
+    scoutCosts: ScoutCostsApi | null
+    scoutCostsLoading: boolean
     scoutEnabledFilter: ScoutEnabledFilter
     scoutFleetSyncOutcome: ScoutFleetSyncOutcome
     scoutFleetSyncRequested: boolean
@@ -393,6 +400,21 @@ export interface scoutFleetLogicActions {
     ) => {
         scoutMetadata: ScoutMetadataApi | null
         payload?: any
+    }
+    loadScoutCosts: (_: void) => void
+    loadScoutCostsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadScoutCostsSuccess: (
+        scoutCosts: ScoutCostsApi | null,
+        payload?: void
+    ) => {
+        scoutCosts: ScoutCostsApi | null
+        payload?: void
     }
     loadScoutRunCosts: (_: void) => void
     loadScoutRunCostsFailure: (
@@ -851,6 +873,38 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 },
             },
         ],
+        // What each scout spent over the roster's window, staff only. One request for the fleet,
+        // answered from a 15-minute server cache, so it rides the runs load rather than a poll of
+        // its own. The response is facts; `scoutCostRollups` turns them into the three rates.
+        scoutCosts: [
+            null as ScoutCostsApi | null,
+            {
+                loadScoutCosts: async (_: void, breakpoint) => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId || !values.isStaff) {
+                        return values.scoutCosts
+                    }
+                    try {
+                        const costs = await signalsScoutRunsCosts(String(teamId), {
+                            window_days: SCOUT_ROSTER_WINDOW_DAYS,
+                        })
+                        breakpoint()
+                        return costs
+                    } catch (error) {
+                        // Same posture as the per-run costs: a staff-only annotation degrades to no
+                        // number rather than reporting a failure the reader can do nothing about,
+                        // and the roster ships ahead of its endpoints.
+                        if (error instanceof ApiError) {
+                            if (shouldReportApiFailure(error) && !isUnavailableEndpointError(error)) {
+                                posthog.captureException(error)
+                            }
+                            return values.scoutCosts
+                        }
+                        throw error
+                    }
+                },
+            },
+        ],
         runsWindow: [
             { runs: [] as SignalScoutRunSummary[], complete: true } as {
                 runs: SignalScoutRunSummary[]
@@ -1087,6 +1141,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             (scoutRuns: SignalScoutRunSummary[], scoutRunCosts: Map<string, number>): number | null =>
                 expensiveRunCostThreshold(rosterRunCosts(scoutRuns, scoutRunCosts)),
         ],
+        scoutCostRollups: [
+            (s) => [s.scoutCosts],
+            (scoutCosts: ScoutCostsApi | null): Map<string, ScoutCostRollup> => computeScoutCostRollups(scoutCosts),
+        ],
         isStaff: [
             () => [userLogic.selectors.user],
             (user: null | import('~/types').UserType): boolean => user?.is_staff ?? false,
@@ -1290,6 +1348,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             // never a cycle apart.
             if (values.isStaff) {
                 actions.loadScoutRunCosts()
+                actions.loadScoutCosts()
             }
             const evaluatedAt = new Date(values.rosterEvaluatedAt)
             const now = new Date()
