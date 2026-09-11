@@ -2216,7 +2216,6 @@ class TestSavedQuery(APIBaseTest):
             self.assertEqual(suspension_state(node), {})
 
     def test_resume_schedules_clears_suspension_for_every_listed_query(self):
-
         saved_queries = [
             DataWarehouseSavedQuery.objects.create(
                 team=self.team,
