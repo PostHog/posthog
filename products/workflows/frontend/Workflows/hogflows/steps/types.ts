@@ -178,6 +178,7 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
             audience_type: z.enum(['persons', 'accounts']).optional(),
             properties: z.array(z.any()),
             tag_names: z.array(z.string()).optional(),
+            assignment_status: z.enum(['all', 'assigned', 'unassigned']).optional(),
             assigned_to_user_ids: z.array(z.number()).optional(),
             all_roles_unassigned: z.boolean().optional(),
         }),
