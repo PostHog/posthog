@@ -155,8 +155,12 @@ export class AgentAuthAdapter {
 
     await this.mcpProxy.start();
 
+    const identity = `${credentials.apiHost}#${credentials.projectId}`;
+
     if (mcpUrl) {
-      const proxiedPosthog = this.mcpProxy.register("posthog", mcpUrl);
+      const proxiedPosthog = this.mcpProxy.register("posthog", mcpUrl, {
+        identity,
+      });
 
       const posthogServer: McpServerConnection = {
         name: "posthog",
@@ -187,7 +191,7 @@ export class AgentAuthAdapter {
       const proxiedInstallation = this.mcpProxy.register(
         `installation-${installation.id}`,
         installation.proxy_url,
-        { credentialOwner: "installation" },
+        { credentialOwner: "installation", identity },
       );
       const server: McpServerConnection = {
         name,

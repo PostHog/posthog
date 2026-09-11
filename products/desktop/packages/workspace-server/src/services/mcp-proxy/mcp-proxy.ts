@@ -56,6 +56,7 @@ function isTokenMatch(provided: unknown, expected: string): boolean {
 interface McpProxyTarget {
   url: string;
   credentialOwner: McpProxyCredentialOwner;
+  identity: string;
   token: string;
 }
 
@@ -115,29 +116,36 @@ export class McpProxyService {
   /**
    * Register a target URL under a stable ID. Returns the loopback URL to pass
    * to the MCP transport plus the secret that transport must send on every
-   * request. Re-registering the same upstream keeps the secret, because live
-   * transports (open sessions, MCP App connections) still hold it; a changed
-   * upstream rotates it.
+   * request. Re-registering within the same `identity` keeps the secret,
+   * because live transports (open sessions, MCP App connections) still hold
+   * it. A changed upstream or identity rotates it, so a secret issued under
+   * one account or project cannot outlive a switch to another.
    */
   register(
     id: string,
     targetUrl: string,
-    options: { credentialOwner?: McpProxyCredentialOwner } = {},
+    options: {
+      credentialOwner?: McpProxyCredentialOwner;
+      identity?: string;
+    } = {},
   ): { url: string; token: string } {
     if (!this.port) {
       throw new Error("MCP proxy not started");
     }
     const credentialOwner = options.credentialOwner ?? "posthog";
+    const identity = options.identity ?? "";
     const existing = this.targets.get(id);
     const token =
       existing &&
       existing.url === targetUrl &&
-      existing.credentialOwner === credentialOwner
+      existing.credentialOwner === credentialOwner &&
+      existing.identity === identity
         ? existing.token
         : crypto.randomUUID();
     this.targets.set(id, {
       url: targetUrl,
       credentialOwner,
+      identity,
       token,
     });
     return {

@@ -114,6 +114,7 @@ describe("AgentAuthAdapter", () => {
     expect(deps.mcpProxy.register).toHaveBeenCalledWith(
       "posthog",
       "https://mcp.posthog.com/mcp",
+      { identity: "https://app.posthog.com#1" },
     );
     expect(servers).toEqual(
       expect.arrayContaining([
@@ -222,7 +223,10 @@ describe("AgentAuthAdapter", () => {
       "installation-inst-2",
       "https://proxy.posthog.com/inst-2/",
       // An auth failure here is about the vendor's credential, not the user's PostHog token.
-      { credentialOwner: "installation" },
+      {
+        credentialOwner: "installation",
+        identity: "https://app.posthog.com#1",
+      },
     );
     expect(servers).toEqual(
       expect.arrayContaining([

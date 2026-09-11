@@ -154,6 +154,26 @@ describe("McpProxyService", () => {
       expect(accepted.status).toBe(200);
     });
 
+    it("rotates the secret when the identity changes, even on the same upstream", async () => {
+      // The forwarded request carries the current user's token, so a secret
+      // issued under one account or project must not outlive a switch.
+      authServiceMock.authenticatedFetch.mockResolvedValue(okJson());
+
+      await service.start();
+      const first = service.register("posthog", "https://mcp.example/mcp", {
+        identity: "https://app.posthog.com#42",
+      });
+      const second = service.register("posthog", "https://mcp.example/mcp", {
+        identity: "https://app.posthog.com#43",
+      });
+
+      const rejected = await authedFetch(first.url, first.token);
+      const accepted = await authedFetch(second.url, second.token);
+
+      expect(rejected.status).toBe(401);
+      expect(accepted.status).toBe(200);
+    });
+
     it("answers the RFC 8414 discovery probe with 404 without a secret", async () => {
       await service.start();
       const { url } = service.register("alpha", "https://upstream.example");
