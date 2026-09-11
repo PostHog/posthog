@@ -1316,9 +1316,12 @@ export function ChatThread({ events, ...props }: ChatThreadProps) {
 
 export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
   const showDebugLogs = useSettingsStore((state) => state.debugLogsCloudRuns);
-  const { items } = useConversationItems(events, props.isPromptPending, {
-    showDebugLogs,
-  });
+  const { items, ...footerState } = useConversationItems(
+    events,
+    props.isPromptPending,
+    { showDebugLogs },
+    { scope: "chat-thread", taskId: props.taskId },
+  );
 
   return (
     <RawLogsToggleContext.Provider value={true}>
@@ -1326,7 +1329,8 @@ export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
         key={props.taskId}
         {...props}
         conversationItems={items}
-        footerEvents={events}
+        footerEvents={[]}
+        footerState={footerState}
       />
     </RawLogsToggleContext.Provider>
   );
