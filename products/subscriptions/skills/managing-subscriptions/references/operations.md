@@ -116,6 +116,16 @@ Each delivery records these details:
 - Exported asset IDs.
 - AI summary or AI prompt report fields when applicable.
 
+Treat each stage as a separate check:
+
+1. The API accepts and returns the configuration.
+2. PostHog queues a delivery.
+3. The delivery reaches a terminal state.
+4. The user confirms external receipt when that proof is required.
+
+Do not report success after only the first or second stage.
+MCP hides per-recipient results, so it cannot prove success for each recipient.
+
 The list tool omits large report content and sensitive error payloads.
 Use the retrieve tool for one AI prompt report and its prompt snapshot.
 The MCP retrieve tool still omits query diagnostics and sensitive recipient data.
@@ -143,6 +153,19 @@ PostHog can also send a notification email.
 Fix the permanent cause before you resume the subscription.
 An AI prompt subscription cannot resume if its original creator is unavailable.
 Create a new subscription under an active user in that case.
+
+## Ownership changes
+
+The subscription creator owns failure and automatic-disable notifications.
+PostHog sends them only while the creator remains an active organization member.
+
+An AI prompt report requires its original creator for query access and report generation.
+If that creator becomes unavailable, PostHog can automatically disable the subscription.
+Recreate it under an active user.
+
+Insight and dashboard subscriptions can continue without an active creator.
+However, no former member receives their failure notifications.
+Review ownership when a subscription owner leaves the organization.
 
 ## Delete, pause, and expiration
 

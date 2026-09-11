@@ -11,8 +11,13 @@ They do not support a generic webhook destination.
 Email recipients can use an unsubscribe link.
 An unsubscribe token expires after 30 days.
 
-For multiple recipients, inspect each result after a partial failure.
+One recipient can unsubscribe without stopping delivery to other recipients.
+PostHog removes that address from `target_value`.
+PostHog soft-deletes the subscription when the last email recipient unsubscribes.
+
 The overall delivery can succeed when at least one recipient succeeds.
+The MCP tools do not return per-recipient results.
+Ask the user to confirm receipt when every address matters.
 
 ## Slack
 
@@ -65,3 +70,6 @@ When you change from Teams, send the new destination value in the same update.
 
 PostHog can automatically disable a subscription after a permanent destination failure.
 Fix the destination before you resume it.
+
+Destination acceptance does not prove external delivery.
+Send an approved test and check its delivery record after destination setup or replacement.

@@ -28,6 +28,9 @@ They support insight snapshots, dashboard snapshots, and AI prompt reports.
 - Use a reminder when the user wants a private prompt to inspect a resource later.
 - Use a Signals scout when an agent must decide what is important to report.
 
+Subscriptions do not evaluate thresholds, recovery, consecutive breaches, or quiet hours.
+Snapshot subscriptions attempt each scheduled occurrence even when the saved results do not change.
+
 ## Tools
 
 | Tool | Purpose |
@@ -55,6 +58,7 @@ They support insight snapshots, dashboard snapshots, and AI prompt reports.
 6. Set `send_test_now` to the user's choice.
 7. Call `posthog:subscriptions-create`.
 8. Read the saved subscription and check each requested field.
+9. If the user approved an immediate delivery, check its delivery record.
 
 Do not infer missing recipients, channels, times, or time zones.
 Ask for these values before creation.
@@ -129,6 +133,10 @@ It returns `409` when another test is active or the subscription is disabled.
 
 Delivery states are `starting`, `completed`, `failed`, and `skipped`.
 Filter the delivery list by `status` when you investigate a failure.
+A queued workflow does not prove delivery.
+A completed delivery can contain partial recipient failures.
+The MCP tools hide per-recipient results.
+Do not claim that each recipient succeeded.
 
 ## Stop a subscription
 

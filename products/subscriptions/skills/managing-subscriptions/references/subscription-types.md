@@ -4,6 +4,12 @@ Select exactly one resource type at creation.
 The API derives `resource_type` from the populated field.
 It rejects a subscription that combines resource fields.
 
+| Resource type | Source | Destinations | AI behavior | Type-specific options |
+| --- | --- | --- | --- | --- |
+| `insight` | One saved insight | Email, Slack, Teams | Optional AI summary | No dashboard tile selection |
+| `dashboard` | 1 through 10 selected tiles | Email, Slack, Teams | Optional AI summary | Tile selection and Slack image layout |
+| `ai_prompt` | One free-text prompt | Email, Slack, Teams | AI report uses billable model calls | Analysis window and report display options |
+
 ## Insight snapshot
 
 Set `insight` to the numeric insight ID.
@@ -85,3 +91,17 @@ The snapshot remains the source for exact chart results.
 The model-written summary can contain an incorrect number.
 
 If AI credits run out, PostHog skips the summary and still sends the snapshot.
+
+## Source changes after creation
+
+A dashboard subscription stores selected insight IDs.
+It does not automatically select a replacement tile after a dashboard edit.
+
+Before a dashboard owner removes, replaces, or deletes tiles, list its subscriptions.
+After the edit, update each affected `dashboard_export_insights` selection.
+
+Delivery excludes deleted dashboard tiles.
+An empty effective selection can produce a delivery with no useful snapshot.
+
+A hard deletion of the source insight or dashboard also deletes its subscription and delivery history.
+Use pause or soft deletion when the user needs to preserve subscription history.
