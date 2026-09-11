@@ -319,7 +319,10 @@ export class LegacyPluginExecutorService {
                     ...event,
                     ip: null, // convertToOnEventPayload removes this so we should too
                     // NOTE: We want to improve validation of these properties but for now for legacy plugins we just cast
-                    properties: event.properties as ProcessedPluginEvent['properties'],
+                    // A destination plugin can mutate the properties it is given: the Customer.io plugin
+                    // deletes `$set` and `$set_once` before it sends anything. The result carries the same
+                    // globals object that goes back on the queue, so a retry must not see those edits.
+                    properties: { ...event.properties } as ProcessedPluginEvent['properties'],
                     $set: event.$set as ProcessedPluginEvent['$set'],
                     $set_once: event.$set_once as ProcessedPluginEvent['$set_once'],
                 }

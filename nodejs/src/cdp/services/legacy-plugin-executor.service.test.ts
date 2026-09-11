@@ -419,6 +419,26 @@ describe('LegacyPluginExecutorService', () => {
                 )
             })
 
+            // The Customer.io plugin deletes `$set` and `$set_once` from the event it is given before it
+            // sends anything, so a shared properties object would hand the retry a stripped event.
+            it('keeps the requeued event properties intact when the plugin mutates them', async () => {
+                jest.spyOn(customerIoPlugin, 'onEvent')
+
+                const invocation = failingInvocation(0)
+                const properties = {
+                    email: 'test@posthog.com',
+                    $set: { email: 'test@posthog.com' },
+                    $set_once: { initial_email: 'test@posthog.com' },
+                }
+                invocation.state.globals.event.properties = { ...properties }
+
+                const res = await service.execute(invocation)
+
+                expect(res.finished).toBe(false)
+                expect(customerIoPlugin.onEvent).toHaveBeenCalledTimes(1)
+                expect(res.invocation.state.globals.event.properties).toEqual(properties)
+            })
+
             // The hog transformer builds the executor without retry settings, as transformations run
             // inline in ingestion and have no cyclotron queue to return to.
             it('does not reschedule when built without retry settings', async () => {
