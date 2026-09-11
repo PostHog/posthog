@@ -29,7 +29,7 @@ completed inference run for day D  (metrics: prediction_date, horizon_days, rows
         │
         │  ... wait horizon_days ...
         │
- D + horizon <= today (UTC)  →  the outcome window has closed
+ D + horizon 00:00 UTC + grace <= now  →  the outcome window has closed and its last events have landed
         │
  find_pending_validation_dates  →  matured dates with no completed validation and no live claim
         │
@@ -40,9 +40,9 @@ completed inference run for day D  (metrics: prediction_date, horizon_days, rows
 
 Candidate dates come from Postgres, not from a scan of the events table: the inference runs record the prediction date and the horizon they scored against, so a daily pass costs nothing for the dates it does not validate, and the horizon used is the one the predictions were made under.
 
-`find_pending_validation_dates()` is what keeps this idempotent: it skips dates with a `COMPLETED` validation run and dates with a `RUNNING` one younger than `STALE_CLAIM_AFTER`, so the workflow can run daily without recomputing history. A `FAILED` run does not count, so its date is retried.
+`find_pending_validation_dates()` is what keeps this idempotent: it skips dates with a `COMPLETED` validation run, dates with a `RUNNING` one younger than `STALE_CLAIM_AFTER`, and dates an inference run is still scoring, so the workflow can run daily without recomputing history. A `FAILED` run does not count, so its date is retried. Maturity waits `OUTCOME_INGESTION_GRACE` past the window end so the last outcome events have reached ClickHouse.
 
-Both ClickHouse queries are bounded by what the inference runs say was emitted. The prediction fetch must return exactly `rows_scored` persons per model; fewer means ingestion has not caught up with a backfill, more means events the run did not emit, and either fails the date so it is retried instead of completing with wrong numbers. The realized-label scan is restricted to the predicted persons, and its window is the UTC one scoring bound the run to (`[D 00:00, D + horizon 00:00)`).
+Both ClickHouse queries are bounded by what the inference runs say was emitted. The prediction fetch must return exactly `rows_scored` persons per model; fewer means ingestion has not caught up with a backfill, more means events the run did not emit, and either fails the date so it is retried instead of completing with wrong numbers. The realized-label scan is restricted to the predicted persons, and its window is the UTC one scoring bound the run to (`[D 00:00, D + horizon 00:00)`). Before the date is marked complete, the completed inference runs are read again inside the transaction: a run that finished while the queries ran changes the expected counts and fails the date, so the model it scored is not left unvalidated behind a completed date. The model rows are locked for the write, so two validators on different dates cannot race the newest-date guard.
 
 All the heavy work — the HogQL queries and the sklearn metrics — happens inside a single Temporal activity. Nothing large crosses a workflow boundary, which is deliberate: activity payloads are capped, and prediction sets are big.
 
@@ -53,6 +53,7 @@ All the heavy work — the HogQL queries and the sklearn metrics — happens ins
 - **A backfill's date fails validation until its events are all in ClickHouse.** The fetch compares against the run's `rows_scored`, so a pass that runs seconds after a backfill records a `FAILED` run and the next pass picks the date up.
 - **Backdated events are refused by scoring when the team sets `drop_events_older_than_seconds`**, so no inference run is recorded and validation has nothing to look for.
 - **A deleted model takes its evidence with it.** Its inference runs lose their model and drop out of the candidates, and its prediction events are not fetched. A model deleted mid-validation is recorded in the run's `per_model` as `deleted` and skipped for the model update.
+- **A completed date is never revisited.** An outcome event that reaches ClickHouse more than `OUTCOME_INGESTION_GRACE` after the window closed (an offline SDK buffer flushed days late) reads as a negative in the stored metrics.
 - **Only the AUC needs both classes.** An all-negative day still records Brier, calibration error, and lift, which is where calibration matters for a rare target.
 
 ## Where the rest of the system meets this package

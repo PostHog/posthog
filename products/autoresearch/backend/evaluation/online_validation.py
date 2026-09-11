@@ -50,6 +50,12 @@ logger = structlog.get_logger(__name__)
 # a worker that died mid-run. It must not keep the date claimed forever.
 STALE_CLAIM_AFTER = timedelta(hours=6)
 
+# An outcome event timestamped just before the window closes can still be in the ingestion
+# queue when the window closes. Maturity waits this long past the window end so it lands
+# first; a completed date is never revisited, so a positive that arrives later than this
+# reads as a negative.
+OUTCOME_INGESTION_GRACE = timedelta(hours=1)
+
 # A live run stamps its events at emission time, which can cross midnight UTC before the
 # batch goes out; a backfill stamps noon UTC of the date. Both fall within this many days
 # of the start of the prediction date, so the fetch can bound `timestamp` for pruning.
@@ -146,15 +152,22 @@ def find_pending_validation_dates(pipeline: AutoresearchPipeline) -> list[Pendin
     Matured prediction dates with no COMPLETED validation run and no live claim, oldest first.
 
     Candidates come from the completed inference runs, which record the prediction date
-    and the horizon they scored against. A FAILED validation run does not count, so its
-    date is retried; a RUNNING one counts only while it is younger than ``STALE_CLAIM_AFTER``.
+    and the horizon they scored against. A date waits while an inference run for it is
+    still scoring, and for ``OUTCOME_INGESTION_GRACE`` after its window closes. A FAILED
+    validation run does not count, so its date is retried; a RUNNING one counts only while
+    it is younger than ``STALE_CLAIM_AFTER``.
     """
     now = django_timezone.now()
-    blocked = _blocked_dates(pipeline, now=now)
-    return [item for item in _matured_dates(pipeline, now=now) if item.prediction_date not in blocked]
+    blocked = _blocked_dates(pipeline, now=now) | _dates_still_scoring(pipeline)
+    return [
+        item
+        for item in _dates_scored(pipeline)
+        if item.prediction_date not in blocked and item.window_end + OUTCOME_INGESTION_GRACE <= now
+    ]
 
 
-def _matured_dates(pipeline: AutoresearchPipeline, *, now: datetime) -> list[PendingValidationDate]:
+def _dates_scored(pipeline: AutoresearchPipeline) -> list[PendingValidationDate]:
+    """Every date with a completed inference run, oldest first, with the rows each model's latest run emitted."""
     runs = (
         AutoresearchRun.objects.filter(
             pipeline=pipeline,
@@ -178,7 +191,6 @@ def _matured_dates(pipeline: AutoresearchPipeline, *, now: datetime) -> list[Pen
         horizon_by_date[prediction_date] = horizon_days
         expected_by_date.setdefault(prediction_date, {})[str(model_id)] = int(rows_scored)
 
-    today_utc = now.astimezone(UTC).date()
     return [
         PendingValidationDate(
             prediction_date=prediction_date,
@@ -186,8 +198,16 @@ def _matured_dates(pipeline: AutoresearchPipeline, *, now: datetime) -> list[Pen
             expected_rows_by_model=expected,
         )
         for prediction_date, expected in sorted(expected_by_date.items())
-        if prediction_date + timedelta(days=horizon_by_date[prediction_date]) <= today_utc
     ]
+
+
+def _dates_still_scoring(pipeline: AutoresearchPipeline) -> set[date]:
+    in_flight = AutoresearchRun.objects.filter(
+        pipeline=pipeline,
+        run_type=AutoresearchRun.RunType.INFERENCE,
+        status__in=(AutoresearchRun.Status.PENDING, AutoresearchRun.Status.RUNNING),
+    ).values_list("metrics", flat=True)
+    return {date.fromisoformat(m["prediction_date"]) for m in in_flight if isinstance(m.get("prediction_date"), str)}
 
 
 def _blocking_validation_runs(pipeline: AutoresearchPipeline, *, now: datetime) -> QuerySet[AutoresearchRun]:
@@ -298,8 +318,21 @@ def _persist_completed(
     run_metrics: dict[str, Any] = {}
     total_rows = 0
     with transaction.atomic():
+        # A run that completed for this date while the queries ran is missing from the counts
+        # the fetch was checked against; completing now would leave its model unvalidated.
+        current = {item.prediction_date: item.expected_rows_by_model for item in _dates_scored(pipeline)}
+        if current.get(pending.prediction_date) != pending.expected_rows_by_model:
+            raise OnlineValidationError(
+                f"The inference runs for {pending.prediction_date.isoformat()} changed while it was being validated; "
+                "retrying on the next pass"
+            )
         for model_id, validation in per_model.items():
-            model = AutoresearchModel.objects.filter(pk=model_id, pipeline=pipeline, team_id=pipeline.team_id).first()
+            # Locked so two validators on different dates cannot race the newest-date guard.
+            model = (
+                AutoresearchModel.objects.select_for_update()
+                .filter(pk=model_id, pipeline=pipeline, team_id=pipeline.team_id)
+                .first()
+            )
             if model is not None:
                 _update_model_realized_metrics(model, validation.metrics, prediction_date=pending.prediction_date)
             run_metrics[model_id] = {

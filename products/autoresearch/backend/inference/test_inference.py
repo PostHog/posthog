@@ -259,6 +259,7 @@ class TestPredictionDateGuards(TeamScopedTestMixin, BaseTest):
         score.assert_not_called()
         run = AutoresearchRun.objects.filter(pipeline=pipeline).latest("created_at")
         assert run.status == AutoresearchRun.Status.FAILED
+        assert run.metrics["prediction_date"] == prediction_date.isoformat()
 
     def test_future_prediction_date_is_refused(self):
         # A future date reads as live: today's features under a future label.
