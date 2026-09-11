@@ -46732,6 +46732,8 @@ export namespace Schemas {
     export interface MCPModelBreakdownQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** Whether another page of individual model identifiers is available. */
+      hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -46754,9 +46756,15 @@ export namespace Schemas {
     export interface MCPModelBreakdownQuery {
       dateRange?: DateRange | null;
       filterTestAccounts?: boolean | null;
+      /** Return individual reported models, excluding Unknown, instead of the top-six grouping. */
+      includeAllModels?: boolean | null;
       kind?: 'MCPModelBreakdownQuery';
+      /** Page size when includeAllModels is enabled. */
+      limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** Number of individual models to skip when includeAllModels is enabled. */
+      offset?: number | null;
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
       response?: MCPModelBreakdownQueryResponse | null;
       tags?: QueryLogTags | null;
@@ -76407,6 +76415,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative97 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** Whether another page of individual model identifiers is available. */
+      hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
